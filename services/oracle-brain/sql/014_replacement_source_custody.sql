@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS oracle2.processing_journey_runs_v1 (
  run_id uuid PRIMARY KEY REFERENCES oracle2.runs(run_id),workspace_id uuid NOT NULL,actor_id uuid NOT NULL,
  schema_version integer NOT NULL DEFAULT 1 CHECK(schema_version=1),journey_revision integer NOT NULL CHECK(journey_revision>0),
  population_sha256 text NOT NULL CHECK(population_sha256 ~ '^[0-9a-f]{64}$'),original_population jsonb NOT NULL CHECK(jsonb_typeof(original_population)='array'),
+ summary_targets jsonb NOT NULL DEFAULT '[]' CHECK(jsonb_typeof(summary_targets)='array' AND jsonb_array_length(summary_targets)<=64),
  current_model_id uuid,current_model_version integer CHECK(current_model_version>0),current_model_content_hash text CHECK(current_model_content_hash ~ '^[0-9a-f]{64}$'),
  current_ack_event_id uuid REFERENCES oracle2.outbox(event_id),
  state text NOT NULL CHECK(state IN ('pending','processing','delivered','revision_pending','cancelled','error')),
@@ -113,11 +114,22 @@ CREATE TABLE IF NOT EXISTS oracle2.replacement_journey_events (
  payload_sha256 text NOT NULL CHECK(payload_sha256 ~ '^[0-9a-f]{64}$'),payload jsonb NOT NULL CHECK(jsonb_typeof(payload)='object'),
  idempotency_key uuid NOT NULL,created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  UNIQUE(run_id,journey_revision),UNIQUE(workspace_id,actor_id,idempotency_key));
+CREATE TABLE IF NOT EXISTS oracle2.hosting_replacement_executor_runs_v1 (
+ role_name name NOT NULL,run_id uuid NOT NULL REFERENCES oracle2.processing_journey_runs_v1(run_id),workspace_id uuid NOT NULL,
+ principal_id uuid NOT NULL,runtime_hash text NOT NULL CHECK(runtime_hash ~ '^[0-9a-f]{64}$'),
+ source_registry_hash text NOT NULL CHECK(source_registry_hash ~ '^[0-9a-f]{64}$'),
+ population_sha256 text NOT NULL CHECK(population_sha256 ~ '^[0-9a-f]{64}$'),
+ model_id uuid NOT NULL,model_version integer NOT NULL CHECK(model_version>0),model_content_hash text NOT NULL CHECK(model_content_hash ~ '^[0-9a-f]{64}$'),
+ ack_event_id uuid NOT NULL REFERENCES oracle2.outbox(event_id),projection_digest text NOT NULL CHECK(projection_digest ~ '^[0-9a-f]{64}$'),
+ summary_targets_sha256 text NOT NULL CHECK(summary_targets_sha256 ~ '^[0-9a-f]{64}$'),
+ expires_at timestamptz NOT NULL CHECK(isfinite(expires_at)),PRIMARY KEY(role_name,run_id),
+ FOREIGN KEY(workspace_id,model_id,model_version) REFERENCES oracle2.artifact_manifests(workspace_id,artifact_id,version));
 -- No runtime receives direct table access. Exact named capabilities follow.
 REVOKE ALL ON oracle2.source_original_revisions,oracle2.source_reading_qualifications,
  oracle2.original_source_populations_v1,oracle2.original_source_population_members_v1,oracle2.hosting_original_population_admissions_v1,
  oracle2.hosting_original_source_admissions,oracle2.hosting_request_principal_admissions,
  oracle2.source_intake_reservations_v1,oracle2.processing_journey_runs_v1,oracle2.replacement_journey_events
+ ,oracle2.hosting_replacement_executor_runs_v1
  FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
  oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer,oracle2_replacement_requester;
 
@@ -540,9 +552,14 @@ CREATE TABLE IF NOT EXISTS oracle2.original_phase_response_commits (
  original_sha256 text NOT NULL CHECK(original_sha256 ~ '^[0-9a-f]{64}$'),
  original_root_hash text NOT NULL CHECK(original_root_hash ~ '^[0-9a-f]{64}$'),
  allocation_hash text NOT NULL CHECK(allocation_hash ~ '^[0-9a-f]{64}$'),
- native_dispatch_id uuid NOT NULL,body jsonb NOT NULL CHECK(jsonb_typeof(body)='object'),canonical_body bytea NOT NULL,
+ transport text NOT NULL CHECK(transport IN('paid-native-v1','native-utf8-byte-roundtrip-v1')),
+ context_hash text NOT NULL CHECK(context_hash ~ '^[0-9a-f]{64}$'),
+ population_id uuid NOT NULL REFERENCES oracle2.original_source_populations_v1(population_id),
+ operation_registry_hash text NOT NULL CHECK(operation_registry_hash ~ '^[0-9a-f]{64}$'),
+ native_dispatch_id uuid,body jsonb NOT NULL CHECK(jsonb_typeof(body)='object'),canonical_body bytea NOT NULL,
+ CHECK((transport='paid-native-v1')=(native_dispatch_id IS NOT NULL)),
  committed_at timestamptz NOT NULL DEFAULT clock_timestamp(),original_horizon timestamptz NOT NULL CHECK(isfinite(original_horizon)),
- UNIQUE(session_role,native_dispatch_id),
+ UNIQUE(session_role,native_dispatch_id),UNIQUE(session_role,context_hash,purpose),
  FOREIGN KEY(workspace_id,source_id,revision) REFERENCES oracle2.source_original_revisions(workspace_id,source_id,revision));
 REVOKE ALL ON oracle2.original_phase_response_commits FROM PUBLIC,
  oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
@@ -550,106 +567,137 @@ REVOKE ALL ON oracle2.original_phase_response_commits FROM PUBLIC,
 
 CREATE OR REPLACE FUNCTION oracle2._commit_original_response(commit_bytes bytea,review boolean)
  RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
-DECLARE body jsonb;raw json;ref jsonb;identity jsonb;required text[];k text;seal text;deadline timestamptz;
+DECLARE body jsonb;ref jsonb;identity jsonb;snapshot jsonb;required text[];hash_keys text[];k text;seal text;deadline timestamptz;
  prior oracle2.original_phase_response_commits%ROWTYPE;reading oracle2.original_phase_response_commits%ROWTYPE;
- producer_time timestamptz;horizon timestamptz;dispatch uuid;source uuid;revision integer;
+ producer_time timestamptz;horizon timestamptz;dispatch uuid;source uuid;revision integer;population uuid;
+ phase_purpose text;transport text;actual_principal uuid;actual_runtime text;actual_registry text;
 BEGIN
  IF commit_bytes IS NULL OR octet_length(commit_bytes)>65536 THEN
-  RAISE invalid_parameter_value USING MESSAGE='bounded original response metadata required';
+  RAISE invalid_parameter_value USING MESSAGE='bounded canonical original response required';
  END IF;
- raw:=convert_from(commit_bytes,'UTF8')::json;body:=raw::jsonb;
- IF json_typeof(raw) IS DISTINCT FROM 'object' OR EXISTS(SELECT 1 FROM json_each(raw) GROUP BY key HAVING count(*)<>1) THEN
-  RAISE invalid_parameter_value USING MESSAGE='strict original response metadata required';
+ BEGIN body:=convert_from(commit_bytes,'UTF8')::jsonb;
+ EXCEPTION WHEN character_not_in_repertoire OR invalid_text_representation THEN
+  RAISE invalid_parameter_value USING MESSAGE='canonical original response JSON required';
+ END;
+ IF jsonb_typeof(body) IS DISTINCT FROM 'object' OR body->'schema_version' IS DISTINCT FROM '1'::jsonb
+ OR body->>'schema_version' IS DISTINCT FROM '1'
+ OR convert_to(oracle2._replacement_metadata_json(body),'UTF8')<>commit_bytes THEN
+  RAISE invalid_parameter_value USING MESSAGE='exact canonical original response required';
  END IF;
- required:=ARRAY['raw_ref','original_root_hash','allocation_hash','population_hash','source_registry_hash','context_hash',
-  'native_dispatch_id','native_job_hash','request_hash','raw_wire_hash','model_content_hash','native_custody_receipt_hash',
-  'authorized_phase_commit_hash','view_manifest_hash','locator_map_hash','reading_sha256','parser_id','committed_at','original_horizon'];
- IF review THEN required:=required||ARRAY['reading_commit_hash','reading_body_hash','review_body_hash','qualification_pass']; END IF;
- IF NOT body ?& required OR (body-required)<>'{}'::jsonb OR jsonb_typeof(body->'raw_ref') IS DISTINCT FROM 'object'
- OR EXISTS(SELECT 1 FROM json_each(raw->'raw_ref') GROUP BY key HAVING count(*)<>1) THEN
-  RAISE invalid_parameter_value USING MESSAGE='strict original response metadata required';
+ transport:=body->>'transport';
+ phase_purpose:=CASE WHEN review THEN 'source-original-review' ELSE 'source-original-reading' END;
+ required:=ARRAY['schema_version','transport','purpose','raw_ref','population_id','operation_registry_hash','original_root_hash',
+  'allocation_hash','population_hash','source_registry_hash','context_hash','view_manifest_hash','locator_map_hash',
+  'reading_sha256','parser_id','committed_at','original_horizon','reading_body_hash'];
+ hash_keys:=ARRAY['operation_registry_hash','original_root_hash','allocation_hash','population_hash','source_registry_hash',
+  'context_hash','view_manifest_hash','locator_map_hash','reading_sha256','parser_id','reading_body_hash'];
+ IF transport='paid-native-v1' THEN
+  required:=required||ARRAY['native_dispatch_id','native_job_hash','request_hash','raw_wire_hash','model_content_hash',
+   'native_custody_receipt_hash','authorized_phase_commit_hash'];
+  hash_keys:=hash_keys||ARRAY['native_job_hash','request_hash','raw_wire_hash','model_content_hash',
+   'native_custody_receipt_hash','authorized_phase_commit_hash'];
+ ELSIF transport IS DISTINCT FROM 'native-utf8-byte-roundtrip-v1' THEN
+  RAISE invalid_parameter_value USING MESSAGE='closed original response transport required';
  END IF;
- ref:=body->'raw_ref';
- IF NOT ref ?& ARRAY['schema_version','workspace_id','source_id','revision','original_sha256','byte_count','media_type','filename','custody_locator_seal_sha256']
- OR (ref-ARRAY['schema_version','workspace_id','source_id','revision','original_sha256','byte_count','media_type','filename','custody_locator_seal_sha256'])<>'{}'::jsonb
- OR ref->'schema_version'<>'1'::jsonb OR jsonb_typeof(ref->'revision') IS DISTINCT FROM 'number'
- OR jsonb_typeof(ref->'byte_count') IS DISTINCT FROM 'number'
- OR (ref->>'revision')::numeric<>trunc((ref->>'revision')::numeric)
- OR (ref->>'byte_count')::numeric<>trunc((ref->>'byte_count')::numeric) THEN
-  RAISE invalid_parameter_value USING MESSAGE='exact immutable original reference required';
+ IF review THEN
+  required:=required||ARRAY['reading_commit_hash','reading_population_id','reading_operation_registry_hash','review_body_hash','qualification_pass'];
+  hash_keys:=hash_keys||ARRAY['reading_commit_hash','reading_operation_registry_hash','review_body_hash'];
  END IF;
- FOREACH k IN ARRAY ARRAY['original_root_hash','allocation_hash','population_hash','source_registry_hash','context_hash',
-  'native_job_hash','request_hash','raw_wire_hash','model_content_hash','native_custody_receipt_hash','authorized_phase_commit_hash',
-  'view_manifest_hash','locator_map_hash','reading_sha256'] LOOP
+ IF NOT body ?& required OR body-required<>'{}'::jsonb OR body->>'purpose' IS DISTINCT FROM
+  (CASE WHEN review THEN 'observed-authorized-original-review-response-v1' ELSE 'observed-authorized-original-reading-response-v1' END)
+ OR jsonb_typeof(body->'raw_ref') IS DISTINCT FROM 'object' THEN
+  RAISE invalid_parameter_value USING MESSAGE='strict original phase response required';
+ END IF;
+ FOREACH k IN ARRAY hash_keys LOOP
   IF jsonb_typeof(body->k) IS DISTINCT FROM 'string' OR body->>k !~ '^[0-9a-f]{64}$' THEN
    RAISE invalid_parameter_value USING MESSAGE='exact original response seals required';
   END IF;
  END LOOP;
- IF jsonb_typeof(body->'parser_id') IS DISTINCT FROM 'string' OR length(body->>'parser_id') NOT BETWEEN 1 AND 255
- OR jsonb_typeof(body->'native_dispatch_id') IS DISTINCT FROM 'string'
- OR jsonb_typeof(body->'committed_at') IS DISTINCT FROM 'string' OR jsonb_typeof(body->'original_horizon') IS DISTINCT FROM 'string' THEN
+ IF jsonb_typeof(body->'population_id') IS DISTINCT FROM 'string'
+ OR jsonb_typeof(body->'committed_at') IS DISTINCT FROM 'string' OR body->>'committed_at' !~ '(Z|[+-][0-9]{2}:[0-9]{2})$'
+ OR jsonb_typeof(body->'original_horizon') IS DISTINCT FROM 'string' OR body->>'original_horizon' !~ '(Z|[+-][0-9]{2}:[0-9]{2})$'
+ OR (review AND (body->'qualification_pass' IS DISTINCT FROM 'true'::jsonb OR jsonb_typeof(body->'reading_population_id') IS DISTINCT FROM 'string')) THEN
   RAISE invalid_parameter_value USING MESSAGE='exact original response identity required';
  END IF;
- source:=(ref->>'source_id')::uuid;revision:=(ref->>'revision')::integer;dispatch:=(body->>'native_dispatch_id')::uuid;
+ ref:=body->'raw_ref';source:=(ref->>'source_id')::uuid;revision:=(ref->>'revision')::integer;population:=(body->>'population_id')::uuid;
+ IF source IS NULL OR revision IS NULL OR population IS NULL THEN RAISE invalid_parameter_value; END IF;
  identity:=oracle2._original_revision_access(source,revision,CASE WHEN review THEN 'oracle2_source_original_reviewer' ELSE 'oracle2_source_original_reader' END);
- IF (ref->>'workspace_id')::uuid IS DISTINCT FROM (identity->>'workspace_id')::uuid
- OR ref->>'original_sha256' IS DISTINCT FROM identity->>'original_sha256'
- OR (ref->>'byte_count')::bigint IS DISTINCT FROM (identity->>'byte_count')::bigint
- OR ref->>'media_type' IS DISTINCT FROM identity->>'media_type'
- OR body->>'source_registry_hash' IS DISTINCT FROM identity->>'registry_hash'
- OR NOT EXISTS(SELECT 1 FROM oracle2.source_original_revisions o WHERE o.workspace_id=(identity->>'workspace_id')::uuid
-  AND o.source_id=source AND o.revision=revision AND o.filename=ref->>'filename'
-  AND o.custody_locator_seal_sha256=ref->>'custody_locator_seal_sha256') THEN
-  RAISE insufficient_privilege USING MESSAGE='original response differs from admitted immutable custody';
+ snapshot:=oracle2.original_population_current_v1(population);
+ IF (identity->>'population_id')::uuid IS DISTINCT FROM population
+ OR (identity->>'principal_id')::uuid IS DISTINCT FROM (snapshot->>'actual_principal_id')::uuid
+ OR snapshot->>'session_role' IS DISTINCT FROM SESSION_USER::text
+ OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(snapshot->'population'->'raw_refs') x WHERE x=ref)
+ OR body->>'operation_registry_hash' IS DISTINCT FROM snapshot->'population'->>'operation_registry_hash'
+ OR body->>'source_registry_hash' IS DISTINCT FROM snapshot->'population'->>'source_registry_hash'
+ OR body->>'original_root_hash' IS DISTINCT FROM snapshot->'population'->>'original_root_hash'
+ OR body->>'population_hash' IS DISTINCT FROM snapshot->'population'->>'population_digest'
+ OR body->>'allocation_hash' IS DISTINCT FROM snapshot->>'original_allocation_hash' THEN
+  RAISE insufficient_privilege USING MESSAGE='original response differs from complete actual phase custody';
+ END IF;
+ actual_principal:=(identity->>'principal_id')::uuid;actual_runtime:=identity->>'runtime_hash';actual_registry:=identity->>'registry_hash';
+ IF transport='paid-native-v1' THEN
+  IF ref->>'media_type' IS DISTINCT FROM 'application/pdf' OR jsonb_typeof(body->'native_dispatch_id') IS DISTINCT FROM 'string' THEN
+   RAISE invalid_parameter_value USING MESSAGE='paid original response requires actual PDF operation';
+  END IF;
+  dispatch:=(body->>'native_dispatch_id')::uuid;
+ ELSIF ref->>'media_type' IS DISTINCT FROM 'text/plain' OR body->>'reading_sha256' IS DISTINCT FROM ref->>'original_sha256' THEN
+  RAISE invalid_parameter_value USING MESSAGE='native UTF8 response must preserve exact original byte hash';
  END IF;
  producer_time:=(body->>'committed_at')::timestamptz;horizon:=(body->>'original_horizon')::timestamptz;
- deadline:=least((identity->>'valid_until')::timestamptz,horizon);
- IF NOT isfinite(producer_time) OR NOT isfinite(horizon) OR producer_time>=horizon OR producer_time>clock_timestamp()
- OR deadline<=clock_timestamp() THEN RAISE insufficient_privilege USING MESSAGE='original response horizon expired'; END IF;
+ deadline:=least((identity->>'valid_until')::timestamptz,(snapshot->>'valid_until')::timestamptz,horizon);
+ IF NOT isfinite(producer_time) OR NOT isfinite(horizon) OR horizon IS DISTINCT FROM (snapshot->>'original_horizon')::timestamptz
+ OR producer_time>=horizon OR producer_time>clock_timestamp() OR deadline<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='original response horizon expired or changed';
+ END IF;
  IF review THEN
-  FOREACH k IN ARRAY ARRAY['reading_commit_hash','reading_body_hash','review_body_hash'] LOOP
-   IF jsonb_typeof(body->k) IS DISTINCT FROM 'string' OR body->>k !~ '^[0-9a-f]{64}$' THEN
-    RAISE invalid_parameter_value USING MESSAGE='exact original review seals required';
-   END IF;
-  END LOOP;
-  IF jsonb_typeof(body->'qualification_pass') IS DISTINCT FROM 'boolean' THEN
-   RAISE invalid_parameter_value USING MESSAGE='explicit original review verdict required';
-  END IF;
   SELECT * INTO reading FROM oracle2.original_phase_response_commits WHERE commit_sha256=body->>'reading_commit_hash'
    AND purpose='source-original-reading' FOR SHARE;
-  IF reading.commit_sha256 IS NULL OR reading.workspace_id<>(identity->>'workspace_id')::uuid
-  OR reading.source_id<>source OR reading.revision<>revision OR reading.principal_id=(identity->>'principal_id')::uuid
-  OR reading.session_role=SESSION_USER OR reading.original_sha256<>ref->>'original_sha256'
-  OR reading.original_root_hash<>body->>'original_root_hash' OR reading.allocation_hash<>body->>'allocation_hash'
-  OR reading.source_registry_hash<>body->>'source_registry_hash' OR reading.original_horizon<>horizon
+  IF reading.commit_sha256 IS NULL OR reading.workspace_id IS DISTINCT FROM (identity->>'workspace_id')::uuid
+  OR reading.source_id IS DISTINCT FROM source OR reading.revision IS DISTINCT FROM revision
+  OR reading.principal_id=actual_principal OR reading.session_role=SESSION_USER
+  OR reading.transport IS DISTINCT FROM transport OR reading.original_sha256 IS DISTINCT FROM ref->>'original_sha256'
+  OR reading.original_root_hash IS DISTINCT FROM body->>'original_root_hash' OR reading.allocation_hash IS DISTINCT FROM body->>'allocation_hash'
+  OR reading.original_horizon IS DISTINCT FROM horizon OR reading.population_id IS DISTINCT FROM (body->>'reading_population_id')::uuid
+  OR reading.operation_registry_hash IS DISTINCT FROM body->>'reading_operation_registry_hash'
   OR reading.body->>'population_hash' IS DISTINCT FROM body->>'population_hash'
+  OR reading.body->>'reading_body_hash' IS DISTINCT FROM body->>'reading_body_hash'
   OR reading.body->>'reading_sha256' IS DISTINCT FROM body->>'reading_sha256'
   OR reading.body->>'parser_id' IS DISTINCT FROM body->>'parser_id'
   OR reading.body->>'view_manifest_hash' IS DISTINCT FROM body->>'view_manifest_hash'
   OR reading.body->>'locator_map_hash' IS DISTINCT FROM body->>'locator_map_hash' THEN
-   RAISE insufficient_privilege USING MESSAGE='independent historical original reading commit required';
+   RAISE insufficient_privilege USING MESSAGE='genuine independent historical original reading commit required';
   END IF;
  END IF;
  seal:=encode(sha256(commit_bytes),'hex');
- SELECT * INTO prior FROM oracle2.original_phase_response_commits WHERE session_role=SESSION_USER AND native_dispatch_id=dispatch FOR UPDATE;
+ SELECT * INTO prior FROM oracle2.original_phase_response_commits WHERE session_role=SESSION_USER
+  AND context_hash=body->>'context_hash' AND purpose=phase_purpose FOR UPDATE;
+ IF prior.commit_sha256 IS NULL AND dispatch IS NOT NULL THEN
+  SELECT * INTO prior FROM oracle2.original_phase_response_commits WHERE session_role=SESSION_USER AND native_dispatch_id=dispatch FOR UPDATE;
+ END IF;
  IF prior.commit_sha256 IS NOT NULL THEN
-  IF prior.commit_sha256<>seal OR prior.canonical_body<>commit_bytes THEN
+  IF prior.commit_sha256 IS DISTINCT FROM seal OR prior.canonical_body IS DISTINCT FROM commit_bytes THEN
    RAISE unique_violation USING MESSAGE='original response idempotency conflict';
   END IF;
  ELSE
   INSERT INTO oracle2.original_phase_response_commits(commit_sha256,workspace_id,source_id,revision,purpose,principal_id,session_role,runtime_hash,
-   source_registry_hash,original_sha256,original_root_hash,allocation_hash,native_dispatch_id,body,canonical_body,original_horizon)
-  VALUES(seal,(identity->>'workspace_id')::uuid,source,revision,CASE WHEN review THEN 'source-original-review' ELSE 'source-original-reading' END,
-   (identity->>'principal_id')::uuid,SESSION_USER,identity->>'runtime_hash',body->>'source_registry_hash',ref->>'original_sha256',
-   body->>'original_root_hash',body->>'allocation_hash',dispatch,body,commit_bytes,horizon);
+   source_registry_hash,original_sha256,original_root_hash,allocation_hash,transport,context_hash,population_id,operation_registry_hash,
+   native_dispatch_id,body,canonical_body,original_horizon)
+  VALUES(seal,(identity->>'workspace_id')::uuid,source,revision,phase_purpose,actual_principal,SESSION_USER,actual_runtime,actual_registry,
+   ref->>'original_sha256',body->>'original_root_hash',body->>'allocation_hash',transport,body->>'context_hash',population,
+   body->>'operation_registry_hash',dispatch,body,commit_bytes,horizon);
  END IF;
- -- Same current role/grants/source/root after any row lock wait. No network.
+ -- Reprove own authority after every possible row wait. Completed reader grants
+ -- are historical evidence and are deliberately not reborrowed by the reviewer.
  identity:=oracle2._original_revision_access(source,revision,CASE WHEN review THEN 'oracle2_source_original_reviewer' ELSE 'oracle2_source_original_reader' END);
- IF clock_timestamp()>=least(deadline,(identity->>'valid_until')::timestamptz) THEN
+ snapshot:=oracle2.original_population_current_v1(population);
+ IF actual_principal IS DISTINCT FROM (identity->>'principal_id')::uuid OR actual_runtime IS DISTINCT FROM identity->>'runtime_hash'
+ OR actual_registry IS DISTINCT FROM identity->>'registry_hash'
+ OR clock_timestamp()>=least(deadline,(identity->>'valid_until')::timestamptz,(snapshot->>'valid_until')::timestamptz) THEN
   RAISE insufficient_privilege USING MESSAGE='original response authority expired before commit';
  END IF;
- RETURN jsonb_build_object('commit_sha256',seal,'principal_id',identity->>'principal_id','session_role',SESSION_USER,
-  'runtime_hash',identity->>'runtime_hash','valid_until',least(deadline,(identity->>'valid_until')::timestamptz));
+ RETURN jsonb_build_object('commit_sha256',seal,'principal_id',actual_principal,'session_role',SESSION_USER,
+  'runtime_hash',actual_runtime,'population_id',population,'operation_registry_hash',body->>'operation_registry_hash',
+  'checked_at',clock_timestamp(),'valid_until',least(deadline,(identity->>'valid_until')::timestamptz,(snapshot->>'valid_until')::timestamptz));
 EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range OR invalid_datetime_format OR datetime_field_overflow THEN
  RAISE invalid_parameter_value USING MESSAGE='strict original response metadata required';
 END $body$;
@@ -733,3 +781,129 @@ BEGIN
 END $body$;
 REVOKE ALL ON FUNCTION oracle2.original_population_current_v1(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION oracle2.original_population_current_v1(uuid) TO oracle2_source_original_reader,oracle2_source_original_reviewer;
+
+CREATE OR REPLACE FUNCTION oracle2.replacement_executor_target_v1(wanted_run uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE before_admission oracle2.hosting_replacement_executor_runs_v1%ROWTYPE;a oracle2.hosting_replacement_executor_runs_v1%ROWTYPE;
+ before_run oracle2.processing_journey_runs_v1%ROWTYPE;j oracle2.processing_journey_runs_v1%ROWTYPE;
+ base_run oracle2.runs%ROWTYPE;confirmed oracle2.replacement_journey_events%ROWTYPE;
+ known uuid[];actual uuid[];artifact uuid;ref jsonb;target jsonb;targets jsonb:='[]';confirmation jsonb:='null';
+ source record;delivery record;summary record;until_at timestamptz;confirm_until timestamptz;expected_sha text;
+BEGIN
+ PERFORM oracle2._purpose_deadlines_v2();
+ IF NOT pg_has_role(SESSION_USER,'oracle2_documentary_executor','MEMBER') THEN RAISE insufficient_privilege; END IF;
+ -- Only owner-registered current-login selectors are inspected before locks.
+ SELECT * INTO before_admission FROM oracle2.hosting_replacement_executor_runs_v1
+  WHERE role_name=SESSION_USER AND run_id=wanted_run;
+ SELECT * INTO before_run FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run;
+ IF before_admission.role_name IS NULL OR before_run.run_id IS NULL
+ OR before_admission.workspace_id IS DISTINCT FROM before_run.workspace_id OR before_admission.expires_at<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='appointed replacement run unavailable';
+ END IF;
+ SELECT array_agg(DISTINCT x ORDER BY x) INTO known FROM (
+  SELECT before_admission.model_id x UNION ALL
+  SELECT (t->>'summary_artifact_id')::uuid FROM jsonb_array_elements(before_run.summary_targets) t) ids;
+ FOREACH artifact IN ARRAY known LOOP
+  PERFORM pg_advisory_xact_lock(hashtextextended('operating-model:'||before_admission.workspace_id::text||':'||artifact::text,0));
+ END LOOP;
+ PERFORM pg_advisory_xact_lock(hashtext('oracle2-authz:'||before_admission.workspace_id::text));
+ until_at:=before_admission.expires_at;
+ IF jsonb_typeof(before_run.original_population) IS DISTINCT FROM 'array'
+ OR jsonb_array_length(before_run.original_population) NOT BETWEEN 1 AND 4096 THEN RAISE insufficient_privilege; END IF;
+ -- Source/grant rows precede companion/admission rows. The same exclusive
+ -- workspace lock serializes retained nested manifest/source row ordering.
+ FOR ref IN SELECT value FROM jsonb_array_elements(before_run.original_population) LOOP
+  SELECT * INTO STRICT source FROM oracle2.hosting_current_source_identity(before_admission.workspace_id,
+   (ref->>'source_id')::uuid,before_admission.principal_id,before_admission.runtime_hash,before_admission.source_registry_hash);
+  IF jsonb_build_object('schema_version',1,'workspace_id',before_admission.workspace_id,'source_id',(ref->>'source_id')::uuid,
+    'revision',source.revision,'original_sha256',source.original_hash,'reading_sha256',source.reading_hash,'parser_id',source.parser_id)
+   IS DISTINCT FROM ref THEN RAISE insufficient_privilege USING MESSAGE='replacement full population changed'; END IF;
+  until_at:=least(until_at,source.valid_until);
+ END LOOP;
+ SELECT * INTO a FROM oracle2.hosting_replacement_executor_runs_v1 WHERE role_name=SESSION_USER AND run_id=wanted_run FOR SHARE;
+ SELECT * INTO j FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run FOR SHARE;
+ SELECT * INTO base_run FROM oracle2.runs WHERE run_id=wanted_run FOR SHARE;
+ IF a IS DISTINCT FROM before_admission OR j.run_id IS NULL OR base_run.run_id IS NULL
+ OR j.workspace_id IS DISTINCT FROM a.workspace_id OR j.actor_id IS DISTINCT FROM a.principal_id
+ OR base_run.workspace_id IS DISTINCT FROM a.workspace_id OR base_run.actor_id IS DISTINCT FROM a.principal_id
+ OR j.original_population IS DISTINCT FROM before_run.original_population
+ OR j.population_sha256 IS DISTINCT FROM a.population_sha256
+ OR (j.current_model_id,j.current_model_version,j.current_model_content_hash,j.current_ack_event_id)
+  IS DISTINCT FROM (a.model_id,a.model_version,a.model_content_hash,a.ack_event_id) THEN
+  RAISE insufficient_privilege USING MESSAGE='actual same-principal replacement target changed';
+ END IF;
+ SELECT array_agg(DISTINCT x ORDER BY x) INTO actual FROM (
+  SELECT a.model_id x UNION ALL SELECT (t->>'summary_artifact_id')::uuid FROM jsonb_array_elements(j.summary_targets) t) ids;
+ IF NOT actual<@known THEN RAISE serialization_failure USING MESSAGE='replacement target set expanded'; END IF;
+ expected_sha:=encode(sha256(convert_to(oracle2._replacement_metadata_json(jsonb_build_object('source_refs',j.original_population)),'UTF8')),'hex');
+ IF expected_sha IS DISTINCT FROM j.population_sha256
+ OR (SELECT count(DISTINCT r->>'source_id') FROM jsonb_array_elements(j.original_population) r)<>jsonb_array_length(j.original_population)
+ OR encode(sha256(convert_to(oracle2._replacement_metadata_json(j.summary_targets),'UTF8')),'hex') IS DISTINCT FROM a.summary_targets_sha256 THEN
+  RAISE insufficient_privilege USING MESSAGE='registered replacement population or summaries changed';
+ END IF;
+ -- Retained helper has NO artifact advisory acquisition. All model/summary
+ -- artifact advisories are already held before its workspace/row/table locks.
+ SELECT * INTO STRICT delivery FROM oracle2._processing_projection_delivery_v3(a.workspace_id,a.model_id,a.model_version,
+  a.principal_id,a.runtime_hash,a.source_registry_hash);
+ IF delivery.receipt->>'event_id' IS DISTINCT FROM a.ack_event_id::text
+ OR delivery.receipt->>'content_hash' IS DISTINCT FROM a.model_content_hash
+ OR delivery.receipt->>'projection_digest' IS DISTINCT FROM a.projection_digest
+ OR jsonb_array_length(delivery.source_refs)<>jsonb_array_length(j.original_population)
+ OR EXISTS(SELECT value FROM jsonb_array_elements(delivery.source_refs) EXCEPT SELECT value FROM jsonb_array_elements(j.original_population))
+ OR EXISTS(SELECT value FROM jsonb_array_elements(j.original_population) EXCEPT SELECT value FROM jsonb_array_elements(delivery.source_refs)) THEN
+  RAISE insufficient_privilege USING MESSAGE='current replacement ACK or complete sources changed';
+ END IF;
+ until_at:=least(until_at,delivery.valid_until);
+ FOR target IN SELECT value FROM jsonb_array_elements(j.summary_targets) LOOP
+  IF NOT target ?& ARRAY['schema_version','summary_artifact_id','summary_version','summary_content_hash','qualified_parent_id','qualified_parent_version','qualified_parent_content_hash']
+  OR target-ARRAY['schema_version','summary_artifact_id','summary_version','summary_content_hash','qualified_parent_id','qualified_parent_version','qualified_parent_content_hash']<>'{}'::jsonb
+  OR target->'schema_version' IS DISTINCT FROM '1'::jsonb OR target->>'schema_version' IS DISTINCT FROM '1'
+  OR target->>'qualified_parent_id' IS DISTINCT FROM a.model_id::text OR target->>'qualified_parent_version' IS DISTINCT FROM a.model_version::text
+  OR target->>'qualified_parent_content_hash' IS DISTINCT FROM a.model_content_hash THEN
+   RAISE insufficient_privilege USING MESSAGE='strict registered replacement summary required';
+  END IF;
+  SELECT * INTO STRICT summary FROM oracle2._processing_artifact_metadata(a.workspace_id,(target->>'summary_artifact_id')::uuid,
+   (target->>'summary_version')::integer,a.principal_id,a.runtime_hash,a.source_registry_hash);
+  IF summary.manifest->>'kind' IS DISTINCT FROM 'processing_summary_v1' OR summary.manifest->>'state' IS DISTINCT FROM 'ready'
+  OR summary.manifest->>'content_hash' IS DISTINCT FROM target->>'summary_content_hash'
+  OR jsonb_array_length(summary.source_refs)<>jsonb_array_length(delivery.source_refs)
+  OR EXISTS(SELECT value FROM jsonb_array_elements(summary.source_refs) EXCEPT SELECT value FROM jsonb_array_elements(delivery.source_refs))
+  OR (SELECT count(*) FROM oracle2.artifact_dependencies d WHERE d.workspace_id=a.workspace_id
+   AND d.artifact_id=(target->>'summary_artifact_id')::uuid AND d.version=(target->>'summary_version')::integer AND d.upstream_kind='artifact')<>1
+  OR NOT EXISTS(SELECT 1 FROM oracle2.artifact_dependencies d WHERE d.workspace_id=a.workspace_id
+   AND d.artifact_id=(target->>'summary_artifact_id')::uuid AND d.version=(target->>'summary_version')::integer
+   AND d.upstream_kind='artifact' AND d.upstream_id=a.model_id::text AND d.upstream_revision=a.model_version::text) THEN
+   RAISE insufficient_privilege USING MESSAGE='actual registered summary dependency changed';
+  END IF;
+  targets:=targets||jsonb_build_array(target);
+ END LOOP;
+ IF (SELECT count(DISTINCT (x->>'summary_artifact_id')||':'||(x->>'summary_version')) FROM jsonb_array_elements(targets) x)<>jsonb_array_length(targets) THEN
+  RAISE insufficient_privilege USING MESSAGE='unique registered summaries required';
+ END IF;
+ SELECT * INTO confirmed FROM oracle2.replacement_journey_events e WHERE e.run_id=wanted_run AND e.workspace_id=a.workspace_id
+  AND e.actor_id=a.principal_id AND e.action='confirm' AND e.payload->>'version'=a.model_version::text
+  AND e.payload->>'content_hash'=a.model_content_hash AND NOT EXISTS(SELECT 1 FROM oracle2.replacement_journey_events w
+   WHERE w.run_id=wanted_run AND w.action='withdraw' AND w.payload->>'confirmation_id'=e.event_id::text)
+  ORDER BY e.journey_revision DESC LIMIT 1;
+ IF confirmed.event_id IS NOT NULL AND j.state='delivered' AND NOT j.answer_hold AND j.cancelled_at IS NULL
+ AND jsonb_typeof(confirmed.payload->'workflow_id')='string' AND length(confirmed.payload->>'workflow_id') BETWEEN 1 AND 200 THEN
+  BEGIN confirm_until:=oracle2._replacement_scope(a.workspace_id,a.principal_id,'process-confirm');
+  EXCEPTION WHEN insufficient_privilege THEN confirm_until:=NULL; END;
+  IF confirm_until IS NOT NULL THEN
+   confirmation:=jsonb_build_object('schema_version',1,'workflow_id',confirmed.payload->>'workflow_id','version',a.model_version,
+    'content_hash',a.model_content_hash,'eligible',true);until_at:=least(until_at,confirm_until);
+  END IF;
+ END IF;
+ IF NOT isfinite(until_at) OR until_at<=clock_timestamp() THEN RAISE insufficient_privilege USING MESSAGE='current replacement target expired'; END IF;
+ RETURN jsonb_build_object('schema_version',1,'run_id',wanted_run,'journey_revision',j.journey_revision,'state',j.state,
+  'answer_hold',j.answer_hold,'cancelled',j.state='cancelled','population_sha256',j.population_sha256,
+  'requester_principal_id',a.principal_id,'workspace_id',a.workspace_id,'model_id',a.model_id,'model_version',a.model_version,
+  'model_content_hash',a.model_content_hash,'ack_event_id',a.ack_event_id,'projection_digest',a.projection_digest,
+  'source_refs',delivery.source_refs,'current_confirmation',confirmation,'summary_targets',targets,'checked_at',clock_timestamp(),'valid_until',until_at);
+EXCEPTION WHEN no_data_found OR too_many_rows OR invalid_text_representation OR numeric_value_out_of_range OR invalid_datetime_format OR datetime_field_overflow THEN
+ RAISE insufficient_privilege USING MESSAGE='current replacement target unavailable';
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.replacement_executor_target_v1(uuid) FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_gateway_metadata,
+ oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer,oracle2_replacement_requester;
+GRANT EXECUTE ON FUNCTION oracle2.replacement_executor_target_v1(uuid) TO oracle2_documentary_executor;

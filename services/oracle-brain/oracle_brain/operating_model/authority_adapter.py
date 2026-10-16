@@ -396,6 +396,37 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
     def projection_receipt_v3(self,workspace_id,artifact_id,version,*,connection=None):
         return self._projection_delivery_v3(workspace_id,artifact_id,version,receipt=True,connection=connection)
 
+    _replacement_target_signatures={
+        'oracle2.replacement_executor_target_v1(uuid)':frozenset({'oracle2_documentary_executor'}),
+    }
+
+    def replacement_executor_target_v1(self,run_id,*,connection=None):
+        from .contracts import ReplacementExecutorTargetV1
+        if self.binding.profile!='documentary-executor' or type(run_id) is not UUID:
+            raise PermissionError('exact current replacement executor capability required')
+        with self._connection(connection) as conn:
+            for setting,bound in (('statement_timeout','5s'),('lock_timeout','2s')):
+                conn.execute("SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
+                    (setting,setting,setting,bound,bound,setting))
+            self._check(conn)
+            self._check_function_signatures(conn,self._delivery_signatures)
+            self._check_function_signatures(conn,self._replacement_target_signatures)
+            rows=conn.execute('SELECT oracle2.replacement_executor_target_v1(%s)',(run_id,)).fetchall()
+            self._check(conn)
+            self._check_function_signatures(conn,self._replacement_target_signatures)
+            if len(rows)!=1 or rows[0][0] is None:
+                raise PermissionError('unique current replacement target required')
+            result=ReplacementExecutorTargetV1.model_validate_json(json.dumps(rows[0][0]))
+            if result.run_id!=run_id or result.requester_principal_id!=self.binding.principal:
+                raise PermissionError('replacement target principal or run differs')
+            if any(r.workspace_id!=result.workspace_id for r in result.source_refs):
+                raise PermissionError('replacement target source workspace differs')
+            until=min(result.valid_until,self.binding.expires_at)
+            actual_clock=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+            if not result.checked_at<=actual_clock<until:
+                raise PermissionError('replacement target current authority expired')
+            return result.model_copy(update={'valid_until':until})
+
     def artifact_metadata(self,workspace_id,artifact_id,version,*,connection=None):
         from .contracts import ArtifactManifest,PROCESSING_ARTIFACT_KINDS
         if (self.binding.profile not in {'candidate-compiler','documentary-executor'}
