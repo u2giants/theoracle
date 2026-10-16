@@ -264,12 +264,14 @@ class SemanticRegistryStartupPinsV3(StrictRecord):
 
 def _embedding_current_v3(settings,context,*,now,connection):
     from oracle_brain.operating_model.semantic_registry_v3 import CurrentSemanticAdmissionsV3,SemanticRegistryAppointmentV3
-    from oracle_brain.operating_model.purpose_qualification_v3 import verify_embedding_projection_v3
+    from oracle_brain.operating_model.purpose_qualification_v3 import verify_embedding_projection_v3,verify_sdk_embedding_projection_v3
+    from oracle_brain.operating_model.purpose_profiles_v2 import DerivedSDKEmbeddingContextV3
     c=settings.config
     pins=_typed(c.semantic_appointment_file,c.semantic_appointment_sha256,SemanticRegistryStartupPinsV3)
     appointment=SemanticRegistryAppointmentV3(**pins.model_dump(mode='python'))
     registry=CurrentSemanticAdmissionsV3(c.semantic_registry_file,c.semantic_registry_sha256,appointment=appointment)
-    return verify_embedding_projection_v3(resolver=settings.resolver,context=context.embedding,
+    verify=verify_sdk_embedding_projection_v3 if type(context.embedding) is DerivedSDKEmbeddingContextV3 else verify_embedding_projection_v3
+    return verify(resolver=settings.resolver,context=context.embedding,
         semantic_registry=registry,now=now,connection=connection)
 
 

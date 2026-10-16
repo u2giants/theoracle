@@ -81,6 +81,26 @@ class DerivedEmbeddingContextV2(StrictRecord):
         return value
 
 
+from .paid_sdk_embeddings_v3 import SDKEmbeddingInventoryV3,processing_embedding_inventory_v3
+
+class DerivedSDKEmbeddingContextV3(DerivedEmbeddingContextV2):
+    """Explicit separately qualified SDK chunk/name/fact/probe population."""
+    schema_version: Literal[3]=3
+    inventory: SDKEmbeddingInventoryV3
+
+    @model_validator(mode='after')
+    def exact_sdk_inventory(self):
+        if self.inventory!=processing_embedding_inventory_v3(self.qualified_payload):
+            raise PermissionError('SDK embedding inventory differs from sealed qualified projection')
+        return self
+
+    def request(self):
+        value=dict(model='openai/text-embedding-3-small',input=[i.text for i in self.inventory.inputs],
+            dimensions=256,encoding_format='float',store=False,provider=deepcopy(POLICY))
+        if len(canonical_bytes(value))>1_990_000:raise PermissionError('SDK embedding inventory exceeds native envelope')
+        return value
+
+
 class PurposePrivateContextV2(StrictRecord):
     """One private phase only; never gateway-visible or an operation admission."""
     schema_version: Literal[2]=2
@@ -89,7 +109,7 @@ class PurposePrivateContextV2(StrictRecord):
     census: CensusContext|None=None
     assembly: AssemblyJobContextV2|None=None
     assessment: AssessmentContext|None=None
-    embedding: DerivedEmbeddingContextV2|None=None
+    embedding: DerivedEmbeddingContextV2|DerivedSDKEmbeddingContextV3|None=None
 
     @model_validator(mode='after')
     def one_phase_only(self):
@@ -151,7 +171,8 @@ class PurposePrivateContextV2(StrictRecord):
         self.validate_current(descriptor,dispatch,now=now)
         if self.phase=='assembly':return self.assembly.validate_candidate(response,now=now)
         if self.phase=='embedding':
-            return validate_embedding_response(response,count=len(self.embedding.source_refs))
+            return validate_embedding_response(response,count=(len(self.embedding.inventory.inputs)
+                if type(self.embedding) is DerivedSDKEmbeddingContextV3 else len(self.embedding.source_refs)))
         context=self.context
         return validate_payload(context,self.job.request,response,
             trusted_context_hash=digest(context.model_dump(mode='json')),

@@ -263,7 +263,7 @@ class PurposeQualifiedAssemblyReadGuardV3(QualifiedAssemblyReadGuard):
 from .contracts import canonical_bytes
 
 
-def verify_embedding_projection_v3(*,resolver,context,semantic_registry,now,connection=None):
+def _verify_embedding_projection(*,resolver,context,semantic_registry,now,connection,context_type):
     """Actual own-role metadata eligibility; no raw getter or fake manifest.
 
     The current SQL seal authenticates relational currentness and private blob
@@ -272,9 +272,8 @@ def verify_embedding_projection_v3(*,resolver,context,semantic_registry,now,conn
     """
     from .authority_adapter import PurposeSourceResolverV2
     from .contracts import ProcessingQualifiedProjectionSealV2
-    from .purpose_profiles_v2 import DerivedEmbeddingContextV2
     from .semantic_registry_v3 import CurrentSemanticAdmissionsV3
-    if (type(resolver) is not PurposeSourceResolverV2 or type(context) is not DerivedEmbeddingContextV2
+    if (type(resolver) is not PurposeSourceResolverV2 or type(context) is not context_type
             or type(semantic_registry) is not CurrentSemanticAdmissionsV3
             or resolver.binding.phase!='embedding' or resolver.binding.caller_kind!='provider'
             or resolver.binding.source.profile!='gateway-metadata'
@@ -312,3 +311,15 @@ def verify_embedding_projection_v3(*,resolver,context,semantic_registry,now,conn
     admission=PurposeAssemblyQualificationV3.model_validate_json(
         canonical_bytes(context.qualified_payload['assembly_qualification'])).admission
     return min(semantic_registry.valid_until(now),admission.expires_at,resolver.binding.source.expires_at)
+
+
+def verify_embedding_projection_v3(*,resolver,context,semantic_registry,now,connection=None):
+    from .purpose_profiles_v2 import DerivedEmbeddingContextV2
+    return _verify_embedding_projection(resolver=resolver,context=context,semantic_registry=semantic_registry,
+        now=now,connection=connection,context_type=DerivedEmbeddingContextV2)
+
+
+def verify_sdk_embedding_projection_v3(*,resolver,context,semantic_registry,now,connection=None):
+    from .purpose_profiles_v2 import DerivedSDKEmbeddingContextV3
+    return _verify_embedding_projection(resolver=resolver,context=context,semantic_registry=semantic_registry,
+        now=now,connection=connection,context_type=DerivedSDKEmbeddingContextV3)
