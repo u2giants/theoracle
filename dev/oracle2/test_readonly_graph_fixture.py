@@ -157,10 +157,29 @@ class _OwnedProcessingWriter:
         acl=client.acl_getuser(self.ownership['username'])
         keys=acl.get('keys',[]) if acl else []
         if isinstance(keys,str):keys=keys.split()
-        if (not acl or set(keys)!={'~'+self.ownership['graph_name'],'~'+self.ownership['ontology_name']}
-                or acl.get('selectors')):
+        commands=acl.get('commands',[]) if acl else []
+        if isinstance(commands,str):commands=commands.split()
+        if (not acl or type(commands) is not list or any(type(x) is not str for x in commands)
+                or set(keys)!={'~'+self.ownership['graph_name'],'~'+self.ownership['ontology_name']}
+                or acl.get('selectors') or acl.get('categories')!=['-@all']
+                or {x.lower() for x in commands}!=
+                    {'+graph.query','+graph.ro_query','+ping','+hello','+info|server'}):
             client.close();raise PermissionError('writer ACL ownership differs; preserve')
         return client
+
+    def retire(self):
+        from oracle_brain.hosting.custody import _durable_nonce
+        if not self.inactive:raise PermissionError('actual owned producer inactivity unproved')
+        client=self._owned_admin()
+        try:
+            for key in (self.ownership['graph_name'],self.ownership['ontology_name']):
+                if client.exists(key):client.execute_command('GRAPH.DELETE',key)
+            if client.execute_command('ACL','DELUSER',self.ownership['username'])!=1:
+                raise PermissionError('owned writer retirement differs')
+            _durable_nonce(self.directory,'retired.json',json.dumps({
+                'ownership_hash':hashlib.sha256(self.ownership_bytes).hexdigest(),
+                'status':'exact-inactive-resources-retired'}).encode())
+        finally:client.close()
 
     def fence_producer(self):
         """LOCAL TEST ONLY: fence this NEW exact username; never shared/admin users."""
@@ -278,22 +297,83 @@ def processing_writer(container,admin_url,directory,*,workspace_id,artifact_id,v
                 _durable_nonce(destination,'unknown.json',json.dumps({'ownership_hash':hashlib.sha256(raw).hexdigest(),
                     'status':'UNKNOWN-preserved-no-cleanup'}).encode())
             else:
-                # Re-prove target and immutable ownership, never prefix cleanup.
-                current,_=owned_target(container,admin_url)
-                info=(destination/'ownership.json').lstat()
-                if (current['Id']!=details['Id'] or not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid()
-                    or info.st_nlink!=1 or info.st_mode&0o077 or (destination/'ownership.json').read_bytes()!=raw):
-                    raise PermissionError('exact writer cleanup ownership differs')
-                acl=client.acl_getuser(username)
-                keys=acl.get('keys',[]) if acl else []
-                if isinstance(keys,str):keys=keys.split()
-                if set(keys)!={'~'+graph,'~'+ontology}:raise PermissionError('writer ACL namespace drifted; preserve resources')
-                for key in (graph,ontology):
-                    if client.exists(key):client.execute_command('GRAPH.DELETE',key)
-                if client.execute_command('ACL','DELUSER',username)!=1:raise PermissionError('owned writer retirement differs')
-                _durable_nonce(destination,'retired.json',json.dumps({'ownership_hash':hashlib.sha256(raw).hexdigest(),
-                    'status':'exact-inactive-resources-retired'}).encode())
+                lease.retire()
     finally:client.close()
+
+
+def _private_recovery_record(path,expected_hash):
+    """Private TEST fixture evidence only, not source/runtime authority."""
+    path=Path(path)
+    if (not path.is_absolute() or path.resolve()!=path or path.parent.is_symlink()
+            or not re.fullmatch(r'[0-9a-f]{64}',expected_hash)):
+        raise PermissionError('canonical pinned private recovery record required')
+    directory=path.parent.stat();info=path.lstat()
+    if (directory.st_uid!=os.getuid() or directory.st_mode&0o077
+            or not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid()
+            or info.st_nlink!=1 or info.st_mode&0o077 or info.st_size>16384):
+        raise PermissionError('private own single-link recovery record required')
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+    try:
+        opened=os.fstat(fd)
+        if (opened.st_dev,opened.st_ino)!=(info.st_dev,info.st_ino):
+            raise PermissionError('recovery record changed before read')
+        raw=os.read(fd,16385)
+        after=os.fstat(fd)
+        if ((after.st_size,after.st_mtime_ns,after.st_ctime_ns)!=(info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+                or hashlib.sha256(raw).hexdigest()!=expected_hash):
+            raise PermissionError('recovery record hash or identity differs')
+    finally:os.close(fd)
+    def unique(pairs):
+        value={}
+        for key,item in pairs:
+            if key in value:raise PermissionError('duplicate recovery metadata')
+            value[key]=item
+        return value
+    return raw,json.loads(raw,object_pairs_hook=unique)
+
+
+@contextmanager
+def recover_processing_writer(container,admin_url,directory,*,expected_ownership_sha256,
+        producer_stop_receipt,expected_producer_stop_sha256):
+    """LOCAL TEST ONLY: exact prior owner, independently recorded stopped caller.
+
+    The supplied terminal record is caller evidence, NOT an authority issuer or
+    automatic stop proof. No credentials/environment are read or reissued.
+    Only a fresh dedicated writer created by processing_writer is recoverable.
+    """
+    from oracle_brain.hosting.custody import _durable_nonce
+    destination=Path(directory)
+    raw,owner=_private_recovery_record(destination/'ownership.json',expected_ownership_sha256)
+    fields={'schema_version','synthetic_only','container_id','graph_name','ontology_name','username','nonce'}
+    if (type(owner) is not dict or set(owner)!=fields or type(owner['schema_version']) is not int
+            or owner['schema_version']!=1 or owner['synthetic_only'] is not True
+            or not re.fullmatch(r'oracle_writer_fixture_user_[0-9a-f]{32}',owner['username'])
+            or not re.fullmatch(r'oracle_processing_v1_[0-9a-f]{32}_[0-9a-f]{32}_[1-9][0-9]*_[0-9a-f]{32}',owner['graph_name'])
+            or owner['ontology_name']!=owner['graph_name']+'__ontology'
+            or not re.fullmatch(r'[0-9a-f]{32}',owner['nonce'])):
+        raise PermissionError('exact canonical newly owned writer required')
+    _,stopped=_private_recovery_record(producer_stop_receipt,expected_producer_stop_sha256)
+    if (type(stopped) is not dict or set(stopped)!={'schema_version','ownership_sha256','run_id',
+            'terminal_exit_code','local_producer_tasks_stopped','local_producer_pools_closed','terminal_evidence_sha256'}
+            or type(stopped['schema_version']) is not int or stopped['schema_version']!=1
+            or stopped['ownership_sha256']!=expected_ownership_sha256
+            or type(stopped['run_id']) is not str or not 0<len(stopped['run_id'])<=256
+            or type(stopped['terminal_exit_code']) is not int
+            or stopped['local_producer_tasks_stopped'] is not True
+            or stopped['local_producer_pools_closed'] is not True
+            or not re.fullmatch(r'[0-9a-f]{64}',stopped['terminal_evidence_sha256'])):
+        raise PermissionError('actual exact run terminal/tasks/pools evidence required')
+    lease=_OwnedProcessingWriter(destination,owner,raw,{})
+    lease._container=container;lease._admin_url=admin_url
+    # Reuse the exact ownership/target/key/command validator BEFORE any fence.
+    checked=lease._owned_admin();checked.close()
+    _durable_nonce(destination,'recovered.json',json.dumps({'ownership_hash':expected_ownership_sha256,
+        'producer_stop_record_hash':expected_producer_stop_sha256,'status':'exact-own-writer-recovered-not-yet-inactive'}).encode())
+    try:yield lease
+    finally:
+        if lease.inactive:lease.retire()
+        else:_durable_nonce(destination,'recovery-unknown.json',json.dumps({
+            'ownership_hash':expected_ownership_sha256,'status':'UNKNOWN-preserved-no-cleanup'}).encode())
 
 
 if __name__=='__main__':
