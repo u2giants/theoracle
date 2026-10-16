@@ -303,7 +303,8 @@ def test_real_sql_hold_requires_exact_dispatch_and_current_dual_grants(admin_url
     'processing_extraction_v1','processing_failed_extraction_v1',
     'processing_qualified_model_v1','processing_summary_v1','processing_failed_assembly_v1',
 ])
-def test_default_ledger_denies_processing_kind_before_blob_even_if_claims_qualified(admin_url,processing,kind):
+@pytest.mark.parametrize('original_status',['draft','confirmed'])
+def test_default_ledger_denies_processing_kind_before_blob_even_if_claims_qualified(admin_url,processing,kind,original_status):
     from oracle_brain.operating_model.contracts import ArtifactManifest
     from oracle_brain.operating_model.ledger import Ledger
     f=processing();artifact=uuid4()
@@ -311,6 +312,8 @@ def test_default_ledger_denies_processing_kind_before_blob_even_if_claims_qualif
         input_digest='a'*64,source_digest='a'*64,permission_digest='a'*64,compiler_digest=RUNTIME,
         dependency_digest='a'*64,content_hash='a'*64,private_object_key='invented/claims-qualified',state='ready')
     with psycopg.connect(admin_url) as conn:
+        conn.execute('UPDATE oracle2.sources SET status=%s WHERE source_id=%s',(original_status,f['source']))
+        conn.execute('UPDATE oracle2.drafts SET status=%s WHERE source_id=%s',(original_status,f['source']))
         conn.execute('INSERT INTO oracle2.artifact_manifests(workspace_id,artifact_id,version,kind,input_digest,source_digest,permission_digest,compiler_digest,dependency_digest,content_hash,private_object_key,state,manifest) VALUES(%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                      (f['workspace'],artifact,kind,manifest.input_digest,manifest.source_digest,manifest.permission_digest,
                       manifest.compiler_digest,manifest.dependency_digest,manifest.content_hash,manifest.private_object_key,manifest.state,Jsonb(manifest.model_dump(mode='json'))))
