@@ -78,20 +78,13 @@ class ProcessingCompilerLedger(Ledger):
                 and self.processing_extraction_guard is not None):
             now=self.clock()
             manifest_until=self._authorize_processing_blob(manifest)
-            if self.processing_extraction_guard(manifest,payload,self.principal,now) is not None:
-                raise PermissionError('processing extraction guard did not validate')
-            deadline=min(deadline,manifest_until,self._extraction_horizon(manifest,payload,now))
+            deadline=min(deadline,manifest_until,
+                self._validate_processing_guard(self.processing_extraction_guard,manifest,payload,now))
         if kind in {'processing_qualified_model_v1','processing_summary_v1'}:
             if self.processing_compile_guard is None:
                 raise PermissionError('independent current processing qualification required')
             now=self.clock()
-            if self.processing_compile_guard(manifest,payload,self.principal,now) is not None:
-                raise PermissionError('processing compile guard did not validate')
-            horizon=getattr(self.processing_compile_guard,'valid_until',None)
-            if not callable(horizon):raise PermissionError('trusted semantic horizon required')
-            until=horizon(manifest,payload,self.principal,now)
-            if (not isinstance(until,datetime) or until.tzinfo is None or until.utcoffset() is None or until<=now):
-                raise PermissionError('finite current semantic horizon required')
+            until=self._validate_processing_guard(self.processing_compile_guard,manifest,payload,now)
             deadline=min(deadline,until)
         # Object storage may involve a network. It occurs BEFORE any SQL hold.
         if self.blobs.put(workspace_id,payload)!=(key,seal):
@@ -117,6 +110,18 @@ class ProcessingCompilerLedger(Ledger):
                 raise PermissionError('processing/semantic authority expired before commit')
         return manifest
 
+    def _validate_processing_guard(self,guard,manifest,payload,now):
+        """Legacy behavior; exact protected hosting overrides may fuse one call."""
+        if guard(manifest,payload,self.principal,now) is not None:
+            raise PermissionError('processing guard did not validate')
+        horizon=getattr(guard,'valid_until',None)
+        if not callable(horizon):raise PermissionError('trusted semantic horizon required')
+        until=horizon(manifest,payload,self.principal,now)
+        if (not isinstance(until,datetime) or until.tzinfo is None
+                or until.utcoffset() is None or until<=now or until<=self.clock()):
+            raise PermissionError('finite current processing horizon required')
+        return until
+
     def _extraction_horizon(self,manifest,payload,now):
         until=self.processing_extraction_guard.valid_until(manifest,payload,self.principal,now)
         if (not isinstance(until,datetime) or until.tzinfo is None
@@ -134,12 +139,14 @@ class ProcessingCompilerLedger(Ledger):
                 raise PermissionError('finite current extraction manifest horizon required')
             return until
 
-    def _read_processing_authorized(self,*args,**kwargs):
-        manifest,payload=super()._read_processing_authorized(*args,**kwargs)
+    def _validate_processing_extraction_after_read(self,manifest,payload,now):
         if (manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}
                 and self.processing_extraction_guard is not None):
-            now=self.clock()
             if self.processing_extraction_guard(manifest,payload,self.principal,now) is not None:
                 raise PermissionError('processing extraction read guard did not validate')
             self._extraction_horizon(manifest,payload,now)
+
+    def _read_processing_authorized(self,*args,**kwargs):
+        manifest,payload=super()._read_processing_authorized(*args,**kwargs)
+        self._validate_processing_extraction_after_read(manifest,payload,self.clock())
         return manifest,payload
