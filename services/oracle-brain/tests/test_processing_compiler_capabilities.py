@@ -202,3 +202,34 @@ def test_opt_in_extraction_boundary_rejects_incomplete_protocol(processing,tmp_p
     with pytest.raises(PermissionError,match='guard protocol'):
         ProcessingCompilerLedger(f['url'],FileBlobStore(tmp_path),principal=f['actor'],processing_sources=source,
             processing_read_guard=lambda *args:None,processing_extraction_guard=Incomplete())
+
+
+def test_legacy_validation_hook_retains_distinct_callable_and_horizon():
+    now=datetime.now(timezone.utc);calls=[]
+    ledger=object.__new__(ProcessingCompilerLedger);ledger.principal=uuid4();ledger.clock=lambda:now
+    class LegacyGuard:
+        def __call__(self,*args):calls.append('validation');return None
+        def valid_until(self,*args):calls.append('horizon');return now+timedelta(seconds=1)
+    assert ledger._validate_processing_guard(LegacyGuard(),object(),{},now)==now+timedelta(seconds=1)
+    assert calls==['validation','horizon']
+
+
+@pytest.mark.parametrize('result',[None,True,False,datetime(2026,1,1),datetime(2026,1,1,tzinfo=timezone.utc)])
+def test_validation_hook_refuses_missing_boolean_naive_or_expired_horizon(result):
+    now=datetime.now(timezone.utc)
+    ledger=object.__new__(ProcessingCompilerLedger);ledger.principal=uuid4();ledger.clock=lambda:now
+    class Guard:
+        def __call__(self,*args):return None
+        def valid_until(self,*args):return result
+    with pytest.raises(PermissionError,match='finite current'):
+        ledger._validate_processing_guard(Guard(),object(),{},now)
+
+
+def test_validation_hook_never_uses_horizon_after_guard_denial():
+    now=datetime.now(timezone.utc)
+    ledger=object.__new__(ProcessingCompilerLedger);ledger.principal=uuid4();ledger.clock=lambda:now
+    class Guard:
+        def __call__(self,*args):return False
+        def valid_until(self,*args):raise AssertionError('denied validation reached horizon')
+    with pytest.raises(PermissionError,match='did not validate'):
+        ledger._validate_processing_guard(Guard(),object(),{},now)
