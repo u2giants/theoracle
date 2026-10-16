@@ -53,6 +53,7 @@ class Transcript:
 def reconcile(current: Transcript | None, incoming: Transcript) -> Transcript:
     """Final snapshots replace live turns; stale replays cannot revert them.
 
+    Every content or finality change requires a strictly greater revision.
     Equal-version disagreements fail visibly rather than silently selecting a
     contradictory delivery. A final snapshot may intentionally omit live turns.
     """
