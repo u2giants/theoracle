@@ -3,10 +3,11 @@ from dataclasses import dataclass
 from datetime import datetime,timezone
 import re
 from uuid import UUID
+from typing import Literal
 
 from pydantic import BaseModel,ConfigDict,Field,AwareDatetime,model_validator
 from .contracts import canonical_bytes
-from .original_qualification_v1 import RawOriginalPopulationV1
+from .original_qualification_v1 import RawOriginalPopulationV1,RawOriginalRefV1
 from .authority_adapter import ProcessingSourceResolver
 
 
@@ -24,6 +25,74 @@ class OriginalPopulationSnapshotV1(BaseModel):
     def current_original_limits(self):
         if not self.checked_at<self.valid_until<=self.population.expires_at<=self.original_horizon:
             raise ValueError('actual raw population current horizon required')
+        return self
+
+
+class OriginalResponseRegistrationV1(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True,frozen=True)
+    commit_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    principal_id:UUID
+    session_role:str
+    runtime_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    population_id:UUID
+    operation_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    checked_at:AwareDatetime
+    valid_until:AwareDatetime
+
+    @model_validator(mode='after')
+    def finite_window(self):
+        if not self.checked_at<self.valid_until:raise ValueError('current registered response horizon required')
+        return self
+
+
+class OriginalReadingCommitMetadataV1(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True,frozen=True)
+    schema_version:int=Field(strict=True,ge=1,le=1)
+    reading_commit_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    transport:Literal['paid-native-v1','native-utf8-byte-roundtrip-v1']
+    raw_ref:RawOriginalRefV1
+    reader_principal_id:UUID
+    reader_session_role:str
+    reader_runtime_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reader_source_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reader_population_id:UUID
+    reader_operation_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    original_root_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    population_digest:str=Field(pattern=r'^[0-9a-f]{64}$')
+    allocation_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    original_horizon:AwareDatetime
+    context_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reading_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    parser_id:str=Field(pattern=r'^[0-9a-f]{64}$')
+    view_manifest_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    locator_map_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reading_body_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    response_committed_at:AwareDatetime
+    authorized_commit_at:AwareDatetime
+    native_phase_commit_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    native_dispatch_id:UUID|None
+    native_job_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    request_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    permission_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    raw_wire_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    model_content_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    native_custody_receipt_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    model_id:Literal['openai/gpt-6.1-sol','openai/gpt-6-astra']|None
+    pricing_quote_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    current_sql_receipt_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    observer_witness_hash:str|None=Field(pattern=r'^[0-9a-f]{64}$')
+    checked_at:AwareDatetime
+    valid_until:AwareDatetime
+
+    @model_validator(mode='after')
+    def closed_transport(self):
+        keys=('native_phase_commit_hash','native_dispatch_id','native_job_hash','request_hash','permission_hash',
+            'raw_wire_hash','model_content_hash','native_custody_receipt_hash','model_id','pricing_quote_hash',
+            'current_sql_receipt_hash','observer_witness_hash')
+        paid=self.transport=='paid-native-v1'
+        if any((getattr(self,k) is not None)!=paid for k in keys):raise ValueError('exact historical paid transport fields required')
+        if not self.response_committed_at<=self.authorized_commit_at<=self.checked_at<self.valid_until<=self.original_horizon:
+            raise ValueError('actual historical commit and current review horizon required')
         return self
 
 
@@ -133,3 +202,81 @@ class OriginalSourceResolverV1:
         deadline=min(before.valid_until,after.valid_until,datetime.fromisoformat(value['valid_until']))
         if datetime.now(timezone.utc)>=deadline:raise PermissionError('private original capability expired')
         return value|{'valid_until':deadline.isoformat()}
+
+
+    _response_signatures={
+        'oracle2.register_original_paid_response_v1(bytea)':frozenset({'oracle2_source_original_reader','oracle2_source_original_reviewer'}),
+        'oracle2._commit_original_response(bytea,boolean)':frozenset(),
+        'oracle2.commit_original_reading_response_v1(bytea)':frozenset({'oracle2_source_original_reader'}),
+        'oracle2.commit_original_review_response_v1(bytea)':frozenset({'oracle2_source_original_reviewer'}),
+        'oracle2.original_reading_commit_current_v1(uuid,text)':frozenset({'oracle2_source_original_reviewer'}),
+    }
+
+    def _register_response(self,record,function,*,connection=None):
+        from .contracts import digest
+        b=self.binding
+        if (record.raw_ref not in b.population.raw_refs or record.population_id!=b.population.population_id
+                or record.operation_registry_hash!=b.population.operation_registry_hash
+                or record.original_root_hash!=b.population.original_root_hash
+                or record.allocation_hash!=b.original_allocation_hash or record.original_horizon!=b.original_horizon):
+            raise PermissionError('exact current original operation response required')
+        queries={
+            'paid':'SELECT oracle2.register_original_paid_response_v1(%s)',
+            'reading':'SELECT oracle2.commit_original_reading_response_v1(%s)',
+            'review':'SELECT oracle2.commit_original_review_response_v1(%s)'}
+        with self._connection(connection) as c:
+            before=self.original_population_current_v1(b.population.population_id,connection=c)
+            ProcessingSourceResolver._check_function_signatures(self,c,self._response_signatures)
+            row=c.execute(queries[function],(canonical_bytes(record.model_dump(mode='json')),)).fetchone()
+            after=self.original_population_current_v1(b.population.population_id,connection=c)
+            self._check(c)
+            if not row or row[0] is None:raise PermissionError('actual original response registration unavailable')
+            value=OriginalResponseRegistrationV1.model_validate_json(canonical_bytes(row[0]))
+            if (value.commit_sha256!=digest(record.model_dump(mode='json')) or value.principal_id!=b.principal
+                    or value.session_role!=b.expected_session_role or value.runtime_hash!=b.population.runtime_hash
+                    or value.population_id!=b.population.population_id or value.operation_registry_hash!=b.population.operation_registry_hash):
+                raise PermissionError('actual original response registration differs')
+            until=min(value.valid_until,before.valid_until,after.valid_until,b.expires_at)
+            actual=c.execute('SELECT clock_timestamp()').fetchone()[0]
+            if not value.checked_at<=actual<until:raise PermissionError('actual original response registration expired')
+            return value.model_copy(update={'valid_until':until})
+
+    def register_original_paid_response_v1(self,record,*,connection=None):
+        from .raw_original_paid_response_v1 import RawOriginalPaidResponseCommitV1
+        if type(record) is not RawOriginalPaidResponseCommitV1 or record.purpose!=self.binding.purpose:
+            raise PermissionError('exact own paid original response required')
+        return self._register_response(record,'paid',connection=connection)
+
+    def commit_original_reading_response_v1(self,record,*,connection=None):
+        from .original_qualification_v1 import OriginalReadingCommitV1,NativeUTF8ReadingCommitV1
+        if self.binding.purpose!='source-original-reading' or type(record) not in (OriginalReadingCommitV1,NativeUTF8ReadingCommitV1):
+            raise PermissionError('exact own reading response required')
+        return self._register_response(record,'reading',connection=connection)
+
+    def commit_original_review_response_v1(self,record,*,connection=None):
+        from .original_qualification_v1 import OriginalReviewCommitV1,NativeUTF8ReviewCommitV1
+        if self.binding.purpose!='source-original-review' or type(record) not in (OriginalReviewCommitV1,NativeUTF8ReviewCommitV1):
+            raise PermissionError('exact own review response required')
+        return self._register_response(record,'review',connection=connection)
+
+    def original_reading_commit_current_v1(self,reading_hash,*,connection=None):
+        b=self.binding
+        if b.purpose!='source-original-review' or type(reading_hash) is not str or not re.fullmatch('[0-9a-f]{64}',reading_hash):
+            raise PermissionError('exact current review historical reading selector required')
+        with self._connection(connection) as c:
+            before=self.original_population_current_v1(b.population.population_id,connection=c)
+            ProcessingSourceResolver._check_function_signatures(self,c,self._response_signatures)
+            row=c.execute('SELECT oracle2.original_reading_commit_current_v1(%s,%s)',(b.population.population_id,reading_hash)).fetchone()
+            after=self.original_population_current_v1(b.population.population_id,connection=c)
+            self._check(c)
+            if not row or row[0] is None:raise PermissionError('current historical original reading unavailable')
+            value=OriginalReadingCommitMetadataV1.model_validate_json(canonical_bytes(row[0]))
+            if (value.reading_commit_hash!=reading_hash or value.raw_ref not in b.population.raw_refs
+                or value.reader_principal_id==b.principal or value.reader_session_role==b.expected_session_role
+                or value.original_root_hash!=b.population.original_root_hash or value.population_digest!=b.population.population_digest
+                or value.allocation_hash!=b.original_allocation_hash or value.original_horizon!=b.original_horizon):
+                raise PermissionError('historical original reading differs from current complete review operation')
+            until=min(value.valid_until,before.valid_until,after.valid_until,b.expires_at)
+            actual=c.execute('SELECT clock_timestamp()').fetchone()[0]
+            if not value.checked_at<=actual<until:raise PermissionError('current historical reading authority expired')
+            return value.model_copy(update={'valid_until':until})
