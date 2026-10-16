@@ -11,6 +11,8 @@ import pytest
 from test_source_processing_qualification import processing,RUNTIME,REGISTRY
 from test_purpose_source_authority import purpose_population
 from test_processing_compiler_capabilities import persist_extraction,bundle,commit
+from test_assembly_context import context
+from test_assembly_qualification import qualified
 from oracle_brain.operating_model.processing_projection import lease_processing_projection
 
 
@@ -99,6 +101,32 @@ def test_actual_semantic_deadline_and_expired_lease_reject_ack(admin_url,process
     time.sleep(1.05)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):sql_ack(f,lease,deadline=f['expiry'])
     with psycopg.connect(admin_url) as conn:assert conn.execute('SELECT delivered_at FROM oracle2.outbox WHERE event_id=%s',(lease.event.event_id,)).fetchone()[0] is None
+
+
+def test_actual_ack_deadline_expiring_during_workspace_lock_rolls_back(admin_url,processing,tmp_path):
+    f=processing();ledger,_=projectable(f,tmp_path);lease=lease_processing_projection(ledger,f['workspace'])
+    name='owned_ack_wait_'+uuid4().hex
+    waiting=dict(f,url=psycopg.conninfo.make_conninfo(f['url'],application_name=name))
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with psycopg.connect(admin_url) as blocker:
+            blocker.execute("SELECT pg_advisory_xact_lock(hashtext('oracle2-authz:'||%s))",(str(f['workspace']),))
+            deadline=blocker.execute("SELECT clock_timestamp()+interval '500 milliseconds'").fetchone()[0]
+            future=pool.submit(sql_ack,waiting,lease,paid_attestation(lease),deadline)
+            observed=False;limit=time.monotonic()+.4
+            while time.monotonic()<limit:
+                blocker.execute('SELECT pg_stat_clear_snapshot()')
+                observed=blocker.execute("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=%s AND wait_event_type='Lock' AND wait_event='advisory')",(name,)).fetchone()[0]
+                if observed:break
+                time.sleep(.01)
+            assert observed,'actual ACK must be waiting on the held workspace lock'
+            # Actual DB clock, not an elapsed-time claim, proves expiry BEFORE
+            # releasing the lock and permitting the transaction to continue.
+            while blocker.execute('SELECT clock_timestamp()<%s',(deadline,)).fetchone()[0]:time.sleep(.01)
+            blocker.commit()
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):future.result(timeout=3)
+    with psycopg.connect(admin_url) as conn:
+        assert conn.execute('SELECT delivered_at FROM oracle2.outbox WHERE event_id=%s',(lease.event.event_id,)).fetchone()==(None,)
+        assert conn.execute('SELECT count(*) FROM oracle2.operating_projection_receipts WHERE event_id=%s',(lease.event.event_id,)).fetchone()==(0,)
 
 
 def test_competing_workspaces_writer_lock_is_bounded_without_upgrade_deadlock(processing,tmp_path):
@@ -390,3 +418,72 @@ def test_paid_window_separates_current_freshness_from_operation_duration():
     with pytest.raises(PermissionError):delivery._current_window(SimpleNamespace(authorize_current=lambda:stale))
     with pytest.raises(ValueError):delivery.ProcessingProjectionAuthorityWindowV3(now+timedelta(seconds=30),now)
     with pytest.raises(ValueError):delivery.ProcessingProjectionAuthorityWindowV3(now.replace(tzinfo=None),now)
+
+
+def paid_final_context(qualified):
+    """Pure boundary control, NOT a real native/vector delivery attestation."""
+    import oracle_brain.operating_model.processing_projection as delivery
+    from oracle_brain.operating_model.sdk_projection import ProcessingSDKProjection
+    from oracle_brain.operating_model.paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
+    manifest,payload=qualified['manifest'],qualified['payload']
+    event=delivery.ProjectionEvent(uuid4(),manifest.workspace_id,manifest.artifact_id,manifest.version,
+        'project',{'namespace':'oracle_processing_v1','manifest':manifest.model_dump(mode='json')},1)
+    lease=delivery.ProcessingProjectionLease(event,'invented-compiler',uuid4(),datetime.now(timezone.utc)+timedelta(seconds=30))
+    receipt=paid_attestation(lease)
+    receipt.update(record_digest=delivery.digest({'records':ProcessingSDKProjection.records(payload)}),
+        projection_digest=ProcessingSDKProjection.processing_projection_digest(payload),
+        embedding_inventory_hash=delivery.digest(processing_embedding_inventory_v3(payload).model_dump(mode='json')))
+    return lease,receipt,manifest,payload
+
+
+@pytest.mark.parametrize('changed',['none','model','dependency','compiler','source','receipt-source','projection','inventory','lease','event','float-schema','bool-schema'])
+def test_paid_final_read_binds_current_body_manifest_projection_and_lease(qualified,changed):
+    import copy
+    import oracle_brain.operating_model.processing_projection as delivery
+    lease,receipt,manifest,payload=paid_final_context(qualified)
+    if changed=='model':payload=copy.deepcopy(payload);payload['findings'].append({'changed':'after graph'})
+    elif changed=='dependency':manifest=manifest.model_copy(update={'dependency_digest':'f'*64})
+    elif changed=='compiler':manifest=manifest.model_copy(update={'compiler_digest':'f'*64})
+    elif changed=='source':manifest=manifest.model_copy(update={'source_digest':'f'*64})
+    elif changed=='receipt-source':receipt['source_digest']='f'*64
+    elif changed=='projection':receipt['projection_digest']='f'*64
+    elif changed=='inventory':receipt['embedding_inventory_hash']='f'*64
+    elif changed=='lease':receipt['lease_token']=str(uuid4())
+    elif changed=='event':receipt['event_id']=str(uuid4())
+    elif changed=='float-schema':receipt['schema_version']=3.0
+    elif changed=='bool-schema':receipt['schema_version']=True
+    if changed=='none':delivery._validate_paid_ack_context(lease,receipt,manifest,payload)
+    else:
+        with pytest.raises(PermissionError):
+            delivery._validate_paid_ack_context(lease,receipt,manifest,payload)
+
+
+@pytest.mark.parametrize('changed',['source','registry','projector-appointment'])
+def test_paid_final_authority_change_denies_before_any_sql_ack(qualified,monkeypatch,changed):
+    """Final-boundary sequencing control; actual role denials have SQL tests."""
+    from types import SimpleNamespace
+    import oracle_brain.operating_model.processing_projection as delivery
+    lease,receipt,manifest,payload=paid_final_context(qualified);events=[];secret=b'invented-boundary-control-only-0000'
+    class Guard:
+        def valid_until(self,*args):
+            events.append('semantic-current')
+            if changed=='registry':raise PermissionError('registry changed after graph')
+            return lease.lease_until
+    class Authority:
+        def authorize_current(self):
+            events.append('authority-current')
+            raise PermissionError(changed+' changed after graph')
+    def current_read(*args):
+        events.append('actual-final-read')
+        if changed=='source':raise PermissionError('source revoked after graph')
+        return manifest,payload
+    ledger=SimpleNamespace(read_with_manifest=current_read,processing_read_guard=Guard(),principal=uuid4(),
+        clock=lambda:datetime.now(timezone.utc))
+    monkeypatch.setattr(delivery,'_compiler',lambda *_:SimpleNamespace(expected_session_role=lease.lease_role,expires_at=lease.lease_until))
+    def sql_forbidden(*args,**kwargs):raise AssertionError('changed authority reached SQL ACK')
+    monkeypatch.setattr(delivery.psycopg,'connect',sql_forbidden)
+    with pytest.raises(PermissionError,match='after graph'):
+        delivery.acknowledge_processing_projection(ledger,lease,receipt,delivery.signature(secret,receipt),secret=secret,
+            caller_deadline=lease.lease_until,authority=Authority())
+    assert events.count('actual-final-read')==1
+    if changed=='projector-appointment':assert events[-1]=='authority-current'

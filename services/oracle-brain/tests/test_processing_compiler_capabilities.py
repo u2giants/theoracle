@@ -202,3 +202,167 @@ def test_opt_in_extraction_boundary_rejects_incomplete_protocol(processing,tmp_p
     with pytest.raises(PermissionError,match='guard protocol'):
         ProcessingCompilerLedger(f['url'],FileBlobStore(tmp_path),principal=f['actor'],processing_sources=source,
             processing_read_guard=lambda *args:None,processing_extraction_guard=Incomplete())
+
+
+def test_legacy_validation_hook_retains_distinct_callable_and_horizon():
+    now=datetime.now(timezone.utc);calls=[]
+    ledger=object.__new__(ProcessingCompilerLedger);ledger.principal=uuid4();ledger.clock=lambda:now
+    class LegacyGuard:
+        def __call__(self,*args):calls.append('validation');return None
+        def valid_until(self,*args):calls.append('horizon');return now+timedelta(seconds=1)
+    assert ledger._validate_processing_guard(LegacyGuard(),object(),{},now)==now+timedelta(seconds=1)
+    assert calls==['validation','horizon']
+
+
+@pytest.mark.parametrize('result',[None,True,False,datetime(2026,1,1),datetime(2026,1,1,tzinfo=timezone.utc)])
+def test_validation_hook_refuses_missing_boolean_naive_or_expired_horizon(result):
+    now=datetime.now(timezone.utc)
+    ledger=object.__new__(ProcessingCompilerLedger);ledger.principal=uuid4();ledger.clock=lambda:now
+    class Guard:
+        def __call__(self,*args):return None
+        def valid_until(self,*args):return result
+    with pytest.raises(PermissionError,match='finite current'):
+        ledger._validate_processing_guard(Guard(),object(),{},now)
+
+
+def test_validation_hook_never_uses_horizon_after_guard_denial():
+    now=datetime.now(timezone.utc)
+    ledger=object.__new__(ProcessingCompilerLedger);ledger.principal=uuid4();ledger.clock=lambda:now
+    class Guard:
+        def __call__(self,*args):return False
+        def valid_until(self,*args):raise AssertionError('denied validation reached horizon')
+    with pytest.raises(PermissionError,match='did not validate'):
+        ledger._validate_processing_guard(Guard(),object(),{},now)
+
+
+@pytest.mark.parametrize('kind',['processing_extraction_v1','processing_qualified_model_v1','processing_summary_v1'])
+def test_explicit_core_fused_ledger_runs_one_validation_per_body_boundary(kind):
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.processing_ledger import PurposeProcessingCompilerLedgerV3
+    now=datetime.now(timezone.utc);calls=[]
+    ledger=object.__new__(PurposeProcessingCompilerLedgerV3);ledger.principal=uuid4();ledger.clock=lambda:now
+    class Guard:
+        def validate_current(self,*args):calls.append(args);return now+timedelta(seconds=1)
+        def __call__(self,*args):raise AssertionError('duplicate legacy validation invoked')
+        def valid_until(self,*args):raise AssertionError('duplicate legacy horizon invoked')
+    guard=Guard();ledger.processing_extraction_guard=guard;ledger.processing_read_guard=guard
+    ledger._validate_processing_read_guard(SimpleNamespace(kind=kind),{},now)
+    ledger._validate_processing_extraction_after_read(SimpleNamespace(kind=kind),{},now)
+    assert len(calls)==1
+
+
+@pytest.mark.parametrize('base_name',['ProcessingCompilerLedger','PurposeProcessingCompilerLedgerV3'])
+def test_pure_compile_helpers_refuse_arbitrary_compiler_subclasses(base_name):
+    from oracle_brain.operating_model import processing_ledger as module
+    from oracle_brain.operating_model.purpose_assembly_v2 import compiler_extraction_handoff_v2
+    from oracle_brain.operating_model.purpose_qualification_v3 import compile_purpose_assembly_v3
+    class Arbitrary(getattr(module,base_name)):pass
+    ledger=object.__new__(Arbitrary)
+    with pytest.raises(PermissionError,match='actual explicit compiler'):
+        compiler_extraction_handoff_v2(ledger,workspace_id=uuid4(),extraction_ids=(),source_refs=(),
+            compiler_authority_receipt_hash='a'*64,now=datetime.now(timezone.utc),expires_at=datetime.now(timezone.utc))
+    import inspect
+    kwargs={name:None for name in inspect.signature(compile_purpose_assembly_v3).parameters}
+    kwargs['compiler_ledger']=ledger
+    with pytest.raises(PermissionError,match='actual explicit compiler ledger'):
+        compile_purpose_assembly_v3(**kwargs)
+
+
+@pytest.mark.parametrize('base_name',['ProcessingCompilerLedger','PurposeProcessingCompilerLedgerV3'])
+def test_closed_implementation_check_accepts_only_exact_retained_classes(base_name):
+    from oracle_brain.operating_model import processing_ledger as module
+    # This checks implementation identity only; uninitialized objects confer no
+    # SQL/source permission, semantic admission, or private paid evidence.
+    exact=object.__new__(getattr(module,base_name))
+    assert module.require_explicit_compiler_ledger_v3(exact) is None
+    class Arbitrary(getattr(module,base_name)):pass
+    with pytest.raises(PermissionError):module.require_explicit_compiler_ledger_v3(object.__new__(Arbitrary))
+
+
+def _controlled_parent_boundary():
+    """Pure boundary mechanics only; no source/semantic authority is simulated."""
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.processing_ledger import PurposeProcessingCompilerLedgerV3
+    now=datetime.now(timezone.utc);body={'source_refs':[],'operating_models':[]}
+    manifest=ArtifactManifest(workspace_id=uuid4(),artifact_id=uuid4(),version=1,kind='processing_qualified_model_v1',
+        input_digest='a'*64,source_digest='a'*64,permission_digest='a'*64,compiler_digest='a'*64,
+        dependency_digest='a'*64,content_hash=digest(body),private_object_key='controlled/body',state='ready')
+    ledger=object.__new__(PurposeProcessingCompilerLedgerV3);ledger.principal=uuid4();ledger.clock=lambda:now
+    ledger.processing_sources=SimpleNamespace(artifact_metadata=lambda *args:(manifest,()))
+    calls=[]
+    def boundary(*args):calls.append(args);return manifest,body,now+timedelta(seconds=1)
+    ledger._read_processing_boundary=boundary
+    return ledger,manifest,body,now,calls
+
+
+def test_completed_parent_boundary_returns_immutable_bytes_once_and_rejects_stale_after_metadata():
+    from oracle_brain.operating_model.processing_ledger import ValidatedQualifiedParentV3
+    ledger,manifest,body,now,calls=_controlled_parent_boundary()
+    result=ledger.read_validated_qualified_parent_v3(manifest.workspace_id,manifest.artifact_id,1)
+    assert type(result) is ValidatedQualifiedParentV3 and result.canonical_body==canonical_bytes(body) and len(calls)==1
+    with pytest.raises(Exception):result.canonical_body=b'changed'
+    ledger.clock=lambda:now+timedelta(seconds=2)
+    with pytest.raises(PermissionError,match='expired after metadata'):
+        ledger.read_validated_qualified_parent_v3(manifest.workspace_id,manifest.artifact_id,1)
+
+
+@pytest.mark.parametrize('damage',['lambda','subclass','unbound','record'])
+def test_full_parent_guard_constructor_refuses_untrusted_callback_forms(damage):
+    from oracle_brain.operating_model.processing_ledger import PurposeProcessingCompilerLedgerV3
+    from oracle_brain.operating_model.purpose_qualification_v3 import PurposeQualifiedAssemblyReadGuardV3
+    ledger,manifest,body,now,calls=_controlled_parent_boundary()
+    if damage=='lambda':method=lambda *args:None
+    elif damage=='unbound':method=PurposeProcessingCompilerLedgerV3.read_validated_qualified_parent_v3
+    elif damage=='record':method={'manifest':manifest,'canonical_body':canonical_bytes(body)}
+    else:
+        class Arbitrary(PurposeProcessingCompilerLedgerV3):pass
+        method=object.__new__(Arbitrary).read_validated_qualified_parent_v3
+    with pytest.raises(PermissionError,match='exact completed'):
+        PurposeQualifiedAssemblyReadGuardV3.for_full_compiler_parent_v3(trusted_admissions=lambda:(),runtime_hash='a'*64,
+            current_source_identity=lambda *a:None,current_extraction_seal=lambda *a:None,qualified_parent_reader=method)
+    assert not calls
+
+
+@pytest.mark.parametrize('damage',[None,'pack','parent_hash','refs','body'])
+def test_fixed_summary_parent_validates_once_and_rejects_tamper(damage):
+    from oracle_brain.operating_model.purpose_qualification_v3 import PurposeQualifiedAssemblyReadGuardV3
+    from oracle_brain.operating_model.evidence_pack import EvidencePack
+    from oracle_brain.operating_model.summaries import DocumentarySummary
+    from oracle_brain.operating_model.retrieval import QueryPlan,build_pack
+    ledger,parent,body,now,calls=_controlled_parent_boundary()
+    plan=QueryPlan(view='company_overview',question='Controlled envelope',max_bytes=1024,page=0,page_size=1)
+    pack=EvidencePack(workspace_id=parent.workspace_id,artifact_id=parent.artifact_id,version=1,artifact_hash=parent.content_hash,
+        plan=plan,source_refs=(),contents=build_pack(body,plan))
+    if damage=='pack':pack=pack.model_copy(update={'contents':{'tampered':True}})
+    if damage=='parent_hash':pack=pack.model_copy(update={'artifact_hash':'b'*64})
+    summary=DocumentarySummary.from_pack(pack)
+    payload={'source_refs':[],'summary':summary.model_dump(mode='json')}
+    if damage=='refs':payload['source_refs']=[{'invalid':'ref'}]
+    manifest=parent.model_copy(update={'artifact_id':uuid4(),'kind':'processing_summary_v1','content_hash':digest(payload)})
+    if damage=='body':manifest=manifest.model_copy(update={'content_hash':'b'*64})
+    guard=PurposeQualifiedAssemblyReadGuardV3.for_full_compiler_parent_v3(trusted_admissions=lambda:(),runtime_hash='a'*64,
+        current_source_identity=lambda *a:None,current_extraction_seal=lambda *a:None,
+        qualified_parent_reader=ledger.read_validated_qualified_parent_v3)
+    if damage is None:
+        assert guard.valid_until(manifest,payload,ledger.principal,now)==now+timedelta(seconds=1)
+        assert len(calls)==1
+    else:
+        with pytest.raises(PermissionError):guard.valid_until(manifest,payload,ledger.principal,now)
+        assert len(calls)<=1
+
+
+def test_parent_result_refuses_changed_bytes_and_parent_read_rejects_subclass():
+    from oracle_brain.operating_model.processing_ledger import PurposeProcessingCompilerLedgerV3,ValidatedQualifiedParentV3
+    ledger,manifest,body,now,calls=_controlled_parent_boundary()
+    with pytest.raises(PermissionError,match='content differs'):
+        ValidatedQualifiedParentV3(manifest,b'{"changed":true}',now+timedelta(seconds=1))
+    class Arbitrary(PurposeProcessingCompilerLedgerV3):pass
+    with pytest.raises(PermissionError,match='exact full compiler'):
+        object.__new__(Arbitrary).read_validated_qualified_parent_v3(manifest.workspace_id,manifest.artifact_id,1)
+    assert not calls
+
+
+def test_legacy_read_pair_shape_discards_local_validation_result():
+    ledger=object.__new__(Ledger)
+    ledger._read_processing_boundary=lambda *a,**k:('manifest','payload','local-only-horizon')
+    assert ledger._read_processing_authorized(uuid4(),uuid4(),1)==('manifest','payload')
