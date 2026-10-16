@@ -6,7 +6,7 @@ Only protected consumers and actual SQL role appointments can qualify a source.
 from typing import Literal
 from uuid import UUID
 from pydantic import AwareDatetime,Field,model_validator
-from .contracts import StrictRecord
+from .contracts import StrictRecord,digest
 
 HASH=r'^[0-9a-f]{64}$'
 
@@ -27,9 +27,37 @@ class RawOriginalRefV1(StrictRecord):
             raise ValueError('original filename is a display name, never a locator')
         return self
 
+class RawOriginalPopulationV1(StrictRecord):
+    """Externally pinned COMPLETE raw phase population; fields confer no scope."""
+    schema_version:Literal[1]=1
+    purpose:Literal['raw-original-population-v1']='raw-original-population-v1'
+    population_id:UUID
+    workspace_id:UUID
+    original_root_hash:str=Field(pattern=HASH)
+    operation_registry_hash:str=Field(pattern=HASH)
+    runtime_hash:str=Field(pattern=HASH)
+    source_registry_hash:str=Field(pattern=HASH)
+    raw_refs:tuple[RawOriginalRefV1,...]=Field(min_length=1,max_length=4096)
+    population_digest:str=Field(pattern=HASH)
+    issuer_actor:UUID
+    reviewer_actor:UUID
+    expires_at:AwareDatetime
+
+    @model_validator(mode='after')
+    def complete_raw_population(self):
+        if (self.issuer_actor==self.reviewer_actor
+                or len({r.source_id for r in self.raw_refs})!=len(self.raw_refs)
+                or any(r.workspace_id!=self.workspace_id for r in self.raw_refs)
+                or self.population_digest!=digest({'raw_refs':[r.model_dump(mode='json') for r in self.raw_refs]})):
+            raise ValueError('complete independently pinned ordered raw population required')
+        return self
+
+
 class OriginalResponseCommitBaseV1(StrictRecord):
     schema_version:Literal[1]=1
     raw_ref:RawOriginalRefV1
+    population_id:UUID
+    operation_registry_hash:str=Field(pattern=HASH)
     original_root_hash:str=Field(pattern=HASH)
     allocation_hash:str=Field(pattern=HASH)
     population_hash:str=Field(pattern=HASH)
@@ -71,6 +99,8 @@ class OriginalReadingCommitV1(PaidOriginalResponseCommitBaseV1):
 class OriginalReviewCommitV1(PaidOriginalResponseCommitBaseV1):
     purpose:Literal['observed-authorized-original-review-response-v1']='observed-authorized-original-review-response-v1'
     reading_commit_hash:str=Field(pattern=HASH)
+    reading_population_id:UUID
+    reading_operation_registry_hash:str=Field(pattern=HASH)
     reading_body_hash:str=Field(pattern=HASH)
     review_body_hash:str=Field(pattern=HASH)
     qualification_pass:Literal[True]
@@ -91,6 +121,8 @@ class NativeUTF8ReadingCommitV1(NativeUTF8ResponseCommitBaseV1):
 class NativeUTF8ReviewCommitV1(NativeUTF8ResponseCommitBaseV1):
     purpose:Literal['observed-authorized-original-review-response-v1']='observed-authorized-original-review-response-v1'
     reading_commit_hash:str=Field(pattern=HASH)
+    reading_population_id:UUID
+    reading_operation_registry_hash:str=Field(pattern=HASH)
     reading_body_hash:str=Field(pattern=HASH)
     review_body_hash:str=Field(pattern=HASH)
     qualification_pass:Literal[True]

@@ -66,6 +66,8 @@ class RawOriginalDispatchJobV1(NativeDispatchJob):
     job_schema:Literal['raw-original-dispatch-v1']='raw-original-dispatch-v1'
     purpose:Literal['source-original-reading','source-original-review']
     raw_ref: 'RawOriginalRefV1'
+    population_id:UUID
+    operation_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
     view_manifest_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
     locator_map_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
     reading_commit_hash:str|None=Field(default=None,pattern=r'^[0-9a-f]{64}$')

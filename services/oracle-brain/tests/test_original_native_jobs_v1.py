@@ -10,7 +10,7 @@ def original_job(review=False):
     values=prior.model_dump(mode='python');values['purpose']=purpose
     values['processing_request']=prior.processing_request.model_copy(update={'purpose':purpose})
     values['approvals']=tuple(a.model_copy(update={'purpose':purpose}) for a in prior.approvals)
-    values.update(raw_ref={'workspace_id':prior.workspace_id,'source_id':uuid4(),'revision':1,
+    values.update(population_id=uuid4(),operation_registry_hash='f'*64,raw_ref={'workspace_id':prior.workspace_id,'source_id':uuid4(),'revision':1,
         'original_sha256':'a'*64,'byte_count':20,'media_type':'application/pdf','filename':'invented.pdf',
         'custody_locator_seal_sha256':'b'*64},view_manifest_hash='c'*64,locator_map_hash='d'*64,
         reading_commit_hash='e'*64 if review else None)
