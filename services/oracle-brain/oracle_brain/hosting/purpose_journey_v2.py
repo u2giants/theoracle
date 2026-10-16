@@ -296,6 +296,8 @@ class CompilerWorkerConfigV2(StrictRecord):
     parent_observer_admission_file: str
     parent_observer_admission_hash: str=Field(pattern=HASH)
     observer_client: CompilerPhaseClientConfigV2
+    observer_timeout_seconds: float=Field(strict=True,gt=0,le=5,allow_inf_nan=False)
+    provider_rpc_timeout_seconds: float=Field(strict=True,gt=0,le=90,allow_inf_nan=False)
     observer_spool: str
     observer_namespace: str
     observer_initialization_hash: str=Field(pattern=HASH)
@@ -572,18 +574,18 @@ def load_purpose_worker_settings_v2(config_path,trusted_config_sha256):
     observer_admission=_worker_json(c.parent_observer_admission_file,c.parent_observer_admission_hash,ParentObserverAdmissionV2)
     _require(observer_admission.population==population and observer_admission.client_uri==c.worker_uri,
              'actual compiler parent observation appointment differs')
-    def tls(b):
+    def tls(b,timeout):
         return PurposeTLSBindingV2(b.hostname,b.port,b.server_uri,b.client_uri,
-            Path(b.ca_file),Path(b.certificate_file),Path(b.key_file))
+            Path(b.ca_file),Path(b.certificate_file),Path(b.key_file),timeout=timeout)
     replay=DurableNonceSequenceV2(c.observer_spool,namespace=c.observer_namespace,
         appointment_hash=c.parent_observer_admission_hash,minimum_sequence=observer_admission.minimum_sequence,
         initialization_receipt_hash=c.observer_initialization_hash)
     observer=ParentCurrentnessConsumerV2(admission=observer_admission,trusted_admission_hash=c.parent_observer_admission_hash,
-        transport=ParentObserverClientV2(tls(c.observer_client)),replay=replay)
+        transport=ParentObserverClientV2(tls(c.observer_client,c.observer_timeout_seconds)),replay=replay)
     semantic=CurrentSemanticAdmissionsV3(c.semantic_registry_file,c.semantic_registry_sha256,
         appointment=SemanticRegistryAppointmentV3(c.workspace_id,c.runtime_hash,'candidate-compiler',
             c.semantic_issuer_actor,c.semantic_reviewer_actor,c.semantic_valid_from,c.semantic_expires_at))
-    clients={phase:(ExtractionProviderClientV2 if phase=='extraction' else PurposeProviderClientV2)(tls(b)) for phase,b in c.clients.items()}
+    clients={phase:(ExtractionProviderClientV2 if phase=='extraction' else PurposeProviderClientV2)(tls(b,c.provider_rpc_timeout_seconds)) for phase,b in c.clients.items()}
     settings=CompilerWorkerSettingsV2(c,Path(config_path),trusted_config_sha256,population,allocation,resolver,observer,semantic,jobs,clients)
     for job in registry.jobs:settings.authorize(job)
     PurposeJourneyJournalV2(Path(c.spool))
