@@ -99,3 +99,34 @@ def test_shipped_register_loads():
     sources = load_register(path)
     assert 'cpsc-recalls' in {s.source_id for s in sources}
     assert not next(s for s in sources if s.source_id == 'astm-f963').authorized
+
+
+def test_failures_exhaust_budget_until_next_regular_refresh():
+    sched, clock = make(WEEKLY)
+    for delay in (timedelta(minutes=15), timedelta(hours=1), timedelta(hours=6)):
+        assert run_all(sched, ok=False) == ['w']
+        assert sched.dispatch() == []
+        clock.now += delay
+    assert run_all(sched, ok=False) == ['w']
+    state = sched.state['w']
+    assert state.attempts == 4 and state.exhausted
+    due = clock.now + WEEKLY.interval
+    assert state.next_due == due
+    sched.force_due('w')
+    assert state.next_due == due and sched.dispatch() == []
+    clock.now = due
+    assert run_all(sched) == ['w']
+    assert state.attempts == 0 and not state.exhausted
+
+
+def test_lost_worker_receipts_cannot_bypass_retry_budget():
+    sched, clock = make(WEEKLY)
+    runs = []
+    for _ in range(4):
+        runs += sched.dispatch()
+        clock.now += timedelta(hours=2)
+    assert sched.dispatch() == []
+    state = sched.state['w']
+    assert state.exhausted and state.attempts == 4
+    sched.complete(*runs[-1], True)
+    assert state.last_success is None and state.exhausted
