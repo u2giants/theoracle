@@ -319,3 +319,17 @@ def test_default_ledger_denies_processing_kind_before_blob_even_if_claims_qualif
     ledger=Ledger(admin_url,NoBlob(),principal=f['actor'],can_read=lambda *args:True,current_source=lambda *args:None)
     with pytest.raises(PermissionError,match='qualification'):
         ledger.read(f['workspace'],artifact,1,include_failed=True)
+
+
+def test_hold_rechecks_actual_scope_clock_before_commit(admin_url,processing):
+    import time
+    f=processing('gateway-metadata');adapter,desc,dispatch=run_context(f,resolver(f))
+    with psycopg.connect(admin_url) as conn:
+        conn.execute("UPDATE oracle2.appointments SET expires_at=clock_timestamp()+interval '0.3 second' WHERE appointment_id=%s",(f['extract'],))
+    entered=False
+    with pytest.raises((PermissionError,psycopg.errors.InsufficientPrivilege)):
+        with adapter.hold(desc,dispatch) as proof:
+            entered=True
+            assert proof.expires_at<desc.expires_at
+            time.sleep(0.35)
+    assert entered
