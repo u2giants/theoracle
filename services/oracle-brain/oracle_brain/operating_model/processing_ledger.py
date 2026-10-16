@@ -5,6 +5,7 @@ admission. SQL independently proves current source authority and provided-byte
 integrity. Neither a typed body nor a file hash grants authority.
 """
 import json
+from dataclasses import dataclass
 from datetime import datetime,timezone
 from uuid import UUID
 from typing import Protocol,runtime_checkable
@@ -158,6 +159,25 @@ class ProcessingValidationHorizonProtocol(Protocol):
     def validate_current(self,manifest:ArtifactManifest,payload:dict,principal:UUID,now:datetime)->datetime:...
 
 
+@dataclass(frozen=True)
+class ValidatedQualifiedParentV3:
+    """Local completed-boundary result, never a deserializable capability."""
+    manifest: ArtifactManifest
+    canonical_body: bytes
+    valid_until: datetime
+
+    def __post_init__(self):
+        if (type(self.manifest) is not ArtifactManifest
+                or self.manifest.kind!='processing_qualified_model_v1' or self.manifest.state!='ready'
+                or type(self.canonical_body) is not bytes
+                or not isinstance(self.valid_until,datetime) or self.valid_until.tzinfo is None
+                or self.valid_until.utcoffset() is None):
+            raise PermissionError('exact validated qualified parent result required')
+        import hashlib
+        if hashlib.sha256(self.canonical_body).hexdigest()!=self.manifest.content_hash:
+            raise PermissionError('validated qualified parent content differs')
+
+
 class PurposeProcessingCompilerLedgerV3(ProcessingCompilerLedger):
     """Closed core implementation; protected hosting authenticates actual guards.
 
@@ -176,7 +196,20 @@ class PurposeProcessingCompilerLedgerV3(ProcessingCompilerLedger):
     def _validate_processing_read_guard(self,manifest,payload,now):
         guard=(self.processing_extraction_guard if manifest.kind in
             {'processing_extraction_v1','processing_failed_extraction_v1'} else self.processing_read_guard)
-        self._validate_processing_guard(guard,manifest,payload,now)
+        return self._validate_processing_guard(guard,manifest,payload,now)
+
+    def read_validated_qualified_parent_v3(self,workspace_id,artifact_id,version):
+        if type(self) is not PurposeProcessingCompilerLedgerV3:
+            raise PermissionError('exact full compiler parent boundary required')
+        # Wrong-kind targets are rejected before any private blob can open.
+        expected,_=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
+        if expected.kind!='processing_qualified_model_v1' or expected.state!='ready':
+            raise PermissionError('exact qualified model parent required')
+        manifest,payload,until=self._read_processing_boundary(workspace_id,artifact_id,version)
+        if (manifest!=expected or not isinstance(until,datetime) or until.tzinfo is None
+                or until.utcoffset() is None or until<=self.clock()):
+            raise PermissionError('parent authority expired after metadata recheck')
+        return ValidatedQualifiedParentV3(manifest,canonical_bytes(payload),until)
 
     def _validate_processing_extraction_after_read(self,manifest,payload,now):
         # The full body hook already validated this same boundary exactly once,
