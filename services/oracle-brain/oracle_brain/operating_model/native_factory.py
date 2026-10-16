@@ -17,13 +17,14 @@ from typing import Callable, Literal
 from uuid import UUID
 
 import psycopg
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, model_validator
 
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest, authorize
 from .contracts import StrictRecord, canonical_bytes, digest
 from .key_coverage import VerifiedKeyCoverage
 from .native_provider import NativeOpenRouter
 from .provider_adapter import AdmittedProvider, Budget, Pricing
+from .original_qualification_v1 import RawOriginalRefV1
 
 
 class LedgerRegistry(StrictRecord):
@@ -57,6 +58,25 @@ class NativeDispatchJob(StrictRecord):
     pricing: Pricing
     register_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     input_tokens_upper_bound: int = Field(strict=True, gt=0)
+
+
+class RawOriginalDispatchJobV1(NativeDispatchJob):
+    """Fixed paid PDF phases before a qualified SourceRef can exist."""
+    schema_version:Literal[1]=1
+    job_schema:Literal['raw-original-dispatch-v1']='raw-original-dispatch-v1'
+    purpose:Literal['source-original-reading','source-original-review']
+    raw_ref: 'RawOriginalRefV1'
+    view_manifest_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    locator_map_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reading_commit_hash:str|None=Field(default=None,pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def exact_original_phase(self):
+        if (self.raw_ref.media_type!='application/pdf' or self.raw_ref.workspace_id!=self.workspace_id
+                or self.processing_request.purpose!=self.purpose
+                or (self.purpose=='source-original-review')!=(self.reading_commit_hash is not None)):
+            raise ValueError('exact raw PDF phase, workspace and actual prior reading required')
+        return self
 
 
 class _AuthorizedNative(NativeOpenRouter):
@@ -235,7 +255,11 @@ class NativeBrokerEgress:
             if not isinstance(job,NativeDispatchJob) or job.dispatch_id!=dispatch_id:
                 raise ValueError
             # Do not retain shared mutable dictionaries returned by a resolver.
-            job=NativeDispatchJob.model_validate_json(job.model_dump_json())
+            if type(job) is RawOriginalDispatchJobV1:
+                job=RawOriginalDispatchJobV1.model_validate_json(job.model_dump_json())
+            else:
+                # Legacy base validation remains closed to new extra fields.
+                job=NativeDispatchJob.model_validate_json(job.model_dump_json())
             encoded=canonical_bytes(envelope['request'])
             if (hashlib.sha256(encoded).hexdigest()!=job.request_hash
                     or envelope['request_hash']!=job.request_hash or encoded!=canonical_bytes(job.request)):
