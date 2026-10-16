@@ -1025,10 +1025,12 @@ GRANT EXECUTE ON FUNCTION oracle2.withdraw_original_revision_v1(uuid,integer,jso
 
 -- Preserve the retained legacy function body EXACTLY; never rewrite history.
 DO $legacy$
+DECLARE retained_body text;
 BEGIN
  IF to_regprocedure('oracle2._processing_source_legacy_v1(uuid,uuid,uuid,text,text,boolean)') IS NULL THEN
-  IF (SELECT encode(sha256(convert_to(prosrc,'UTF8')),'hex') FROM pg_proc WHERE oid=to_regprocedure('oracle2._processing_source(uuid,uuid,uuid,text,text,boolean)')) IS DISTINCT FROM '3596351b471358e43f970bf1127830de3e38ec843520e6191d70b9e671e3d416' THEN RAISE EXCEPTION 'retained processing source body drift'; END IF;
-  ALTER FUNCTION oracle2._processing_source(uuid,uuid,uuid,text,text,boolean) RENAME TO _processing_source_legacy_v1;
+  SELECT prosrc INTO retained_body FROM pg_proc WHERE oid=to_regprocedure('oracle2._processing_source(uuid,uuid,uuid,text,text,boolean)');
+  IF encode(sha256(convert_to(retained_body,'UTF8')),'hex') IS DISTINCT FROM '3596351b471358e43f970bf1127830de3e38ec843520e6191d70b9e671e3d416' THEN RAISE EXCEPTION 'retained processing source body drift'; END IF;
+  EXECUTE format('CREATE FUNCTION oracle2._processing_source_legacy_v1(workspace uuid,source uuid,principal uuid,expected_runtime text,expected_registry text,want_raw boolean) RETURNS TABLE(revision integer,original_hash text,reading_hash text,parser_id text,original_reading text,provenance text,valid_until timestamptz,checked_at timestamptz) LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS %L',retained_body);
  END IF;
  IF (SELECT encode(sha256(convert_to(prosrc,'UTF8')),'hex') FROM pg_proc WHERE oid=to_regprocedure('oracle2._processing_source_legacy_v1(uuid,uuid,uuid,text,text,boolean)')) IS DISTINCT FROM '3596351b471358e43f970bf1127830de3e38ec843520e6191d70b9e671e3d416' THEN RAISE EXCEPTION 'retained legacy body drift'; END IF;
 END $legacy$;
@@ -1219,6 +1221,7 @@ BEGIN
  OR v.body->>'reading_commit_hash' IS DISTINCT FROM r.commit_sha256 OR v.body->'qualification_pass' IS DISTINCT FROM 'true'::jsonb
  OR v.population_id IS DISTINCT FROM ad.population_id OR v.operation_registry_hash IS DISTINCT FROM ad.operation_registry_hash
  OR r.original_root_hash IS DISTINCT FROM v.original_root_hash OR r.allocation_hash IS DISTINCT FROM v.allocation_hash
+ OR r.body->>'population_hash' IS DISTINCT FROM v.body->>'population_hash'
  OR r.original_horizon IS DISTINCT FROM v.original_horizon OR v.original_horizon IS DISTINCT FROM (snapshot->>'original_horizon')::timestamptz
  OR encode(sha256(r.canonical_body),'hex') IS DISTINCT FROM r.commit_sha256 OR encode(sha256(v.canonical_body),'hex') IS DISTINCT FROM v.commit_sha256 THEN
  RAISE insufficient_privilege USING MESSAGE='independently admitted genuine qualification required'; END IF;
