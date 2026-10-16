@@ -1009,34 +1009,7 @@ class _PurposeCompilerReadGuardV3:
 
 
 
-from oracle_brain.operating_model.processing_ledger import ProcessingCompilerLedger as _ProcessingCompilerLedger
-
-class _PurposeFullCompilerLedgerV3(_ProcessingCompilerLedger):
-    """One full validation per boundary, never a retained authority result."""
-    def _validate_processing_guard(self,guard,manifest,payload,now):
-        _require(type(guard) in {_PurposeCompilerReadGuardV3,ProcessingCompilerExtractionGuardV2},
-            'exact protected full processing guard required')
-        until=guard.validate_current(manifest,payload,self.principal,now)
-        _require(isinstance(until,datetime) and until.tzinfo is not None
-            and until.utcoffset() is not None and now<until and self.clock()<until,
-            'finite current full validation deadline required')
-        return until
-
-    def _validate_processing_read_guard(self,manifest,payload,now):
-        if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
-            self._validate_processing_guard(self.processing_extraction_guard,manifest,payload,now)
-        elif type(self.processing_read_guard) is _PurposeCompilerReadGuardV3:
-            self._validate_processing_guard(self.processing_read_guard,manifest,payload,now)
-        else:
-            _require(type(self.processing_read_guard) is _PurposeQualifiedReadGuardV3,
-                'exact protected qualified read guard required')
-            if self.processing_read_guard(manifest,payload,self.principal,now) is not None:
-                raise PermissionError('protected qualified read denied')
-
-    def _validate_processing_extraction_after_read(self,manifest,payload,now):
-        # The body hook above ran once before the base current-metadata reread.
-        # No cached result is accepted or passed across boundaries.
-        return None
+from oracle_brain.operating_model.processing_ledger import PurposeProcessingCompilerLedgerV3
 
 
 def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
@@ -1050,7 +1023,7 @@ def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
     _require(type(guard) is ProcessingCompilerExtractionGuardV2
         and guard.settings is settings and guard.job==job,'exact current compiler extraction guard required')
     combined=_PurposeCompilerReadGuardV3(settings,job,guard)
-    ledger=_PurposeFullCompilerLedgerV3(settings.resolver.url,FileBlobStore(Path(settings.config.blob_root)),
+    ledger=PurposeProcessingCompilerLedgerV3(settings.resolver.url,FileBlobStore(Path(settings.config.blob_root)),
         principal=settings.config.actor_id,processing_sources=settings.resolver,
         processing_compile_guard=combined,processing_read_guard=combined,processing_extraction_guard=guard)
     combined.ledger=ledger
@@ -1130,7 +1103,15 @@ class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
         return manifest,payload
 
 
-class _PurposeQualifiedReaderLedgerV3(_PurposeFullCompilerLedgerV3):
+class _PurposeQualifiedReaderLedgerV3(PurposeProcessingCompilerLedgerV3):
+    def _validate_processing_read_guard(self,manifest,payload,now):
+        if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
+            return super()._validate_processing_read_guard(manifest,payload,now)
+        _require(type(self.processing_read_guard) is _PurposeQualifiedReadGuardV3,
+            'exact protected qualified read guard required')
+        if self.processing_read_guard(manifest,payload,self.principal,now) is not None:
+            raise PermissionError('protected qualified read denied')
+
     def _authorize_processing_blob(self,manifest):
         super()._authorize_processing_blob(manifest)  # Full raw extraction hook unchanged.
         if manifest.kind in {'processing_qualified_model_v1','processing_summary_v1'}:
