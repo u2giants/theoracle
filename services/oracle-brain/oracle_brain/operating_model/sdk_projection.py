@@ -564,6 +564,7 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
 
     async def verify(self,payload):
         # Public verification independently retains both current SDK scopes.
+        if self._executor_ledger is None or self._executor_manifest is None:raise PermissionError('actual authorized executor load context required')
         from .assembly_qualification import read_documentary_artifact
         manifest,actual=read_documentary_artifact(self._executor_ledger,*self._delivery_target,qualification_guard=self.qualification_guard,with_manifest=True)
         sealed=canonical_bytes(actual)
