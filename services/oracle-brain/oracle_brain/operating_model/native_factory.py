@@ -165,7 +165,12 @@ class NativeBrokerEgress:
                  trusted_registry_hash: str, coverage_receipt: Callable[[], VerifiedKeyCoverage],
                  trusted_coverage_hash: str, resolve_job: Callable[[UUID], NativeDispatchJob],
                  authorize_current_job: Callable[[NativeDispatchJob], bool],
-                 validate_response: Callable[[NativeDispatchJob, object], None], private_receipts: Path):
+                 validate_response: Callable[[NativeDispatchJob, object], None], private_receipts: Path,
+                 admitted_allocation=None):
+        from .provider_adapter import AdmittedAllocationLimitV2
+        if admitted_allocation is not None and type(admitted_allocation) is not AdmittedAllocationLimitV2:
+            raise PermissionError('exact admitted shared allocation required')
+        self._allocation=admitted_allocation
         self._key = api_key
         self._key_fingerprint = hashlib.sha256(api_key.encode()).hexdigest()
         self._url,self._registry,self._registry_hash = ledger_url,registry,trusted_registry_hash
@@ -237,6 +242,8 @@ class NativeBrokerEgress:
                 raise ValueError
         except (ValueError,TypeError,KeyError):
             raise PermissionError('provider request differs from immutable admitted job') from None
+        if self._allocation is not None and job.batch_id!=self._allocation.batch_id:
+            raise PermissionError('phase cannot choose a new allocation bucket')
         job_seal=digest(job.model_dump(mode='json'))
         def currently_authorized():
             return (digest(job.model_dump(mode='json'))==job_seal and self._authorize(job) is True
@@ -296,7 +303,7 @@ class NativeBrokerEgress:
                 or current.model_dump(exclude={'expires_at'})!=job.pricing.model_dump(exclude={'expires_at'})):
             raise PermissionError('current actual pricing differs from admitted job')
         provider=AdmittedProvider(request=job.processing_request,approvals=list(job.approvals),pricing=job.pricing,
-            budget=Budget(self._url,ledger_identity_hash=ledger_identity),sender=native.embed if embedding else native.send,operation='embedding' if embedding else 'chat',
+            budget=Budget(self._url,ledger_identity_hash=ledger_identity,admitted_allocation=self._allocation),sender=native.embed if embedding else native.send,operation='embedding' if embedding else 'chat',
             remaining_daily_allowance=native.allowance,admitted_register_hash=job.register_hash)
         # Recheck immediately before reservation/send, after all preflight work.
         if not currently_authorized():

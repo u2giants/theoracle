@@ -147,7 +147,8 @@ def qualification(phase='embedding'):
     pins=PurposePinsV2(qualification_purpose='phase-operation-qualification-v2',phase=d.phase,
         operation=d.operation,runtime_hash=d.runtime_hash,source_registry_hash=d.source_registry_hash,
         parent_registry_sha256=d.parent_registry_sha256,population_admission_sha256=d.population_admission_sha256,
-        phase_registry_sha256=seal,descriptor_sha256=projection.descriptor_sha256,
+        phase_registry_sha256=seal,budget_allocation_projection_sha256=d.dispatches[0].budget_identity_hash,
+        descriptor_sha256=projection.descriptor_sha256,
         projection_sha256=digest(projection.model_dump(mode='json')),provider_login=d.provider_login,
         worker_uri=d.worker_uri,issuer_actor=d.issuer_actor,reviewer_actor=d.reviewer_actor,expires_at=d.expires_at)
     return registry,population,pins,now,d
@@ -191,3 +192,40 @@ def test_embedding_qualification_never_borrows_chat_or_base_processing_approval(
     with pytest.raises((PermissionError,ValueError,ValidationError)):
         derive_purpose_descriptor_v2(registry,population,pins=pins,
             phase_registry_bytes_hash=seal,now=now)
+
+
+def allocation_projection():
+    from decimal import Decimal
+    from oracle_brain.operating_model.purpose_context import BudgetAllocationPinsV2
+    d,j,_,now=records()
+    projection=BudgetAllocationPinsV2(original_batch_id=uuid4(),allocation_hash='1'*64,
+        original_receipt_hash='2'*64,original_ceiling_usd=Decimal('.5'),original_expires_at=d.expires_at,
+        ledger_registry_hash=j.ledger_registry_hash,key_coverage_hash=j.key_coverage_hash,
+        account_policy_hash=j.account_policy_hash)
+    seal=digest(projection.model_dump(mode='json'))
+    dispatch=j.model_copy(update={'budget_identity_hash':seal})
+    return projection,seal,dispatch,now
+
+
+def test_same_original_allocation_projection_does_not_issue_or_renew_budget():
+    projection,seal,dispatch,now=allocation_projection()
+    assert projection.verify_current(trusted_projection_hash=seal,dispatches=(dispatch,),now=now) is None
+    assert projection.original_ceiling_usd<5
+
+
+@pytest.mark.parametrize('field',('allocation_hash','original_receipt_hash','original_ceiling_usd',
+    'original_expires_at','original_batch_id','ledger_registry_hash','key_coverage_hash','account_policy_hash'))
+def test_allocation_projection_cannot_change_original_receipt_scope_under_old_pin(field):
+    from decimal import Decimal
+    projection,seal,dispatch,now=allocation_projection()
+    value=uuid4() if field=='original_batch_id' else (
+        Decimal('25') if field=='original_ceiling_usd' else (
+        projection.original_expires_at+timedelta(days=1) if field=='original_expires_at' else 'f'*64))
+    projection=projection.model_copy(update={field:value})
+    with pytest.raises(PermissionError):projection.verify_current(trusted_projection_hash=seal,dispatches=(dispatch,),now=now)
+
+
+def test_original_expired_allocation_never_renews_from_phase_clock():
+    projection,seal,dispatch,now=allocation_projection()
+    with pytest.raises(PermissionError):
+        projection.verify_current(trusted_projection_hash=seal,dispatches=(dispatch,),now=projection.original_expires_at)

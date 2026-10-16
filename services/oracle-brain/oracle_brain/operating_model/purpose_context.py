@@ -6,6 +6,7 @@ projections contain no originals, requests, candidate or private locations.
 Extraction V1 contracts and documentary defaults remain separate.
 """
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -279,6 +280,7 @@ class PurposePinsV2(StrictRecord):
     parent_registry_sha256: str = Field(pattern=HASH)
     population_admission_sha256: str = Field(pattern=HASH)
     phase_registry_sha256: str = Field(pattern=HASH)
+    budget_allocation_projection_sha256: str = Field(pattern=HASH)
     descriptor_sha256: str = Field(pattern=HASH)
     projection_sha256: str = Field(pattern=HASH)
     provider_login: str = Field(pattern=LOGIN)
@@ -328,6 +330,7 @@ def derive_purpose_descriptor_v2(registry, population, *, pins, phase_registry_b
             or registry.source_refs != population.source_refs
             or registry.population_digest != population.population_digest
             or registry.workspace_id != population.workspace_id
+            or any(j.budget_identity_hash!=pins.budget_allocation_projection_sha256 for j in registry.dispatches)
             or registry.provider_login != pins.provider_login or registry.worker_uri != pins.worker_uri
             or registry.issuer_actor != pins.issuer_actor or registry.reviewer_actor != pins.reviewer_actor
             or registry.expires_at > min(population.expires_at, pins.expires_at)
@@ -343,3 +346,31 @@ def derive_purpose_descriptor_v2(registry, population, *, pins, phase_registry_b
             or digest(projection.model_dump(mode='json')) != pins.projection_sha256):
         raise PermissionError('qualified descriptor/projection differs from external startup seal')
     return descriptor
+
+
+class BudgetAllocationPinsV2(StrictRecord):
+    """Externally qualified metadata projection of the SAME original allocation.
+
+    Its digest identifies this projection, not original raw receipt bytes. The
+    external startup appointment must authenticate origin/meaning; construction
+    does not renew an allocation or reserve any amount.
+    """
+    schema_version: Literal[2]=2
+    purpose: Literal['existing-allocation-projection-v2']='existing-allocation-projection-v2'
+    original_batch_id: UUID
+    allocation_hash: str=Field(pattern=HASH)
+    original_receipt_hash: str=Field(pattern=HASH)
+    original_ceiling_usd: Decimal=Field(gt=0,allow_inf_nan=False)
+    original_expires_at: AwareDatetime
+    ledger_registry_hash: str=Field(pattern=HASH)
+    key_coverage_hash: str=Field(pattern=HASH)
+    account_policy_hash: str=Field(pattern=HASH)
+
+    def verify_current(self,*,trusted_projection_hash,dispatches,now):
+        if (digest(self.model_dump(mode='json'))!=trusted_projection_hash
+                or now.tzinfo is None or now.utcoffset() is None or now>=self.original_expires_at
+                or any(j.budget_identity_hash!=trusted_projection_hash
+                    or j.ledger_registry_hash!=self.ledger_registry_hash
+                    or j.key_coverage_hash!=self.key_coverage_hash
+                    or j.account_policy_hash!=self.account_policy_hash for j in dispatches)):
+            raise PermissionError('current exact externally qualified original allocation projection required')
