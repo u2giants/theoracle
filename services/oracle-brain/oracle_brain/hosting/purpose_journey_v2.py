@@ -314,11 +314,13 @@ class CurrentPurposeWorkerJobsV2:
 
 class CompilerPhaseCustodyFileV2(StrictRecord):
     kind: Literal['phase_commit','native_receipt','raw_wire','native_job','extraction_qualification',
-        'population','census_context','assessment_context','assembly_context','assembly_observer',
+        'wire_metadata','population','census_context','assessment_context','assembly_context','assembly_observer',
         'assembly_protocol','assembly_observed','census_wire','assessment_wire','assembly_wire',
         'assessment','semantic_admission','compile_inputs']
     path: str
-    sha256: str=Field(pattern=HASH)
+    sha256: str|None=Field(default=None,pattern=HASH)
+    producer_runtime_hash: str|None=Field(default=None,pattern=HASH)
+    request_hash: str|None=Field(default=None,pattern=HASH)
     dispatch_id: UUID|None=None
     native_job_hash: str|None=Field(default=None,pattern=HASH)
     phase_commit_hash: str|None=Field(default=None,pattern=HASH)
@@ -326,6 +328,16 @@ class CompilerPhaseCustodyFileV2(StrictRecord):
     artifact_id: UUID|None=None
     artifact_version: int|None=Field(default=None,strict=True,ge=1)
     source_ref: SourceRef|None=None
+
+
+    @model_validator(mode='after')
+    def exact_future_output(self):
+        if self.sha256 is None:
+            _require(self.kind in {'phase_commit','native_receipt','raw_wire','wire_metadata'}
+                and self.dispatch_id is not None and self.native_job_hash is not None
+                and self.request_hash is not None and self.producer_runtime_hash is not None,
+                'future output requires exact externally appointed producer/dispatch/request')
+        return self
 
 
 class CompilerPhaseCustodyAppointmentV2(StrictRecord):
@@ -524,12 +536,17 @@ def _phase_commit_from_custody(settings,job,reply=None):
         and commit.population_digest==source_population_digest(job.source_refs)
         and commit.request_hash==job.request_hash
         and entry.dispatch_id==commit.dispatch_id and entry.native_job_hash==commit.job_hash
-        and entry.phase_commit_hash==seal and entry.native_custody_receipt_hash==commit.native_custody_receipt_hash,
+        and (entry.phase_commit_hash is None or entry.phase_commit_hash==seal)
+        and (entry.native_custody_receipt_hash is None or entry.native_custody_receipt_hash==commit.native_custody_receipt_hash)
+        and (entry.sha256 is not None or (entry.producer_runtime_hash==commit.runtime_hash
+            and entry.request_hash==commit.request_hash)),
         'actual authorized phase commit differs from externally appointed custody')
     native_raw,native_entry=settings.private(job,'native_receipt',dispatch_id=job.dispatch_id)
     native=json.loads(native_raw,object_pairs_hook=_unique)
     _require(native_entry.native_job_hash==commit.job_hash
-        and native_entry.native_custody_receipt_hash==commit.native_custody_receipt_hash
+        and (native_entry.native_custody_receipt_hash is None or native_entry.native_custody_receipt_hash==commit.native_custody_receipt_hash)
+        and (native_entry.sha256 is not None or (native_entry.producer_runtime_hash==commit.runtime_hash
+            and native_entry.request_hash==commit.request_hash))
         and digest(native)==commit.native_custody_receipt_hash
         and native.get('failed') is False and native.get('job_hash')==commit.job_hash
         and native.get('request_hash')==commit.request_hash
@@ -605,22 +622,68 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
             and witness.native_job_hash==entry.native_job_hash
             and witness.source_refs==job.source_refs and witness.population_digest==source_population_digest(job.source_refs)
             and witness.parent_registry_hash==s.population.parent_registry_sha256
-            and witness.raw_wire_hash==wentry.sha256
-            and centry.phase_commit_hash==witness.phase_commit_hash
-            and centry.native_custody_receipt_hash==witness.native_custody_receipt_hash
+            and (wentry.sha256 is None or witness.raw_wire_hash==wentry.sha256)
+            and (wentry.sha256 is not None or (wentry.producer_runtime_hash==committed.runtime_hash
+                and wentry.request_hash==committed.request_hash))
+            and (centry.phase_commit_hash is None or centry.phase_commit_hash==witness.phase_commit_hash)
+            and (centry.native_custody_receipt_hash is None or centry.native_custody_receipt_hash==witness.native_custody_receipt_hash)
+            and (centry.sha256 is not None or (centry.producer_runtime_hash==committed.runtime_hash
+                and centry.request_hash==committed.request_hash))
             and qualification.budget_allocation_projection_sha256==s.config.allocation_projection_sha256,
             'paid witness differs from externally appointed compiler/source/allocation custody')
         native_raw,nentry=s.private(job,'native_receipt',**selector)
         native=json.loads(native_raw,object_pairs_hook=_unique)
         _require(native.get('failed') is False and digest(native)==witness.native_custody_receipt_hash
-            and nentry.native_custody_receipt_hash==witness.native_custody_receipt_hash
+            and (nentry.native_custody_receipt_hash is None or nentry.native_custody_receipt_hash==witness.native_custody_receipt_hash)
+            and (nentry.sha256 is not None or (nentry.producer_runtime_hash==committed.runtime_hash
+                and nentry.request_hash==committed.request_hash))
             and native.get('job_hash')==witness.native_job_hash and native.get('raw_response_hash')==witness.raw_wire_hash,
             'actual paid native receipt unavailable')
         return context,content,witness,until
 
+    def _failed(self,manifest,principal,now):
+        from oracle_brain.hosting.provider_runtime import JobContext
+        from oracle_brain.hosting.processing_extraction_runtime_v2 import (
+            ExtractionOperationQualificationV2,verify_extraction_failed_paid_wire_v2)
+        entry,until=self._entry(manifest,principal,now)
+        s=self.settings;job=self.job
+        selector={'artifact_id':manifest.artifact_id,'artifact_version':manifest.version,'dispatch_id':entry.dispatch_id}
+        context_raw,_=s.private(job,'native_job',**selector)
+        context=JobContext.model_validate_json(context_raw)
+        qraw,qentry=s.private(job,'extraction_qualification',**selector)
+        q=ExtractionOperationQualificationV2.model_validate_json(qraw)
+        wire,wentry=s.private(job,'raw_wire',**selector)
+        native_raw,nentry=s.private(job,'native_receipt',**selector)
+        metadata_raw,mentry=s.private(job,'wire_metadata',**selector)
+        record=json.loads(native_raw,object_pairs_hook=_unique)
+        metadata=json.loads(metadata_raw,object_pairs_hook=_unique)
+        witness=verify_extraction_failed_paid_wire_v2(context,record,wire,metadata,q,s.population,
+            expected_qualification_hash=qentry.sha256,expected_ledger_hash=s.allocation.ledger_registry_hash,
+            artifact_version=manifest.version,now=now)
+        _require(witness.artifact_id==manifest.artifact_id and witness.artifact_version==manifest.version
+            and witness.source_ref==entry.source_ref and witness.native_dispatch_id==entry.dispatch_id
+            and witness.native_job_hash==entry.native_job_hash and witness.source_refs==job.source_refs
+            and witness.budget_projection_hash==s.config.allocation_projection_sha256,
+            'failed native custody differs from exact compiler allocation/target')
+        for output in (wentry,nentry,mentry):
+            _require(output.native_job_hash==witness.native_job_hash
+                and output.dispatch_id==witness.native_dispatch_id
+                and (output.sha256 is not None or (output.producer_runtime_hash==q.runtime_hash
+                    and output.request_hash==witness.request_hash)),
+                'failed result lacks actual appointed producer/attempt provenance')
+        return context,witness,until
+
     def __call__(self,manifest,payload,principal,now):
         from oracle_brain.operating_model.extraction import validate_response
-        _require(manifest.kind=='processing_extraction_v1','failed paid extraction requires explicit FAILED custody protocol')
+        if manifest.kind=='processing_failed_extraction_v1':
+            context,witness,until=self._failed(manifest,principal,now)
+            expected=failed_extraction_payload_v2(witness)
+            _require(payload==expected and manifest.content_hash==digest(expected)
+                and manifest.permission_digest==context.permission_hash,
+                'failed artifact must describe actual FAILED custody, never settlement or success')
+            self.settings.authority_horizon(self.job)
+            return None
+        _require(manifest.kind=='processing_extraction_v1','exact extraction artifact required')
         context,content,witness,until=self._paid(manifest,principal,now)
         response,observations=validate_response(context.receipt,content,inventories=context.inventories)
         expected={'source_refs':[witness.source_ref.model_dump(mode='json')],
@@ -636,3 +699,101 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
     def valid_until(self,manifest,payload,principal,now):
         self(manifest,payload,principal,now)
         return self.authorize_manifest(manifest,principal,now)
+
+
+def run_purpose_worker_once_v2(settings):
+    """One new admitted phase; retained claims are observational, never rePOSTed.
+
+    The five-hash response authenticates output, not a read capability. Missing
+    appointed output is retained for an independently admitted consume action.
+    No phase context, provider approval or external semantic admission is minted.
+    """
+    _require(type(settings) is CompilerWorkerSettingsV2,'actual protected compiler settings required')
+    custody=PurposeJourneyCustodyV2(settings)
+    claimed=custody.claim()
+    if claimed is None:return None
+    job,attempt=claimed
+    _require(job.phase!='compile','compile requires exact external schema3 inputs and protected ledger')
+    from oracle_brain.hosting.purpose_transport import PurposeProviderClientV2
+    client=settings.clients.get(job.phase)
+    _require(type(client) is PurposeProviderClientV2,'fixed actual mTLS phase client required')
+    settings.authorize(job)
+    # No filesystem or SQL lock spans this network operation. A failure leaves
+    # the durable spent claim in place: never enqueue/dispatch it again.
+    reply=client.dispatch(job.dispatch_id,job.request_hash,job.phase_registry_sha256)
+    settings.authorize(job)
+    commit=_phase_commit_from_custody(settings,job,reply)
+    return custody.journal.commit(job,receipt_hash=digest(commit.model_dump(mode='json')),
+        native_receipt_hash=commit.native_custody_receipt_hash,now=datetime.now(timezone.utc))
+
+
+class _PurposeCompilerReadGuardV3:
+    """Protected composition: actual SQL/custody and sole external registry."""
+    def __init__(self,settings,job,extraction):
+        from oracle_brain.operating_model.purpose_qualification_v3 import PurposeQualifiedAssemblyReadGuardV3
+        self.settings,self.job,self.extraction=settings,job,extraction
+        self.ledger=None
+        self.qualified=PurposeQualifiedAssemblyReadGuardV3(trusted_admissions=self.trust,
+            runtime_hash=settings.config.runtime_hash,current_source_identity=self.source,
+            current_extraction_seal=self.extraction_seal,qualified_parent_reader=self.parent)
+
+    def trust(self):
+        self.settings.authorize(self.job)
+        return self.settings.semantic.current(datetime.now(timezone.utc))
+
+    def source(self,workspace,principal,source_id):
+        _require(principal==self.settings.config.actor_id,'compiler source principal differs')
+        self.settings.authorize(self.job)
+        return self.settings.resolver.identity(workspace,source_id)
+
+    def extraction_seal(self,workspace,principal,artifact,version):
+        _require(principal==self.settings.config.actor_id,'compiler extraction principal differs')
+        self.settings.authorize(self.job)
+        # A SQL seal alone is not enough: replay actual appointed paid custody
+        # through the ledger's preblob and full extraction guard as well.
+        self.ledger.read_with_manifest(workspace,artifact,version)
+        return self.settings.resolver.extraction_seal(workspace,artifact,version)
+
+    def parent(self,workspace,principal,artifact,version):
+        _require(principal==self.settings.config.actor_id,'qualified parent principal differs')
+        return self.ledger.read_with_manifest(workspace,artifact,version)
+
+    def __call__(self,manifest,payload,principal,now):
+        if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
+            return self.extraction(manifest,payload,principal,now)
+        self.settings.authorize(self.job)
+        return self.qualified(manifest,payload,principal,now)
+
+    def valid_until(self,manifest,payload,principal,now):
+        until=self.settings.authority_horizon(self.job)
+        if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
+            return min(until,self.extraction.valid_until(manifest,payload,principal,now))
+        return min(until,self.qualified.valid_until(manifest,payload,principal,now),
+            self.settings.semantic.valid_until(now))
+
+
+def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
+    """Only protected hosting construction qualifies this new runtime path."""
+    from oracle_brain.operating_model.processing_ledger import ProcessingCompilerLedger
+    from oracle_brain.operating_model.artifact_storage import FileBlobStore
+    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2,
+             'actual protected compiler settings and external job required')
+    settings.authorize(job)
+    guard=ProcessingCompilerExtractionGuardV2(settings,job) if extraction_guard is None else extraction_guard
+    _require(type(guard) is ProcessingCompilerExtractionGuardV2
+        and guard.settings is settings and guard.job==job,'exact current compiler extraction guard required')
+    combined=_PurposeCompilerReadGuardV3(settings,job,guard)
+    ledger=ProcessingCompilerLedger(settings.resolver.url,FileBlobStore(Path(settings.config.blob_root)),
+        principal=settings.config.actor_id,processing_sources=settings.resolver,
+        processing_compile_guard=combined,processing_read_guard=combined,processing_extraction_guard=guard)
+    combined.ledger=ledger
+    return ledger
+
+
+def failed_extraction_payload_v2(witness):
+    """Actual failed attempt/capture only; native provider retains cost liability."""
+    from oracle_brain.hosting.processing_extraction_runtime_v2 import FailedPaidResponseCustodyWitnessV2
+    _require(type(witness) is FailedPaidResponseCustodyWitnessV2,'actual failed custody witness required')
+    return {'source_refs':[witness.source_ref.model_dump(mode='json')],
+        'observations':[],'findings':[],'complete':False,'failure_class':witness.failure_class,
+        'native_failed_custody':witness.model_dump(mode='json'),'settlement_verified':False}
