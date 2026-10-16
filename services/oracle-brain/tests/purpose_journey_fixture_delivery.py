@@ -36,7 +36,7 @@ def appoint_actual_embedding_outputs(phase,*,worker,compile_job,artifact,root):
     return updated,pins
 
 
-def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,tls,certificates):
+def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,tls,certificates,prepared_bundle,stage):
     """ONE actual native packet through protected factory and leased outbox.
 
     The fixture admin provisions only a new exact writer ACL. Runtime receives
@@ -67,12 +67,15 @@ def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,t
             settings=make_paid_projector_fixture_settings_v3(worker,job,root/'projector',graph_url_file=url_file,
                 tls_ca_file=certificates/'ca.pem',tls_certificate_file=certificates/'worker.pem',
                 tls_key_file=certificates/'worker.key',receipt_key_file=key_file,artifact_id=artifact.artifact_id,
-                artifact_version=artifact.version,embedding_dispatch_id=embedding_dispatch_id,generation=generation,projector_id=uuid4())
+                artifact_version=artifact.version,embedding_dispatch_id=embedding_dispatch_id,generation=generation,projector_id=uuid4(),
+                prepared_bundle=prepared_bundle)
+            stage('protected_projector_settings_loaded')
             lease=lease_processing_projection(settings.bundle.ledger,job.workspace_id)
             assert lease is not None
             async def deliver():
                 signed=await project_paid_projector_event_v3(settings,lease)
                 assert signed['schema_version']==3 and signed['embedding_protocol']=='paid-sdk-embedding-v3'
+                stage('protected_graph_ack_committed')
                 # Fresh compiler reconstruction obtains the ACTUAL SQL ACK, not
                 # this local return value or an owner SELECT/cached receipt.
                 fresh=reload_paid_projector_projection_v3(settings)

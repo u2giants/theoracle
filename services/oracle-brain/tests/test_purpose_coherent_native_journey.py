@@ -146,6 +146,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     from purpose_journey_fixture_delivery import appoint_actual_embedding_outputs
     delivered_worker,embedding_pins=appoint_actual_embedding_outputs(embedding,worker=compiled,compile_job=compile_job,
         artifact=qualified[0],root=tmp_path/'late-paid-consumer')
+    stage('embedding_custody_reappointment_loaded')
     from oracle_brain.hosting.paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3
     paid=load_paid_sdk_bundle_v3(delivered_worker,compile_job,artifact_id=qualified[0].artifact_id,artifact_version=1,
         embedding_dispatch_id=embedding['job'].dispatch_id)
@@ -155,6 +156,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     from purpose_journey_fixture_delivery import deliver_actual_paid_graph
     signed=deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
         embedding_dispatch_id=embedding['job'].dispatch_id,root=tmp_path/'actual-paid-graph',
-        tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent)
+        tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,
+        prepared_bundle=paid,stage=stage)
     assert signed['content_hash']==qualified[0].content_hash and x['state']['posts']==7
     stage('protected_graph_ack_and_compiler_restart')
