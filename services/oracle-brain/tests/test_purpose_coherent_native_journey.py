@@ -181,12 +181,15 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         assert x['state']['posts']==7 and set(reply)=={'dispatch_id','request_hash','phase_registry_sha256','raw_response_hash','receipt_hash'}
         stage('native_embedding_committed')
         return reply
-    def identity(settings):
-        return dict(principal=str(settings.config.actor_id),runtime=settings.config.runtime_hash,
-            login=settings.config.expected_session_role,observer_path=str(settings.observer.replay.state_path.resolve()))
+    from purpose_journey_fixture_delivery import fixture_observer_identity
     parallel=run_independent_fixture_tasks({'summary':compile_summary,'embedding':dispatch_embedding},
         deadline=min(compile_job.original_horizon,compile_job.expires_at,embedding['descriptor'].expires_at),
-        identities={'summary':identity(compiled),'embedding':identity(embedding['settings'])},record=tmp_path/'summary-embedding-overlap.json')
+        identities={'summary':fixture_observer_identity(compiled.resolver.binding,compiled.observer.replay.state_path,
+                expected_principal=compiled.config.actor_id,expected_runtime=compiled.config.runtime_hash,
+                expected_login=compiled.config.expected_session_role,expected_profile='candidate-compiler'),
+            'embedding':fixture_observer_identity(embedding['settings'].resolver.binding.source,embedding['settings'].observer.replay.state_path,
+                expected_principal=embedding['descriptor'].actor_id,expected_runtime=embedding['descriptor'].runtime_hash,
+                expected_login=embedding['descriptor'].provider_login,expected_profile='gateway-metadata')},record=tmp_path/'summary-embedding-overlap.json')
     summary_compiler,summary_guard,summary,summary_manifest=parallel['summary']
     from purpose_journey_fixture_delivery import appoint_actual_embedding_outputs
     delivered_worker,embedding_pins=appoint_actual_embedding_outputs(embedding,worker=compiled,compile_job=compile_job,
@@ -293,3 +296,22 @@ def test_parallel_fixture_expired_original_horizon_never_starts_or_renews(tmp_pa
         run_independent_fixture_tasks({'a':lambda:calls.append('a'),'b':lambda:calls.append('b')},
             deadline=datetime.now(timezone.utc)-timedelta(seconds=1),identities=_independent_test_identities(),record=tmp_path/'expired.json')
     assert calls==[]
+
+
+def test_parallel_fixture_identity_uses_exact_source_binding_not_provider_config(tmp_path):
+    from datetime import datetime,timedelta,timezone
+    from oracle_brain.operating_model.authority_adapter import ProcessingSourceBinding
+    from purpose_journey_fixture_delivery import fixture_observer_identity
+    from uuid import uuid4
+    binding=ProcessingSourceBinding(runtime_hash='a'*64,source_registry_hash='b'*64,expected_owner_role='fixture_owner',
+        expected_session_role='fixture_reader',principal=uuid4(),profile='source-reader',
+        expires_at=datetime.now(timezone.utc)+timedelta(seconds=5),synthetic=False)
+    pins=dict(expected_principal=binding.principal,expected_runtime=binding.runtime_hash,
+        expected_login=binding.expected_session_role,expected_profile=binding.profile)
+    value=fixture_observer_identity(binding,tmp_path/'actual-observer-state',**pins)
+    assert value==dict(principal=str(binding.principal),runtime=binding.runtime_hash,login=binding.expected_session_role,
+        observer_path=str((tmp_path/'actual-observer-state').resolve()))
+    with pytest.raises(AssertionError):fixture_observer_identity({'actor_id':binding.principal},tmp_path/'state',**pins)
+    from dataclasses import replace
+    with pytest.raises(AssertionError,match='foreign'):
+        fixture_observer_identity(replace(binding,principal=uuid4()),tmp_path/'state',**pins)

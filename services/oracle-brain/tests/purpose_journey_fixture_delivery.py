@@ -9,6 +9,18 @@ from oracle_brain.hosting.purpose_journey_v2 import CompilerPhaseCustodyFileV2,C
 from test_purpose_worker_startup import make_next_compiler_worker_v2
 
 
+def fixture_observer_identity(source_binding,observer_state_path,*,expected_principal,expected_runtime,expected_login,expected_profile):
+    """Record actual immutable SQL binding pins, never provider body/config IDs."""
+    from oracle_brain.operating_model.authority_adapter import ProcessingSourceBinding
+    if type(source_binding) is not ProcessingSourceBinding:
+        raise AssertionError('actual immutable source binding required for fixture identity')
+    if (source_binding.principal,source_binding.runtime_hash,source_binding.expected_session_role,source_binding.profile)!=(
+            expected_principal,expected_runtime,expected_login,expected_profile):
+        raise AssertionError('foreign fixture source binding differs from actual protected descriptor')
+    return dict(principal=str(source_binding.principal),runtime=source_binding.runtime_hash,
+        login=source_binding.expected_session_role,observer_path=str(Path(observer_state_path).resolve()))
+
+
 def run_independent_fixture_tasks(tasks,*,deadline,identities,record):
     """TEST ONLY bounded two-lane DAG; no grant/proof/result is cached here."""
     import concurrent.futures,time
