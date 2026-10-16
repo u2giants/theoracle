@@ -178,7 +178,27 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         pstats.Stats(summary_profile,stream=profile_text).strip_dirs().sort_stats('cumulative').print_stats()
         (tmp_path/'summary-compile-profile.txt').write_text(profile_text.getvalue())
     stage('compiler_summary_committed_without_second_projection')
+    def assert_missing_raw_full_compilation(proof_ledger,absent):
+        with pytest.raises(FileNotFoundError) as raw_denial:
+            proof_ledger.read_with_manifest(job.workspace_id,handoff.extractions[0].manifest.artifact_id,1)
+        assert __import__('pathlib').Path(raw_denial.value.filename) in absent
+        with pytest.raises(FileNotFoundError) as compile_denial:
+            proof_ledger.persist(workspace_id=job.workspace_id,artifact_id=qualified[0].artifact_id,version=1,
+                kind='processing_qualified_model_v1',payload=qualified[1],refs=job.source_refs,
+                permission_digest=qualified[0].permission_digest,compiler_digest=qualified[0].compiler_digest,
+                dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in handoff.extractions))
+        assert __import__('pathlib').Path(compile_denial.value.filename) in absent
+        with pytest.raises(FileNotFoundError) as summary_denial:
+            persist_summary(summary_compiler,summary,summary_id=uuid4(),summary_version=1,
+                permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
+                qualification_guard=summary_guard)
+        assert __import__('pathlib').Path(summary_denial.value.filename) in absent
+        stage('raw_read_direct_compile_and_summary_refused_missing_paid_proof')
     if __import__('os').environ.get('ORACLE2_TEST_SUMMARY_PROFILE_ONLY')=='1':
+        with unmounted_historical_extraction_wires(extraction,tmp_path/'profile-unmounted-wire-backups') as absent:
+            assert summary_compiler.read_with_manifest(job.workspace_id,qualified[0].artifact_id,1)==qualified
+            stage('profile_qualified_read_without_historical_wire')
+            assert_missing_raw_full_compilation(summary_compiler,absent)
         stage('partial_summary_profile_only_no_graph_acceptance')
         return
     with unmounted_historical_extraction_wires(extraction,tmp_path/'unmounted-extraction-wire-backups') as absent:
@@ -187,22 +207,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         assert len(paid.embedder.data.vectors)==len(paid.embedder.data.inventory.inputs)
         assert all(len(v)==256 for v in paid.embedder.data.vectors)
         stage('protected_paid_bundle_without_historical_raw_wire')
-        def raw_compile_negatives():
-            with pytest.raises(FileNotFoundError) as raw_denial:
-                paid.ledger.read_with_manifest(job.workspace_id,handoff.extractions[0].manifest.artifact_id,1)
-            assert __import__('pathlib').Path(raw_denial.value.filename) in absent
-            with pytest.raises(FileNotFoundError) as compile_denial:
-                paid.ledger.persist(workspace_id=job.workspace_id,artifact_id=qualified[0].artifact_id,version=1,
-                    kind='processing_qualified_model_v1',payload=qualified[1],refs=job.source_refs,
-                    permission_digest=qualified[0].permission_digest,compiler_digest=qualified[0].compiler_digest,
-                    dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in handoff.extractions))
-            assert __import__('pathlib').Path(compile_denial.value.filename) in absent
-            with pytest.raises(FileNotFoundError) as summary_denial:
-                persist_summary(summary_compiler,summary,summary_id=uuid4(),summary_version=1,
-                    permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
-                    qualification_guard=summary_guard)
-            assert __import__('pathlib').Path(summary_denial.value.filename) in absent
-            stage('raw_read_direct_compile_and_summary_refused_missing_paid_proof')
+        def raw_compile_negatives():assert_missing_raw_full_compilation(paid.ledger,absent)
         with deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
             embedding_dispatch_id=embedding['job'].dispatch_id,root=tmp_path/'actual-paid-graph',
             tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,
