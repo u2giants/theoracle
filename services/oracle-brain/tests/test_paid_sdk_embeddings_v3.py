@@ -196,6 +196,7 @@ def test_paid_supported_sdk_tls_config_keeps_exact_target_and_every_tls_option()
         ssl_ca_certs='/protected/ca.pem',ssl_certfile='/protected/client.pem',ssl_keyfile='/protected/client.key')
     selected=paid_tls_connection_config_v3(uri,'exact_owned_graph',cfg)
     assert selected==cfg and selected is not cfg
+    assert paid_tls_connection_config_v3(uri,'exact_owned_graph',replace(selected,query_timeout_ms=100,pool_timeout=0.1)).query_timeout_ms==100
     cfg.ssl=False
     assert selected.ssl is True
     for field,value in [('host','other'),('port',6379),('username','admin'),('password','other'),('graph_name','other'),
