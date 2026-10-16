@@ -60,3 +60,15 @@ def test_computational_precision_bounds(amount):
 def test_missing_baseline_is_not_fabricated():
     with pytest.raises(ValueError):
         Forecast(None, money("2"), ("same workload",))
+
+
+@pytest.mark.parametrize("field", ["unit", "period"])
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "\u00a0", "\u2003"])
+@pytest.mark.parametrize("placement", ["prefix", "suffix"])
+def test_noncanonical_units_periods_fail_closed(field, whitespace, placement):
+    args = dict(amount=Decimal("5"), unit="money", period="per_week", currency="USD")
+    args[field] = whitespace + args[field] if placement == "prefix" else args[field] + whitespace
+    if field == "unit":
+        args["currency"] = None
+    with pytest.raises(ValueError, match="canonical"):
+        Measurement(**args)

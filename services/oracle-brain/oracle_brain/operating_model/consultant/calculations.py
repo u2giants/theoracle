@@ -17,6 +17,8 @@ class Measurement:
             raise ValueError("measurement exceeds computational precision bounds")
         if not isinstance(self.unit, str) or not isinstance(self.period, str):
             raise ValueError("string unit and period required")
+        if self.unit != self.unit.strip() or self.period != self.period.strip():
+            raise ValueError("canonical unit and period required")
         if self.amount < 0 or not self.unit.strip() or not self.period.strip():
             raise ValueError("nonnegative amount and explicit unit/period required")
         if self.unit == "money":

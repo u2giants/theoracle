@@ -50,3 +50,11 @@ def test_acceptance_is_not_realized_benefit():
     # A decision to try a scenario cannot replace completed followup evidence.
     with pytest.raises(ValueError, match="incomplete"):
         observation(observed_through=START).observed_reduction(now=START)
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "\u00a0", "\u2003"])
+@pytest.mark.parametrize("placement", ["prefix", "suffix"])
+def test_noncanonical_evidence_cannot_make_one_reference_distinct(whitespace, placement):
+    altered = whitespace + "ref" if placement == "prefix" else "ref" + whitespace
+    with pytest.raises(ValueError):
+        observation(evidence_refs=("ref", altered)).observed_reduction(now=END)
