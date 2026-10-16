@@ -149,3 +149,49 @@ def test_client_certificate_must_match_own_external_uri_pin(bound_tls):
     _,binding=bound_tls
     with pytest.raises(GatewayDenied):
         dataclasses.replace(binding(443),client_uri='spiffe://oracle/wrong-caller')
+
+
+def test_actual_extraction_endpoint_cross_route_domain_and_retained_parser(bound_tls):
+    import http.client
+    from oracle_brain.hosting.purpose_transport import (ExtractionProviderClientV2,
+        extraction_ingress_server_v2,purpose_ingress_server_v2)
+    tls,binding=bound_tls
+    class Ingress:
+        calls=0
+        def dispatch(self,peer,request):
+            assert peer==WORKER
+            self.calls+=1
+            return {**request,'raw_response_hash':'c'*64,'receipt_hash':'d'*64}
+    extraction,purpose=Ingress(),Ingress()
+    servers=[extraction_ingress_server_v2(('127.0.0.1',0),tls=tls,worker_uri=WORKER,ingress=extraction),
+             purpose_ingress_server_v2(('127.0.0.1',0),tls=tls,worker_uri=WORKER,ingress=purpose)]
+    threads=[]
+    for server in servers:
+        thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.01},daemon=True);thread.start();threads.append(thread)
+    client=ExtractionProviderClientV2(binding(servers[0].server_port))
+    request={'dispatch_id':str(uuid4()),'request_hash':'a'*64,'extraction_qualification_sha256':'b'*64}
+    raw=json.dumps(request).encode()
+    def post(server,path,*,lengths=None,transfer=False,body=raw):
+        conn=http.client.HTTPSConnection('localhost',server.server_port,context=client._tls,timeout=2)
+        try:
+            conn.putrequest('POST',path)
+            conn.putheader('Content-Type','application/json')
+            for length in lengths or [str(len(body))]:conn.putheader('Content-Length',length)
+            if transfer:conn.putheader('Transfer-Encoding','chunked')
+            conn.endheaders(body)
+            response=conn.getresponse();response.read();return response.status
+        finally:conn.close()
+    try:
+        assert client.dispatch(uuid4(),'a'*64,'b'*64)['extraction_qualification_sha256']=='b'*64
+        assert extraction.calls==1
+        # Identical authenticated bytes cannot cross the old/purpose domain.
+        assert post(servers[1],'/v1/provider/chat')==403 and purpose.calls==0
+        for path in ('/v1/provider/chat','/v2/extraction/chat/','/v2/extraction/chat?phase=census','/v2/extraction%2fchat'):
+            assert post(servers[0],path)==404
+        assert post(servers[0],'/v2/extraction/chat',lengths=['1','2'])==400
+        assert post(servers[0],'/v2/extraction/chat',transfer=True)==400
+        assert post(servers[0],'/v2/extraction/chat',lengths=['2000001'])==413
+        assert post(servers[0],'/v2/extraction/chat',body=raw[:-1]+b',"request_hash":"'+b'a'*64+b'"}')==403
+        assert extraction.calls==1
+    finally:
+        for server,thread in zip(servers,threads):server.shutdown();server.server_close();thread.join(2)
