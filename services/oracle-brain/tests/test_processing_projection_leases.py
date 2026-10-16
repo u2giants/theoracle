@@ -9,6 +9,7 @@ from psycopg import sql
 from psycopg.types.json import Jsonb
 import pytest
 from test_source_processing_qualification import processing,RUNTIME,REGISTRY
+from test_purpose_source_authority import purpose_population
 from test_processing_compiler_capabilities import persist_extraction,bundle,commit
 from oracle_brain.operating_model.processing_projection import lease_processing_projection
 
@@ -33,7 +34,7 @@ def sql_ack(f,lease,receipt=None,deadline=None):
     e=lease.event
     with psycopg.connect(f['url']) as conn:
         return conn.execute('SELECT oracle2.ack_processing_projection(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-          (e.event_id,e.workspace_id,lease.lease_token,e.attempts,Jsonb(receipt or attestation(lease)),'c'*64,RUNTIME,REGISTRY,deadline or lease.lease_until)).fetchone()[0]
+          (e.event_id,e.workspace_id,lease.lease_token,e.attempts,Jsonb(receipt or attestation(lease)),'c'*64,f['binding'].runtime_hash,f['binding'].source_registry_hash,deadline or lease.lease_until)).fetchone()[0]
 
 
 def test_current_lease_fences_ack_and_exact_idempotency(admin_url,processing,tmp_path):
@@ -212,7 +213,10 @@ def delivery_reader(admin_url,processing,f):
         grant=uuid4()
         conn.execute('INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s)',
             (grant,f['workspace'],reader['actor'],'source-read:'+str(f['source']),owner,f['root'],f['expiry']))
-    return ProcessingArtifactResolver(reader['url'],binding=reader['binding']),grant
+        conn.execute('UPDATE oracle2.hosting_role_runtime_admissions SET runtime_hash=%s,registry_hash=%s WHERE role_name=%s',
+            (f['binding'].runtime_hash,f['binding'].source_registry_hash,reader['login']))
+    binding=replace(reader['binding'],runtime_hash=f['binding'].runtime_hash,source_registry_hash=f['binding'].source_registry_hash)
+    return ProcessingArtifactResolver(reader['url'],binding=binding),grant
 
 
 def test_actual_v3_ack_and_separate_executor_compiler_readbacks(admin_url,processing,tmp_path):
@@ -261,3 +265,107 @@ def test_new_delivery_getters_refuse_missing_or_legacy_ack(admin_url,processing,
     reader,_=delivery_reader(admin_url,processing,f)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):reader.projection_delivery_seal(f['workspace'],m.artifact_id,m.version)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):ledger.processing_sources.projection_receipt_v3(f['workspace'],m.artifact_id,m.version)
+
+
+def test_delivery_preserves_historical_unsorted_source_digest(admin_url,processing,purpose_population,tmp_path):
+    from oracle_brain.operating_model.authority_adapter import ProcessingArtifactResolver
+    from oracle_brain.operating_model.processing_ledger import ProcessingCompilerLedger
+    from oracle_brain.operating_model.artifact_storage import FileBlobStore
+    from oracle_brain.operating_model.contracts import digest
+    f=purpose_population('embedding','candidate-compiler')
+    sources=ProcessingArtifactResolver(f['url'],binding=f['binding'])
+    receipts=tuple(sorted((sources.current_for_processing(f['workspace'],r.source_id) for r in f['refs']),key=lambda r:r.ref.source_id.int,reverse=True))
+    refs=tuple(r.ref for r in receipts)
+    class SQLControl:
+        def __call__(self,*args):return None
+        def valid_until(self,*args):return f['expiry']
+    control=SQLControl()
+    ledger=ProcessingCompilerLedger(f['url'],FileBlobStore(tmp_path),principal=f['actor'],processing_sources=sources,
+        processing_compile_guard=control,processing_read_guard=control)
+    parents=[]
+    for receipt in receipts:
+        parents.append(ledger.persist(workspace_id=f['workspace'],artifact_id=uuid4(),version=1,kind='processing_extraction_v1',
+            payload={'source_refs':[receipt.ref.model_dump(mode='json')],'findings':[]},refs=(receipt.ref,),permission_digest='f'*64,compiler_digest=f['runtime']))
+    manifest=ledger.persist(workspace_id=f['workspace'],artifact_id=uuid4(),version=1,kind='processing_qualified_model_v1',
+        payload={'source_refs':[r.model_dump(mode='json') for r in refs],'findings':[]},refs=refs,
+        permission_digest='f'*64,compiler_digest=f['runtime'],dependencies=tuple(('artifact',str(p.artifact_id),'1') for p in parents))
+    lease=lease_processing_projection(ledger,f['workspace'],lease_seconds=60)
+    sql_ack(f,lease,paid_attestation(lease))
+    readback=sources.projection_receipt_v3(f['workspace'],manifest.artifact_id,1)
+    assert readback.receipt.source_digest==manifest.source_digest==digest({'refs':[r.model_dump(mode='json') for r in refs]})
+    assert tuple(reversed(readback.source_refs))==refs
+    assert digest({'refs':[r.model_dump(mode='json') for r in readback.source_refs]})!=manifest.source_digest
+    reader,_=delivery_reader(admin_url,processing,f)
+    with psycopg.connect(admin_url) as conn:
+        owner=conn.execute('SELECT actor_id FROM oracle2.appointments WHERE appointment_id=%s',(f['root'],)).fetchone()[0]
+        for ref in refs:
+            if ref.source_id==f['source']:continue
+            conn.execute('INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s)',
+                (uuid4(),f['workspace'],reader.binding.principal,'source-read:'+str(ref.source_id),owner,f['root'],f['expiry']))
+    seal=reader.projection_delivery_seal(f['workspace'],manifest.artifact_id,1)
+    assert seal.source_digest==manifest.source_digest and set(seal.source_refs)==set(refs)
+
+
+@pytest.mark.parametrize('authority',[None,False,lambda:None])
+def test_paid_delivery_has_no_optional_authority_fallback(authority,monkeypatch):
+    import asyncio
+    import oracle_brain.operating_model.processing_projection as delivery
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    def forbidden(*args):raise AssertionError('authority-less request reached compiler')
+    monkeypatch.setattr(delivery,'_compiler',forbidden)
+    with pytest.raises(PermissionError,match='strict paid V3'):
+        asyncio.run(delivery.project_paid_processing_event_v3(object(),None,object.__new__(PaidProcessingSDKProjectionV3),
+            secret=b'invented',projector_id='test',authority=authority))
+
+
+@pytest.mark.parametrize('suppress_cancel',[False,True])
+def test_paid_delivery_total_deadline_never_acks_late_or_partial_graph(monkeypatch,suppress_cancel):
+    """Coroutine boundary control only, not an actual admitted graph delivery."""
+    import asyncio
+    from types import SimpleNamespace
+    import oracle_brain.operating_model.processing_projection as delivery
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    from oracle_brain.operating_model.paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+    from oracle_brain.operating_model.contracts import ArtifactManifest
+    workspace,artifact,event_id=uuid4(),uuid4(),uuid4();now=datetime.now(timezone.utc)
+    body={'source_refs':[]};manifest=ArtifactManifest(workspace_id=workspace,artifact_id=artifact,version=1,
+        kind='processing_qualified_model_v1',input_digest='a'*64,source_digest='b'*64,permission_digest='c'*64,
+        compiler_digest='d'*64,dependency_digest='e'*64,content_hash=delivery.digest(body),private_object_key='never-opened',state='ready')
+    event=delivery.ProjectionEvent(event_id,workspace,artifact,1,'project',{'namespace':'oracle_processing_v1','manifest':manifest.model_dump(mode='json')},1)
+    lease=delivery.ProcessingProjectionLease(event,'synthetic-compiler',uuid4(),now+timedelta(seconds=2))
+    class Guard:
+        def valid_until(self,*args):return now+timedelta(seconds=2)
+    ledger=SimpleNamespace(read_with_manifest=lambda *a:(manifest,body),processing_read_guard=Guard(),principal=uuid4(),clock=lambda:datetime.now(timezone.utc))
+    monkeypatch.setattr(delivery,'_compiler',lambda *a:SimpleNamespace(expected_session_role='synthetic-compiler',expires_at=now+timedelta(seconds=2)))
+    calls=[]
+    monkeypatch.setattr(delivery,'acknowledge_processing_projection',lambda *a,**k:calls.append('ACK'))
+    class Connection:
+        async def query(self,*args):
+            try:await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                if not suppress_cancel:raise
+                calls.append('late-remote-write')
+                return SimpleNamespace(result_set=[[0]])
+    projection=object.__new__(PaidProcessingSDKProjectionV3);projection.graph_name=f'oracle_processing_v1_{workspace.hex}_{artifact.hex}_1_'+('a'*32);projection.connection=Connection()
+    async def noop(*args):pass
+    async def proof(*args):
+        return PaidSDKProjectionProofV3(**{'embedding_'+k+'_hash':'a'*64 for k in ('inventory','context','native_receipt','wire','commit','vectors','coverage')})
+    projection.build=noop;projection.verify=noop;projection.paid_projection_proof=proof
+    class Authority:
+        deadline=None
+        def authorize_current(self):
+            if self.deadline is None:self.deadline=datetime.now(timezone.utc)+timedelta(seconds=.1)
+            return self.deadline
+    unknown=[]
+    async def attempt():
+        try:
+            await delivery.project_paid_processing_event_v3(ledger,lease,projection,secret=b'invented',projector_id='test',authority=Authority())
+        except delivery.ProcessingProjectionIncomplete as error:
+            unknown.append(error)
+            assert isinstance(error.task,asyncio.Task) and not error.task.done()
+            await asyncio.gather(error.task,return_exceptions=True)
+            raise
+    with pytest.raises(delivery.ProcessingProjectionIncomplete):asyncio.run(attempt())
+    assert len(unknown)==1 and unknown[0].task.done() and unknown[0].reason=='deadline'
+    assert 'ACK' not in calls
+    assert calls==(['late-remote-write'] if suppress_cancel else [])

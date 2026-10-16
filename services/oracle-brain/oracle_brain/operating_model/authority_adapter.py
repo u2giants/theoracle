@@ -347,7 +347,7 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
     }
 
     def _projection_delivery_v3(self,workspace_id,artifact_id,version,*,receipt,connection=None):
-        from .contracts import ProcessingProjectionDeliverySealV3,ProcessingProjectionReceiptV3,digest
+        from .contracts import ProcessingProjectionDeliverySealV3,ProcessingProjectionReceiptV3
         profile='candidate-compiler' if receipt else 'documentary-executor'
         if (self.binding.profile!=profile or type(workspace_id) is not UUID or type(artifact_id) is not UUID
                 or type(version) is not int or version<1):
@@ -368,9 +368,12 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
             body=result.receipt if receipt else result
             if (str(body.workspace_id),str(body.artifact_id),body.version)!=(str(workspace_id),str(artifact_id),version):
                 raise PermissionError('paid projection ACK target differs')
+            # SQL returns the complete canonical CURRENT metadata set. The
+            # historical manifest source_digest retains its original byte order;
+            # payload/context guards compare full SourceRef sets separately.
             if (len({r.source_id for r in result.source_refs})!=len(result.source_refs)
                     or any(r.workspace_id!=workspace_id for r in result.source_refs)
-                    or digest({'refs':[r.model_dump(mode='json') for r in result.source_refs]})!=body.source_digest):
+                    or result.source_refs!=tuple(sorted(result.source_refs,key=lambda r:r.source_id.int))):
                 raise PermissionError('paid projection ACK source population differs')
             until=min(result.valid_until,self.binding.expires_at)
             actual_clock=conn.execute('SELECT clock_timestamp()').fetchone()[0]
