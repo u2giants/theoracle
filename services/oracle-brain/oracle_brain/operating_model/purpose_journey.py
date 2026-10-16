@@ -37,28 +37,42 @@ class PurposeWorkerJobV2(StrictRecord):
 
     @model_validator(mode='after')
     def exact_population_and_phase(self):
-        _require((self.operation=='consume')==(self.consume_of_job_id is not None and self.resume_journal_hash is not None)
-            and (self.operation=='consume' or (self.consume_of_job_id is None and self.resume_journal_hash is None))
-            and self.consume_of_job_id!=self.job_id,'explicit exact externally admitted consume target required')
-        _require(3 <= len(self.source_refs) <= 4096
-                 and len({r.source_id for r in self.source_refs}) == len(self.source_refs)
-                 and all(r.workspace_id == self.workspace_id for r in self.source_refs),
-                 'complete distinct three-plus original population required')
-        _require(self.expires_at <= self.original_horizon, 'phase cannot extend original allocation horizon')
-        _require((self.phase == 'extraction') == (self.source_id is not None)
-                 and (self.source_id is None or self.source_id in {r.source_id for r in self.source_refs}),
-                 'exact extraction source key required')
-        _require((self.phase == 'census') == (self.parent_journal_hash is None and self.prior_receipt_hash is None),
-                 'only initial census has no predecessor')
-        if self.phase != 'census':
-            _require(self.parent_journal_hash is not None and self.prior_receipt_hash is not None,
-                     'exact already committed predecessor required')
-        provider_fields = (self.dispatch_id, self.request_hash, self.phase_registry_sha256)
-        _require(all(v is None for v in provider_fields) if self.phase == 'compile'
-                 else all(v is not None for v in provider_fields), 'fixed phase dispatch metadata required')
-        return self
+        return _validate_worker_job_population_and_phase(self,3)
 
     @property
     def phase_key(self):
         return self.phase + (':' + str(self.source_id) if self.source_id else '')
 
+
+
+class PurposeWorkerJobV3(PurposeWorkerJobV2):
+    """Explicit complete one-or-more originals; V2 bytes and minimum stay fixed."""
+    schema_version:Literal[3]=3
+    purpose:Literal['replacement-documentary-journey-v3']='replacement-documentary-journey-v3'
+
+    @model_validator(mode='after')
+    def exact_population_and_phase(self):
+        return _validate_worker_job_population_and_phase(self,1)
+
+
+def _validate_worker_job_population_and_phase(self,minimum):
+    _require((self.operation=='consume')==(self.consume_of_job_id is not None and self.resume_journal_hash is not None)
+        and (self.operation=='consume' or (self.consume_of_job_id is None and self.resume_journal_hash is None))
+        and self.consume_of_job_id!=self.job_id,'explicit exact externally admitted consume target required')
+    _require(minimum <= len(self.source_refs) <= 4096
+             and len({r.source_id for r in self.source_refs}) == len(self.source_refs)
+             and all(r.workspace_id == self.workspace_id for r in self.source_refs),
+             'complete distinct three-plus original population required' if minimum==3 else 'complete distinct one-plus original population required')
+    _require(self.expires_at <= self.original_horizon, 'phase cannot extend original allocation horizon')
+    _require((self.phase == 'extraction') == (self.source_id is not None)
+             and (self.source_id is None or self.source_id in {r.source_id for r in self.source_refs}),
+             'exact extraction source key required')
+    _require((self.phase == 'census') == (self.parent_journal_hash is None and self.prior_receipt_hash is None),
+             'only initial census has no predecessor')
+    if self.phase != 'census':
+        _require(self.parent_journal_hash is not None and self.prior_receipt_hash is not None,
+                 'exact already committed predecessor required')
+    provider_fields = (self.dispatch_id, self.request_hash, self.phase_registry_sha256)
+    _require(all(v is None for v in provider_fields) if self.phase == 'compile'
+             else all(v is not None for v in provider_fields), 'fixed phase dispatch metadata required')
+    return self
