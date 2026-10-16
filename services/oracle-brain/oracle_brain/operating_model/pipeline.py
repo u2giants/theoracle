@@ -52,11 +52,17 @@ def persist_assembly(ledger,raw_response,*,workspace_id,artifact_id,version,extr
     return ledger.persist(workspace_id=workspace_id,artifact_id=artifact_id,version=version,kind='operating_model',payload=payload,refs=tuple(refs),permission_digest=permission_digest,compiler_digest=compiler_digest,dependencies=tuple(dependencies))
 
 
-def dispatch_source(ledger,provider,receipt,*,artifact_id,version,batch_id,permission_digest,compiler_digest,attempt=1):
-    from .extraction import ExtractionResponse,persist_response,validate_response
-    ledger.authorize_refs((receipt.ref,),receipt.ref.workspace_id)
-    messages=[{'role':'system','content':'Extract literal documentary observations and unresolved findings only. No company questions, reports, recommendations or policy promotion. Return exactly the provided JSON schema: '+json.dumps(ExtractionResponse.model_json_schema(),sort_keys=True)},
+def extraction_messages(receipt):
+    """One shared exact whole-source request contract; no authorization."""
+    from .extraction import ExtractionResponse
+    return [{'role':'system','content':'Extract literal documentary observations and unresolved findings only. No company questions, reports, recommendations or policy promotion. Return exactly the provided JSON schema: '+json.dumps(ExtractionResponse.model_json_schema(),sort_keys=True)},
               {'role':'user','content':json.dumps({'source_ref':receipt.ref.model_dump(mode='json'),'reading':receipt.reading},ensure_ascii=False)}]
+
+
+def dispatch_source(ledger,provider,receipt,*,artifact_id,version,batch_id,permission_digest,compiler_digest,attempt=1):
+    from .extraction import persist_response,validate_response
+    ledger.authorize_refs((receipt.ref,),receipt.ref.workspace_id)
+    messages=extraction_messages(receipt)
     bound=len(json.dumps(messages,ensure_ascii=False).encode())+1024*len(messages)
     try:
         raw=provider.extract(workspace_id=receipt.ref.workspace_id,artifact_id=artifact_id,batch_id=batch_id,purpose='source-extraction',attempt=attempt,input_tokens_upper_bound=bound,messages=messages,response_validator=lambda raw:validate_response(receipt,raw,inventories=ledger.reviewed_inventories))
