@@ -77,3 +77,21 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     assert x['state']['posts']==4
     assert extraction['settings'].population.parent_registry_sha256==settings.population.parent_registry_sha256
 
+    from oracle_brain.hosting.purpose_journey_v2 import build_purpose_compiler_ledger_v3
+    from oracle_brain.operating_model.purpose_assembly_v2 import compiler_extraction_handoff_v2
+    from datetime import datetime,timezone
+    compiler=build_purpose_compiler_ledger_v3(current,jobs[-1])
+    handoff=compiler_extraction_handoff_v2(compiler,workspace_id=job.workspace_id,
+        extraction_ids=tuple((c.job.artifact_id,1) for c in extraction['contexts']),
+        source_refs=job.source_refs,compiler_authority_receipt_hash=digest(result),
+        now=datetime.now(timezone.utc),expires_at=current.population.expires_at)
+    assert len(handoff.extractions)==3 and handoff.source_refs==frozen.source_refs
+    assert all(e.payload['observations'] and e.payload['findings'] for e in handoff.extractions)
+    from purpose_journey_fixture_phases import admit_assembly_phase,phase_worker_appointment
+    receipts=tuple(c.receipt for c in extraction['contexts'])
+    assembly=admit_assembly_phase(x,admin_url=admin_url,root=tmp_path/'late-assembly',handoff=handoff,census=frozen,receipts=receipts)
+    assembled,assembly_job=phase_worker_appointment(assembly,prior_settings=current,prior_job=jobs[-1],prior_row=result,root=tmp_path/'assembly-worker')
+    x['observe_fixture_coverage']()
+    PurposeJourneyCustodyV2(assembled).admit(assembly_job.job_id)
+    assembly_row=run_purpose_worker_once_v2(assembled)
+    assert assembly_row['state']=='awaiting-external-phase-admission' and x['state']['posts']==5
