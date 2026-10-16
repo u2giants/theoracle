@@ -30,11 +30,18 @@ S03_TESTS = [
     "test_original_pdf_image_views.py",
     "test_graph_evidence_answer.py",
 ]
+# S16 offline gates are pure fixture tests: no store, provider or live target.
+S16_TESTS = [
+    "test_legacy_routes_retired.py",
+    "test_legacy_citation_redirect.py",
+    "test_retired_writer_denial.py",
+]
+PHASE_TESTS = {"S02": S02_TESTS, "S03": S03_TESTS, "S16": S16_TESTS}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=["S02", "S03"])
+    parser.add_argument("phase", choices=["S02", "S03", "S16"])
     parser.add_argument("--mode", choices=["offline", "live"], required=True)
     parser.add_argument("--manifest")
     parser.add_argument("--result", type=Path,
@@ -46,11 +53,11 @@ def main() -> int:
         parser.error(f"{args.phase} live gate requires a separately reviewed preview target")
     if args.manifest:
         parser.error("offline gate cannot use a private manifest")
-    test_list = S03_TESTS if args.phase == "S03" else S02_TESTS
+    test_list = PHASE_TESTS[args.phase]
     missing = [name for name in test_list if not (SERVICE / "tests" / name).is_file()]
     if missing:
         parser.error(f"missing required tests: {', '.join(missing)}")
-    if not os.getenv("ORACLE2_TEST_ADMIN_URL") or not os.getenv("ORACLE2_TEST_CONFIRMED_URL"):
+    if args.phase != "S16" and (not os.getenv("ORACLE2_TEST_ADMIN_URL") or not os.getenv("ORACLE2_TEST_CONFIRMED_URL")):
         parser.error("real isolated Postgres and FalkorDB test URLs required")
     if args.phase == "S03" and not os.getenv("ORACLE2_TEST_FALKORDB_URL"):
         parser.error("S03 requires actual GraphRAG SDK FalkorDB integration target")
