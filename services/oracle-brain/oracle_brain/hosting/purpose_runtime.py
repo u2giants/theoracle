@@ -114,6 +114,8 @@ class PurposeRuntimeSettingsV2:
     projection: PurposeMetadataProjectionV2
     resolver: PurposeSourceResolverV2
     observer: ParentCurrentnessConsumerV2
+    config_path: Path
+    config_sha256: str
 
     @property
     def phase(self):return self.config.phase
@@ -163,20 +165,24 @@ def load_purpose_runtime_settings_v2(config_path,trusted_config_sha256,*,expecte
             or d.population_admission_sha256!=pins.population_admission_sha256
             or config.source_expires_at>d.expires_at):
         raise PermissionError('exact externally admitted phase metadata required')
+    admission=_typed(config.parent_observer_admission_file,config.parent_observer_admission_hash,ParentObserverAdmissionV2)
+    if (admission.population!=population or admission.principal_id!=d.actor_id
+            or admission.observer_uri!=config.observer_server_uri or admission.client_uri!=config.observer_client_uri):
+        raise PermissionError('separately appointed actual observer/client differs')
+    horizon=min(config.source_expires_at,d.expires_at,pins.expires_at,population.expires_at,
+                allocation.original_expires_at,admission.expires_at)
+    if now>=horizon:
+        raise PermissionError('source/operation/observer finite startup horizon expired')
     source=ProcessingSourceBinding(runtime_hash=d.runtime_hash,source_registry_hash=d.source_registry_hash,
         expected_owner_role=config.expected_owner_role,expected_session_role=config.expected_session_role,
         principal=d.actor_id,profile='gateway-metadata' if config.role=='metadata' or d.operation=='embedding' else 'source-reader',
-        expires_at=config.source_expires_at)
+        expires_at=horizon)
     binding=PurposeSourceBindingV2(source=source,phase=d.phase,purpose=d.purpose,operation=d.operation,
         expected_provider_login=d.provider_login,caller_kind='provider' if config.role=='provider' else 'gateway',
         source_refs=d.source_refs,population_digest=d.population_digest,descriptor_sha256=pins.descriptor_sha256,
         parent_registry_sha256=d.parent_registry_sha256,population_admission_sha256=d.population_admission_sha256,
         phase_registry_sha256=d.phase_registry_sha256,projection_sha256=pins.projection_sha256)
     resolver=PurposeSourceResolverV2(tls_url(config.source_url_file),binding=binding)
-    admission=_typed(config.parent_observer_admission_file,config.parent_observer_admission_hash,ParentObserverAdmissionV2)
-    if (admission.population!=population or admission.principal_id!=d.actor_id
-            or admission.observer_uri!=config.observer_server_uri or admission.client_uri!=config.observer_client_uri):
-        raise PermissionError('separately appointed actual observer/client differs')
     transport=ParentObserverClientV2(PurposeTLSBindingV2(hostname=config.observer_hostname,port=config.observer_port,
         server_uri=config.observer_server_uri,client_uri=config.observer_client_uri,
         ca_file=Path(config.observer_ca),certificate_file=Path(config.observer_certificate),key_file=Path(config.observer_key)))
@@ -185,7 +191,40 @@ def load_purpose_runtime_settings_v2(config_path,trusted_config_sha256,*,expecte
         initialization_receipt_hash=config.observer_initialization_hash)
     observer=ParentCurrentnessConsumerV2(admission=admission,trusted_admission_hash=config.parent_observer_admission_hash,
         transport=transport,replay=replay)
-    return PurposeRuntimeSettingsV2(config,pins,population,projection,resolver,observer)
+    return PurposeRuntimeSettingsV2(config,pins,population,projection,resolver,observer,Path(config_path),trusted_config_sha256)
+
+
+def _local_operation_records_current_v2(settings,*,now,private_context=None):
+    """Only local protected reads; safe inside actual source hold, no network."""
+    s=settings;d=s.projection.descriptor
+    pinned(s.config_path,s.config_sha256)
+    if (_typed(s.config.pins_file,s.config.pins_sha256,PurposePinsV2)!=s.pins
+            or _typed(s.config.population_file,s.pins.population_admission_sha256,ParentPopulationAdmissionV2)!=s.population
+            or _typed(s.config.projection_file,s.pins.projection_sha256,PurposeMetadataProjectionV2)!=s.projection):
+        raise PermissionError('protected current operation/complete metadata changed without external admission')
+    if _typed(s.config.parent_observer_admission_file,s.config.parent_observer_admission_hash,
+            ParentObserverAdmissionV2)!=s.observer.admission:
+        raise PermissionError('current separately appointed parent observer changed')
+    allocation=_typed(s.config.budget_allocation_projection_file,
+        s.pins.budget_allocation_projection_sha256,BudgetAllocationPinsV2)
+    allocation.verify_current(trusted_projection_hash=s.pins.budget_allocation_projection_sha256,
+        dispatches=d.dispatches,now=now)
+    if now>=min(s.pins.expires_at,s.population.expires_at,d.expires_at,
+                s.config.source_expires_at,allocation.original_expires_at):
+        raise PermissionError('own operation appointment expired before observer or forwarding')
+    if private_context is not None:
+        if type(s.config) is not PurposeProviderConfigV2:
+            raise PermissionError('metadata runtime cannot inspect private phase qualification')
+        registry=_typed(s.config.phase_registry_file,s.pins.phase_registry_sha256,PurposePhaseRegistryV2)
+        if derive_purpose_descriptor_v2(registry,s.population,pins=s.pins,
+                phase_registry_bytes_hash=s.pins.phase_registry_sha256,now=now)!=d:
+            raise PermissionError('private phase operation qualification changed')
+        path=s.config.private_context_files[private_context.job.dispatch_id]
+        value=json.loads(protected_file(path,limit=2_000_000),object_pairs_hook=unique_object)
+        actual=PurposePrivateContextV2.model_validate_json(canonical_bytes(value))
+        if actual!=private_context:
+            raise PermissionError('private current job context changed before commit')
+    return allocation
 
 
 class CurrentPurposeJobsV2:
@@ -197,28 +236,15 @@ class CurrentPurposeJobsV2:
 
     def metadata(self,dispatch_id):
         s=self.settings;d=s.projection.descriptor;j=d.dispatch(dispatch_id)
-        now=datetime.now(timezone.utc)
-        if _typed(s.config.pins_file,s.config.pins_sha256,PurposePinsV2)!=s.pins:
-            raise PermissionError('protected operation pins changed without external admission')
-        allocation=_typed(s.config.budget_allocation_projection_file,
-            s.pins.budget_allocation_projection_sha256,BudgetAllocationPinsV2)
-        allocation.verify_current(trusted_projection_hash=s.pins.budget_allocation_projection_sha256,
-            dispatches=d.dispatches,now=now)
-        if now>=min(s.pins.expires_at,s.population.expires_at,d.expires_at,
-                    s.config.source_expires_at,allocation.original_expires_at):
-            raise PermissionError('own operation appointment expired before observer or forwarding')
-        # Reload sealed metadata so a changed mount cannot inherit a cached grant.
-        if (_typed(s.config.population_file,s.pins.population_admission_sha256,ParentPopulationAdmissionV2)!=s.population
-                or _typed(s.config.projection_file,s.pins.projection_sha256,PurposeMetadataProjectionV2)!=s.projection):
-            raise PermissionError('complete parent metadata changed')
-        s.observer.current(s.population)
-        return d,j
+        _local_operation_records_current_v2(s,now=datetime.now(timezone.utc))
+        witness=s.observer.current(s.population)
+        return d,j,witness
 
     def context(self,dispatch_id):
         s=self.settings
         if type(s.config) is not PurposeProviderConfigV2:
             raise PermissionError('metadata runtime cannot open private phase files')
-        d,j=self.metadata(dispatch_id)
+        d,j,_=self.metadata(dispatch_id)
         with s.resolver.hold(d,j) as proof:
             verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
                 actual_caller_login=s.config.expected_session_role,profile=s.resolver.binding.source.profile,
@@ -235,7 +261,16 @@ class CurrentPurposeJobsV2:
             if digest(ctx.model_dump(mode='json'))!=j.context_hash:
                 raise PermissionError('private phase context differs from operation qualification')
             ctx.validate_current(d,j,now=datetime.now(timezone.utc))
-        s.observer.current(s.population)
+        witness=s.observer.current(s.population)
+        # Close the observer network gap with one final actual SQL check. No
+        # network occurs under this short hold; stale queued intent is not proof.
+        with s.resolver.hold(d,j) as proof:
+            now=datetime.now(timezone.utc)
+            _local_operation_records_current_v2(s,now=now,private_context=ctx)
+            verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
+                actual_caller_login=s.config.expected_session_role,profile=s.resolver.binding.source.profile,now=now)
+            if now>=min(witness.expires_at,proof.expires_at):
+                raise PermissionError('current parent/source observation expired before use')
         return ctx
 
     def resolve(self,dispatch_id):return self.context(dispatch_id).job
@@ -306,6 +341,7 @@ def _commit_phase_response_v2(settings,context,record):
     try:
         with s.resolver.hold(d,j) as proof:
             now=datetime.now(timezone.utc)
+            _local_operation_records_current_v2(s,now=now,private_context=context)
             verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
                 actual_caller_login=s.config.expected_session_role,profile=s.resolver.binding.source.profile,now=now)
             until=min(proof.expires_at,witness.expires_at,allocation.original_expires_at,s.pins.expires_at,
@@ -328,6 +364,7 @@ def _commit_phase_response_v2(settings,context,record):
                 raise PermissionError('phase authorization expired before bounded final commit')
             # link is exclusive: a replay never overwrites an existing success.
             os.link(pending,success,follow_symlinks=False);created=True;_sync_spool(directory)
+            _local_operation_records_current_v2(s,now=datetime.now(timezone.utc),private_context=context)
         # SQL hold's actual current-source/role/clock recheck completed. No success
         # may escape when post-write guards refuse; preserve failed custody below.
         if datetime.now(timezone.utc)>=until:
@@ -369,6 +406,9 @@ def _native_phase_broker_v2(settings,jobs,context):
     def coverage():
         # Same existing externally admitted key coverage and central Budget;
         # no per-phase reservations ledger, allowance cache or budget reset.
+        if (_typed(c.ledger_registry_file,c.ledger_registry_hash,LedgerRegistry)!=registry
+                or _typed(c.coverage_admission_file,c.coverage_admission_hash,KeyCoverageAdmission)!=admission):
+            raise PermissionError('current central account or key coverage admission changed')
         allocation.verify_current(trusted_projection_hash=settings.pins.budget_allocation_projection_sha256,
             dispatches=d.dispatches,now=datetime.now(timezone.utc))
         for dispatch in d.dispatches:jobs.authorize(jobs.resolve(dispatch.dispatch_id))
@@ -422,7 +462,7 @@ class PurposeMetadataIngressV2:
         if (peer_uri!=s.worker_uri or type(request) is not dict
                 or set(request)!={'dispatch_id','request_hash','phase_registry_sha256'}):
             raise PermissionError('fixed metadata worker and opaque dispatch required')
-        dispatch_id=UUID(request['dispatch_id']);d,j=self.jobs.metadata(dispatch_id)
+        dispatch_id=UUID(request['dispatch_id']);d,j,witness=self.jobs.metadata(dispatch_id)
         if request['request_hash']!=j.request_hash or request['phase_registry_sha256']!=s.pins.phase_registry_sha256:
             raise PermissionError('metadata dispatch differs from independently admitted operation')
         def current_sql():
@@ -431,6 +471,9 @@ class PurposeMetadataIngressV2:
                     actual_caller_login=s.config.expected_session_role,profile='gateway-metadata',
                     now=datetime.now(timezone.utc))
         current_sql()
+        _local_operation_records_current_v2(s,now=datetime.now(timezone.utc))
+        if datetime.now(timezone.utc)>=witness.expires_at:
+            raise PermissionError('parent witness expired before metadata POST')
         receipt=self.client.dispatch(dispatch_id,j.request_hash,s.pins.phase_registry_sha256)
         self.jobs.metadata(dispatch_id);current_sql()
         return receipt

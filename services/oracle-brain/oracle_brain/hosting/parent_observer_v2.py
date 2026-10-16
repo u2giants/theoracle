@@ -128,6 +128,9 @@ class ParentCurrentnessConsumerV2:
 
     def current(self,expected_population):
         import secrets
+        before=self.clock()
+        if before>=min(self.admission.expires_at,expected_population.expires_at):
+            raise PermissionError('observer appointment expired before challenge exchange')
         challenge=secrets.token_hex(32)
         self.replay.claim(challenge)
         started_at=self.clock();tick=self.monotonic()
