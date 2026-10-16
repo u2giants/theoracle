@@ -113,3 +113,19 @@ def test_awaiting_custody_does_not_create_success_barrier_or_retry(tmp_path):
     completed=j.commit(first,receipt_hash='f'*64,native_receipt_hash='0'*64,now=datetime.now(timezone.utc))
     assert completed['state']=='awaiting-external-phase-admission'
     with pytest.raises(PermissionError):j.awaiting_custody(first,now=datetime.now(timezone.utc))
+
+
+def test_independently_admitted_consume_can_observe_original_attempt_without_renewal(tmp_path):
+    j=PurposeJourneyJournalV2(tmp_path);first=job();j.claim(first,now=NOW)
+    waiting=j.awaiting_custody(first,now=NOW)
+    consumer=PurposeWorkerJobV2.model_validate(first.model_copy(update=dict(job_id=uuid4(),nonce=uuid4().hex,
+        admission_hash='9'*64,operation='consume',consume_of_job_id=first.job_id,
+        resume_journal_hash=waiting['journal_hash'],expires_at=first.original_horizon)).model_dump(mode='python'))
+    later=first.expires_at+timedelta(seconds=1)
+    with pytest.raises(PermissionError):j.claim(consumer,now=later)
+    bad=consumer.model_copy(update={'allocation_hash':'8'*64})
+    with pytest.raises(PermissionError):j.commit(first,receipt_hash='f'*64,native_receipt_hash='0'*64,now=later,consumer=bad)
+    row=j.commit(first,receipt_hash='f'*64,native_receipt_hash='0'*64,now=later,consumer=consumer)
+    assert row['allocation_hash']==first.allocation_hash and row['original_horizon']==first.original_horizon.isoformat()
+    assert row['state']=='awaiting-external-phase-admission' and row['consumed_by_job_hash']
+    with pytest.raises(PermissionError):j.commit(first,receipt_hash='f'*64,native_receipt_hash='0'*64,now=later,consumer=consumer)
