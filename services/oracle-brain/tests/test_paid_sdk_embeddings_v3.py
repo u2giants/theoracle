@@ -528,3 +528,99 @@ def test_owned_writer_restart_recovery_requires_exact_owner_target_acl_and_stopp
         assert not admin.exists(owner['graph_name']) and not admin.exists(owner['ontology_name'])
     finally:admin.close()
     assert all((root/name).is_file() for name in ('recovered.json','fenced.json','fenced-idle.json','retired.json'))
+
+@pytest.mark.parametrize('damage',['allow','pre-sdk-scope','post-sdk-scope','false-sdk-scope','sdk-expiry','body-change','ledger-revoked','ack-change','ack-expiry'])
+def test_paid_metadata_load_keeps_distinct_sdk_scope_and_fresh_final_boundaries(damage):
+    """Controlled call-boundary proof; no SQL/graph/runtime admission is claimed."""
+    import asyncio
+    from datetime import datetime,timedelta,timezone
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidMetadataSDKProjectionV3
+    from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+    state={'reads':0,'guards':0,'graph':False,'seals':0}
+    class SDKScope(QualifiedAssemblyReadGuard):
+        def __init__(self):pass
+        def __call__(self,manifest,payload,principal,now):
+            state['guards']+=1
+            if damage=='false-sdk-scope':return False
+            if (damage=='pre-sdk-scope' and not state['graph']) or (damage in ('post-sdk-scope','sdk-expiry') and state['graph']):raise PermissionError('distinct SDK scope revoked/expired')
+            return None
+    principal=uuid4();target=(uuid4(),uuid4(),1);resolver=SimpleNamespace(binding=SimpleNamespace(principal=principal))
+    manifest=SimpleNamespace(kind='processing_qualified_model_v1');payload={'immutable':'supported'}
+    def read(*args):
+        state['reads']+=1
+        if damage=='ledger-revoked' and state['graph']:raise PermissionError('actual read revoked')
+        return manifest,({'immutable':'changed'} if damage=='body-change' and state['graph'] else payload.copy())
+    ledger=SimpleNamespace(principal=principal,processing_sources=resolver,read_with_manifest=read)
+    projection=object.__new__(PaidMetadataSDKProjectionV3);projection.delivery_resolver=resolver;projection._delivery_target=target;projection.qualification_guard=SDKScope()
+    def delivery(*args):
+        state['seals']+=1
+        expired=damage=='ack-expiry' and state['graph']
+        seal=SimpleNamespace(valid_until=datetime.now(timezone.utc)+timedelta(seconds=-1 if expired else 30))
+        identity={'delivery':'changed' if damage=='ack-change' and state['graph'] else 'exact'}
+        seal.model_dump=lambda **kw:identity.copy()
+        return seal,object()
+    projection._delivery=delivery;projection._delivery_inventory=delivery
+    async def snapshot(body):state['graph']=True
+    async def verify(*args):assert state['graph']
+    projection._check_graph_snapshot=snapshot;projection._verify_metadata_graph=verify
+    if damage=='allow':
+        assert asyncio.run(projection.load(ledger,*target))==payload
+        assert state['reads']==state['guards']==2
+    else:
+        with pytest.raises(PermissionError):asyncio.run(projection.load(ledger,*target))
+        if damage in ('pre-sdk-scope','false-sdk-scope'):assert not state['graph']
+
+
+def test_paid_compiler_separate_sdk_scope_denies_before_receipt_or_graph():
+    import asyncio
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    from oracle_brain.operating_model.authority_adapter import ProcessingArtifactResolver
+    from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+    class SDKScope(QualifiedAssemblyReadGuard):
+        def __init__(self):pass
+        def __call__(self,*args):raise PermissionError('separate compiler SDK scope denied')
+    source=object.__new__(ProcessingArtifactResolver);source.binding=SimpleNamespace(profile='candidate-compiler',principal=uuid4())
+    def forbidden(*args):raise AssertionError('receipt/graph consulted before independent SDK scope')
+    source.projection_receipt_v3=forbidden
+    projection=object.__new__(PaidProcessingSDKProjectionV3);projection._paid_receipt_secret=b'x'*32;projection.qualification_guard=SDKScope();projection._check_graph_snapshot=forbidden
+    ledger=SimpleNamespace(processing_sources=source,principal=source.binding.principal,read_with_manifest=lambda *args:(SimpleNamespace(kind='processing_qualified_model_v1'),{}))
+    with pytest.raises(PermissionError,match='separate compiler SDK scope'):asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))
+
+@pytest.mark.parametrize('damage',['allow','post-sdk-scope','ack-change','body-change','ack-expiry'])
+def test_paid_compiler_load_retains_new_final_sdk_scope_and_ack(damage):
+    import asyncio
+    from datetime import datetime,timedelta,timezone
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    from oracle_brain.operating_model.authority_adapter import ProcessingArtifactResolver
+    from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+    from oracle_brain.operating_model.contracts import ProcessingProjectionReceiptV3
+    state={'reads':0,'guards':0,'graph':False,'acks':0,'hmac':0}
+    class SDKScope(QualifiedAssemblyReadGuard):
+        def __init__(self):pass
+        def __call__(self,*args):
+            state['guards']+=1
+            if damage=='post-sdk-scope' and state['graph']:raise PermissionError('final separate compiler SDK scope revoked')
+    source=object.__new__(ProcessingArtifactResolver);source.binding=SimpleNamespace(profile='candidate-compiler',principal=uuid4())
+    identity=SimpleNamespace(source_digest='a',permission_digest='b',kind='processing_qualified_model_v1')
+    receipt=SimpleNamespace(model_dump=lambda **kw:{'source_digest':'a','permission_digest':'b'})
+    def current(*args):
+        state['acks']+=1
+        return ProcessingProjectionReceiptV3.model_construct(receipt=receipt,signature='changed' if damage=='ack-change' and state['graph'] else 'exact',source_refs=(),valid_until=datetime.now(timezone.utc)+timedelta(seconds=-1 if damage=='ack-expiry' and state['graph'] else 30))
+    source.projection_receipt_v3=current
+    def read(*args):
+        state['reads']+=1
+        return identity,{'immutable':'changed' if damage=='body-change' and state['graph'] else 'supported'}
+    projection=object.__new__(PaidProcessingSDKProjectionV3);projection._paid_receipt_secret=b'x'*32;projection._paid_signed_receipt=None;projection.qualification_guard=SDKScope()
+    def hmac(*args):state['hmac']+=1
+    projection._verify_paid_receipt=hmac
+    async def graph(*args):state['graph']=True
+    projection._check_graph_snapshot=graph;projection.verify=graph
+    ledger=SimpleNamespace(principal=source.binding.principal,processing_sources=source,read_with_manifest=read)
+    if damage=='allow':
+        assert asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))=={'immutable':'supported'}
+        assert state['reads']==state['guards']==state['acks']==state['hmac']==2
+    else:
+        with pytest.raises(PermissionError):asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))
