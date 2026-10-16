@@ -150,3 +150,35 @@ class ProcessingCompilerLedger(Ledger):
         manifest,payload=super()._read_processing_authorized(*args,**kwargs)
         self._validate_processing_extraction_after_read(manifest,payload,self.clock())
         return manifest,payload
+
+
+@runtime_checkable
+class ProcessingValidationHorizonProtocol(Protocol):
+    """One complete validation result; protocol conformance grants no authority."""
+    def validate_current(self,manifest:ArtifactManifest,payload:dict,principal:UUID,now:datetime)->datetime:...
+
+
+class PurposeProcessingCompilerLedgerV3(ProcessingCompilerLedger):
+    """Closed core implementation; protected hosting authenticates actual guards.
+
+    No result is stored or reused across calls. Legacy compiler defaults remain
+    separate. The concrete class itself is not a grant or semantic admission.
+    """
+    def _validate_processing_guard(self,guard,manifest,payload,now):
+        if not isinstance(guard,ProcessingValidationHorizonProtocol):
+            raise PermissionError('complete current validation protocol required')
+        until=guard.validate_current(manifest,payload,self.principal,now)
+        if (not isinstance(until,datetime) or until.tzinfo is None
+                or until.utcoffset() is None or until<=now or until<=self.clock()):
+            raise PermissionError('finite current full validation deadline required')
+        return until
+
+    def _validate_processing_read_guard(self,manifest,payload,now):
+        guard=(self.processing_extraction_guard if manifest.kind in
+            {'processing_extraction_v1','processing_failed_extraction_v1'} else self.processing_read_guard)
+        self._validate_processing_guard(guard,manifest,payload,now)
+
+    def _validate_processing_extraction_after_read(self,manifest,payload,now):
+        # The full body hook already validated this same boundary exactly once,
+        # before the independent current metadata reread. Never cache its result.
+        return None
