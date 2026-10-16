@@ -391,7 +391,7 @@ class CompilerPhaseCustodyFileV2(StrictRecord):
     kind: Literal['phase_commit','native_receipt','raw_wire','native_job','extraction_qualification','extraction_population',
         'wire_metadata','population','census_context','assessment_context','assembly_context','assembly_observer',
         'assembly_protocol','assembly_observed','census_wire','assessment_wire','assembly_wire',
-        'assessment','semantic_admission','compile_inputs']
+        'assessment','semantic_admission','compile_inputs','embedding_context','embedding_pins']
     path: str
     sha256: str|None=Field(default=None,pattern=HASH)
     producer_runtime_hash: str|None=Field(default=None,pattern=HASH)
