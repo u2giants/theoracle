@@ -152,6 +152,18 @@ def test_actual_requester_has_no_direct_custody_or_authority_table_access(reques
             c.execute(sql.SQL('SELECT * FROM oracle2.{}').format(sql.Identifier(table)))
 
 
+def test_actual_seal_metadata_encoding_matches_python_and_stays_private(requester):
+    from oracle_brain.operating_model.contracts import canonical_bytes
+    x=requester;value={'z':[{'é':'quoted " and \\','schema_version':1},True,None], 'a':{'revision':12}}
+    with psycopg.connect(x['admin']) as c:
+        encoded=c.execute('SELECT oracle2._replacement_metadata_json(%s)',(Jsonb(value),)).fetchone()[0]
+        assert encoded.encode()==canonical_bytes(value)
+    with psycopg.connect(x['admin']) as c,pytest.raises(psycopg.errors.InvalidParameterValue):
+        c.execute('SELECT oracle2._replacement_metadata_json(%s)',(Jsonb({'number':1.0}),))
+    with psycopg.connect(x['url']) as c,pytest.raises(psycopg.errors.InsufficientPrivilege):
+        c.execute('SELECT oracle2._replacement_metadata_json(%s)',(Jsonb(value),))
+
+
 @pytest.mark.parametrize('deadline',['infinity','2026-10-16T10:00:00','NaN'])
 def test_actual_finalizer_rejects_nonfinite_or_naive_deadline(requester,deadline):
     x=requester;e=reserve(x)
