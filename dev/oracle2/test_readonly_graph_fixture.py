@@ -5,6 +5,8 @@ from pathlib import Path
 from urllib.parse import quote,urlparse
 from uuid import uuid4
 import redis
+from contextlib import contextmanager
+import hashlib,stat
 
 IDENTITY=re.compile('oracle_ro_fixture_(?:graph_|user_)[0-9a-f]{32}')
 
@@ -135,6 +137,88 @@ def processing_reader(container,admin_url,directory,*,receipt,secret,current_del
             with (destination/name).open('x') as stream:json.dump(value,stream);stream.write('\n')
             os.chmod(destination/name,0o600)
         return result
+    finally:client.close()
+
+
+class _OwnedProcessingWriter:
+    """TEST fixture ownership, never runtime/source authority or stop proof."""
+    def __init__(self,directory,ownership,ownership_bytes,environment):
+        self.directory=directory;self.ownership=ownership;self.ownership_bytes=ownership_bytes
+        self.environment=environment;self.inactive=False
+    def confirm_inactive(self):
+        """Caller must have actual timely owned completion; UNKNOWN cannot call."""
+        from oracle_brain.hosting.custody import _durable_nonce
+        _durable_nonce(self.directory,'inactive.json',json.dumps({'ownership_hash':hashlib.sha256(self.ownership_bytes).hexdigest(),
+            'status':'caller-observed-inactive'}).encode())
+        self.inactive=True
+
+
+@contextmanager
+def processing_writer(container,admin_url,directory,*,workspace_id,artifact_id,version,generation):
+    """Create ONLY a new own graph/ontology writer ACL on a proven local target.
+
+    Default UNKNOWN preserves exact ownership/resources. Caller confirms actual
+    inactive completion only after timely work; no timeout implies cleanup.
+    """
+    from uuid import UUID
+    from oracle_brain.hosting.custody import _durable_nonce
+    if (any(type(i) is not UUID for i in (workspace_id,artifact_id,generation))
+            or type(version) is not int or version<1):raise PermissionError('exact own UUID graph namespace required')
+    details,params=owned_target(container,admin_url)
+    graph=f'oracle_processing_v1_{workspace_id.hex}_{artifact_id.hex}_{version}_{generation.hex}'
+    ontology=graph+'__ontology';username='oracle_writer_fixture_user_'+uuid4().hex
+    destination=Path(directory)
+    if destination.exists() or destination.is_symlink():raise PermissionError('fresh owned writer directory required')
+    destination.mkdir(mode=0o700,parents=True)
+    client=redis.Redis.from_url(admin_url,socket_timeout=5,socket_connect_timeout=5,decode_responses=True)
+    try:
+        if client.exists(graph) or client.exists(ontology) or client.acl_getuser(username) is not None:
+            raise PermissionError('existing graph/ontology/ACL cannot be adopted')
+        password=secrets.token_urlsafe(32)
+        url='redis://'+quote(username,safe='')+':'+quote(password,safe='')+'@127.0.0.1:'+str(params.port)
+        ownership={'schema_version':1,'synthetic_only':True,'container_id':details['Id'],
+            'graph_name':graph,'ontology_name':ontology,'username':username,'nonce':uuid4().hex}
+        raw=json.dumps(ownership,sort_keys=True,separators=(',',':')).encode()
+        environment={'ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL':url}
+        # Actual retained O_EXCL/fsync primitive, durable BEFORE first ACL write.
+        _durable_nonce(destination,'ownership.json',raw)
+        _durable_nonce(destination,'environment.json',json.dumps(environment).encode())
+        if (destination/'ownership.json').read_bytes()!=raw:raise PermissionError('writer ownership readback differs')
+        lease=_OwnedProcessingWriter(destination,ownership,raw,environment)
+        client.execute_command('ACL','SETUSER',username,'on','>'+password,'~'+graph,'~'+ontology,'-@all',
+            '+graph.query','+graph.ro_query','+ping','+hello','+info|server')
+        restricted=redis.Redis.from_url(url,socket_timeout=3,socket_connect_timeout=3,decode_responses=True)
+        try:
+            restricted.ping()
+            # Empty exact namespaces only: no documentary content or extra node.
+            for key in (graph,ontology):restricted.execute_command('GRAPH.QUERY',key,'RETURN 1','TIMEOUT',1000)
+            for args in (('GRAPH.QUERY','oracle_processing_v1_'+uuid4().hex,'RETURN 1','TIMEOUT',1000),
+                         ('ACL','GETUSER',username),('GRAPH.LIST',),('GRAPH.DELETE',graph)):
+                try:restricted.execute_command(*args)
+                except redis.exceptions.NoPermissionError:pass
+                else:raise AssertionError('writer acquired unrelated graph/admin/list/delete capability')
+        finally:restricted.close()
+        try:yield lease
+        finally:
+            if not lease.inactive:
+                _durable_nonce(destination,'unknown.json',json.dumps({'ownership_hash':hashlib.sha256(raw).hexdigest(),
+                    'status':'UNKNOWN-preserved-no-cleanup'}).encode())
+            else:
+                # Re-prove target and immutable ownership, never prefix cleanup.
+                current,_=owned_target(container,admin_url)
+                info=(destination/'ownership.json').lstat()
+                if (current['Id']!=details['Id'] or not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid()
+                    or info.st_nlink!=1 or info.st_mode&0o077 or (destination/'ownership.json').read_bytes()!=raw):
+                    raise PermissionError('exact writer cleanup ownership differs')
+                acl=client.acl_getuser(username)
+                keys=acl.get('keys',[]) if acl else []
+                if isinstance(keys,str):keys=keys.split()
+                if set(keys)!={'~'+graph,'~'+ontology}:raise PermissionError('writer ACL namespace drifted; preserve resources')
+                for key in (graph,ontology):
+                    if client.exists(key):client.execute_command('GRAPH.DELETE',key)
+                if client.execute_command('ACL','DELUSER',username)!=1:raise PermissionError('owned writer retirement differs')
+                _durable_nonce(destination,'retired.json',json.dumps({'ownership_hash':hashlib.sha256(raw).hexdigest(),
+                    'status':'exact-inactive-resources-retired'}).encode())
     finally:client.close()
 
 
