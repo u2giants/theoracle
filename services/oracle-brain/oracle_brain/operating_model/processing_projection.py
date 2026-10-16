@@ -81,7 +81,9 @@ def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret):
 async def project_processing_event(ledger,lease,projection,*,secret,projector_id):
     # This concrete SDK type is supplied by the independently owned SDK lane;
     # missing integration fails closed, never falls back to legacy projection.
-    from .sdk_projection import ProcessingSDKProjection
+    from .sdk_projection import ProcessingSDKProjection,PaidProcessingSDKProjectionV3
+    if isinstance(projection,PaidProcessingSDKProjectionV3):
+        raise PermissionError('paid V3 projection requires explicit strict V3 delivery')
     binding=_compiler(ledger)
     if (not isinstance(lease,ProcessingProjectionLease) or not isinstance(projection,ProcessingSDKProjection)
             or not isinstance(projector_id,str) or not projector_id
