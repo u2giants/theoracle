@@ -151,21 +151,40 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
     from dev.oracle2.test_readonly_graph_fixture import owned_target
     from test_processing_documentary_journey import qualified_journey,assert_no_uncited_originals
     from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    from oracle_brain.operating_model.processing_projection import lease_processing_projection,project_paid_processing_event_v3
     from oracle_brain.operating_model.paid_sdk_embeddings_v3 import sdk_float32_vector
     q=qualified_journey(admin_url,processing,tmp_path);m=q['manifest'];payload=q['ledger'].read(m.workspace_id,m.artifact_id,m.version)
     data=verify_paid_sdk_embedding_v3(**paid_case_for(payload,m));adapter=PaidProjectionEmbedderV3(data)
     graph_url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];project=os.environ['COMPOSE_PROJECT_NAME']
     container=project+'-falkor-candidate-1';owned_target(container,graph_url)
     generation=uuid4()
+    secret=os.urandom(32)
+    class FixtureCurrentAuthority:
+        # Invented semantic admission fixture; real role/source SQL is exercised.
+        def authorize_current(self):
+            current,body=q['ledger'].read_with_manifest(m.workspace_id,m.artifact_id,m.version)
+            return q['guard'].valid_until(current,body,q['ledger'].principal,q['ledger'].clock())
     async def exercise():
         p=PaidProcessingSDKProjectionV3(graph_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
             artifact_version=m.version,generation=generation,embedder=adapter,qualification_guard=q['guard'])
         assert p.graph_name==f'oracle_processing_v1_{m.workspace_id.hex}_{m.artifact_id.hex}_{m.version}_{generation.hex}'
         try:
-            result=await p.build(q['ledger'],m.workspace_id,m.artifact_id,m.version)
+            lease=lease_processing_projection(q['ledger'],m.workspace_id)
+            assert lease is not None
+            result=await project_paid_processing_event_v3(q['ledger'],lease,p,secret=secret,
+                projector_id='invented-sdk-component',authority=FixtureCurrentAuthority())
             proof=await p.paid_projection_proof(payload)
             assert proof.embedding_wire_hash==data.witness.raw_response_hash
-            assert result['paid_embedding']==proof.model_dump(mode='json')
+            assert result['schema_version']==3
+            assert all(result[k]==v for k,v in proof.model_dump(mode='json').items())
+            assert lease_processing_projection(q['ledger'],m.workspace_id) is None
+            fresh=PaidProcessingSDKProjectionV3(graph_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
+                artifact_version=m.version,generation=generation,embedder=PaidProjectionEmbedderV3(data),
+                qualification_guard=q['guard'],receipt_secret=secret)
+            try:
+                assert await fresh.load(q['ledger'],m.workspace_id,m.artifact_id,m.version)==payload
+                assert fresh._paid_signed_receipt==result
+            finally:await fresh.close()
             nodes=(await p.connection.query('MATCH (n) RETURN n')).result_set
             for row in nodes:
                 for node in row:assert_no_uncited_originals(node.properties)
