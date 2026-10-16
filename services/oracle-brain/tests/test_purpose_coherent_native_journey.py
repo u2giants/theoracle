@@ -184,7 +184,12 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
                     permission_digest=qualified[0].permission_digest,compiler_digest=qualified[0].compiler_digest,
                     dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in handoff.extractions))
             assert __import__('pathlib').Path(compile_denial.value.filename) in absent
-            stage('raw_read_and_direct_compile_refused_missing_paid_proof')
+            with pytest.raises(FileNotFoundError) as summary_denial:
+                persist_summary(summary_compiler,summary,summary_id=uuid4(),summary_version=1,
+                    permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
+                    qualification_guard=summary_guard)
+            assert __import__('pathlib').Path(summary_denial.value.filename) in absent
+            stage('raw_read_direct_compile_and_summary_refused_missing_paid_proof')
         with deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
             embedding_dispatch_id=embedding['job'].dispatch_id,root=tmp_path/'actual-paid-graph',
             tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,
