@@ -57,7 +57,7 @@ def _unique_object(pairs):
 
 def parse_result_request_v1(raw:bytes,*,now:datetime)->ProtectedReplacementResultRequestV1:
     """Strict canonical request, no key/role/path selection or clock renewal."""
-    if type(raw) is not bytes or not 0<len(raw)<=8192 or now.tzinfo is None:
+    if type(raw) is not bytes or not 0<len(raw)<=4096 or now.tzinfo is None:
         raise PermissionError('bounded canonical result request required')
     try:
         body=json.loads(raw,object_pairs_hook=_unique_object,

@@ -28,6 +28,6 @@ def test_result_wire_cannot_extend_or_replay_expired_window(delta):
     now=datetime.now(timezone.utc);body=request(now);body['expires_at']=(now+timedelta(seconds=delta)).isoformat()
     with pytest.raises(PermissionError):parse_result_request_v1(canonical_bytes(body),now=now)
 
-@pytest.mark.parametrize('raw',[b'null',b'[]',b'{"schema_version":1,"schema_version":1}',b' '*8193,b'{"x":NaN}',b'\xff'])
+@pytest.mark.parametrize('raw',[b'null',b'[]',b'{"schema_version":1,"schema_version":1}',b' '*4097,b'{"x":NaN}',b'\xff'])
 def test_result_wire_malformed_bytes_fixed_refusal(raw):
     with pytest.raises(PermissionError,match='result request'):parse_result_request_v1(raw,now=datetime.now(timezone.utc))
