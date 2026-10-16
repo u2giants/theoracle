@@ -141,3 +141,24 @@ def make_paid_executor_fixture_settings_v3(worker,job,root,*,executor_binding,da
     return load_paid_executor_settings_v3(config_path,config_hash,appointment_path=appointment_path,
         expected_appointment_sha256=hashlib.sha256(appointment_path.read_bytes()).hexdigest(),
         issuer_actor=config.issuer_actor,reviewer_actor=config.reviewer_actor)
+
+
+def test_executor_blob_reader_never_creates_or_writes_and_limits_exact_hash_keys(tmp_path):
+    from oracle_brain.hosting.paid_executor_v3 import _ExecutorQualifiedBlobsV3
+    from oracle_brain.operating_model.contracts import canonical_bytes
+    import hashlib
+    c=executor_config();raw=canonical_bytes({'invented':'qualified'});seal=hashlib.sha256(raw).hexdigest()
+    root=tmp_path/'preexisting';c.update(blob_root=str(root),content_hash=seal)
+    config=PaidExecutorConfigV3.model_validate(c)
+    with pytest.raises(FileNotFoundError):_ExecutorQualifiedBlobsV3(config)
+    assert not root.exists()
+    root.mkdir(mode=0o700);namespace=root/'operating-model'/str(c['workspace_id']);namespace.mkdir(parents=True,mode=0o700)
+    (root/'operating-model').chmod(0o700)
+    path=namespace/(seal+'.json');path.write_bytes(raw);path.chmod(0o600)
+    reader=_ExecutorQualifiedBlobsV3(config);key=f"operating-model/{c['workspace_id']}/{seal}.json"
+    assert reader.read(key,seal)==raw
+    with pytest.raises(PermissionError):reader.put(c['workspace_id'],{'unadmitted':'bytes'})
+    with pytest.raises(PermissionError):reader.read(key,'0'*64)
+    with pytest.raises(PermissionError):reader.read(f"operating-model/{c['workspace_id']}/"+'0'*64+'.json','0'*64)
+    path.unlink();path.symlink_to(tmp_path/'outside')
+    with pytest.raises(Exception):reader.read(key,seal)

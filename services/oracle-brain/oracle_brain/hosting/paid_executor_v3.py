@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit,unquote
 from uuid import UUID
-import ssl,re
+import ssl,re,stat,os
 from pydantic import Field,AwareDatetime,model_validator
 from oracle_brain.operating_model.contracts import StrictRecord,digest,canonical_bytes
 from oracle_brain.operating_model.source_receipts import SourceRef
@@ -14,6 +14,32 @@ from oracle_brain.operating_model.semantic_registry_v3 import CurrentSemanticAdm
 from oracle_brain.operating_model.purpose_qualification_v3 import PurposeQualifiedAssemblyReadGuardV3,PurposeSemanticAdmissionV3
 from .purpose_journey_v2 import _worker_file,_worker_json,_worker_parse,_require
 HASH=r'^[a-f0-9]{64}$'
+
+class _ExecutorQualifiedBlobsV3:
+    """Preexisting exact readonly namespace; never provisions or writes bytes."""
+    def __init__(self,config):
+        from oracle_brain.operating_model.artifact_storage import FileBlobStore
+        self.root=Path(config.blob_root)
+        info=self.root.lstat()
+        _require(self.root.resolve()==self.root and stat.S_ISDIR(info.st_mode)
+            and info.st_uid==os.getuid() and not info.st_mode&0o077,'preexisting private executor blob root required')
+        self.identity=(info.st_dev,info.st_ino,info.st_uid,info.st_mode)
+        self.allowed={(f'operating-model/{config.workspace_id}/{seal}.json',seal)
+            for seal in (config.content_hash,*(t.content_hash for t in config.summary_targets))}
+        self._validate_key=FileBlobStore._path
+    def put(self,*args,**kwargs):
+        raise PermissionError('executor artifact writes forbidden')
+    def read(self,key,expected_hash):
+        info=self.root.lstat()
+        _require((info.st_dev,info.st_ino,info.st_uid,info.st_mode)==self.identity
+            and self.root.resolve()==self.root and (key,expected_hash) in self.allowed,
+            'exact unchanged appointed executor blob required')
+        path=self._validate_key(self,key)
+        raw=_worker_file(path,expected_hash)
+        after=self.root.lstat()
+        _require((after.st_dev,after.st_ino,after.st_uid,after.st_mode)==self.identity,'executor blob root changed')
+        return raw
+
 
 class ExecutorSummaryTargetV3(StrictRecord):
     kind:Literal['processing_summary_v1']='processing_summary_v1'
@@ -231,8 +257,11 @@ def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointm
     raw=_worker_file(c.database_url_file,c.database_url_sha256,limit=8192)
     _worker_file(c.database_ca_file,c.database_ca_sha256)
     from psycopg.conninfo import conninfo_to_dict
-    url=raw.decode().strip();params=conninfo_to_dict(url)
-    _require(params.get('host')==c.database_hostname and int(params.get('port') or 5432)==c.database_port
+    try:
+        url=raw.decode().strip();params=conninfo_to_dict(url);sql_port=int(params.get('port') or 5432)
+    except Exception:
+        raise PermissionError('invalid protected executor database credential shape') from None
+    _require(params.get('host')==c.database_hostname and sql_port==c.database_port
         and params.get('dbname')==c.database_name and params.get('user')==c.expected_session_role
         and params.get('sslmode')=='verify-full' and params.get('sslrootcert')==c.database_ca_file,
         'exact own executor TLS database target required')
@@ -261,7 +290,6 @@ def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointm
     guard=PurposeQualifiedAssemblyReadGuardV3(trusted_admissions=trust,runtime_hash=c.compiler_runtime_hash,
         current_source_identity=source,current_extraction_seal=extraction,qualified_parent_reader=parent)
     from oracle_brain.operating_model.ledger import Ledger
-    from oracle_brain.operating_model.artifact_storage import FileBlobStore
     def denied(*args):raise PermissionError('executor original/nonprocessing bytes forbidden')
     class ExactExecutorLedger(Ledger):
         def _authorize_processing_blob(self,manifest):
@@ -272,7 +300,7 @@ def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointm
             summary=any(manifest.kind==t.kind and (manifest.workspace_id,manifest.artifact_id,manifest.version,manifest.content_hash)==
                 (c.workspace_id,t.artifact_id,t.artifact_version,t.content_hash) for t in c.summary_targets)
             _require(model or summary,'exact appointed qualified executor blob required')
-    ledger=ExactExecutorLedger(url,FileBlobStore(Path(c.blob_root)),principal=c.actor_id,can_read=denied,current_source=denied,
+    ledger=ExactExecutorLedger(url,_ExecutorQualifiedBlobsV3(c),principal=c.actor_id,can_read=denied,current_source=denied,
         processing_sources=resolver,processing_read_guard=guard)
     # No graph credential has been read yet; placeholders are never returned.
     settings=PaidExecutorSettingsV3(c,Path(config_path),expected_config_sha256,Path(appointment_path),
