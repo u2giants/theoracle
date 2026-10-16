@@ -388,7 +388,7 @@ class CurrentPurposeWorkerJobsV2:
 
 
 class CompilerPhaseCustodyFileV2(StrictRecord):
-    kind: Literal['phase_commit','native_receipt','raw_wire','native_job','extraction_qualification',
+    kind: Literal['phase_commit','native_receipt','raw_wire','native_job','extraction_qualification','extraction_population',
         'wire_metadata','population','census_context','assessment_context','assembly_context','assembly_observer',
         'assembly_protocol','assembly_observed','census_wire','assessment_wire','assembly_wire',
         'assessment','semantic_admission','compile_inputs']
@@ -704,6 +704,25 @@ def observe_purpose_phase_commit_v2(settings,job_id):
         native_receipt_hash=commit.native_custody_receipt_hash,now=datetime.now(timezone.utc))
 
 
+def _historical_extraction_population_v2(settings,job,qualification,raw,entry):
+    from oracle_brain.operating_model.purpose_context import ParentPopulationAdmissionV2
+    population=_worker_parse(raw,ParentPopulationAdmissionV2)
+    current=settings.population
+    _require(entry.sha256==qualification.population_admission_sha256
+        and hashlib.sha256(raw).hexdigest()==entry.sha256
+        and population.runtime_hash==qualification.runtime_hash
+        and population.workspace_id==current.workspace_id==job.workspace_id
+        and population.source_refs==current.source_refs==job.source_refs
+        and population.population_digest==current.population_digest
+        and population.parent_registry_sha256==current.parent_registry_sha256
+        and population.source_registry_hash==current.source_registry_hash
+        and population.expires_at==current.expires_at
+        and population.expires_at<=job.original_horizon
+        and qualification.budget_allocation_projection_sha256==settings.config.allocation_projection_sha256,
+        'historical extraction population differs from original compiler journey')
+    return population
+
+
 class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
     """Actual compiler/source+external custody before bytes, persist AND read."""
     def __init__(self,settings,current_job):
@@ -741,12 +760,13 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
         entry,until=self._entry(manifest,principal,now)
         s=self.settings;job=self.job
         selector={'artifact_id':manifest.artifact_id,'artifact_version':manifest.version,'dispatch_id':entry.dispatch_id}
-        ((context_raw,_),(qraw,qentry),(wire,wentry),(commit_raw,centry),(native_raw,nentry))=s.private_bundle(job,
-            tuple((kind,selector) for kind in ('native_job','extraction_qualification','raw_wire','phase_commit','native_receipt')))
+        ((context_raw,_),(qraw,qentry),(popraw,popentry),(wire,wentry),(commit_raw,centry),(native_raw,nentry))=s.private_bundle(job,
+            tuple((kind,selector) for kind in ('native_job','extraction_qualification','extraction_population','raw_wire','phase_commit','native_receipt')))
         context=JobContext.model_validate_json(context_raw)
         qualification=ExtractionOperationQualificationV2.model_validate_json(qraw)
         committed=_worker_parse(commit_raw,ExtractionResponseCommitV2)
-        content,witness=verify_extraction_paid_wire_v2(context,committed,wire,qualification,s.population,
+        population=_historical_extraction_population_v2(s,job,qualification,popraw,popentry)
+        content,witness=verify_extraction_paid_wire_v2(context,committed,wire,qualification,population,
             expected_qualification_hash=qentry.sha256,artifact_version=manifest.version)
         _require(witness.artifact_id==manifest.artifact_id and witness.artifact_version==manifest.version
             and witness.source_ref==entry.source_ref and witness.native_dispatch_id==entry.dispatch_id
@@ -778,13 +798,14 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
         entry,until=self._entry(manifest,principal,now)
         s=self.settings;job=self.job
         selector={'artifact_id':manifest.artifact_id,'artifact_version':manifest.version,'dispatch_id':entry.dispatch_id}
-        ((context_raw,_),(qraw,qentry),(wire,wentry),(native_raw,nentry),(metadata_raw,mentry))=s.private_bundle(job,
-            tuple((kind,selector) for kind in ('native_job','extraction_qualification','raw_wire','native_receipt','wire_metadata')))
+        ((context_raw,_),(qraw,qentry),(popraw,popentry),(wire,wentry),(native_raw,nentry),(metadata_raw,mentry))=s.private_bundle(job,
+            tuple((kind,selector) for kind in ('native_job','extraction_qualification','extraction_population','raw_wire','native_receipt','wire_metadata')))
         context=JobContext.model_validate_json(context_raw)
         q=ExtractionOperationQualificationV2.model_validate_json(qraw)
         record=json.loads(native_raw,object_pairs_hook=_unique)
         metadata=json.loads(metadata_raw,object_pairs_hook=_unique)
-        witness=verify_extraction_failed_paid_wire_v2(context,record,wire,metadata,q,s.population,
+        population=_historical_extraction_population_v2(s,job,q,popraw,popentry)
+        witness=verify_extraction_failed_paid_wire_v2(context,record,wire,metadata,q,population,
             expected_qualification_hash=qentry.sha256,expected_ledger_hash=s.allocation.ledger_registry_hash,
             artifact_version=manifest.version,now=now)
         _require(witness.artifact_id==manifest.artifact_id and witness.artifact_version==manifest.version
@@ -1054,12 +1075,14 @@ def persist_purpose_extraction_result_v2(settings,job,*,failed=False):
     selector=dict(artifact_id=entry.artifact_id,artifact_version=entry.artifact_version,dispatch_id=job.dispatch_id)
     qualification_raw,qentry=settings.private(job,'extraction_qualification',**selector)
     qualification=ExtractionOperationQualificationV2.model_validate_json(qualification_raw)
+    population_raw,popentry=settings.private(job,'extraction_population',**selector)
+    population=_historical_extraction_population_v2(settings,job,qualification,population_raw,popentry)
     wire,_=settings.private(job,'raw_wire',**selector)
     ledger=build_purpose_compiler_ledger_v3(settings,job)
     if not failed:
         commit_raw,_=settings.private(job,'phase_commit',**selector)
         commit=_worker_parse(commit_raw,ExtractionResponseCommitV2)
-        content,witness=verify_extraction_paid_wire_v2(ctx,commit,wire,qualification,settings.population,
+        content,witness=verify_extraction_paid_wire_v2(ctx,commit,wire,qualification,population,
             expected_qualification_hash=qentry.sha256,artifact_version=entry.artifact_version)
         _require(witness.artifact_id==entry.artifact_id and witness.source_ref==entry.source_ref
             and witness.native_job_hash==entry.native_job_hash,'actual extraction output target changed')
@@ -1071,7 +1094,7 @@ def persist_purpose_extraction_result_v2(settings,job,*,failed=False):
     record_raw,_=settings.private(job,'native_receipt',**selector)
     metadata_raw,_=settings.private(job,'wire_metadata',**selector)
     witness=verify_extraction_failed_paid_wire_v2(ctx,json.loads(record_raw,object_pairs_hook=_unique),wire,
-        json.loads(metadata_raw,object_pairs_hook=_unique),qualification,settings.population,
+        json.loads(metadata_raw,object_pairs_hook=_unique),qualification,population,
         expected_qualification_hash=qentry.sha256,expected_ledger_hash=settings.allocation.ledger_registry_hash,
         artifact_version=entry.artifact_version,now=datetime.now(timezone.utc))
     payload=failed_extraction_payload_v2(witness)
