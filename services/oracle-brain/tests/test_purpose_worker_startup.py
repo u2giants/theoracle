@@ -383,3 +383,13 @@ def test_historical_extractor_population_is_separate_but_exact_original_journey(
                     distinct):
         with pytest.raises(Exception):check(changed)
     assert x['state']['posts']==0
+
+
+def test_worker_startup_requires_external_hash_before_any_file_read():
+    from unittest.mock import patch
+    from oracle_brain.hosting import purpose_journey_v2 as worker
+    for value in (None,'','placeholder',True):
+        with patch.object(worker,'_worker_file',wraps=worker._worker_file) as private_read:
+            with pytest.raises(Exception,match='explicit externally pinned worker'):
+                load_purpose_worker_settings_v2('/absent',value)
+            private_read.assert_not_called()

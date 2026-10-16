@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit,unquote
 from uuid import UUID
-import hashlib,ssl
+import hashlib,ssl,re
 from pydantic import Field,AwareDatetime,model_validator
 from oracle_brain.operating_model.contracts import StrictRecord,digest
 from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
@@ -121,6 +121,9 @@ class PaidProjectorSettingsV3:
 def load_paid_projector_settings_v3(config_path,expected_config_sha256,*,appointment_path,
         expected_appointment_sha256,issuer_actor,reviewer_actor,worker,job):
     """Hashes/issuer pins come from protected launcher appointment, never JSON itself."""
+    _require(type(expected_config_sha256) is str and re.fullmatch(HASH,expected_config_sha256)
+        and type(expected_appointment_sha256) is str and re.fullmatch(HASH,expected_appointment_sha256),
+        'explicit external projector config and appointment hashes required')
     _require(type(worker) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
         and job.phase=='compile' and type(issuer_actor) is UUID and type(reviewer_actor) is UUID,
         'actual compiler worker and protected external projector pins required')
@@ -210,7 +213,13 @@ def _paid_projector_projection_v3(settings,*,signed_receipt=None):
         embedder=settings.bundle.embedder,qualification_guard=CurrentPaidProjectorGuardV3(settings),
         read_only=signed_receipt is not None,signed_receipt=signed_receipt,
         receipt_secret=settings.receipt_secret,connection_config=connection)
+    # Pinned SDK1.4.0 constructors are lazy: no graph socket/ontology write.
+    # Current-authority checks can perform synchronous bounded metadata I/O;
+    # cancellation cannot interrupt that Python stack. Reject actual expiry
+    # after construction, before handing anything to the absolute-deadline
+    # graph handler; this never permits a late marker or ACK.
     settings.current()
+    _require(datetime.now(timezone.utc)<horizon,'original projector deadline elapsed during construction')
     return projection
 
 
@@ -226,8 +235,38 @@ def reload_paid_projector_projection_v3(settings):
     # This exact compiler-only SQL getter is a required dependency; absence or
     # revocation fails closed rather than opening an owner connection/fallback.
     delivered=settings.worker.resolver.projection_receipt_v3(c.workspace_id,c.artifact_id,c.artifact_version)
+    _require(len(set(delivered.source_refs))==len(delivered.source_refs)
+        and len(set(settings.job.source_refs))==len(settings.job.source_refs)
+        and set(delivered.source_refs)==set(settings.job.source_refs)
+        and datetime.now(timezone.utc)<delivered.valid_until,'current exact delivered source metadata required')
+    from dataclasses import replace
+    settings=replace(settings,valid_until=min(settings.valid_until,delivered.valid_until))
     receipt={**delivered.receipt.model_dump(mode='json'),'signature':delivered.signature}
     _require(receipt['graph_name']==c.graph_name and receipt['projector_id']==str(c.projector_id),
         'committed projector receipt belongs to another target/identity')
     settings.current()
     return _paid_projector_projection_v3(settings,signed_receipt=receipt)
+
+
+@dataclass(frozen=True)
+class PaidProjectorAuthorityV3:
+    settings:PaidProjectorSettingsV3
+    def __post_init__(self):
+        _require(type(self.settings) is PaidProjectorSettingsV3,'exact protected projector authority required')
+    def authorize_current(self):
+        return self.settings.current()
+
+
+async def project_paid_projector_event_v3(settings,lease):
+    """Fixed protected entry; caller cannot supply projection/key/authority callbacks."""
+    from oracle_brain.operating_model.processing_projection import project_paid_processing_event_v3
+    _require(type(settings) is PaidProjectorSettingsV3,'exact protected projector settings required')
+    settings.current()
+    projection=build_paid_projector_projection_v3(settings)
+    authority=PaidProjectorAuthorityV3(settings)
+    _require(type(authority) is PaidProjectorAuthorityV3,'exact protected projector authority required')
+    try:
+        return await project_paid_processing_event_v3(settings.bundle.ledger,lease,projection,
+            secret=settings.receipt_secret,projector_id=str(settings.config.projector_id),authority=authority)
+    finally:
+        await projection.close()
