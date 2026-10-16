@@ -79,6 +79,18 @@ def test_rich_fixture_builders_use_actual_observations_and_retain_conflict_unkno
     refs,observations,findings=assembly_inputs(payloads,enforce_unique_sources=True)
     model_id=uuid4();raw=model_json(payloads,source_refs=tuple(refs),model_id=model_id)
     payload,evidence=assembly_candidate_payload(raw,workspace_id=workspace,refs=refs,observations=observations,findings=findings)
+    # Actual semantic projection must use handoff identity, not its artifact
+    # reference: these two handoffs legitimately carry the SAME ART artifact.
+    from oracle_brain.operating_model.semantic_runtime import ledger_object_evidence
+    derived=ledger_object_evidence(payload,workspace_id=workspace,
+        receipts={str(r.ref.source_id):r for r in receipts},inventories={})
+    assert {'art-flow:ART','art-flow:h0','art-flow:h1','ART'}<=derived.keys()
+    assert derived['art-flow:h0']!=derived['art-flow:h1']
+    damaged=json.loads(json.dumps(payload))
+    for workflow in (damaged['workflows'][0],damaged['operating_models'][0]['workflows'][0]):
+        workflow['handoffs'][1]['handoff_id']='h0'
+    with pytest.raises(ValueError):ledger_object_evidence(damaged,workspace_id=workspace,
+        receipts={str(r.ref.source_id):r for r in receipts},inventories={})
     assert len(observations)==3 and len(findings)==3
     assert {f['kind'] for f in findings.values()}=={'source_conflict','missing_information'}
     model=payload['operating_models'][0]
