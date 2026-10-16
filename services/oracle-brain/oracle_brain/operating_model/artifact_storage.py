@@ -37,46 +37,50 @@ def _private_stat(info,*,directory=False):
         or (not directory and info.st_nlink!=1)):
         raise PermissionError('immutable private storage ownership/type/link/mode differs')
 
-def _parent_fd(root,parts,*,create):
+def _parent_fd(root,parts,*,create,strict=True):
     fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
     try:
-        _private_stat(os.fstat(fd),directory=True)
+        if strict:_private_stat(os.fstat(fd),directory=True)
         for part in parts:
             if not part or part in ('.','..') or '/' in part or '\\' in part:raise ValueError('invalid private path component')
             if create:
                 try:os.mkdir(part,0o700,dir_fd=fd);os.fsync(fd)
                 except FileExistsError:pass
             child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd)
-            try:_private_stat(os.fstat(child),directory=True)
+            try:
+                if strict:_private_stat(os.fstat(child),directory=True)
             except BaseException:os.close(child);raise
             os.close(fd);fd=child
         return fd
     except BaseException:os.close(fd);raise
 
-def _read_private_at(parent,name,limit):
+def _read_private_at(parent,name,limit,*,strict=True):
     fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=parent)
     with os.fdopen(fd,'rb') as stream:
-        before=os.fstat(stream.fileno());_private_stat(before)
+        before=os.fstat(stream.fileno())
+        if strict:_private_stat(before)
         if before.st_size>limit:raise ValueError('private object exceeds exact bounded size')
-        data=stream.read(limit+1);after=os.fstat(stream.fileno());_private_stat(after)
+        data=stream.read(limit+1);after=os.fstat(stream.fileno())
+        if strict:_private_stat(after)
         if len(data)>limit or (before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_ino,after.st_size,after.st_mtime_ns):
             raise ValueError('private object changed during read')
         return data
 
-def _write_private_at(root,parts,data):
+def _write_private_at(root,parts,data,*,strict=True):
     """Shared immutable byte primitive; no scope/authority is issued here."""
-    parent=_parent_fd(root,parts[:-1],create=True);name=parts[-1];created=None
+    parent=_parent_fd(root,parts[:-1],create=True,strict=strict);name=parts[-1];created=None
     try:
         try:fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=parent)
         except FileExistsError:
-            if _read_private_at(parent,name,len(data))!=data:raise ValueError('same immutable key has different bytes')
+            if _read_private_at(parent,name,len(data),strict=strict)!=data:raise ValueError('same immutable key has different bytes')
         else:
             try:
-                created=os.fstat(fd);_private_stat(created)
+                created=os.fstat(fd)
+                if strict:_private_stat(created)
                 with os.fdopen(fd,'wb') as stream:
                     stream.write(data);stream.flush();os.fsync(stream.fileno())
                 os.fsync(parent)
-                if _read_private_at(parent,name,len(data))!=data:raise ValueError('immutable write readback differs')
+                if _read_private_at(parent,name,len(data),strict=strict)!=data:raise ValueError('immutable write readback differs')
             except BaseException:
                 # Never remove an existing idempotent object or a replaced link.
                 if created is not None:
@@ -94,7 +98,7 @@ def _original_bytes(ref,data):
 class FileBlobStore:
     """Local/restore implementation; production uses the same sealed-blob protocol."""
     def __init__(self, root: Path):
-        if root.is_symlink():raise PermissionError('blob root symlink denied')
+        self._original_root_alias=root.is_symlink()
         self.root = root.resolve()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.root.stat().st_mode & 0o077:
@@ -105,7 +109,9 @@ class FileBlobStore:
         seal = hashlib.sha256(data).hexdigest()
         key = f'operating-model/{workspace_id}/{seal}.json'
         self._path(key)
-        _write_private_at(self.root,key.split('/'),data)
+        # Legacy JSON namespace retains its existing directory/file permissions.
+        # Only the new original namespace requires stricter ownership/link modes.
+        _write_private_at(self.root,key.split('/'),data,strict=False)
         self.read(key, seal)
         return key, seal
 
@@ -133,9 +139,11 @@ class FileBlobStore:
     # Deliberately private I/O primitives. There is NO admitted lifecycle
     # factory/public raw intake route; callers cannot manufacture authority.
     def _put_original_bytes(self,ref:OriginalObjectRefV1,data:bytes):
+        if self._original_root_alias:raise PermissionError('private original root alias denied')
         _original_bytes(ref,data);_write_private_at(self.root,ref.key.split('/'),data)
         return ref
     def _read_original_bytes(self,ref:OriginalObjectRefV1):
+        if self._original_root_alias:raise PermissionError('private original root alias denied')
         if type(ref) is not OriginalObjectRefV1:raise ValueError('exact private original identity required')
         ref.__post_init__();parts=ref.key.split('/');parent=_parent_fd(self.root,parts[:-1],create=False)
         try:data=_read_private_at(parent,parts[-1],ref.byte_count)

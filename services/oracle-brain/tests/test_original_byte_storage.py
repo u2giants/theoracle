@@ -38,7 +38,16 @@ def test_symlink_parent_root_and_writable_parent_refused(tmp_path):
     parent.unlink();parent.mkdir(mode=0o777);parent.chmod(0o777)
     with pytest.raises(PermissionError):store._put_original_bytes(r,b'a')
     alias=tmp_path/'alias';alias.symlink_to(store.root,target_is_directory=True)
-    with pytest.raises(PermissionError):FileBlobStore(alias)
+    with pytest.raises(PermissionError):FileBlobStore(alias)._put_original_bytes(r,b'a')
+
+def test_legacy_json_existing_parent_permissions_are_preserved(tmp_path):
+    store=FileBlobStore(tmp_path/'own');workspace=ref(b'a').workspace_id
+    parent=store.root/'operating-model'/str(workspace);parent.mkdir(parents=True);parent.chmod(0o755)
+    (store.root/'operating-model').chmod(0o755)
+    key,h=store.put(workspace,{'legacy':True});path=store.root/key;path.chmod(0o644)
+    assert store.put(workspace,{'legacy':True})==(key,h)
+    assert store.read(key,h)==b'{"legacy":true}'
+    assert parent.stat().st_mode&0o777==0o755 and path.stat().st_mode&0o777==0o644
 
 def test_partial_new_write_failure_removes_only_own_new_link(tmp_path,monkeypatch):
     store=FileBlobStore(tmp_path/'own');r=ref(b'first');store._put_original_bytes(r,b'first')
