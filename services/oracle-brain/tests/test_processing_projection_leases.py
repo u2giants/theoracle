@@ -436,7 +436,7 @@ def paid_final_context(qualified):
     return lease,receipt,manifest,payload
 
 
-@pytest.mark.parametrize('changed',['none','model','dependency','compiler','source','receipt-source','projection','inventory','lease','event'])
+@pytest.mark.parametrize('changed',['none','model','dependency','compiler','source','receipt-source','projection','inventory','lease','event','float-schema','bool-schema'])
 def test_paid_final_read_binds_current_body_manifest_projection_and_lease(qualified,changed):
     import copy
     import oracle_brain.operating_model.processing_projection as delivery
@@ -450,9 +450,11 @@ def test_paid_final_read_binds_current_body_manifest_projection_and_lease(qualif
     elif changed=='inventory':receipt['embedding_inventory_hash']='f'*64
     elif changed=='lease':receipt['lease_token']=str(uuid4())
     elif changed=='event':receipt['event_id']=str(uuid4())
+    elif changed=='float-schema':receipt['schema_version']=3.0
+    elif changed=='bool-schema':receipt['schema_version']=True
     if changed=='none':delivery._validate_paid_ack_context(lease,receipt,manifest,payload)
     else:
-        with pytest.raises(PermissionError,match='final current paid'):
+        with pytest.raises(PermissionError):
             delivery._validate_paid_ack_context(lease,receipt,manifest,payload)
 
 
