@@ -1,5 +1,5 @@
 """GIVEN invented custody seals, actual SQL commits; no provider cryptoproof."""
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 from uuid import uuid4
 import psycopg
 from psycopg import sql
@@ -10,20 +10,48 @@ from oracle_brain.operating_model.contracts import canonical_bytes,digest
 from oracle_brain.operating_model.original_qualification_v1 import OriginalReadingCommitV1
 
 
-def reading_body(x):
+READER_MODEL='openai/gpt-6.1-sol'
+REVIEWER_MODEL='openai/gpt-6-astra'
+
+
+def register_paid(x,body,*,purpose,model_id):
+    """Producer-side paid registration; returns commit_sha256 for authorized_phase_commit_hash."""
+    from oracle_brain.operating_model.raw_original_paid_response_v1 import RawOriginalPaidResponseCommitV1
+    paid=dict(schema_version=1,record_schema='raw-original-paid-response-v1',transport='paid-native-v1',
+        purpose=purpose,dispatch_id=body['native_dispatch_id'],raw_ref=body['raw_ref'],
+        native_job_hash=body['native_job_hash'],context_hash=body['context_hash'],request_hash=body['request_hash'],
+        permission_hash='0'*64,population_id=body['population_id'],
+        operation_registry_hash=body['operation_registry_hash'],original_root_hash=body['original_root_hash'],
+        population_digest=body['population_hash'],source_registry_hash=body['source_registry_hash'],
+        allocation_hash=body['allocation_hash'],view_manifest_hash=body['view_manifest_hash'],
+        locator_map_hash=body['locator_map_hash'],pricing_quote_hash='1'*64,reservation_id=str(uuid4()),
+        native_custody_receipt_hash=body['native_custody_receipt_hash'],raw_wire_hash=body['raw_wire_hash'],
+        model_content_hash=body['model_content_hash'],model_id=model_id,current_sql_receipt_hash='2'*64,
+        observer_witness_hash='3'*64,native_failed=False,wire_complete=True,
+        committed_at=body['committed_at'],original_horizon=body['original_horizon'])
+    record=RawOriginalPaidResponseCommitV1.model_validate_json(__import__('json').dumps(paid))
+    return call(x,'register_original_paid_response_v1',canonical_bytes(record.model_dump(mode='json')))['commit_sha256']
+
+
+def reading_body(x,**overrides):
     p=x['population'];ref=x['refs'][0]
     values=dict(raw_ref=ref,population_id=p.population_id,operation_registry_hash=p.operation_registry_hash,
         original_root_hash=p.original_root_hash,allocation_hash='3'*64,population_hash=p.population_digest,
         source_registry_hash=p.source_registry_hash,context_hash='4'*64,view_manifest_hash='5'*64,locator_map_hash='6'*64,
-        reading_sha256='7'*64,parser_id='8'*64,committed_at=datetime.now(timezone.utc),original_horizon=x['until'],
-        reading_body_hash='9'*64,native_dispatch_id=uuid4(),native_job_hash='a'*64,request_hash='b'*64,
-        raw_wire_hash='c'*64,model_content_hash='d'*64,native_custody_receipt_hash='e'*64,authorized_phase_commit_hash='f'*64)
+        reading_sha256='7'*64,parser_id='8'*64,committed_at=datetime.now(timezone.utc)-timedelta(seconds=.01),
+        original_horizon=x['until'],reading_body_hash='9'*64)
     if ref.media_type=='text/plain':
         from oracle_brain.operating_model.original_qualification_v1 import NativeUTF8ReadingCommitV1
-        for k in ('native_dispatch_id','native_job_hash','request_hash','raw_wire_hash','model_content_hash','native_custody_receipt_hash','authorized_phase_commit_hash'):values.pop(k)
         values['reading_sha256']=ref.original_sha256
+        values.update(overrides)
         return NativeUTF8ReadingCommitV1(**values).model_dump(mode='json')
-    return OriginalReadingCommitV1(**values).model_dump(mode='json')
+    values.update(native_dispatch_id=uuid4(),native_job_hash='a'*64,request_hash='b'*64,
+        raw_wire_hash='c'*64,model_content_hash='d'*64,native_custody_receipt_hash='e'*64,
+        authorized_phase_commit_hash='0'*64)
+    values.update(overrides)
+    body=OriginalReadingCommitV1(**values).model_dump(mode='json')
+    body['authorized_phase_commit_hash']=register_paid(x,body,purpose='source-original-reading',model_id=READER_MODEL)
+    return body
 
 
 def test_actual_reader_commit_canonical_idempotent_and_not_body_principal(raw_reader):
@@ -33,7 +61,7 @@ def test_actual_reader_commit_canonical_idempotent_and_not_body_principal(raw_re
     assert call(x,'commit_original_reading_response_v1',wire)['commit_sha256']==r['commit_sha256']
     with psycopg.connect(x['url']) as c:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):c.execute('SELECT * FROM oracle2.original_phase_response_commits')
-    b['raw_wire_hash']='0'*64
+    b['reading_body_hash']='0'*64
     with pytest.raises(psycopg.errors.UniqueViolation):call(x,'commit_original_reading_response_v1',canonical_bytes(b))
 
 @pytest.mark.parametrize('change',['unknown','bool-schema','float-schema','paid-missing','native-paid-fields','native-pdf','pop','registry','root','horizon','future','noncanonical','third-revoke'])
@@ -83,10 +111,12 @@ def independent_reviewer(raw_reader):
 
 
 def review_body(b,r,y):
-    return b|dict(purpose='observed-authorized-original-review-response-v1',population_id=str(y['review_pop']),
+    review=b|dict(purpose='observed-authorized-original-review-response-v1',population_id=str(y['review_pop']),
         operation_registry_hash=y['review_operation'],source_registry_hash=y['review_registry'],context_hash='0'*64,
         native_dispatch_id=str(uuid4()),reading_commit_hash=r['commit_sha256'],reading_population_id=b['population_id'],
         reading_operation_registry_hash=b['operation_registry_hash'],review_body_hash='1'*64,qualification_pass=True)
+    review['authorized_phase_commit_hash']=register_paid(y,review,purpose='source-original-review',model_id=REVIEWER_MODEL)
+    return review
 
 @pytest.mark.parametrize('change',['none','historical-reader-revoked','wrong-reader-pop','wrong-reader-registry','same-actor','review-revoked','integer-pass'])
 def test_current_independent_review_binds_historical_reader_actual_commit(independent_reviewer,change):
@@ -120,3 +150,22 @@ def test_native_utf8_actual_sql_commit_has_no_paid_fields(raw_reader):
     with psycopg.connect(x['admin']) as c:
         row=c.execute('SELECT transport,native_dispatch_id,body FROM oracle2.original_phase_response_commits WHERE commit_sha256=%s',(r['commit_sha256'],)).fetchone()
         assert row[0]=='native-utf8-byte-roundtrip-v1' and row[1] is None and row[2]==b
+
+
+@pytest.mark.parametrize('change',['missing','foreign','mismatched','wrong-purpose'])
+def test_paid_registration_join_refuses_missing_foreign_mismatched(independent_reviewer,change):
+    x,y=independent_reviewer;b=reading_body(x)
+    if change=='missing':
+        b['authorized_phase_commit_hash']='f'*64
+    elif change=='mismatched':
+        b['raw_wire_hash']='0'*64
+    elif change=='wrong-purpose':
+        foreign=b|dict(population_id=str(y['review_pop']),operation_registry_hash=y['review_operation'],
+            source_registry_hash=y['review_registry'],context_hash='0'*64,native_dispatch_id=str(uuid4()))
+        b['authorized_phase_commit_hash']=register_paid(y,foreign,purpose='source-original-review',model_id=REVIEWER_MODEL)
+    elif change=='foreign':
+        seal=b['authorized_phase_commit_hash']
+        with psycopg.connect(x['admin']) as c:
+            c.execute('UPDATE oracle2.original_paid_response_commits_v1 SET principal_id=%s WHERE commit_sha256=%s',(uuid4(),seal))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        call(x,'commit_original_reading_response_v1',canonical_bytes(b))

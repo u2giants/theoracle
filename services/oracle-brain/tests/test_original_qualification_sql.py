@@ -15,7 +15,7 @@ from oracle_brain.operating_model.authority_adapter import QualifiedRevisionProc
 
 def qualified_input(x,y):
     text='Invented independently reviewed reading.';view={'schema_version':1,'given_view':'invented SQL boundary'};locators={'locators':[]}
-    b=reading_body(x);b.update(reading_sha256=__import__('hashlib').sha256(text.encode()).hexdigest(),view_manifest_hash=digest(view),locator_map_hash=digest(locators))
+    b=reading_body(x,reading_sha256=__import__('hashlib').sha256(text.encode()).hexdigest(),view_manifest_hash=digest(view),locator_map_hash=digest(locators))
     r=call(x,'commit_original_reading_response_v1',canonical_bytes(b));review=review_body(b,r,y);v=call(y,'commit_original_review_response_v1',canonical_bytes(review))
     ref=x['refs'][0]
     with psycopg.connect(x['admin']) as c:
