@@ -60,7 +60,7 @@ def materialize(profile, encoded, seal, root=ROOT):
   parameters=json.loads(values['seed-parameters.json'],object_pairs_hook=_unique_object)
   seed,_,_,_=compile_seed(parameters)
   sqlroot=SQL_ROOT
-  names=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql','010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql','012_processing_compiler_capabilities.sql')
+  names=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql','010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql','012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql')
   values={f'{index+1:02d}-{name}':(sqlroot/name).read_bytes() for index,name in enumerate(names)}
   values['00-empty-owned-preflight.sql']=b"DO $$ BEGIN IF current_database()<>'oracle_synthetic' OR current_user<>'oracle_bootstrap' OR (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database())<>current_user OR EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname !~ '^pg_toast' AND c.relkind IN ('r','p','v','m','S')) THEN RAISE EXCEPTION 'new empty owned synthetic ledger required'; END IF; END $$;\n"
   values['90-public-invented-seed.sql']=seed.encode()

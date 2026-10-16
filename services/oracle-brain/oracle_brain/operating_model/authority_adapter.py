@@ -368,3 +368,196 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
         if (seal.workspace_id,seal.artifact_id,seal.version)!=(workspace_id,artifact_id,version):
             raise PermissionError('current extraction seal differs')
         return seal
+
+
+_PURPOSE_PHASES_V2={
+    'census':('source-census','chat'),
+    'assembly':('operating-audit','chat'),
+    'assessment':('independent-source-semantic-acceptance','chat'),
+    'embedding':('source-extraction','embedding'),
+}
+_PURPOSE_RAW_SQL_V2={
+    'source-census':'SELECT * FROM oracle2.hosting_source_census_receipt_v2(%s,%s,%s,%s,%s)',
+    'operating-audit':'SELECT * FROM oracle2.hosting_operating_audit_receipt_v2(%s,%s,%s,%s,%s)',
+    'independent-source-semantic-acceptance':'SELECT * FROM oracle2.hosting_independent_semantic_receipt_v2(%s,%s,%s,%s,%s)',
+}
+_PURPOSE_IDENTITY_SQL_V2={
+    'source-census':'SELECT * FROM oracle2.hosting_source_census_identity_v2(%s,%s,%s,%s,%s)',
+    'operating-audit':'SELECT * FROM oracle2.hosting_operating_audit_identity_v2(%s,%s,%s,%s,%s)',
+    'independent-source-semantic-acceptance':'SELECT * FROM oracle2.hosting_independent_semantic_identity_v2(%s,%s,%s,%s,%s)',
+    'source-extraction':'SELECT * FROM oracle2.hosting_projection_embedding_identity_v2(%s,%s,%s,%s,%s)',
+}
+
+
+@dataclass(frozen=True)
+class PurposeSourceBindingV2:
+    """External immutable startup pins. Construction is never appointment/issuance."""
+    source: ProcessingSourceBinding
+    phase: str
+    purpose: str
+    operation: str
+    expected_provider_login: str
+    caller_kind: str
+    source_refs: tuple[SourceRef,...]
+    population_digest: str
+    descriptor_sha256: str
+    parent_registry_sha256: str
+    population_admission_sha256: str
+    phase_registry_sha256: str
+    projection_sha256: str
+
+    def __post_init__(self):
+        from .purpose_context import source_population_digest
+        if (type(self.source) is not ProcessingSourceBinding
+                or _PURPOSE_PHASES_V2.get(self.phase)!=(self.purpose,self.operation)
+                or not isinstance(self.expected_provider_login,str)
+                or not re.fullmatch('[a-z_][a-z0-9_]{0,62}',self.expected_provider_login)
+                or self.caller_kind not in {'provider','gateway'}
+                or type(self.source_refs) is not tuple or not self.source_refs
+                or any(type(r) is not SourceRef for r in self.source_refs)
+                or len({r.source_id for r in self.source_refs})!=len(self.source_refs)
+                or len({r.workspace_id for r in self.source_refs})!=1
+                or any(not re.fullmatch('[0-9a-f]{64}',r.parser_id) for r in self.source_refs)
+                or any(not isinstance(v,str) or not re.fullmatch('[0-9a-f]{64}',v) for v in (
+                    self.population_digest,self.descriptor_sha256,self.parent_registry_sha256,
+                    self.population_admission_sha256,self.phase_registry_sha256,self.projection_sha256))
+                or source_population_digest(self.source_refs)!=self.population_digest):
+            raise PermissionError('complete immutable purpose V2 pins required')
+        if self.caller_kind=='provider':
+            profile='gateway-metadata' if self.operation=='embedding' else 'source-reader'
+            if self.source.profile!=profile or self.source.expected_session_role!=self.expected_provider_login:
+                raise PermissionError('actual provider login/profile differs')
+        elif self.source.profile!='gateway-metadata' or self.operation!='chat':
+            raise PermissionError('only explicit chat gateway metadata profile permitted')
+
+
+class _PurposeRoleVerifierV2(ProcessingSourceResolver):
+    _signatures={**ProcessingSourceResolver._signatures,
+        'oracle2._purpose_source_v2(uuid,uuid,uuid,text,text,text,boolean)':frozenset(),
+        **{f'oracle2.hosting_{name}_receipt_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_source_reader'})
+           for name in ('source_census','operating_audit','independent_semantic')},
+        **{f'oracle2.hosting_{name}_identity_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_source_reader','oracle2_gateway_metadata'})
+           for name in ('source_census','operating_audit','independent_semantic')},
+        'oracle2.hosting_projection_embedding_identity_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_gateway_metadata'}),
+    }
+
+
+class PurposeSourceResolverV2:
+    """Own-session current purpose source access; no V1 method/write fallback.
+
+    Complete population pins come from independently admitted configuration.
+    SQL validates each source, not filesystem registry/provider/issuer truth.
+    Private parent/phase loading and provider calls must occur OUTSIDE holds.
+    """
+    def __init__(self,url: str,*,binding: PurposeSourceBindingV2):
+        if type(binding) is not PurposeSourceBindingV2:
+            raise PermissionError('exact externally admitted purpose binding required')
+        self.url,self.binding=url,binding
+        self._roles=_PurposeRoleVerifierV2(url,binding=binding.source)
+
+    @property
+    def metadata_only(self):
+        return self.binding.source.profile=='gateway-metadata'
+
+    def _check(self,conn):
+        self._roles._check(conn)
+
+    def _population(self,conn,*,raw=False):
+        b=self.binding; s=b.source
+        if raw and (b.caller_kind!='provider' or self.metadata_only or b.operation!='chat'):
+            raise PermissionError('purpose context cannot open original bodies')
+        query=(_PURPOSE_RAW_SQL_V2 if raw else _PURPOSE_IDENTITY_SQL_V2).get(b.purpose)
+        if query is None:raise PermissionError('fixed purpose capability unavailable')
+        self._check(conn)
+        outputs=[];deadlines=[]
+        for expected in b.source_refs:
+            rows=conn.execute(query,(expected.workspace_id,expected.source_id,s.principal,s.runtime_hash,s.source_registry_hash)).fetchall()
+            if len(rows)!=1:raise PermissionError('unique current purpose source required')
+            row=rows[0]
+            actual=SourceRef(workspace_id=expected.workspace_id,source_id=expected.source_id,revision=row[0],
+                original_sha256=row[1],reading_sha256=row[2],parser_id=row[3])
+            if actual!=expected:raise PermissionError('purpose full population source changed')
+            if raw:
+                provenance=ReadingProvenance.model_validate_json(row[5])
+                if (provenance.original_hash,provenance.content_hash,provenance.parser_identity)!=(row[1],row[2],row[3]):
+                    raise PermissionError('purpose original custody differs')
+                output=SourceReceipt(ref=actual,reading=row[4],display_revision=f'r{actual.revision}')
+            else:output=actual
+            expiry,checked=row[-2:]
+            if (not isinstance(expiry,datetime) or expiry.tzinfo is None or expiry.utcoffset() is None
+                    or not isinstance(checked,datetime) or checked.tzinfo is None or checked.utcoffset() is None):
+                raise PermissionError('actual finite purpose SQL clock required')
+            outputs.append(output);deadlines.append(expiry)
+        self._check(conn)
+        now=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+        deadline=min(*deadlines,s.expires_at)
+        if now>=deadline:raise PermissionError('purpose population authority expired')
+        return tuple(outputs),deadline,now
+
+    def identity(self,workspace_id,source_id,*,connection=None):
+        if not any(r.workspace_id==workspace_id and r.source_id==source_id for r in self.binding.source_refs):
+            raise PermissionError('source outside admitted full parent population')
+        with self._roles._connection(connection) as conn:
+            refs,_,_=self._population(conn)
+        return next(r for r in refs if r.source_id==source_id)
+
+    def read_population(self,*,connection=None):
+        with self._roles._connection(connection) as conn:
+            # Authorize EVERY source before opening the first original body.
+            self._population(conn)
+            receipts,_,_=self._population(conn,raw=True)
+            self._population(conn)
+        return receipts
+
+    def current_for_purpose(self,workspace_id,source_id,*,connection=None):
+        if not any(r.workspace_id==workspace_id and r.source_id==source_id for r in self.binding.source_refs):
+            raise PermissionError('source outside admitted full parent population')
+        return next(r for r in self.read_population(connection=connection) if r.ref.source_id==source_id)
+
+    def _descriptor(self,descriptor,dispatch):
+        from .contracts import digest
+        from .purpose_context import PurposeRunDescriptorV2,PurposeDispatchV2
+        b=self.binding;s=b.source
+        if (type(descriptor) is not PurposeRunDescriptorV2 or type(dispatch) is not PurposeDispatchV2
+                or digest(descriptor.model_dump(mode='json'))!=b.descriptor_sha256
+                or descriptor.dispatch(dispatch.dispatch_id)!=dispatch
+                or descriptor.workspace_id!=b.source_refs[0].workspace_id or descriptor.actor_id!=s.principal
+                or descriptor.provider_login!=b.expected_provider_login
+                or descriptor.phase!=b.phase or descriptor.purpose!=b.purpose or descriptor.operation!=b.operation
+                or descriptor.runtime_hash!=s.runtime_hash or descriptor.source_registry_hash!=s.source_registry_hash
+                or descriptor.parent_registry_sha256!=b.parent_registry_sha256
+                or descriptor.population_admission_sha256!=b.population_admission_sha256
+                or descriptor.phase_registry_sha256!=b.phase_registry_sha256
+                or descriptor.population_digest!=b.population_digest
+                or descriptor.source_refs!=b.source_refs or dispatch.source_refs!=b.source_refs
+                or descriptor.issuer_actor==descriptor.reviewer_actor
+                or descriptor.actor_id in {descriptor.issuer_actor,descriptor.reviewer_actor}):
+            raise PermissionError('exact admitted purpose descriptor/dispatch required')
+        return digest(dispatch.model_dump(mode='json'))
+
+    @contextmanager
+    def hold(self,descriptor,dispatch,*,connection=None):
+        from .purpose_context import PurposeAuthorityProofV2
+        b=self.binding;s=b.source
+        dispatch_hash=self._descriptor(descriptor,dispatch)
+        with self._roles._connection(connection) as conn:
+            _,expiry,checked=self._population(conn)
+            expiry=min(expiry,descriptor.expires_at)
+            if checked>=expiry:raise PermissionError('purpose descriptor expired')
+            caller,role=conn.execute('SELECT session_user,current_user').fetchone()
+            if caller!=s.expected_session_role or (b.caller_kind=='provider' and caller!=descriptor.provider_login):
+                raise PermissionError('actual purpose caller differs')
+            proof=PurposeAuthorityProofV2(run_id=descriptor.run_id,workspace_id=descriptor.workspace_id,
+                actor_id=descriptor.actor_id,admitted_provider_login=descriptor.provider_login,
+                actual_caller_login=caller,dispatch_id=dispatch.dispatch_id,phase=b.phase,purpose=b.purpose,operation=b.operation,
+                source_refs=b.source_refs,population_digest=b.population_digest,runtime_hash=s.runtime_hash,
+                source_registry_hash=s.source_registry_hash,descriptor_sha256=b.descriptor_sha256,
+                parent_registry_sha256=b.parent_registry_sha256,population_admission_sha256=b.population_admission_sha256,
+                phase_registry_sha256=b.phase_registry_sha256,projection_sha256=b.projection_sha256,
+                dispatch_hash=dispatch_hash,job_hash=dispatch.job_hash,request_hash=dispatch.request_hash,
+                permission_hash=dispatch.permission_hash,session_role=role,profile=s.profile,
+                checked_at=checked,expires_at=expiry)
+            yield proof
+            self._descriptor(descriptor,dispatch)
+            _,current_expiry,now=self._population(conn)
+            if now>=min(expiry,current_expiry):raise PermissionError('purpose authority expired before commit')
