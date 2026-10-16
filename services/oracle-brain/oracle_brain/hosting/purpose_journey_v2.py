@@ -857,7 +857,7 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
                 'failed result lacks actual appointed producer/attempt provenance')
         return context,witness,until
 
-    def __call__(self,manifest,payload,principal,now):
+    def validate_current(self,manifest,payload,principal,now):
         from oracle_brain.operating_model.extraction import validate_response
         if manifest.kind=='processing_failed_extraction_v1':
             context,witness,until=self._failed(manifest,principal,now)
@@ -865,8 +865,7 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
             _require(payload==expected and manifest.content_hash==digest(expected)
                 and manifest.permission_digest==context.permission_hash,
                 'failed artifact must describe actual FAILED custody, never settlement or success')
-            self.settings.authority_horizon(self.job)
-            return None
+            return self.authorize_manifest(manifest,principal,datetime.now(timezone.utc))
         _require(manifest.kind=='processing_extraction_v1','exact extraction artifact required')
         context,content,witness,until=self._paid(manifest,principal,now)
         response,observations=validate_response(context.receipt,content,inventories=context.inventories)
@@ -877,12 +876,14 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
         _require(payload==expected and manifest.content_hash==digest(expected)
             and manifest.permission_digest==context.permission_hash,
             'compiler extraction content differs from actual paid model response')
-        self.settings.authority_horizon(self.job)
+        return self.authorize_manifest(manifest,principal,datetime.now(timezone.utc))
+
+    def __call__(self,manifest,payload,principal,now):
+        self.validate_current(manifest,payload,principal,now)
         return None
 
     def valid_until(self,manifest,payload,principal,now):
-        self(manifest,payload,principal,now)
-        return self.authorize_manifest(manifest,principal,now)
+        return self.validate_current(manifest,payload,principal,now)
 
 
 def run_purpose_worker_once_v2(settings):
@@ -985,20 +986,57 @@ class _PurposeCompilerReadGuardV3:
             self.settings.authorize_semantic(_worker_parse(canonical_bytes(payload['assembly_qualification']['admission']),PurposeSemanticAdmissionV3))
         return self.qualified(manifest,payload,principal,now)
 
-    def valid_until(self,manifest,payload,principal,now):
+    def validate_current(self,manifest,payload,principal,now):
         # Authorization still precedes private/evidence access. Its short-lived
         # parent witness must not be the deadline returned AFTER costly lineage
         # replay: obtain a genuinely new current proof at the final boundary.
         self.settings.authorize(self.job)
         if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
-            validated_until=self.extraction.valid_until(manifest,payload,principal,now)
+            validated_until=self.extraction.validate_current(manifest,payload,principal,now)
         else:
+            if manifest.kind=='processing_qualified_model_v1':
+                from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
+                self.settings.authorize_semantic(_worker_parse(canonical_bytes(payload['assembly_qualification']['admission']),PurposeSemanticAdmissionV3))
             validated_until=min(self.qualified.valid_until(manifest,payload,principal,now),
                 self.settings.semantic.valid_until(datetime.now(timezone.utc)))
         current_until=self.settings.custody_horizon(self.job)
         until=min(validated_until,current_until)
         _require(datetime.now(timezone.utc)<until,'current compiler deadline expired after validation')
         return until
+
+    def valid_until(self,manifest,payload,principal,now):
+        return self.validate_current(manifest,payload,principal,now)
+
+
+
+from oracle_brain.operating_model.processing_ledger import ProcessingCompilerLedger as _ProcessingCompilerLedger
+
+class _PurposeFullCompilerLedgerV3(_ProcessingCompilerLedger):
+    """One full validation per boundary, never a retained authority result."""
+    def _validate_processing_guard(self,guard,manifest,payload,now):
+        _require(type(guard) in {_PurposeCompilerReadGuardV3,ProcessingCompilerExtractionGuardV2},
+            'exact protected full processing guard required')
+        until=guard.validate_current(manifest,payload,self.principal,now)
+        _require(isinstance(until,datetime) and until.tzinfo is not None
+            and until.utcoffset() is not None and now<until and self.clock()<until,
+            'finite current full validation deadline required')
+        return until
+
+    def _validate_processing_read_guard(self,manifest,payload,now):
+        if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
+            self._validate_processing_guard(self.processing_extraction_guard,manifest,payload,now)
+        elif type(self.processing_read_guard) is _PurposeCompilerReadGuardV3:
+            self._validate_processing_guard(self.processing_read_guard,manifest,payload,now)
+        else:
+            _require(type(self.processing_read_guard) is _PurposeQualifiedReadGuardV3,
+                'exact protected qualified read guard required')
+            if self.processing_read_guard(manifest,payload,self.principal,now) is not None:
+                raise PermissionError('protected qualified read denied')
+
+    def _validate_processing_extraction_after_read(self,manifest,payload,now):
+        # The body hook above ran once before the base current-metadata reread.
+        # No cached result is accepted or passed across boundaries.
+        return None
 
 
 def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
@@ -1012,7 +1050,7 @@ def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
     _require(type(guard) is ProcessingCompilerExtractionGuardV2
         and guard.settings is settings and guard.job==job,'exact current compiler extraction guard required')
     combined=_PurposeCompilerReadGuardV3(settings,job,guard)
-    ledger=ProcessingCompilerLedger(settings.resolver.url,FileBlobStore(Path(settings.config.blob_root)),
+    ledger=_PurposeFullCompilerLedgerV3(settings.resolver.url,FileBlobStore(Path(settings.config.blob_root)),
         principal=settings.config.actor_id,processing_sources=settings.resolver,
         processing_compile_guard=combined,processing_read_guard=combined,processing_extraction_guard=guard)
     combined.ledger=ledger
@@ -1092,9 +1130,7 @@ class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
         return manifest,payload
 
 
-from oracle_brain.operating_model.processing_ledger import ProcessingCompilerLedger as _ProcessingCompilerLedger
-
-class _PurposeQualifiedReaderLedgerV3(_ProcessingCompilerLedger):
+class _PurposeQualifiedReaderLedgerV3(_PurposeFullCompilerLedgerV3):
     def _authorize_processing_blob(self,manifest):
         super()._authorize_processing_blob(manifest)  # Full raw extraction hook unchanged.
         if manifest.kind in {'processing_qualified_model_v1','processing_summary_v1'}:
