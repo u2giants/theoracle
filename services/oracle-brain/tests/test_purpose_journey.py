@@ -89,3 +89,27 @@ def test_journal_expired_phase_and_truncated_append_cannot_retry(tmp_path):
     with path.open('ab') as stream:stream.write(b'{')
     with pytest.raises(PermissionError):j.read(first.journey_id)
     with pytest.raises(PermissionError):j.claim(first,now=datetime.now(timezone.utc))
+
+
+def test_compile_consumer_requires_actual_settings_and_distinct_paid_phases():
+    from oracle_brain.hosting.purpose_journey_v2 import PurposeCompileInputsV2,compile_purpose_worker_result_v3
+    target=uuid4()
+    with pytest.raises(PermissionError):
+        PurposeCompileInputsV2(artifact_id=uuid4(),artifact_version=1,census_dispatch_id=target,
+            assembly_dispatch_id=target,assessment_dispatch_id=uuid4())
+    for invalid in ({},True,lambda:True):
+        with pytest.raises(PermissionError):compile_purpose_worker_result_v3(invalid,job())
+
+
+def test_awaiting_custody_does_not_create_success_barrier_or_retry(tmp_path):
+    j=PurposeJourneyJournalV2(tmp_path);first=job();j.claim(first,now=datetime.now(timezone.utc))
+    waiting=j.awaiting_custody(first,now=datetime.now(timezone.utc))
+    assert waiting['state']=='awaiting-external-custody'
+    assert j.awaiting_custody(first,now=datetime.now(timezone.utc))==waiting
+    with pytest.raises(PermissionError):j.claim(first,now=datetime.now(timezone.utc))
+    child=job(phase='extraction',journey=first.journey_id,refs=first.source_refs,source_id=first.source_refs[0].source_id,
+        parent=waiting['journal_hash'],prior='f'*64)
+    with pytest.raises(PermissionError):j.claim(child,now=datetime.now(timezone.utc))
+    completed=j.commit(first,receipt_hash='f'*64,native_receipt_hash='0'*64,now=datetime.now(timezone.utc))
+    assert completed['state']=='awaiting-external-phase-admission'
+    with pytest.raises(PermissionError):j.awaiting_custody(first,now=datetime.now(timezone.utc))

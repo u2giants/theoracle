@@ -202,6 +202,22 @@ class PurposeJourneyJournalV2:
             return self._append(job,rows,'awaiting-external-custody',now)
 
 
+    def compile_committed(self,job,manifest,*,now):
+        from oracle_brain.operating_model.contracts import ArtifactManifest
+        self._current(job,now)
+        _require(job.phase=='compile' and type(manifest) is ArtifactManifest
+            and manifest.workspace_id==job.workspace_id and manifest.kind=='processing_qualified_model_v1'
+            and manifest.compiler_digest==job.runtime_hash,'actual qualified compiler artifact required')
+        with self._locked():
+            rows=self.read(job.journey_id);self._root(job,rows)
+            phase=[r for r in rows if r['phase_key']==job.phase_key]
+            _require(len(phase)==1 and phase[0]['state']=='attempt-started'
+                and phase[0]['job_hash']==digest(job.model_dump(mode='json')),'exact claimed compiler phase required')
+            return self._append(job,rows,'qualified-model-outbox-committed',now,
+                receipt_hash=manifest.content_hash,qualified_manifest_hash=digest(manifest.model_dump(mode='json')),
+                qualified_artifact_id=str(manifest.artifact_id),qualified_artifact_version=manifest.version)
+
+
 class CompilerPhaseClientConfigV2(StrictRecord):
     hostname: str
     port: int = Field(strict=True,ge=1,le=65535)
@@ -417,6 +433,19 @@ class CompilerWorkerSettingsV2:
             self.population.expires_at,self.allocation.original_expires_at)
         _require(datetime.now(timezone.utc)<until,'actual compiler/parent authority expired')
         return until
+
+    def authorize_semantic(self,admission):
+        from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
+        c=self.config
+        _require(type(admission) is PurposeSemanticAdmissionV3
+            and admission.workspace_id==c.workspace_id and admission.runtime_hash==c.runtime_hash
+            and admission.compiler_profile=='candidate-compiler' and admission.compiler_actor==c.actor_id
+            and admission.compiler_login==c.expected_session_role
+            and admission.issuer_actor==c.semantic_issuer_actor and admission.reviewer_actor==c.semantic_reviewer_actor,
+            'semantic body differs from external current compiler appointment')
+        _require(digest(admission.model_dump(mode='json')) in self.semantic.current(datetime.now(timezone.utc)),
+            'actual current external semantic registry required')
+        return min(admission.expires_at,self.semantic.valid_until(datetime.now(timezone.utc)))
 
     def authorize(self,job):
         self.authority_horizon(job)
@@ -734,7 +763,9 @@ def run_purpose_worker_once_v2(settings):
     claimed=custody.claim()
     if claimed is None:return None
     job,attempt=claimed
-    _require(job.phase!='compile','compile requires exact external schema3 inputs and protected ledger')
+    if job.phase=='compile':
+        manifest=compile_purpose_worker_result_v3(settings,job)
+        return custody.journal.compile_committed(job,manifest,now=datetime.now(timezone.utc))
     from oracle_brain.hosting.purpose_transport import PurposeProviderClientV2
     client=settings.clients.get(job.phase)
     _require(type(client) is PurposeProviderClientV2,'fixed actual mTLS phase client required')
@@ -745,6 +776,7 @@ def run_purpose_worker_once_v2(settings):
         reply=client.dispatch(job.dispatch_id,job.request_hash,job.phase_registry_sha256)
         settings.authorize(job)
         commit=_phase_commit_from_custody(settings,job,reply)
+        if job.phase=='extraction':persist_purpose_extraction_result_v2(settings,job)
     except Exception:
         # No retry, fabricated success, horizon extension or authority minting.
         # Current authority is required even for this owned metadata transition;
@@ -791,6 +823,9 @@ class _PurposeCompilerReadGuardV3:
         if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
             return self.extraction(manifest,payload,principal,now)
         self.settings.authorize(self.job)
+        if manifest.kind=='processing_qualified_model_v1':
+            from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
+            self.settings.authorize_semantic(PurposeSemanticAdmissionV3.model_validate(payload['assembly_qualification']['admission']))
         return self.qualified(manifest,payload,principal,now)
 
     def valid_until(self,manifest,payload,principal,now):
@@ -826,3 +861,118 @@ def failed_extraction_payload_v2(witness):
     return {'source_refs':[witness.source_ref.model_dump(mode='json')],
         'observations':[],'findings':[],'complete':False,'failure_class':witness.failure_class,
         'native_failed_custody':witness.model_dump(mode='json'),'settlement_verified':False}
+
+
+class PurposeCompileInputsV2(StrictRecord):
+    """Externally appointed metadata targets, never new semantic authority."""
+    schema_version: Literal[2]=2
+    artifact_id: UUID
+    artifact_version: int=Field(strict=True,ge=1)
+    census_dispatch_id: UUID
+    assembly_dispatch_id: UUID
+    assessment_dispatch_id: UUID
+
+    @model_validator(mode='after')
+    def distinct_dispatches(self):
+        _require(len({self.census_dispatch_id,self.assembly_dispatch_id,self.assessment_dispatch_id})==3,
+            'three actual distinct phase dispatches required')
+        return self
+
+
+def compile_purpose_worker_result_v3(settings,job):
+    """Consume external schema3 and actual custody; only SQL creates outbox."""
+    from oracle_brain.operating_model.purpose_profiles_v2 import PurposePrivateContextV2
+    from oracle_brain.operating_model.purpose_assembly_v2 import AssemblyJobContextV2
+    from oracle_brain.operating_model.purpose_capture_v2 import (
+        AssemblyObserverContextV2,ObservedAssemblyProtocolV2,ObservedAssemblyWireV2)
+    from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
+    from oracle_brain.operating_model.purpose_qualification_v3 import (
+        PurposeSemanticAdmissionV3,compile_purpose_assembly_v3)
+    from oracle_brain.operating_model.semantic_acceptance import IndependentAssessment
+    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
+        and job.phase=='compile','exact externally appointed compiler phase required')
+    settings.authorize(job)
+    def model(kind,cls,**selector):
+        raw,entry=settings.private(job,kind,**selector)
+        parsed=cls.model_validate_json(raw)
+        _require(raw==canonical_bytes(parsed.model_dump(mode='json')),'canonical exact compiler custody record required')
+        return parsed,entry
+    inputs,_=model('compile_inputs',PurposeCompileInputsV2)
+    ctx,_=model('assembly_context',AssemblyJobContextV2,dispatch_id=inputs.assembly_dispatch_id)
+    _require(tuple(r.ref for r in ctx.receipts)==job.source_refs
+        and ctx.job.artifact_id==inputs.artifact_id and ctx.model_version==inputs.artifact_version,
+        'qualified model target differs from actual external compiler appointment')
+    observer,observer_entry=model('assembly_observer',AssemblyObserverContextV2,dispatch_id=inputs.assembly_dispatch_id)
+    protocol,protocol_entry=model('assembly_protocol',ObservedAssemblyProtocolV2,dispatch_id=inputs.assembly_dispatch_id)
+    observed,_=model('assembly_observed',ObservedAssemblyWireV2,dispatch_id=inputs.assembly_dispatch_id)
+    census_private,_=model('census_context',PurposePrivateContextV2,dispatch_id=inputs.census_dispatch_id)
+    assessment_private,_=model('assessment_context',PurposePrivateContextV2,dispatch_id=inputs.assessment_dispatch_id)
+    assessment,_=model('assessment',IndependentAssessment,dispatch_id=inputs.assessment_dispatch_id)
+    admission,_=model('semantic_admission',PurposeSemanticAdmissionV3)
+    settings.authorize_semantic(admission)
+    trusted=settings.semantic.current(datetime.now(timezone.utc))
+    commits=[]
+    for phase,dispatch in (('census',inputs.census_dispatch_id),('assembly',inputs.assembly_dispatch_id),('assessment',inputs.assessment_dispatch_id)):
+        commit,_=model('phase_commit',PhaseResponseCommitV2,dispatch_id=dispatch)
+        _require(commit.phase==phase and commit.dispatch_id==dispatch and commit.source_refs==job.source_refs,
+            'exact actual historical phase custody required')
+        commits.append(commit)
+    assembly_wire,_=settings.private(job,'assembly_wire',dispatch_id=inputs.assembly_dispatch_id)
+    census_wire,_=settings.private(job,'census_wire',dispatch_id=inputs.census_dispatch_id)
+    assessment_wire,_=settings.private(job,'assessment_wire',dispatch_id=inputs.assessment_dispatch_id)
+    ledger=build_purpose_compiler_ledger_v3(settings,job)
+    payload=compile_purpose_assembly_v3(compiler_ledger=ledger,context=ctx,observer=observer,
+        expected_observer_context_hash=observer_entry.sha256,protocol=protocol,expected_protocol_hash=protocol_entry.sha256,
+        observed=observed,raw=assembly_wire,assessment=assessment,admission=admission,
+        trusted_admission_hashes=trusted,source_regions=ctx.census.regions,phase_commits=tuple(commits),
+        census_private_context=census_private,assessment_private_context=assessment_private,
+        census_raw=census_wire,assessment_raw=assessment_wire,now=datetime.now(timezone.utc))
+    settings.authorize(job)
+    # Guard rechecks actual current registry/custody/compiler horizons; native
+    # completed phase grants are historical receipts, never renewed here.
+    return ledger.persist(workspace_id=job.workspace_id,artifact_id=inputs.artifact_id,version=inputs.artifact_version,
+        kind='processing_qualified_model_v1',payload=payload,refs=job.source_refs,
+        permission_digest=admission.compiler_permission_hash,compiler_digest=settings.config.runtime_hash,
+        dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in ctx.extractions))
+
+
+def persist_purpose_extraction_result_v2(settings,job,*,failed=False):
+    """Consume this exact attempt under compiler custody; never a new POST."""
+    from oracle_brain.hosting.provider_runtime import JobContext
+    from oracle_brain.hosting.processing_extraction_runtime_v2 import (
+        ExtractionOperationQualificationV2,ExtractionResponseCommitV2,
+        verify_extraction_paid_wire_v2,verify_extraction_failed_paid_wire_v2)
+    from oracle_brain.operating_model.extraction import persist_response,ExtractionPersistenceProfile
+    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
+        and job.phase=='extraction' and type(failed) is bool,'exact compiler extraction attempt required')
+    settings.authorize(job)
+    raw,entry=settings.private(job,'native_job',dispatch_id=job.dispatch_id)
+    _require(entry.artifact_id is not None and entry.artifact_version is not None
+        and entry.source_ref in job.source_refs and entry.source_ref.source_id==job.source_id,
+        'external compiler extraction target/source required')
+    ctx=JobContext.model_validate_json(raw)
+    selector=dict(artifact_id=entry.artifact_id,artifact_version=entry.artifact_version,dispatch_id=job.dispatch_id)
+    qualification_raw,qentry=settings.private(job,'extraction_qualification',**selector)
+    qualification=ExtractionOperationQualificationV2.model_validate_json(qualification_raw)
+    wire,_=settings.private(job,'raw_wire',**selector)
+    ledger=build_purpose_compiler_ledger_v3(settings,job)
+    if not failed:
+        commit_raw,_=settings.private(job,'phase_commit',**selector)
+        commit=ExtractionResponseCommitV2.model_validate_json(commit_raw)
+        content,witness=verify_extraction_paid_wire_v2(ctx,commit,wire,qualification,settings.population,
+            expected_qualification_hash=qentry.sha256,artifact_version=entry.artifact_version)
+        _require(witness.artifact_id==entry.artifact_id and witness.source_ref==entry.source_ref
+            and witness.native_job_hash==entry.native_job_hash,'actual extraction output target changed')
+        return persist_response(ledger,ctx.receipt,content,artifact_id=entry.artifact_id,
+            version=entry.artifact_version,permission_digest=ctx.permission_hash,
+            compiler_digest=settings.config.runtime_hash,persistence_profile=ExtractionPersistenceProfile.PROCESSING_V1)
+    record_raw,_=settings.private(job,'native_receipt',**selector)
+    metadata_raw,_=settings.private(job,'wire_metadata',**selector)
+    witness=verify_extraction_failed_paid_wire_v2(ctx,json.loads(record_raw,object_pairs_hook=_unique),wire,
+        json.loads(metadata_raw,object_pairs_hook=_unique),qualification,settings.population,
+        expected_qualification_hash=qentry.sha256,expected_ledger_hash=settings.allocation.ledger_registry_hash,
+        artifact_version=entry.artifact_version,now=datetime.now(timezone.utc))
+    payload=failed_extraction_payload_v2(witness)
+    return ledger.persist(workspace_id=job.workspace_id,artifact_id=entry.artifact_id,version=entry.artifact_version,
+        kind='processing_failed_extraction_v1',payload=payload,refs=(witness.source_ref,),
+        permission_digest=ctx.permission_hash,compiler_digest=settings.config.runtime_hash,failed=True)
