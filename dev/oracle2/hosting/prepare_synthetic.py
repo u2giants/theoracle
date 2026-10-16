@@ -115,7 +115,7 @@ def main(argv=None):
     hba+='host all all all reject\n'
     write(root/'ledger'/'pg_hba.conf',hba,70)
     sqlroot=Path(__file__).resolve().parents[3]/'services/oracle-brain/sql'
-    for index,name in enumerate(('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql','010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql','012_processing_compiler_capabilities.sql')):
+    for index,name in enumerate(('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql','010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql','012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql')):
         write(root/'init'/f'{index+1:02d}-{name}',(sqlroot/name).read_bytes(),70)
     source_registry={'schema':'oracle-public-invented-role-admission/v1','runtime_hash':args.runtime_hash,'role_names':['oracle_synthetic_executor','oracle_synthetic_projector'],
                      'workspace_id':str(WORKSPACE),'principal_id':str(ACTOR),'source_refs':fixture_payload['source_refs'],'expires_at':(now+timedelta(hours=1)).isoformat()}
