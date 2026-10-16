@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 from oracle_brain.operating_model.native_factory import RawOriginalDispatchJobV1,NativeDispatchJob,NativeBrokerEgress
 from test_native_factory import job,envelope
+from test_raw_multimodal_pricing_v1 import quote
 
 
 def original_job(review=False):
@@ -14,6 +15,11 @@ def original_job(review=False):
         'original_sha256':'a'*64,'byte_count':20,'media_type':'application/pdf','filename':'invented.pdf',
         'custody_locator_seal_sha256':'b'*64},view_manifest_hash='c'*64,locator_map_hash='d'*64,
         reading_commit_hash='e'*64 if review else None)
+    q,_=quote();values['pricing']=q.model_copy(update=dict(dispatch_id=prior.dispatch_id,request_hash=prior.request_hash,
+        population_id=values['population_id'],view_manifest_hash=values['view_manifest_hash'],
+        account=values['processing_request'].account,admitted_register_hash=values['register_hash'],
+        model=prior.request['model'],max_output_tokens=prior.request['max_tokens']))
+    values['input_tokens_upper_bound']=q.text_input_tokens_upper_bound+q.vision_input_tokens_upper_bound
     return RawOriginalDispatchJobV1.model_validate(values)
 
 @pytest.mark.parametrize('review',[False,True])
@@ -48,4 +54,18 @@ def test_unknown_original_job_subclass_is_not_an_admitted_native_snapshot():
 @pytest.mark.parametrize('bad',[True,False,1.0,'1'])
 def test_native_original_version_is_not_bool_float_or_string(bad):
     values=original_job().model_dump(mode='python');values['schema_version']=bad
+    with pytest.raises(ValueError):RawOriginalDispatchJobV1.model_validate(values)
+
+@pytest.mark.parametrize('field',['dispatch_id','request_hash','population_id','view_manifest_hash','account','admitted_register_hash','model','max_output_tokens'])
+def test_raw_job_quote_cannot_cross_dispatch_request_population_or_account(field):
+    values=original_job().model_dump(mode='python')
+    values['pricing'][field]=(uuid4() if field in {'dispatch_id','population_id'} else
+        99 if field=='max_output_tokens' else 'openai/gpt-6-astra' if field=='model' else
+        'foreign-account' if field=='account' else '0'*64)
+    with pytest.raises(ValueError):RawOriginalDispatchJobV1.model_validate(values)
+
+def test_raw_job_rejects_legacy_text_quote_and_wrong_vision_total():
+    values=original_job().model_dump(mode='python');values['pricing']=job().pricing
+    with pytest.raises(ValueError):RawOriginalDispatchJobV1.model_validate(values)
+    values=original_job().model_dump(mode='python');values['input_tokens_upper_bound']+=1
     with pytest.raises(ValueError):RawOriginalDispatchJobV1.model_validate(values)

@@ -25,6 +25,7 @@ from .key_coverage import VerifiedKeyCoverage
 from .native_provider import NativeOpenRouter
 from .provider_adapter import AdmittedProvider, Budget, Pricing
 from .original_qualification_v1 import RawOriginalRefV1
+from .raw_multimodal_pricing_v1 import RawMultimodalPricingQuoteV1
 
 
 class LedgerRegistry(StrictRecord):
@@ -66,6 +67,7 @@ class RawOriginalDispatchJobV1(NativeDispatchJob):
     job_schema:Literal['raw-original-dispatch-v1']='raw-original-dispatch-v1'
     purpose:Literal['source-original-reading','source-original-review']
     raw_ref: 'RawOriginalRefV1'
+    pricing:RawMultimodalPricingQuoteV1
     population_id:UUID
     operation_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
     view_manifest_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
@@ -83,7 +85,15 @@ class RawOriginalDispatchJobV1(NativeDispatchJob):
     def exact_original_phase(self):
         if (self.raw_ref.media_type!='application/pdf' or self.raw_ref.workspace_id!=self.workspace_id
                 or self.processing_request.purpose!=self.purpose
-                or (self.purpose=='source-original-review')!=(self.reading_commit_hash is not None)):
+                or (self.purpose=='source-original-review')!=(self.reading_commit_hash is not None)
+                or self.pricing.dispatch_id!=self.dispatch_id or self.pricing.request_hash!=self.request_hash
+                or self.pricing.population_id!=self.population_id
+                or self.pricing.view_manifest_hash!=self.view_manifest_hash
+                or self.pricing.account!=self.processing_request.account
+                or self.pricing.admitted_register_hash!=self.register_hash
+                or self.pricing.model!=self.request.get('model')
+                or self.pricing.max_output_tokens!=self.request.get('max_tokens')
+                or self.input_tokens_upper_bound!=self.pricing.text_input_tokens_upper_bound+self.pricing.vision_input_tokens_upper_bound):
             raise ValueError('exact raw PDF phase, workspace and actual prior reading required')
         return self
 
