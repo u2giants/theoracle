@@ -195,3 +195,28 @@ def test_actual_extraction_endpoint_cross_route_domain_and_retained_parser(bound
         assert extraction.calls==1
     finally:
         for server,thread in zip(servers,threads):server.shutdown();server.server_close();thread.join(2)
+
+
+def test_actual_provider_response_can_exceed_observer_five_second_limit(bound_tls):
+    import dataclasses,time
+    from datetime import datetime,timedelta,timezone
+    tls,binding=bound_tls
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,*args):pass
+        def do_POST(self):
+            request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            # Deliberately exceed the observer's fixed five-second TOTAL bound.
+            threading.Event().wait(5.05)
+            raw=json.dumps({**request,'raw_response_hash':'c'*64,'receipt_hash':'d'*64}).encode()
+            self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+    server=MutualTLSServer(('127.0.0.1',0),Handler,tls=tls)
+    thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.01},daemon=True);thread.start()
+    try:
+        pinned=dataclasses.replace(binding(server.server_port),timeout=90)
+        with pytest.raises(GatewayDenied):ParentObserverClientV2(pinned)
+        client=PurposeProviderClientV2(pinned)
+        result=client.dispatch(uuid4(),'a'*64,'b'*64,deadline=datetime.now(timezone.utc)+timedelta(seconds=10))
+        assert result['receipt_hash']=='d'*64
+        with pytest.raises(GatewayDenied):client.dispatch(uuid4(),'a'*64,'b'*64,deadline=datetime.now(timezone.utc)-timedelta(seconds=1))
+        with pytest.raises(GatewayDenied):dataclasses.replace(pinned,timeout=91)
+    finally:server.shutdown();server.server_close();thread.join(2)
