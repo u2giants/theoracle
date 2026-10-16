@@ -3,6 +3,8 @@ import copy,hashlib,json
 from datetime import datetime,timedelta,timezone
 from uuid import uuid4
 import pytest
+from test_purpose_transport import bound_tls,SERVER
+from test_hosting_boundary import certificates,WORKER
 from test_assembly_qualification import qualified
 from test_assembly_context import context
 from test_source_processing_qualification import processing
@@ -145,7 +147,7 @@ def test_actual_sdk_float32_storage_rule_is_exact_without_epsilon_or_normalizati
     assert tuple(changed)!=stored
 
 
-def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swallowed_unknown(admin_url,processing,tmp_path):
+def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swallowed_unknown(admin_url,processing,tmp_path,bound_tls,certificates):
     """Real SDK/SQL component, injected paid packet; NOT full native journey."""
     import asyncio,os,re
     from dev.oracle2.test_readonly_graph_fixture import owned_target
@@ -158,6 +160,7 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
     graph_url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];project=os.environ['COMPOSE_PROJECT_NAME']
     container=project+'-falkor-candidate-1';owned_target(container,graph_url)
     generation=uuid4()
+    readonly_username=None
     secret=os.urandom(32)
     class FixtureCurrentAuthority:
         # Invented semantic admission fixture; real role/source SQL is exercised.
@@ -165,6 +168,7 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
             current,body=q['ledger'].read_with_manifest(m.workspace_id,m.artifact_id,m.version)
             return q['guard'].valid_until(current,body,q['ledger'].principal,q['ledger'].clock())
     async def exercise():
+        nonlocal readonly_username
         p=PaidProcessingSDKProjectionV3(graph_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
             artifact_version=m.version,generation=generation,embedder=adapter,qualification_guard=q['guard'])
         assert p.graph_name==f'oracle_processing_v1_{m.workspace_id.hex}_{m.artifact_id.hex}_{m.version}_{generation.hex}'
@@ -203,9 +207,79 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
             try:
                 with pytest.raises(PermissionError,match='prior committed'):await fresh.load(q['ledger'],m.workspace_id,m.artifact_id,m.version)
             finally:await fresh.close()
+            # Executor receives only actual SQL ACK metadata and its exact new
+            # readonly graph ACL. No HMAC key/paid wire/private context is passed.
+            from test_processing_compiler_capabilities import executor_for
+            from oracle_brain.operating_model.authority_adapter import ProcessingArtifactResolver
+            from oracle_brain.operating_model.artifact_storage import FileBlobStore
+            from oracle_brain.operating_model.ledger import Ledger
+            from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+            from oracle_brain.operating_model.sdk_projection import PaidMetadataSDKProjectionV3
+            from graphrag_sdk import ConnectionConfig
+            from dev.oracle2.test_readonly_graph_fixture import processing_reader
+            from dev.oracle2.test_graph_tls_fixture import owned_graph_tls,verify_graph_tls_peer
+            from urllib.parse import urlsplit,urlunsplit
+            f=q['f'];url,binding=executor_for(admin_url,f);source=ProcessingArtifactResolver(url,binding=binding);holder={}
+            def no_original(*args):raise AssertionError('executor requested original bytes')
+            def identity(w,actor,s):
+                if actor!=f['actor']:raise PermissionError('executor actor differs')
+                return source.identity(w,s)
+            guard=QualifiedAssemblyReadGuard(trusted_admissions=lambda:frozenset(q['trust']),runtime_hash=binding.runtime_hash,
+                current_source_identity=identity,current_extraction_seal=lambda w,actor,a,v:source.extraction_seal(w,a,v),
+                qualified_parent_reader=lambda w,actor,a,v:holder['ledger'].read_with_manifest(w,a,v))
+            executor=Ledger(url,FileBlobStore(tmp_path/'blobs'),principal=f['actor'],processing_sources=source,
+                processing_read_guard=guard,can_read=lambda *_:False,current_source=no_original);holder['ledger']=executor
+            def actual_delivery(event):
+                actual=q['source'].projection_receipt_v3(m.workspace_id,m.artifact_id,m.version)
+                assert actual.receipt.event_id==str(event)
+                return actual.receipt.model_dump(mode='json')|{'signature':actual.signature}
+            readonly=processing_reader(container,graph_url,tmp_path/'v3-reader',receipt=result,secret=secret,current_delivery=actual_delivery)
+            readonly_username=json.loads((tmp_path/'v3-reader'/'qualification.json').read_text())['readonly_username']
+            tls,_=bound_tls
+            with owned_graph_tls(container,graph_url,server_context=tls,expected_client_uri=WORKER) as port:
+                verify_graph_tls_peer(port,ca_file=certificates/'ca.pem',certificate_file=certificates/'worker.pem',
+                    key_file=certificates/'worker.key',expected_server_uri=SERVER)
+                import redis
+                with pytest.raises(PermissionError,match='server URI'):
+                    verify_graph_tls_peer(port,ca_file=certificates/'ca.pem',certificate_file=certificates/'worker.pem',
+                        key_file=certificates/'worker.key',expected_server_uri='spiffe://oracle/wrong-server')
+                denied=redis.Redis(host='localhost',port=port,ssl=True,ssl_ca_certs=str(certificates/'ca.pem'),
+                    ssl_certfile=str(certificates/'other.pem'),ssl_keyfile=str(certificates/'other.key'),
+                    socket_timeout=1,socket_connect_timeout=1)
+                try:
+                    with pytest.raises(redis.exceptions.ConnectionError):denied.ping()
+                finally:denied.close()
+                parts=urlsplit(readonly['ORACLE2_TEST_PROCESSING_READONLY_GRAPH_URL'])
+                tls_url=urlunsplit(('rediss',parts.netloc.rsplit('@',1)[0]+'@localhost:'+str(port),'','',''))
+                cfg=ConnectionConfig.from_url(tls_url,graph_name=p.graph_name,ssl=True,ssl_check_hostname=True,ssl_cert_reqs='required',
+                    ssl_ca_certs=str(certificates/'ca.pem'),ssl_certfile=str(certificates/'worker.pem'),ssl_keyfile=str(certificates/'worker.key'),
+                    query_timeout_ms=3000,retry_count=1,pool_timeout=1)
+                reader=PaidMetadataSDKProjectionV3(tls_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
+                    artifact_version=m.version,generation=generation,resolver=source,qualification_guard=guard,connection_config=cfg)
+                try:
+                    assert await reader.load(executor,m.workspace_id,m.artifact_id,m.version)==payload
+                    assert not hasattr(reader,'paid_embedder') and not hasattr(reader,'_paid_receipt_secret')
+                    for row in (await reader.connection.query('MATCH (n) RETURN n')).result_set:
+                        for node in row:assert_no_uncited_originals(node.properties)
+                    with pytest.raises(redis.exceptions.ResponseError,match='read-only'):
+                        await reader.connection.query('CREATE (:Forbidden)')
+                    assert (await reader.connection.query('MATCH (n:Forbidden) RETURN count(n)')).result_set==[[0]]
+                    q['trust'].clear()
+                    with pytest.raises(PermissionError):await reader.load(executor,m.workspace_id,m.artifact_id,m.version)
+                    import psycopg
+                    with psycopg.connect(admin_url) as conn:conn.execute("UPDATE oracle2.drafts SET status='withdrawn' WHERE source_id=%s",(f['source'],))
+                    with pytest.raises(psycopg.errors.InsufficientPrivilege,match='withdrawn'):
+                        source.projection_delivery_seal(m.workspace_id,m.artifact_id,m.version)
+                finally:await reader.close()
         finally:
             # Re-prove exact own candidate target; remove ONLY this UUID graph.
             owned_target(container,graph_url)
+            if readonly_username is not None:
+                import redis
+                assert re.fullmatch(r'oracle_ro_fixture_user_[0-9a-f]{32}',readonly_username)
+                client=redis.Redis.from_url(graph_url,socket_timeout=2)
+                try:assert client.execute_command('ACL','DELUSER',readonly_username)==1
+                finally:client.close()
             await p.connection.delete_graph();await p.close()
     asyncio.run(exercise())
 

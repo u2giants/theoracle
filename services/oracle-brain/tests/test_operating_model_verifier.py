@@ -199,6 +199,7 @@ def test_runtime_transport_custody_and_policy_mutations_change_recorded_inputs(t
     (tmp_path/'.gitignore').write_text('__pycache__/\n*.private\n')
     package=tmp_path/'services/oracle-brain/oracle_brain';hosting=package/'hosting';hosting.mkdir(parents=True)
     paths=[hosting/'purpose_runtime.py',hosting/'purpose_transport.py',hosting/'custody.py',package/'provider_policy.py']
+    helper=tmp_path/'dev/oracle2/test_graph_tls_fixture.py';helper.parent.mkdir(parents=True);paths.append(helper)
     for p in paths:p.write_text('owned source = 1\n')
     hidden=hosting/'__pycache__';hidden.mkdir();(hidden/'cache.pyc').write_bytes(b'generated')
     (hosting/'fixture.private').write_text('not a source input')
