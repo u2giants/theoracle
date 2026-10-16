@@ -67,3 +67,29 @@ def test_invalid_request_never_reaches_ingress(raw):
     class Ingress:
         def dispatch(self,*args):pytest.fail('unauthorized ingress called')
     with pytest.raises(GatewayDenied):PurposeIngressBridgeV2(Ingress(),WORKER).dispatch(raw)
+
+@pytest.mark.parametrize('case',['redirect','chunked','oversized','private','mismatched','duplicate'])
+def test_actual_tls_response_refusals(bound_tls,case):
+    tls,binding=bound_tls
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,*args):pass
+        def do_POST(self):
+            request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            value={**request,'raw_response_hash':'c'*64,'receipt_hash':'d'*64}
+            if case=='private':value['raw_response']='PRIVATE'
+            if case=='mismatched':value['request_hash']='f'*64
+            raw=json.dumps(value).encode()
+            if case=='duplicate':raw=raw[:-1]+b',"receipt_hash":"'+b'd'*64+b'"}'
+            self.send_response(302 if case=='redirect' else 200)
+            self.send_header('Content-Type','application/json')
+            self.send_header('Content-Length','4097' if case=='oversized' else str(len(raw)))
+            if case=='chunked':self.send_header('Transfer-Encoding','chunked')
+            if case=='redirect':self.send_header('Location','http://127.0.0.1:1')
+            self.end_headers()
+            try:self.wfile.write(raw)
+            except (BrokenPipeError,ConnectionResetError):pass
+    server=MutualTLSServer(('127.0.0.1',0),Handler,tls=tls)
+    thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.01},daemon=True);thread.start()
+    try:
+        with pytest.raises(GatewayDenied):PurposeProviderClientV2(binding(server.server_port)).dispatch(uuid4(),'a'*64,'b'*64)
+    finally:server.shutdown();server.server_close();thread.join(2)
