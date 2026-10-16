@@ -3,7 +3,7 @@ import hashlib
 import json
 from typing import Literal
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from .source_receipts import SourceRef
 
 class StrictRecord(BaseModel):
@@ -71,3 +71,75 @@ class ProcessingQualifiedProjectionSealV2(StrictRecord):
     manifest_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     source_refs: tuple[SourceRef, ...] = Field(min_length=1)
     extraction_seals: tuple[ProcessingExtractionSeal, ...] = Field(min_length=1)
+
+
+class ProcessingProjectionDeliverySealV3(StrictRecord):
+    """Current SQL-acknowledged delivery metadata, never paid/private contents."""
+    schema_version: Literal[3] = 3
+    workspace_id: UUID
+    artifact_id: UUID
+    version: int = Field(strict=True, ge=1)
+    event_id: UUID
+    kind: Literal['processing_qualified_model_v1']
+    state: Literal['ready']
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    permission_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    graph_name: str
+    record_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    sdk_version: Literal['1.4.0']
+    projection_schema: Literal['qualified-evidence-projection-v1']
+    projection_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_protocol: Literal['paid-sdk-embedding-v3']
+    embedding_inventory_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_context_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_native_receipt_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_wire_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_commit_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_vectors_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_coverage_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    receipt_body_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    signature: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_refs: tuple[SourceRef, ...] = Field(min_length=1)
+    checked_at: 'AwareDatetime'
+    valid_until: 'AwareDatetime'
+
+
+class ProcessingProjectionReceiptBodyV3(StrictRecord):
+    """Exact immutable signed ACK body; no paid response or signing authority."""
+    schema_version: Literal[3] = 3
+    event_id: str
+    workspace_id: str
+    artifact_id: str
+    version: int = Field(strict=True,ge=1)
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    permission_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    graph_name: str
+    record_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    sdk_version: Literal['1.4.0']
+    projector_id: str = Field(min_length=1)
+    lease_role: str
+    lease_token: str
+    lease_attempt: int = Field(strict=True,ge=1)
+    lease_until: str
+    projection_schema: Literal['qualified-evidence-projection-v1']
+    projection_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_protocol: Literal['paid-sdk-embedding-v3']
+    embedding_inventory_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_context_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_native_receipt_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_wire_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_commit_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_vectors_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    embedding_coverage_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+class ProcessingProjectionReceiptV3(StrictRecord):
+    """Own compiler SQL readback; signing key remains protected startup state."""
+    schema_version: Literal[3] = 3
+    receipt: ProcessingProjectionReceiptBodyV3
+    signature: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_refs: tuple[SourceRef,...] = Field(min_length=1)
+    checked_at: AwareDatetime
+    valid_until: AwareDatetime

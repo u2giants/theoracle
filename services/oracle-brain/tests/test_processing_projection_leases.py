@@ -192,3 +192,72 @@ def test_legacy_delivery_refuses_paid_v3_before_any_ledger_or_ack(monkeypatch):
     with pytest.raises(PermissionError,match='explicit strict V3'):
         asyncio.run(delivery.project_processing_event(object(),None,projection,secret=b'invented',projector_id='test'))
     assert calls==[]
+
+
+def paid_attestation(lease):
+    """Invented SQL control only: NOT an actual paid graph proof."""
+    body=attestation(lease);body.update(schema_version=3,embedding_protocol='paid-sdk-embedding-v3')
+    for key in ('inventory','context','native_receipt','wire','commit','vectors','coverage'):
+        body['embedding_'+key+'_hash']='e'*64
+    return body
+
+
+def delivery_reader(admin_url,processing,f):
+    from oracle_brain.operating_model.authority_adapter import ProcessingArtifactResolver
+    reader=processing('documentary-executor')
+    with psycopg.connect(admin_url) as conn:
+        owner=conn.execute('SELECT actor_id FROM oracle2.appointments WHERE appointment_id=%s',(f['root'],)).fetchone()[0]
+        conn.execute('INSERT INTO oracle2.hosting_role_source_admissions SELECT %s,workspace_id,source_id,revision,%s,original_hash,reading_hash,parser_id,runtime_hash,registry_hash,expires_at FROM oracle2.hosting_role_source_admissions WHERE role_name=%s',
+            (reader['login'],reader['actor'],f['login']))
+        grant=uuid4()
+        conn.execute('INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s)',
+            (grant,f['workspace'],reader['actor'],'source-read:'+str(f['source']),owner,f['root'],f['expiry']))
+    return ProcessingArtifactResolver(reader['url'],binding=reader['binding']),grant
+
+
+def test_actual_v3_ack_and_separate_executor_compiler_readbacks(admin_url,processing,tmp_path):
+    from oracle_brain.operating_model.contracts import digest
+    f=processing();ledger,m=projectable(f,tmp_path);lease=lease_processing_projection(ledger,f['workspace'])
+    receipt=paid_attestation(lease)
+    # Non-ASCII/control scalar encoding must match Python's actual signing bytes.
+    receipt['projector_id']='invented-É-"\\\n\b\u001f'
+    sql_ack(f,lease,receipt)
+    compiler=ledger.processing_sources
+    actual=compiler.projection_receipt_v3(f['workspace'],m.artifact_id,m.version)
+    assert actual.receipt.model_dump(mode='json')==receipt and actual.signature=='c'*64
+    reader,grant=delivery_reader(admin_url,processing,f)
+    seal=reader.projection_delivery_seal(f['workspace'],m.artifact_id,m.version)
+    assert seal.receipt_body_hash==digest(receipt) and seal.graph_name==receipt['graph_name']
+    assert seal.permission_digest==m.permission_digest and seal.checked_at<seal.valid_until
+    assert not {'private_object_key','receipt','lease_token','lease_role','projector_id','vectors'} & set(seal.model_dump())
+    with pytest.raises(PermissionError):reader.projection_receipt_v3(f['workspace'],m.artifact_id,m.version)
+    with pytest.raises(PermissionError):compiler.projection_delivery_seal(f['workspace'],m.artifact_id,m.version)
+    with psycopg.connect(reader.url) as conn:
+        conn.execute("SET LOCAL statement_timeout='5s'")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute('SELECT oracle2.hosting_processing_projection_receipt_v3(%s,%s,%s,%s,%s,%s)',
+                (f['workspace'],m.artifact_id,m.version,reader.binding.principal,RUNTIME,REGISTRY))
+    with psycopg.connect(admin_url) as conn:conn.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(grant,))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):reader.projection_delivery_seal(f['workspace'],m.artifact_id,m.version)
+
+
+@pytest.mark.parametrize('change',['missing','extra','bad-hash','old-protocol','unknown-schema','numeric-schema','string-schema'])
+def test_actual_v3_ack_rejects_malformed_paid_receipts(processing,tmp_path,change):
+    f=processing();ledger,m=projectable(f,tmp_path);lease=lease_processing_projection(ledger,f['workspace']);r=paid_attestation(lease)
+    if change=='missing':r.pop('embedding_coverage_hash')
+    elif change=='extra':r['private_wire']='never permitted'
+    elif change=='bad-hash':r['embedding_wire_hash']='wrong'
+    elif change=='old-protocol':r['embedding_protocol']='legacy'
+    elif change=='unknown-schema':r['schema_version']=4
+    elif change=='numeric-schema':r['schema_version']=3.0
+    else:r['schema_version']='3'
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):sql_ack(f,lease,r)
+
+
+@pytest.mark.parametrize('ack',['none','legacy'])
+def test_new_delivery_getters_refuse_missing_or_legacy_ack(admin_url,processing,tmp_path,ack):
+    f=processing();ledger,m=projectable(f,tmp_path);lease=lease_processing_projection(ledger,f['workspace'])
+    if ack=='legacy':sql_ack(f,lease)
+    reader,_=delivery_reader(admin_url,processing,f)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):reader.projection_delivery_seal(f['workspace'],m.artifact_id,m.version)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):ledger.processing_sources.projection_receipt_v3(f['workspace'],m.artifact_id,m.version)
