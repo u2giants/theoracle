@@ -4,6 +4,7 @@ No compiler credential, original, extraction, paid wire or signing key is given
 to the executor. This is not a deployed artifact distribution mechanism.
 """
 import hashlib,json,os,subprocess
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path,PurePosixPath
 from uuid import uuid4
@@ -17,6 +18,35 @@ from oracle_brain.hosting.custody import _durable_nonce,_sync_spool
 from purpose_journey_fixture_models import PRIVATE_MARKERS
 
 EXECUTOR_URI='spiffe://oracle/purpose/invented-executor'
+
+
+@contextmanager
+def measured_actual_executor_boundaries(settings,root):
+    """TEST ONLY count delegates; every real authority method still executes."""
+    from unittest.mock import patch
+    settings_type=type(settings);ledger_type=type(settings.ledger)
+    actual_current=settings_type.authorize_current
+    actual_guard=ledger_type._validate_processing_read_guard
+    actual_preblob=ledger_type._authorize_processing_blob
+    counts={'whole':0};guards=[];preblob=[]
+    def current(self):
+        if self is settings:counts['whole']+=1
+        return actual_current(self)
+    def guard(self,manifest,payload,now):
+        before=counts['whole'];result=actual_guard(self,manifest,payload,now)
+        guards.append({'kind':manifest.kind,'whole_population_checks':counts['whole']-before})
+        return result
+    def before_blob(self,manifest):
+        before=counts['whole'];result=actual_preblob(self,manifest)
+        preblob.append({'kind':manifest.kind,'whole_population_checks':counts['whole']-before})
+        return result
+    with patch.object(settings_type,'authorize_current',current),patch.object(ledger_type,'_validate_processing_read_guard',guard),patch.object(ledger_type,'_authorize_processing_blob',before_blob):
+        yield
+    models=[g for g in guards if g['kind']=='processing_qualified_model_v1']
+    assert models and all(g['whole_population_checks']==2 for g in models)
+    assert preblob and all(g['whole_population_checks']==1 for g in preblob)
+    _durable_nonce(root,'actual-executor-boundary-counts.json',canonical_bytes({'whole_population_checks':counts['whole'],
+        'guarded_reads':guards,'preblob_checks':preblob,'all_real_methods_executed':True}))
 
 
 def executor_role(admin_url,worker,job,root):
@@ -156,10 +186,13 @@ def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,e
                     stage('protected_executor_graph_summary_answer_verified')
                     return projection,summary
                 finally:await projection.close()
+            def measured_executor():
+                with measured_actual_executor_boundaries(settings,root):
+                    return asyncio.run(load_and_answer())
             from purpose_journey_fixture_delivery import run_independent_fixture_tasks
             c=worker.config
             results=run_independent_fixture_tasks({'compiler_restart':delivery['restart'],
-                'executor_answer':lambda:asyncio.run(load_and_answer())},
+                'executor_answer':measured_executor},
                 deadline=min(job.original_horizon,job.expires_at,settings.config.expires_at),
                 identities={'compiler_restart':dict(principal=str(c.actor_id),runtime=c.runtime_hash,
                     login=c.expected_session_role,observer_path=str(worker.observer.replay.state_path.resolve())),
@@ -187,8 +220,12 @@ def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,e
                 with psycopg.connect(admin_url) as conn:
                     conn.execute("UPDATE oracle2.drafts SET status='withdrawn' WHERE source_id=%s AND workspace_id=%s",
                         (job.source_refs[-1].source_id,job.workspace_id))
-                with pytest.raises(psycopg.errors.InsufficientPrivilege):settings.read_summary(summary_manifest.artifact_id,summary_manifest.version)
-                with pytest.raises(psycopg.errors.InsufficientPrivilege):await projection.load(settings.ledger,job.workspace_id,manifest.artifact_id,manifest.version)
-                with pytest.raises(psycopg.errors.InsufficientPrivilege):answer_from_summary(settings.ledger,summary,intent='overview',qualification_guard=settings.guard)
+                def withdrawn_bytes(*args):raise AssertionError('withdrawn third source reached an executor blob')
+                settings.ledger.blobs.read=withdrawn_bytes
+                try:
+                    with pytest.raises(psycopg.errors.InsufficientPrivilege):settings.read_summary(summary_manifest.artifact_id,summary_manifest.version)
+                    with pytest.raises(psycopg.errors.InsufficientPrivilege):await projection.load(settings.ledger,job.workspace_id,manifest.artifact_id,manifest.version)
+                    with pytest.raises(psycopg.errors.InsufficientPrivilege):answer_from_summary(settings.ledger,summary,intent='overview',qualification_guard=settings.guard)
+                finally:settings.ledger.blobs.read=original_read
                 stage('withdrawal_denies_cached_graph_summary_and_answer')
             asyncio.run(negatives())
