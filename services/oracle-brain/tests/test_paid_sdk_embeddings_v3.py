@@ -201,6 +201,6 @@ def test_paid_supported_sdk_tls_config_keeps_exact_target_and_every_tls_option()
     assert selected.ssl is True
     for field,value in [('host','other'),('port',6379),('username','admin'),('password','other'),('graph_name','other'),
         ('ssl',False),('ssl_check_hostname',False),('ssl_cert_reqs','none'),('ssl_ca_certs',None),('ssl_certfile',None),
-        ('ssl_keyfile',None),('query_timeout_ms',None),('pool_timeout',float('inf'))]:
+        ('ssl_keyfile',None),('query_timeout_ms',None),('pool_timeout',float('inf')),('retry_count',0)]:
         with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri,'exact_owned_graph',replace(selected,**{field:value}))
     with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri.replace('rediss:','redis:'),'exact_owned_graph',selected)
