@@ -16,7 +16,7 @@ from oracle_brain.operating_model.contracts import canonical_bytes,digest
 from oracle_brain.operating_model.purpose_context import BudgetAllocationPinsV2
 from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
 from oracle_brain.hosting.purpose_journey_v2 import (
-    CompilerWorkerConfigV2,PurposeWorkerRegistryV2,CompilerPhaseCustodyAppointmentV2,
+    PurposeProcessingCompilerLedgerV3,CompilerWorkerConfigV2,PurposeWorkerRegistryV2,CompilerPhaseCustodyAppointmentV2,
     CompilerPhaseCustodyFileV2,load_purpose_worker_settings_v2,PurposeJourneyCustodyV2,
     run_purpose_worker_once_v2,build_purpose_compiler_ledger_v3)
 
@@ -456,6 +456,10 @@ def test_qualified_read_boundary_consolidates_observer_but_keeps_actual_source_s
     assert ledger.processing_compile_guard.ledger is not ledger
     assert ledger.processing_compile_guard.ledger.processing_read_guard is ledger.processing_compile_guard
     assert ledger.processing_compile_guard.ledger.processing_extraction_guard is ledger.processing_extraction_guard
+    full_parent=ledger.processing_compile_guard.qualified._full_parent_v3
+    assert full_parent.__self__ is ledger.processing_compile_guard.ledger
+    assert full_parent.__func__ is PurposeProcessingCompilerLedgerV3.read_validated_qualified_parent_v3
+    assert not hasattr(guard.qualified,'_full_parent_v3')  # Serving retains its separate constructor.
     assert guard.ledger is ledger
     original=x['state']['sequence']
     for ref in job.source_refs:guard.source(ref.workspace_id,job.actor_id,ref.source_id)
