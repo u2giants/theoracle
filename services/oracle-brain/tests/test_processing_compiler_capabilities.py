@@ -233,3 +233,36 @@ def test_validation_hook_never_uses_horizon_after_guard_denial():
         def valid_until(self,*args):raise AssertionError('denied validation reached horizon')
     with pytest.raises(PermissionError,match='did not validate'):
         ledger._validate_processing_guard(Guard(),object(),{},now)
+
+
+@pytest.mark.parametrize('kind',['processing_extraction_v1','processing_qualified_model_v1','processing_summary_v1'])
+def test_explicit_core_fused_ledger_runs_one_validation_per_body_boundary(kind):
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.processing_ledger import PurposeProcessingCompilerLedgerV3
+    now=datetime.now(timezone.utc);calls=[]
+    ledger=object.__new__(PurposeProcessingCompilerLedgerV3);ledger.principal=uuid4();ledger.clock=lambda:now
+    class Guard:
+        def validate_current(self,*args):calls.append(args);return now+timedelta(seconds=1)
+        def __call__(self,*args):raise AssertionError('duplicate legacy validation invoked')
+        def valid_until(self,*args):raise AssertionError('duplicate legacy horizon invoked')
+    guard=Guard();ledger.processing_extraction_guard=guard;ledger.processing_read_guard=guard
+    ledger._validate_processing_read_guard(SimpleNamespace(kind=kind),{},now)
+    ledger._validate_processing_extraction_after_read(SimpleNamespace(kind=kind),{},now)
+    assert len(calls)==1
+
+
+@pytest.mark.parametrize('base_name',['ProcessingCompilerLedger','PurposeProcessingCompilerLedgerV3'])
+def test_pure_compile_helpers_refuse_arbitrary_compiler_subclasses(base_name):
+    from oracle_brain.operating_model import processing_ledger as module
+    from oracle_brain.operating_model.purpose_assembly_v2 import compiler_extraction_handoff_v2
+    from oracle_brain.operating_model.purpose_qualification_v3 import compile_purpose_assembly_v3
+    class Arbitrary(getattr(module,base_name)):pass
+    ledger=object.__new__(Arbitrary)
+    with pytest.raises(PermissionError,match='actual explicit compiler'):
+        compiler_extraction_handoff_v2(ledger,workspace_id=uuid4(),extraction_ids=(),source_refs=(),
+            compiler_authority_receipt_hash='a'*64,now=datetime.now(timezone.utc),expires_at=datetime.now(timezone.utc))
+    import inspect
+    kwargs={name:None for name in inspect.signature(compile_purpose_assembly_v3).parameters}
+    kwargs['compiler_ledger']=ledger
+    with pytest.raises(PermissionError,match='actual compiler ledger'):
+        compile_purpose_assembly_v3(**kwargs)
