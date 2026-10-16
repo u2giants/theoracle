@@ -144,9 +144,33 @@ def test_eligibility_unexpected_fault_or_timeout_propagates_without_claim(admin_
     try:
         start=time.monotonic()
         with pytest.raises(psycopg.errors.InternalError_ if mode=='unexpected' else psycopg.errors.QueryCanceled):
-            lease_processing_projection(ledger,f['workspace'])
+            if mode=='unexpected':
+                lease_processing_projection(ledger,f['workspace'])
+            else:
+                # Actual compiler SQL honors a tighter caller deadline. This is
+                # rollback proof, not an elapsed reliability claim. Adapter's
+                # production 5s/2s settings are unchanged.
+                with psycopg.connect(f['url']) as conn:
+                    conn.execute("SET LOCAL statement_timeout='300ms'")
+                    conn.execute('SELECT oracle2.lease_processing_projection(%s,%s,%s,60)',
+                        (f['workspace'],RUNTIME,REGISTRY))
         assert time.monotonic()-start<7
         with psycopg.connect(admin_url) as conn:
             assert conn.execute('SELECT sum(attempts),count(delivered_at) FROM oracle2.outbox WHERE workspace_id=%s',(f['workspace'],)).fetchone()==(0,0)
     finally:
         with psycopg.connect(admin_url) as conn:conn.execute(original)
+
+
+def test_adapter_applies_actual_fixed_command_and_lock_deadlines(processing,tmp_path,monkeypatch):
+    from contextlib import contextmanager
+    import oracle_brain.operating_model.processing_projection as delivery
+    f=processing();ledger,_=projectable(f,tmp_path)
+    connect=psycopg.connect; settings=[]
+    @contextmanager
+    def observed_connect(*args,**kwargs):
+        with connect(*args,**kwargs) as conn:
+            yield conn
+            settings.append(conn.execute("SELECT current_setting('statement_timeout'),current_setting('lock_timeout')").fetchone())
+    monkeypatch.setattr(delivery.psycopg,'connect',observed_connect)
+    assert lease_processing_projection(ledger,f['workspace']) is not None
+    assert settings==[('5s','2s')]

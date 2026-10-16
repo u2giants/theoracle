@@ -5,7 +5,7 @@ import json,re
 from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
-from oracle_brain.models import ProjectionEvent
+from oracle_brain.outbox import ProjectionEvent
 from .contracts import ArtifactManifest,digest
 from .processing_ledger import ProcessingCompilerLedger
 from .projection_delivery import signature
