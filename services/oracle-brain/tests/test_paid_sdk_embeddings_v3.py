@@ -1,0 +1,127 @@
+"""Injected wire/context fixtures prove bindings, never appoint a live consumer."""
+import copy,hashlib,json
+from datetime import datetime,timedelta,timezone
+from uuid import uuid4
+import pytest
+from test_assembly_qualification import qualified
+from test_assembly_context import context
+from test_native_factory import job
+from purpose_journey_fixture_models import embedding_response
+from oracle_brain.operating_model.contracts import canonical_bytes,digest
+from oracle_brain.operating_model.sdk_projection import ProcessingSDKProjection
+from oracle_brain.operating_model.source_receipts import SourceRef
+from oracle_brain.operating_model.purpose_context import source_population_digest
+from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
+from oracle_brain.operating_model.purpose_profiles_v2 import DerivedEmbeddingContextV2,DerivedSDKEmbeddingContextV3,PurposePrivateContextV2
+from oracle_brain.operating_model.paid_sdk_embeddings_v3 import (processing_embedding_inventory_v3,
+    PaidSDKEmbeddingPinsV3,verify_paid_sdk_embedding_v3,PaidProjectionEmbedderV3)
+
+@pytest.fixture
+def paid_case(qualified):
+    payload=qualified['payload'];view=ProcessingSDKProjection.projection_view(payload)
+    inv=processing_embedding_inventory_v3(payload)
+    ctx=DerivedSDKEmbeddingContextV3(actor_id=uuid4(),workspace_id=qualified['manifest'].workspace_id,
+        runtime_hash='a'*64,permission_hash='b'*64,qualified_artifact_id=qualified['manifest'].artifact_id,
+        qualified_artifact_version=1,qualified_content_hash=digest(payload),projection_digest=digest(view),
+        source_refs=tuple(SourceRef.model_validate_json(canonical_bytes(r)) for r in view['source_refs']),
+        projection=view,qualified_payload=payload,inventory=inv)
+    j=job();j=j.model_copy(update={'workspace_id':ctx.workspace_id,'artifact_id':ctx.qualified_artifact_id,
+        'permission_hash':ctx.permission_hash,'request':ctx.request(),'request_hash':digest(ctx.request()),
+        'pricing':j.pricing.model_copy(update={'model':'openai/text-embedding-3-small'})})
+    private=PurposePrivateContextV2(phase='embedding',job=j,embedding=ctx)
+    raw=canonical_bytes(embedding_response(len(inv.inputs)));sha=hashlib.sha256(raw).hexdigest();reservation=str(uuid4())
+    record={'dispatch_id':str(j.dispatch_id),'reservation_id':reservation,'failed':False,'raw_response':raw.decode(),
+        'request_hash':j.request_hash,'permission_hash':j.permission_hash,'job_hash':digest(j.model_dump(mode='json')),
+        'register_hash':j.register_hash,'pricing_hash':digest(j.pricing.model_dump(mode='json')),
+        'key_fingerprint':'1'*64,'ledger_identity_hash':'2'*64,'raw_response_hash':sha}
+    record['wire_custody']={**{k:record[k] for k in ('dispatch_id','reservation_id','request_hash','permission_hash','job_hash','key_fingerprint','ledger_identity_hash')},
+        'raw_sha256':sha,'captured_bytes':len(raw),'complete':True,'truncated':False}
+    at=datetime.now(timezone.utc)
+    commit=PhaseResponseCommitV2(phase='embedding',operation='embedding',processing_purpose='source-extraction',
+        dispatch_id=j.dispatch_id,workspace_id=ctx.workspace_id,actor_id=ctx.actor_id,provider_login='embedding_fixture',
+        actual_caller_login='embedding_fixture',runtime_hash=ctx.runtime_hash,descriptor_hash='3'*64,
+        operation_approval_hash='4'*64,population_digest=source_population_digest(ctx.source_refs),source_refs=ctx.source_refs,
+        context_hash=digest(private.model_dump(mode='json')),parent_registry_hash='5'*64,current_proof_hash='6'*64,
+        parent_witness_hash='7'*64,account_policy_hash=digest({k:v for k,v in j.processing_request.model_dump(mode='json').items() if k!='terms_hash'}),
+        model=ctx.request()['model'],valid_until=at+timedelta(minutes=1),job_hash=record['job_hash'],request_hash=j.request_hash,
+        permission_hash=j.permission_hash,budget_identity_hash='8'*64,raw_response_hash=sha,native_custody_receipt_hash=digest(record),committed_at=at)
+    pins=PaidSDKEmbeddingPinsV3(context_hash=commit.context_hash,commit_hash=digest(commit.model_dump(mode='json')),
+        native_receipt_hash=digest(record),descriptor_hash=commit.descriptor_hash,operation_approval_hash=commit.operation_approval_hash,
+        parent_registry_hash=commit.parent_registry_hash,allocation_hash=commit.budget_identity_hash,population_digest=commit.population_digest,
+        ledger_identity_hash=record['ledger_identity_hash'],key_fingerprint=record['key_fingerprint'])
+    return dict(private=private,commit=commit,native_record=record,raw=raw,pins=pins)
+
+
+def test_exact_inventory_mirrors_pinned_sdk_names_facts_chunks_and_probe(paid_case):
+    c=paid_case['private'].embedding;inv=c.inventory
+    assert c.schema_version==3 and c.request()['input']==[i.text for i in inv.inputs]
+    keys=[key for i in inv.inputs for key in i.usage_keys]
+    assert {'probe','chunk','entity'}<={k.split(':')[0] for k in keys}
+    assert inv==processing_embedding_inventory_v3(c.qualified_payload)
+    old=DerivedEmbeddingContextV2.model_validate({k:v for k,v in c.model_dump(mode='python').items() if k!='inventory'}|{'schema_version':2})
+    assert len(old.request()['input'])==len(c.source_refs)<len(c.request()['input'])
+    changed=copy.deepcopy(c.inventory.model_dump(mode='python'));changed['inputs']=tuple(reversed(changed['inputs']))
+    with pytest.raises(PermissionError):DerivedSDKEmbeddingContextV3.model_validate(c.model_dump(mode='python')|{'inventory':changed})
+
+
+def test_authenticated_paid_vectors_reused_exactly_and_unknown_sdk_text_never_dispatched(paid_case):
+    data=verify_paid_sdk_embedding_v3(**paid_case);adapter=PaidProjectionEmbedderV3(data)
+    for index,item in enumerate(data.inventory.inputs):
+        vector=adapter.embed_query(item.text)
+        assert tuple(vector)==data.vectors[index]
+        vector[0]=999
+        assert adapter.embed_query(item.text)[0]!=999
+    adapter.assert_observed(tuple(k for item in data.inventory.inputs for k in item.usage_keys))
+    with pytest.raises(PermissionError,match='outside exact'):adapter.embed_query('unadmitted employee query')
+    with pytest.raises(PermissionError,match='swallowed'):adapter.assert_no_denials()
+
+
+@pytest.mark.parametrize('field',list(PaidSDKEmbeddingPinsV3.model_fields))
+def test_every_external_paid_custody_pin_is_required(paid_case,field):
+    pins=paid_case['pins'].model_copy(update={field:'f'*64})
+    with pytest.raises((PermissionError,ValueError)):verify_paid_sdk_embedding_v3(**(paid_case|{'pins':pins}))
+
+
+@pytest.mark.parametrize('damage',('missing','index','reorder','dimension','zero','nonfinite','model','failed','incomplete','request','commit-root'))
+def test_malformed_or_substituted_paid_wire_never_becomes_sdk_vectors(paid_case,damage):
+    case=dict(paid_case);record=copy.deepcopy(case['native_record']);response=json.loads(case['raw'])
+    if damage=='missing':response['data'].pop()
+    elif damage=='index':response['data'][0]['index']=1
+    elif damage=='reorder':response['data'].reverse()
+    elif damage=='dimension':response['data'][0]['embedding'].pop()
+    elif damage=='zero':response['data'][0]['embedding']=[0.0]*256
+    elif damage=='nonfinite':response['data'][0]['embedding'][0]=float('inf')
+    elif damage=='model':response['model']='wrong'
+    elif damage=='failed':record['failed']=True
+    elif damage=='incomplete':record['wire_custody']['complete']=False
+    elif damage=='request':record['request_hash']='f'*64
+    elif damage=='commit-root':
+        case['commit']=case['commit'].model_copy(update={'parent_registry_hash':'f'*64})
+    if damage not in ('failed','incomplete','request','commit-root'):
+        raw=json.dumps(response).encode();record['raw_response']=raw.decode();sha=hashlib.sha256(raw).hexdigest()
+        record['raw_response_hash']=sha;record['wire_custody'].update(raw_sha256=sha,captured_bytes=len(raw));case['raw']=raw
+        case['commit']=case['commit'].model_copy(update={'raw_response_hash':sha})
+    # These synthetic malformed payloads are authored before their fixture pins,
+    # so failures exercise the actual wire validators rather than only hash drift.
+    if damage!='commit-root':
+        case['commit']=case['commit'].model_copy(update={'native_custody_receipt_hash':digest(record)})
+        case['pins']=case['pins'].model_copy(update={'native_receipt_hash':digest(record),
+            'commit_hash':digest(case['commit'].model_dump(mode='json'))})
+    case['native_record']=record
+    with pytest.raises((PermissionError,ValueError)):verify_paid_sdk_embedding_v3(**case)
+
+
+def test_sdk_relation_fact_texts_are_deduplicated_with_every_usage_key(paid_case):
+    payload=copy.deepcopy(paid_case['private'].embedding.qualified_payload)
+    model=payload['operating_models'][0];process=model['processes'][0]
+    oid=payload['observations'][0]['observation_id'];support={'observation_ids':[oid]}
+    workflow={'workflow_id':'fixture-flow','process_id':process['process_id'],'steps':[
+        {'step_id':'a','label':'Start ART','support':support},{'step_id':'b','label':'Receive ART','support':support}],
+        'gateways':[],'conditions':[],'transitions':[{'transition_id':'edge','from_id':'a','to_id':'b','support':support}]}
+    # Pure inventory transformation only: this changed packet is not admitted or
+    # persisted as a qualified model. Actual runtime must validate its real seal.
+    payload['workflows']=[workflow]
+    inv=processing_embedding_inventory_v3(payload)
+    facts=[i for i in inv.inputs if any(k.startswith('relation:') for k in i.usage_keys)]
+    assert len(facts)==1 and facts[0].text=='Reported transition a → b'
+    assert len(facts[0].usage_keys)==2

@@ -1,5 +1,5 @@
 """Real pinned SDK ingestion from sealed ledger records; never second extraction."""
-import json,logging,hashlib
+import json,logging,hashlib,copy
 from importlib.metadata import version
 from uuid import UUID
 from graphrag_sdk import GraphRAG,ConnectionConfig,FalkorDBConnection,Ontology,Entity,Relation,ChunkingStrategy,ExtractionStrategy,TextChunk,TextChunks
@@ -318,3 +318,130 @@ class ProcessingSDKProjection(SDKProjection):
         rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.projection_schema,s.projection_digest')).result_set
         if rows and (len(rows)!=1 or list(rows[0])!=[self.projection_schema,projection]):
             raise ValueError('qualified projection snapshot differs')
+
+
+class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
+    """Explicit exact-paid-vector build/load; legacy projections stay unchanged."""
+    def __init__(self,graph_url,*,workspace_id,artifact_id,artifact_version,generation,embedder,qualification_guard,read_only=False,signed_receipt=None,receipt_secret=None):
+        from .paid_sdk_embeddings_v3 import PaidProjectionEmbedderV3
+        from graphrag_sdk.core.providers import LLMInterface
+        if type(embedder) is not PaidProjectionEmbedderV3:
+            raise PermissionError('exact authenticated paid SDK embedder required')
+        witness=embedder.data.witness
+        if (witness.workspace_id,witness.qualified_artifact_id,witness.qualified_artifact_version)!=(workspace_id,artifact_id,artifact_version):
+            raise PermissionError('paid SDK vector artifact identity differs')
+        class NoGeneration(LLMInterface):
+            model_name='sealed-projection-no-generation'
+            def invoke(self,prompt,**kwargs):raise PermissionError('sealed SDK projection cannot generate or extract again')
+        self.paid_embedder=embedder;self._paid_building=False;self._paid_proof=None;self._paid_built_here=False
+        self._paid_signed_receipt=copy.deepcopy(signed_receipt);self._paid_receipt_secret=receipt_secret
+        super().__init__(graph_url,workspace_id=workspace_id,artifact_id=artifact_id,artifact_version=artifact_version,
+            generation=generation,llm=NoGeneration(),embedder=embedder,dimensions=256,read_only=read_only,
+            qualification_guard=qualification_guard)
+
+    def _paid_payload(self,payload):
+        from .paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
+        if processing_embedding_inventory_v3(payload)!=self.paid_embedder.data.inventory:
+            raise PermissionError('current qualified SDK input differs from exact paid inventory')
+        self.paid_embedder.assert_no_denials()
+
+    async def _verify_paid_vectors(self,payload):
+        from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+        import math
+        self._paid_payload(payload)
+        inventory=self.paid_embedder.data.inventory;w=self.paid_embedder.data.witness
+        expected={key:(item.text,item.text_hash) for item in inventory.inputs for key in item.usage_keys if not key.startswith('probe:')}
+        actual={}
+        def accept(key,text,vector):
+            if key not in expected or key in actual or expected[key][0]!=text:
+                raise PermissionError('stored SDK vector identity/text population differs')
+            if (not isinstance(vector,(list,tuple)) or len(vector)!=256
+                    or any(type(x) not in (int,float) or not math.isfinite(x) for x in vector)
+                    or tuple(float(x) for x in vector)!=self.paid_embedder.vector_for_usage(key)):
+                raise PermissionError('stored SDK vector differs from actual paid response')
+            actual[key]={'usage_key':key,'text_hash':expected[key][1],'vector_hash':digest({'vector':tuple(float(x) for x in vector)})}
+        documents={doc['text']:doc['document_id'] for doc in self.projection_view(payload)['documents']}
+        for text,vector in (await self.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set:
+            if text not in documents:raise PermissionError('SDK chunk outside exact paid projection')
+            accept('chunk:'+documents[text],text,vector)
+        for identifier,name,vector in (await self.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set:
+            accept('entity:'+identifier,name,vector)
+        for identifier,fact,vector in (await self.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set:
+            accept('relation:'+identifier,fact,vector)
+        if actual.keys()!=expected.keys():raise PermissionError('SDK omitted actual paid graph vectors')
+        if self._paid_building:self.paid_embedder.assert_observed(tuple(expected))
+        coverage=digest({'schema':'paid-sdk-vector-coverage-v3','inventory_hash':w.inventory_hash,
+            'vectors':[actual[key] for key in sorted(actual)]})
+        proof=PaidSDKProjectionProofV3(embedding_inventory_hash=w.inventory_hash,embedding_context_hash=w.context_hash,
+            embedding_native_receipt_hash=w.native_receipt_hash,embedding_wire_hash=w.raw_response_hash,
+            embedding_commit_hash=w.phase_commit_hash,embedding_vectors_hash=w.vectors_hash,embedding_coverage_hash=coverage)
+        if not self._paid_building:
+            rows=(await self.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set
+            if rows!=[[digest(proof.model_dump(mode='json'))]]:
+                raise PermissionError('missing exact completed paid SDK build marker; partial graph cannot be adopted')
+        if not self._paid_building and not self._paid_built_here and proof!=self._paid_expected_receipt_proof:
+            raise PermissionError('actual graph vector coverage differs from signed delivery receipt')
+        self._paid_proof=proof
+        return proof
+
+    async def verify(self,payload):
+        if not self._paid_building and not self._paid_built_here:self._verify_paid_receipt(payload)
+        await super().verify(payload)
+        await self._verify_paid_vectors(payload)
+
+    async def build(self,ledger,workspace_id,artifact_id,artifact_version):
+        self._paid_building=True
+        try:
+            result=await super().build(ledger,workspace_id,artifact_id,artifact_version)
+            from .assembly_qualification import read_documentary_artifact
+            payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
+            proof=await self._verify_paid_vectors(payload)
+            await self.connection.query('CREATE (:PaidSDKEmbeddingSnapshotV3 {proof_hash:$proof})',params={'proof':digest(proof.model_dump(mode='json'))})
+        finally:self._paid_building=False
+        self._paid_built_here=True
+        await self.verify(payload)
+        return {**result,'paid_embedding':proof.model_dump(mode='json')}
+
+    async def load(self,ledger,workspace_id,artifact_id,artifact_version):
+        # Trusted runtime obtains this receipt from the actual committed ACK
+        # registry, never an HTTP body. HMAC key remains compiler/projector-only.
+        manifest,payload=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
+        self._verify_paid_receipt(payload)
+        receipt=self._paid_signed_receipt
+        if (receipt['source_digest'],receipt['permission_digest'])!=(manifest.source_digest,manifest.permission_digest):
+            raise PermissionError('paid SDK ACK source/compiler manifest seal differs')
+        return await super().load(ledger,workspace_id,artifact_id,artifact_version)
+
+    async def paid_projection_proof(self,payload):
+        # ALWAYS query again immediately before the handler signs/ACKs; cached
+        # proof alone does not authenticate current graph/source/semantic state.
+        await self.verify(payload)
+        return self._paid_proof
+
+    def _verify_paid_receipt(self,payload):
+        import hmac
+        from .projection_delivery import signature
+        from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+        receipt=self._paid_signed_receipt;secret=self._paid_receipt_secret
+        fields={'schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest',
+            'graph_name','record_digest','projection_schema','projection_digest','sdk_version','projector_id','lease_role',
+            'lease_token','lease_attempt','lease_until'}
+        paid_fields=set(PaidSDKProjectionProofV3.model_fields)-{'schema_version'}
+        if (type(receipt) is not dict or set(receipt)!=fields|paid_fields|{'signature'}
+                or type(secret) is not bytes or len(secret)<32 or type(receipt['signature']) is not str):
+            raise PermissionError('fresh paid SDK load requires authenticated prior committed V3 delivery receipt')
+        body={k:v for k,v in receipt.items() if k!='signature'}
+        if not hmac.compare_digest(signature(secret,body),receipt['signature']):raise PermissionError('paid SDK receipt signature differs')
+        proof=PaidSDKProjectionProofV3.model_validate({k:v for k,v in body.items() if k in PaidSDKProjectionProofV3.model_fields})
+        w=self.paid_embedder.data.witness
+        expected={'embedding_inventory_hash':w.inventory_hash,'embedding_context_hash':w.context_hash,
+            'embedding_native_receipt_hash':w.native_receipt_hash,'embedding_wire_hash':w.raw_response_hash,
+            'embedding_commit_hash':w.phase_commit_hash,'embedding_vectors_hash':w.vectors_hash}
+        if (body['schema_version']!=3 or body['workspace_id']!=str(self.workspace_id)
+                or body['artifact_id']!=str(w.qualified_artifact_id) or body['version']!=w.qualified_artifact_version
+                or body['content_hash']!=digest(payload) or body['graph_name']!=self.graph_name
+                or body['record_digest']!=digest({'records':self.records(payload)})
+                or body['projection_schema']!=self.projection_schema or body['projection_digest']!=self.processing_projection_digest(payload)
+                or body['sdk_version']!='1.4.0' or any(getattr(proof,k)!=v for k,v in expected.items())):
+            raise PermissionError('signed paid SDK receipt does not bind current graph/model/vectors')
+        self._paid_expected_receipt_proof=proof
