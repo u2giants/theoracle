@@ -131,7 +131,10 @@ class ProcessingSourceResolver:
         if connection is not None:
             wanted = psycopg.conninfo.conninfo_to_dict(self.url)
             actual = connection.info.get_parameters()
-            if any(str(wanted.get(k, '')) != str(actual.get(k, '')) for k in ('host','port','dbname','user')):
+            try:expected_port=int(wanted.get('port') or 5432)
+            except (TypeError,ValueError):raise PermissionError('processing connection port invalid') from None
+            if (connection.info.port!=expected_port
+                    or any(str(wanted.get(k, '')) != str(actual.get(k, '')) for k in ('host','dbname','user'))):
                 raise PermissionError('processing connection target differs')
             yield connection
         else:
