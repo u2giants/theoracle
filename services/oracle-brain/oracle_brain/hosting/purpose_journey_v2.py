@@ -553,6 +553,8 @@ def load_purpose_worker_settings_v2(config_path,trusted_config_sha256):
     from oracle_brain.hosting.purpose_transport import PurposeTLSBindingV2,ParentObserverClientV2,PurposeProviderClientV2,ExtractionProviderClientV2
     from oracle_brain.hosting.custody import DurableNonceSequenceV2
     from oracle_brain.hosting.provider_runtime import tls_url
+    _require(type(trusted_config_sha256) is str and re.fullmatch(HASH,trusted_config_sha256),
+        'explicit externally pinned worker startup hash required')
     c=_worker_json(config_path,trusted_config_sha256,CompilerWorkerConfigV2)
     population=_worker_json(c.population_file,c.population_sha256,ParentPopulationAdmissionV2)
     allocation=_worker_json(c.allocation_projection_file,c.allocation_projection_sha256,BudgetAllocationPinsV2)
