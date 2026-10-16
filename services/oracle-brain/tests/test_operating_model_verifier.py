@@ -96,9 +96,10 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
 def test_parallel_population_is_exact_and_single_set_stages_remain_single():
     for stage in ('W10','W12','all','documentary','W04'):
         groups=verifier.test_groups(stage)
-        assert tuple(s for _,values in groups for s in values)==verifier.required_suites(stage)
+        from collections import Counter
+        assert Counter(s for _,values in groups for s in values)==Counter(verifier.required_suites(stage))
         assert len({s for _,values in groups for s in values})==len(verifier.required_suites(stage))
-        assert len(groups)==(2 if stage in ('W10','W12','all') else 1)
+        assert len(groups)==(3 if stage in ('W10','W12','all') else 2 if stage=='documentary' else 1)
 
 
 def test_all_workers_share_real_deadline_and_preserve_partial_output(tmp_path):
@@ -211,3 +212,76 @@ def test_runtime_transport_custody_and_policy_mutations_change_recorded_inputs(t
         p.write_text('owned source = 1\n');assert seal()==original
     (hidden/'cache.pyc').write_bytes(b'changed cache');(hosting/'fixture.private').write_text('changed private fixture')
     assert seal()==original
+
+
+@pytest.fixture
+def cluster_target(tmp_path,monkeypatch):
+    import hashlib,json
+    from types import SimpleNamespace
+    root=tmp_path/'ca';root.write_text('invented-ca');root.chmod(0o600)
+    proof=tmp_path/'proof.json'
+    value=dict(container_id='owned-primary',synthetic_only=True,tls_verify_full=True,wrong_password_refused=True,
+        plaintext_refused=True,ca_sha256=hashlib.sha256(root.read_bytes()).hexdigest())
+    proof.write_text(json.dumps(value));proof.chmod(0o600)
+    environment=dict(COMPOSE_PROJECT_NAME='owned-project',ORACLE2_TEST_TLS_ROOT=str(root),ORACLE2_TEST_TLS_QUALIFICATION=str(proof))
+    url='postgresql://oracle2_admin:invented@127.0.0.1:5432/oracle2?sslmode=verify-full&sslrootcert='+str(root)
+    details=dict(Id='owned-primary',Config={'Image':verifier.PINNED_TEST_POSTGRES,'Labels':{'oracle.operating.synthetic':'true','com.docker.compose.project':'owned-project',
+        'com.docker.compose.service':'postgres'}},State={'Running':True},NetworkSettings={'Ports':{'5432/tcp':[{'HostIp':'127.0.0.1','HostPort':'5432'}]}})
+    state=dict(details=details,ssl=True,identity='12345',database='oracle2',role='oracle2_admin',queries=[])
+    class Connection:
+        def __init__(self):self.pgconn=SimpleNamespace(ssl_in_use=state['ssl'])
+        def __enter__(self):return self
+        def __exit__(self,*_):pass
+        def execute(self,query,*args):
+            state['queries'].append(query)
+            if query=='SELECT current_database(),session_user':return SimpleNamespace(fetchone=lambda:(state['database'],state['role']))
+            if query=='SELECT system_identifier::text FROM pg_catalog.pg_control_system()':return SimpleNamespace(fetchone=lambda:(state['identity'],))
+            raise AssertionError('target qualification must not write')
+    monkeypatch.setattr(verifier.subprocess,'check_output',lambda *a,**k:json.dumps([state['details']]))
+    monkeypatch.setattr(verifier.psycopg,'connect',lambda *a,**k:Connection())
+    return state,environment,url,proof,value
+
+
+def test_exact_qualified_cluster_uses_actual_server_identity_without_writes(cluster_target):
+    state,env,url,_,_=cluster_target
+    actual=verifier.cluster_target_identity(url,container='owned-primary',service='postgres',environment=env)
+    assert actual['system_identifier']=='12345' and actual['container_id']=='owned-primary'
+    assert len(state['queries'])==2 and all(q.startswith('SELECT') for q in state['queries'])
+
+
+@pytest.mark.parametrize('damage',['image','label','project','service','port','public','stopped','proof-container','ca','ssl','database','role'])
+def test_false_cluster_target_refuses_before_any_mutation(cluster_target,damage):
+    import json
+    state,env,url,proof,value=cluster_target;d=state['details']
+    if damage=='image':d['Config']['Image']='foreign:image'
+    elif damage=='label':d['Config']['Labels']['oracle.operating.synthetic']='false'
+    elif damage=='project':d['Config']['Labels']['com.docker.compose.project']='foreign'
+    elif damage=='service':d['Config']['Labels']['com.docker.compose.service']='foreign'
+    elif damage=='port':d['NetworkSettings']['Ports']['5432/tcp'][0]['HostPort']='9999'
+    elif damage=='public':d['NetworkSettings']['Ports']['5432/tcp'][0]['HostIp']='0.0.0.0'
+    elif damage=='stopped':d['State']['Running']=False
+    elif damage=='proof-container':value['container_id']='foreign';proof.write_text(json.dumps(value))
+    elif damage=='ca':value['ca_sha256']='f'*64;proof.write_text(json.dumps(value))
+    else:state[damage]=False if damage=='ssl' else 'foreign'
+    with pytest.raises(PermissionError):verifier.cluster_target_identity(url,container='owned-primary',service='postgres',environment=env)
+    assert all(q.startswith('SELECT') for q in state['queries'])
+
+
+@pytest.mark.parametrize('damage',['missing','same-system','same-container'])
+def test_purpose_target_never_falls_back_to_primary_cluster(monkeypatch,damage):
+    env=dict(ORACLE2_TEST_ADMIN_URL='host=127.0.0.1 dbname=oracle2',ORACLE2_SYNTHETIC_POSTGRES_CONTAINER='primary')
+    if damage!='missing':env.update(ORACLE2_TEST_PURPOSE_ADMIN_URL='host=127.0.0.1 dbname=purpose',
+        ORACLE2_TEST_PURPOSE_TLS_ROOT='own',ORACLE2_TEST_PURPOSE_TLS_QUALIFICATION='own',ORACLE2_SYNTHETIC_PURPOSE_POSTGRES_CONTAINER='purpose')
+    def identity(admin,*,container,service,environment):
+        return {'system_identifier':'1' if damage=='same-system' or container=='primary' else '2',
+            'container_id':'same' if damage=='same-container' else container}
+    monkeypatch.setattr(verifier,'cluster_target_identity',identity)
+    with pytest.raises(PermissionError):verifier.qualify_group_targets((('purpose',('invented',)),),env)
+
+
+def test_cleanup_refuses_changed_owned_cluster_even_with_same_database(monkeypatch):
+    calls=[];target={'identity':{'container':'owned','service':'purpose-postgres','system_identifier':'1'},'environment':{}}
+    monkeypatch.setattr(verifier,'cluster_target_identity',lambda *a,**k:{**target['identity'],'system_identifier':'2'})
+    monkeypatch.setattr(verifier.psycopg,'connect',lambda *a,**k:calls.append('opened') or pytest.fail('changed cluster opened for DROP'))
+    assert verifier.cleanup_test_databases('owned',{'dbname':'oracle2'},['oracle_operating_model_test_owned'],target=target)
+    assert calls==[]

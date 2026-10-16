@@ -3,6 +3,7 @@
 import argparse,hashlib,json,os,stat,subprocess,sys,tempfile,time
 import psutil
 from importlib.metadata import version,PackageNotFoundError
+from collections import Counter
 from pathlib import Path
 from uuid import uuid4
 from xml.etree import ElementTree as ET
@@ -10,6 +11,7 @@ import psycopg
 from psycopg import sql
 
 ROOT=Path(__file__).resolve().parents[2]
+PINNED_TEST_POSTGRES='postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297'
 DOCUMENTARY=('operating_model_verifier','operating_model_boundary','operating_model_coverage','source_receipts','observation_identity','workflow_findings','artifact_storage','operating_model_extraction','operating_model_adapters','process_model','process_coverage','business_operating_model','workflow_lineage','operating_model_sdk','operating_model_retrieval','process_consult','operating_model_cutover','operating_model_restore','operating_model_pipeline','operating_model_native_provider','operating_model_answer','operating_model_summaries','operating_model_comparison','operating_model_retirement','operating_model_actions','operating_model_report_store','workflow_authorization','native_alternate','acceptance_profiles','semantic_acceptance','semantic_runtime','key_coverage','hosting_boundary','hosting_job_authority','hosting_startup','native_factory','provider_runtime','hosting_candidate_permissions','hosting_runtime_permissions','hosting_source_binding','hosting_readonly_projection','synthetic_control_fixtures','hosting_bootstrap','hosting_synthetic_fixture','hosting_result','hosting_synthetic_project','hosting_platform_translation','hosting_executor_jobs','hosting_forward_fixture','hosting_restore_receipts','hosting_forward_recovery','minimized_observations')
 DOCUMENTARY += ('replacement_documentary_journey', 'processing_context', 'processing_profile',
                 'assembly_context','assembly_qualification','observed_assembly_capture',
@@ -19,7 +21,7 @@ PURPOSE_V2_SUITES=('purpose_context_v2','parent_observer_v2','purpose_profiles_v
     'purpose_assembly_v2','purpose_capture_v2','purpose_qualification_v3','purpose_receipts_v2',
     'purpose_runtime_v2','purpose_source_authority','purpose_transport','purpose_transport_startup',
     'purpose_shared_budget','purpose_allocation_budget','semantic_registry_v3',
-    'processing_extraction_runtime_v2','extraction_connection_authority','purpose_native_census_startup','purpose_journey')
+    'processing_extraction_runtime_v2','extraction_connection_authority','purpose_native_census_startup','purpose_journey','purpose_worker_startup')
 DOCUMENTARY += PURPOSE_V2_SUITES
 DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternate_operator','native_alternate_chain_operator','hosting_restore_platform')
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
@@ -87,9 +89,13 @@ def required_suites(stage):
 
 def test_groups(stage):
     required=required_suites(stage)
-    groups=(('documentary',DOCUMENTARY),('event',EVENT)) if required==DOCUMENTARY+EVENT else (('required',required),)
+    if required in (DOCUMENTARY,DOCUMENTARY+EVENT):
+        retained=tuple(s for s in DOCUMENTARY if s not in PURPOSE_V2_SUITES)
+        groups=(('documentary',retained),('purpose',PURPOSE_V2_SUITES))
+        if required==DOCUMENTARY+EVENT:groups+=(('event',EVENT),)
+    else:groups=(('required',required),)
     flattened=tuple(suite for _,suites in groups for suite in suites)
-    if flattened!=required or len(set(flattened))!=len(flattened):
+    if Counter(flattened)!=Counter(required) or any(n!=1 for n in Counter(flattened).values()):
         raise RuntimeError('required suite population is duplicated or omitted')
     return groups
 
@@ -178,10 +184,77 @@ def aggregate_evidence(jobs,results,directory):
         'evidence_errors':invalid}
 
 
-def cleanup_test_databases(admin,parts,owned):
+def cluster_target_identity(admin,*,container,service,environment):
+    """Read-only qualification of one exact owned TLS cluster BEFORE any writes."""
+    parts=psycopg.conninfo.conninfo_to_dict(admin)
+    project=environment.get('COMPOSE_PROJECT_NAME','')
+    if (not project or not container or service not in {'postgres','purpose-postgres'}
+            or parts.get('host')!='127.0.0.1' or not parts.get('port')
+            or parts.get('user')!='oracle2_admin' or parts.get('dbname')!='oracle2'
+            or parts.get('sslmode')!='verify-full'
+            or parts.get('sslrootcert')!=environment.get('ORACLE2_TEST_TLS_ROOT')):
+        raise PermissionError('exact externally selected owned synthetic TLS target required')
+    details=json.loads(subprocess.check_output(['docker','inspect',container],text=True,timeout=5))
+    if len(details)!=1:raise PermissionError('unique owned synthetic container required')
+    details=details[0];labels=details.get('Config',{}).get('Labels',{})
+    ports=details.get('NetworkSettings',{}).get('Ports',{}).get('5432/tcp') or []
+    proof=json.loads(Path(environment['ORACLE2_TEST_TLS_QUALIFICATION']).read_text())
+    if (details.get('Config',{}).get('Image')!=PINNED_TEST_POSTGRES
+            or labels.get('oracle.operating.synthetic')!='true'
+            or labels.get('com.docker.compose.project')!=project
+            or labels.get('com.docker.compose.service')!=service
+            or not details.get('State',{}).get('Running')
+            or not ports or any(p.get('HostIp')!='127.0.0.1' for p in ports)
+            or not any(p.get('HostPort')==parts['port'] for p in ports)
+            or proof.get('container_id')!=details.get('Id') or proof.get('synthetic_only') is not True
+            or proof.get('tls_verify_full') is not True or proof.get('wrong_password_refused') is not True
+            or proof.get('plaintext_refused') is not True
+            or proof.get('ca_sha256')!=hashlib.sha256(Path(parts['sslrootcert']).read_bytes()).hexdigest()):
+        raise PermissionError('owned container/project/port/TLS qualification differs')
+    with psycopg.connect(admin) as conn:
+        if (not conn.pgconn.ssl_in_use
+                or conn.execute('SELECT current_database(),session_user').fetchone()!=('oracle2','oracle2_admin')):
+            raise PermissionError('actual owned database/role/TLS differs')
+        identity=conn.execute('SELECT system_identifier::text FROM pg_catalog.pg_control_system()').fetchone()[0]
+    if not isinstance(identity,str) or not identity.isdigit():
+        raise PermissionError('actual PostgreSQL cluster identity required')
+    return {'container_id':details['Id'],'container':container,'service':service,'system_identifier':identity,
+        'project':project,'host':parts['host'],'port':parts['port'],'database':'oracle2','role':'oracle2_admin'}
+
+
+def qualify_group_targets(groups,environment):
+    """Purpose always has its own CLUSTER; there is no same-cluster fallback."""
+    primary_env=dict(environment);primary=environment['ORACLE2_TEST_ADMIN_URL']
+    primary_identity=cluster_target_identity(primary,container=environment.get('ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'),
+        service='postgres',environment=primary_env)
+    targets={'primary':{'admin':primary,'parts':psycopg.conninfo.conninfo_to_dict(primary),
+        'environment':primary_env,'identity':primary_identity}}
+    if any(label=='purpose' for label,_ in groups):
+        required=('ORACLE2_TEST_PURPOSE_ADMIN_URL','ORACLE2_TEST_PURPOSE_TLS_ROOT',
+            'ORACLE2_TEST_PURPOSE_TLS_QUALIFICATION','ORACLE2_SYNTHETIC_PURPOSE_POSTGRES_CONTAINER')
+        if any(not environment.get(k) for k in required):
+            raise PermissionError('separately qualified purpose cluster is required; no fallback')
+        env={**environment,'ORACLE2_TEST_ADMIN_URL':environment[required[0]],
+            'ORACLE2_TEST_TLS_ROOT':environment[required[1]],'ORACLE2_TEST_TLS_QUALIFICATION':environment[required[2]],
+            'ORACLE2_SYNTHETIC_POSTGRES_CONTAINER':environment[required[3]]}
+        admin=env['ORACLE2_TEST_ADMIN_URL']
+        identity=cluster_target_identity(admin,container=env['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'],
+            service='purpose-postgres',environment=env)
+        if (identity['system_identifier']==primary_identity['system_identifier']
+                or identity['container_id']==primary_identity['container_id']):
+            raise PermissionError('purpose must be an actually distinct owned PostgreSQL cluster')
+        targets['purpose']={'admin':admin,'parts':psycopg.conninfo.conninfo_to_dict(admin),
+            'environment':env,'identity':identity}
+    return targets
+
+
+def cleanup_test_databases(admin,parts,owned,*,target=None):
     errors=[]
     for name in owned:
         try:
+            if target is not None and cluster_target_identity(admin,container=target['identity']['container'],
+                    service=target['identity']['service'],environment=target['environment'])!=target['identity']:
+                raise PermissionError('owned cleanup cluster identity changed')
             with psycopg.connect(admin,autocommit=True) as conn:
                 if conn.execute('SELECT current_database()').fetchone()[0]!=parts.get('dbname','postgres'):
                     raise PermissionError('actual cleanup administrator target differs')
@@ -192,7 +265,7 @@ def cleanup_test_databases(admin,parts,owned):
 
 
 
-SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/test_readonly_graph_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
+SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_readonly_graph_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
 
 
 def source_input_hashes():
@@ -217,8 +290,7 @@ def main(argv=None):
     missing=[p.name for p in paths if not p.is_file()]
     if missing:raise RuntimeError('required tests missing: '+','.join(missing))
     public_hashes=required_public_chain_hashes()
-    admin=os.environ['ORACLE2_TEST_ADMIN_URL'];parts=psycopg.conninfo.conninfo_to_dict(admin)
-    if parts.get('host') not in {'localhost','127.0.0.1'}:raise PermissionError('synthetic loopback proof required')
+    targets=qualify_group_targets(groups,os.environ) # ALL targets proved before first write
     destination=ROOT/args.result;destination.parent.mkdir(parents=True,exist_ok=True)
     evidence=Path(tempfile.mkdtemp(prefix='workflow-evidence-',dir=destination.parent));evidence.chmod(0o700)
     report={'schema_version':1,'stage':args.stage,'mode':args.mode,'success':False,'synthetic':True,'business_accepted':False,'private_source_acceptance':'open','independent_semantic_acceptance':'open','actual_event_acceptance':'unavailable','analytical_runtime_qualified':False,'required_tests':[p.name for p in paths],'worker_evidence':str(evidence),'cleanup_errors':[]}
@@ -226,21 +298,23 @@ def main(argv=None):
     try:
         jobs=[]
         # Setup remains outside the existing 120-second TEST budget. Every group
-        # gets its own proven fresh DB before any worker starts; EVENT has no
-        # fixed-role mutations, shared advisory locks or graph operations.
+        # gets its own proven fresh DB before any worker starts. PURPOSE uses
+        # a distinct cluster; EVENT has no fixed-role mutations or graph writes.
         for label,suites in groups:
+            target_cluster=targets['purpose' if label=='purpose' else 'primary']
+            admin=target_cluster['admin'];parts=target_cluster['parts']
             name='oracle_operating_model_test_'+uuid4().hex
             with psycopg.connect(admin,autocommit=True) as conn:
                 if conn.execute('SELECT current_database()').fetchone()[0]!=parts.get('dbname','postgres'):
                     raise PermissionError('actual synthetic administrator target differs')
                 conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
-            owned.append(name);target=psycopg.conninfo.make_conninfo(**{**parts,'dbname':name})
+            owned.append((target_cluster,name));target=psycopg.conninfo.make_conninfo(**{**parts,'dbname':name})
             with psycopg.connect(target) as conn:
                 if conn.execute('SELECT current_database()').fetchone()[0]!=name:
                     raise PermissionError('actual fresh synthetic target differs')
                 for migration in SYNTHETIC_MIGRATIONS:conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
             command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--junitxml={evidence/(label+".xml")}']
-            jobs.append({'name':label,'command':command,'env':{**os.environ,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain')}})
+            jobs.append({'name':label,'command':command,'env':{**target_cluster['environment'],'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain')}})
         results,worker_cleanup=run_test_groups(jobs,evidence,deadline=time.monotonic()+120)
         report['cleanup_errors'].extend(worker_cleanup)
         report.update(aggregate_evidence(jobs,results,evidence))
@@ -253,8 +327,10 @@ def main(argv=None):
         report['input_hash']=hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest()
         report['success']=report['exit_code']==0 and not report['cleanup_errors']
     finally:
-        report['owned_databases']=owned
-        report['cleanup_errors'].extend(cleanup_test_databases(admin,parts,owned))
+        report['owned_databases']=[name for target,name in owned]
+        report['owned_database_targets']=[{'name':name,'cluster_identity':target['identity']} for target,name in owned]
+        for target,name in owned:
+            report['cleanup_errors'].extend(cleanup_test_databases(target['admin'],target['parts'],[name],target=target))
         if report['cleanup_errors']:report['success']=False
         destination.write_text(json.dumps(report,indent=2)+'\n');destination.chmod(0o600)
     print(json.dumps({k:report.get(k) for k in ('stage','success','tests','skipped','business_accepted','analytical_runtime_qualified')}))
