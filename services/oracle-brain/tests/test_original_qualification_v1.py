@@ -80,3 +80,19 @@ def test_response_commit_requires_exact_phase_population_and_registry_fields():
     for field in ('reading_population_id','reading_operation_registry_hash'):
         r=row(review=True);r.pop(field)
         with pytest.raises(ValueError):parse_original_response_commit_v1(json.dumps(r).encode(),phase='review')
+
+@pytest.mark.parametrize('field',['schema_version','nested_schema','qualification_pass'])
+@pytest.mark.parametrize('bad',[True,False,1.0,'1'])
+def test_raw_versions_and_qualification_boolean_are_not_literal_coercions(field,bad):
+    r=row(review=True)
+    if field=='schema_version':r[field]=bad
+    elif field=='nested_schema':r['raw_ref']['schema_version']=bad
+    else:
+        if type(bad) is bool:return
+        r[field]=bad
+    with pytest.raises(ValueError):parse_original_response_commit_v1(json.dumps(r).encode(),phase='review')
+
+
+def test_integer_one_cannot_certify_review_true():
+    r=row(review=True);r['qualification_pass']=1
+    with pytest.raises(ValueError):parse_original_response_commit_v1(json.dumps(r).encode(),phase='review')

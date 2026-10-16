@@ -40,3 +40,8 @@ def test_v3_retains_population_scope_predecessor_and_horizon(damage):
     elif damage=='future':r.update(phase='assembly',parent_journal_hash=None,prior_receipt_hash=None)
     else:r['schema_version']=2
     with pytest.raises((PermissionError,ValueError)):PurposeWorkerJobV3.model_validate_json(json.dumps(r))
+
+@pytest.mark.parametrize('bad',[True,False,3.0,'3'])
+def test_v3_version_is_exact_integer_not_literal_coercion(bad):
+    r=raw(1);r['schema_version']=bad
+    with pytest.raises(ValueError):PurposeWorkerJobV3.model_validate_json(json.dumps(r))
