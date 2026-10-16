@@ -184,19 +184,27 @@ class ProcessingSourceResolver:
 
     def _check_function_signatures(self,conn,signatures):
         b=self.binding
-        for signature, allowed in signatures.items():
-            function = conn.execute("""SELECT r.rolname,p.prosecdef,p.proconfig
-                FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid=to_regprocedure(%s)""",
-                (signature,)).fetchone()
-            if function != (b.expected_owner_role,True,['search_path=pg_catalog, oracle2']):
+        # One CURRENT catalogue statement, not a cached proof. LEFT joins retain
+        # every requested ordinal, including missing functions and empty ACLs.
+        rows=conn.execute("""SELECT requested.signature,owner.rolname,p.prosecdef,p.proconfig,
+                coalesce(jsonb_agg(jsonb_build_array(coalesce(grantee.rolname,'PUBLIC'),acl.is_grantable))
+                    FILTER (WHERE acl.privilege_type='EXECUTE' AND acl.grantee<>p.proowner),'[]'::jsonb)
+            FROM unnest(%s::text[]) WITH ORDINALITY requested(signature,ordinal)
+            LEFT JOIN pg_proc p ON p.oid=to_regprocedure(requested.signature)
+            LEFT JOIN pg_namespace namespace ON namespace.oid=p.pronamespace
+            LEFT JOIN pg_roles owner ON owner.oid=p.proowner
+            LEFT JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl ON true
+            LEFT JOIN pg_roles grantee ON grantee.oid=acl.grantee
+            GROUP BY requested.signature,requested.ordinal,owner.rolname,p.prosecdef,p.proconfig
+            ORDER BY requested.ordinal""",(list(signatures),)).fetchall()
+        if len(rows)!=len(signatures):
+            raise PermissionError('fixed processing function owner/config differs')
+        for (signature,allowed),row in zip(signatures.items(),rows):
+            if (row[0]!=signature or tuple(row[1:4])!=(b.expected_owner_role,True,['search_path=pg_catalog, oracle2'])):
                 raise PermissionError('fixed processing function owner/config differs')
             if allowed is not None:
-                grants = conn.execute("""SELECT coalesce(r.rolname,'PUBLIC'),a.is_grantable
-                    FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
-                    LEFT JOIN pg_roles r ON r.oid=a.grantee
-                    WHERE p.oid=to_regprocedure(%s) AND a.privilege_type='EXECUTE' AND a.grantee<>p.proowner""",
-                    (signature,)).fetchall()
-                if frozenset(name for name,_ in grants) != allowed or any(grantable for _,grantable in grants):
+                grants=row[4]
+                if frozenset(name for name,_ in grants)!=allowed or any(grantable for _,grantable in grants):
                     raise PermissionError('fixed processing function ACL differs')
 
     def _args(self, workspace_id, source_id):
