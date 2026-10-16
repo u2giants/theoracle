@@ -107,12 +107,12 @@ def materialize_sanitized_only(compiler,executor,job,manifests,root):
     assert sorted(str(p.relative_to(root)) for p in root.rglob('*') if p.is_file())==sorted(expected)
 
 
-def executor_certificate(certificates,root):
+def executor_certificate(certificates,root,*,identity=EXECUTOR_URI,name='executor',server=False):
     """Explicit synthetic executor URI under the existing owned fixture CA."""
-    key=root/'executor.key';csr=root/'executor.csr';certificate=root/'executor.pem';ext=root/'executor.ext'
-    ext.write_text('subjectAltName=URI:'+EXECUTOR_URI+'\nextendedKeyUsage=clientAuth\nbasicConstraints=critical,CA:FALSE\n');ext.chmod(0o600)
+    key=root/(name+'.key');csr=root/(name+'.csr');certificate=root/(name+'.pem');ext=root/(name+'.ext')
+    ext.write_text('subjectAltName=URI:'+identity+(',DNS:localhost' if server else '')+'\nextendedKeyUsage='+('serverAuth' if server else 'clientAuth')+'\nbasicConstraints=critical,CA:FALSE\n');ext.chmod(0o600)
     def run(*args):subprocess.run(['openssl',*args],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
-    run('req','-newkey','rsa:2048','-nodes','-keyout',str(key),'-out',str(csr),'-subj','/CN=owned-executor')
+    run('req','-newkey','rsa:2048','-nodes','-keyout',str(key),'-out',str(csr),'-subj','/CN='+('localhost' if server else 'owned-'+name))
     run('x509','-req','-in',str(csr),'-CA',str(certificates/'ca.pem'),'-CAkey',str(certificates/'ca.key'),
         '-CAcreateserial','-out',str(certificate),'-days','1','-extfile',str(ext))
     for path in (key,csr,certificate):path.chmod(0o600)
@@ -168,6 +168,8 @@ def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,e
                 tls_client_uri=EXECUTOR_URI,tls_server_uri=SERVER,qualified_manifest=manifest,qualified_payload=payload,
                 delivery_seal=seal,qualified_blob_root=replica,summary_targets=(summary_target,))
             assert settings.config.actor_id!=worker.config.actor_id
+            from purpose_journey_fixture_result import prepare_result_service_fixture
+            result_service=prepare_result_service_fixture(admin_url,settings,job,manifest,summary_manifest,root/'result-service',certificates)
             stage('protected_executor_own_role_started')
             async def load_and_answer():
                 projection=build_paid_executor_projection_v3(settings)
@@ -184,6 +186,7 @@ def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,e
                     assert answer.state=='answered' and answer.citations
                     assert all(marker not in answer.model_dump_json() for marker in PRIVATE_MARKERS)
                     stage('protected_executor_graph_summary_answer_verified')
+                    await asyncio.to_thread(result_service.verify,stage)
                     return projection,summary
                 finally:await projection.close()
             def measured_executor():
