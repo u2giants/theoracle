@@ -92,10 +92,15 @@ class ReadOnlyConnection:
 class SDKProjection:
     graph_prefix=PREFIX
 
-    def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False,qualification_guard=None):
+    def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False,qualification_guard=None,_paid_connection_config=None):
         if version('graphrag-sdk')!='1.4.0':raise RuntimeError('exact qualified SDK required')
         self.graph_name=f'{self.graph_prefix}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
-        self.connection=FalkorDBConnection(ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000))
+        if _paid_connection_config is None:
+            config=ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000)
+        else:
+            if type(self) is not PaidProcessingSDKProjectionV3:raise PermissionError('TLS override is restricted to explicit paid SDK profile')
+            config=paid_tls_connection_config_v3(graph_url,self.graph_name,_paid_connection_config)
+        self.connection=FalkorDBConnection(config)
         if read_only:self.connection=ReadOnlyConnection(self.connection)
         self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
           ontology=Ontology() if read_only else Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')],relations=[Relation(label='RELATED_TO')]))
@@ -320,9 +325,31 @@ class ProcessingSDKProjection(SDKProjection):
             raise ValueError('qualified projection snapshot differs')
 
 
+def paid_tls_connection_config_v3(graph_url,graph_name,config):
+    """Preserve every explicitly supported SDK TLS setting; never downgrade.
+
+    Protected hosting settings authenticate the files/pins/current capability.
+    This adapter validates transport equality and copies the supported config;
+    it grants no target, graph, credential or private-file permission itself.
+    """
+    from urllib.parse import urlsplit,unquote
+    import math
+    if type(config) is not ConnectionConfig:raise PermissionError('exact pinned SDK ConnectionConfig required')
+    url=urlsplit(graph_url)
+    if (url.scheme!='rediss' or not url.hostname or not url.username or not url.password
+            or url.path not in ('','/','/0') or url.query or url.fragment
+            or (config.host,config.port,config.username,config.password)!=(url.hostname,url.port or 6379,unquote(url.username),unquote(url.password))
+            or config.graph_name!=graph_name or config.ssl is not True or config.ssl_check_hostname is not True
+            or config.ssl_cert_reqs!='required' or any(not isinstance(v,str) or not v for v in (config.ssl_ca_certs,config.ssl_certfile,config.ssl_keyfile))
+            or config.query_timeout_ms!=30000 or type(config.retry_count) is not int or not 0<=config.retry_count<=3
+            or not isinstance(config.pool_timeout,(int,float)) or not math.isfinite(config.pool_timeout) or not 0<config.pool_timeout<=30):
+        raise PermissionError('exact admitted paid graph TLS target, mutual credentials and finite SDK bounds required')
+    return copy.deepcopy(config)
+
+
 class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
     """Explicit exact-paid-vector build/load; legacy projections stay unchanged."""
-    def __init__(self,graph_url,*,workspace_id,artifact_id,artifact_version,generation,embedder,qualification_guard,read_only=False,signed_receipt=None,receipt_secret=None):
+    def __init__(self,graph_url,*,workspace_id,artifact_id,artifact_version,generation,embedder,qualification_guard,read_only=False,signed_receipt=None,receipt_secret=None,connection_config=None):
         from .paid_sdk_embeddings_v3 import PaidProjectionEmbedderV3
         from graphrag_sdk.core.providers import LLMInterface
         if type(embedder) is not PaidProjectionEmbedderV3:
@@ -338,7 +365,7 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         self._paid_signed_receipt=copy.deepcopy(signed_receipt);self._paid_receipt_secret=receipt_secret
         super().__init__(graph_url,workspace_id=workspace_id,artifact_id=artifact_id,artifact_version=artifact_version,
             generation=generation,llm=NoGeneration(),embedder=embedder,dimensions=256,read_only=read_only,
-            qualification_guard=qualification_guard)
+            qualification_guard=qualification_guard,_paid_connection_config=connection_config)
 
     def _paid_payload(self,payload):
         from .paid_sdk_embeddings_v3 import processing_embedding_inventory_v3

@@ -138,3 +138,68 @@ def test_actual_sdk_float32_storage_rule_is_exact_without_epsilon_or_normalizati
         with pytest.raises(ValueError):sdk_float32_vector(bad)
     changed=list(stored);changed[0]=0.10001
     assert tuple(changed)!=stored
+
+
+def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swallowed_unknown(admin_url,processing,tmp_path):
+    """Real SDK/SQL component, injected paid packet; NOT full native journey."""
+    import asyncio,os,re
+    from dev.oracle2.test_readonly_graph_fixture import owned_target
+    from test_processing_documentary_journey import qualified_journey,assert_no_uncited_originals
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    from oracle_brain.operating_model.paid_sdk_embeddings_v3 import sdk_float32_vector
+    q=qualified_journey(admin_url,processing,tmp_path);m=q['manifest'];payload=q['ledger'].read(m.workspace_id,m.artifact_id,m.version)
+    data=verify_paid_sdk_embedding_v3(**paid_case_for(payload,m));adapter=PaidProjectionEmbedderV3(data)
+    graph_url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];project=os.environ['COMPOSE_PROJECT_NAME']
+    container=project+'-falkor-candidate-1';owned_target(container,graph_url)
+    generation=uuid4()
+    async def exercise():
+        p=PaidProcessingSDKProjectionV3(graph_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
+            artifact_version=m.version,generation=generation,embedder=adapter,qualification_guard=q['guard'])
+        assert p.graph_name==f'oracle_processing_v1_{m.workspace_id.hex}_{m.artifact_id.hex}_{m.version}_{generation.hex}'
+        try:
+            result=await p.build(q['ledger'],m.workspace_id,m.artifact_id,m.version)
+            proof=await p.paid_projection_proof(payload)
+            assert proof.embedding_wire_hash==data.witness.raw_response_hash
+            assert result['paid_embedding']==proof.model_dump(mode='json')
+            nodes=(await p.connection.query('MATCH (n) RETURN n')).result_set
+            for row in nodes:
+                for node in row:assert_no_uncited_originals(node.properties)
+            first=(await p.connection.query('MATCH (c:Chunk) RETURN c.id,c.embedding LIMIT 1')).result_set[0]
+            assert first[1] and len(first[1])==256
+            wrong=[1.0]+[0.0]*255
+            await p.connection.query('MATCH (c:Chunk {id:$id}) SET c.embedding=vecf32($v)',params={'id':first[0],'v':wrong})
+            with pytest.raises(PermissionError,match='paid response'):await p.paid_projection_proof(payload)
+            await p.connection.query('MATCH (c:Chunk {id:$id}) SET c.embedding=vecf32($v)',params={'id':first[0],'v':first[1]})
+            await p.paid_projection_proof(payload)
+            # SDK may swallow this exception; independent pre-ACK proof MUST NOT.
+            with pytest.raises(PermissionError):adapter.embed_query('unappointed SDK text')
+            with pytest.raises(PermissionError,match='swallowed'):await p.paid_projection_proof(payload)
+            fresh=PaidProcessingSDKProjectionV3(graph_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
+                artifact_version=m.version,generation=generation,embedder=PaidProjectionEmbedderV3(data),qualification_guard=q['guard'])
+            try:
+                with pytest.raises(PermissionError,match='prior committed'):await fresh.load(q['ledger'],m.workspace_id,m.artifact_id,m.version)
+            finally:await fresh.close()
+        finally:
+            # Re-prove exact own candidate target; remove ONLY this UUID graph.
+            owned_target(container,graph_url)
+            await p.connection.delete_graph();await p.close()
+    asyncio.run(exercise())
+
+
+def test_paid_supported_sdk_tls_config_keeps_exact_target_and_every_tls_option():
+    from dataclasses import replace
+    from graphrag_sdk import ConnectionConfig
+    from oracle_brain.operating_model.sdk_projection import paid_tls_connection_config_v3
+    uri='rediss://scope_user:protected%40password@graph.example.invalid:6380'
+    cfg=ConnectionConfig(host='graph.example.invalid',port=6380,username='scope_user',password='protected@password',
+        graph_name='exact_owned_graph',query_timeout_ms=30000,ssl=True,ssl_check_hostname=True,ssl_cert_reqs='required',
+        ssl_ca_certs='/protected/ca.pem',ssl_certfile='/protected/client.pem',ssl_keyfile='/protected/client.key')
+    selected=paid_tls_connection_config_v3(uri,'exact_owned_graph',cfg)
+    assert selected==cfg and selected is not cfg
+    cfg.ssl=False
+    assert selected.ssl is True
+    for field,value in [('host','other'),('port',6379),('username','admin'),('password','other'),('graph_name','other'),
+        ('ssl',False),('ssl_check_hostname',False),('ssl_cert_reqs','none'),('ssl_ca_certs',None),('ssl_certfile',None),
+        ('ssl_keyfile',None),('query_timeout_ms',None),('pool_timeout',float('inf'))]:
+        with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri,'exact_owned_graph',replace(selected,**{field:value}))
+    with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri.replace('rediss:','redis:'),'exact_owned_graph',selected)
