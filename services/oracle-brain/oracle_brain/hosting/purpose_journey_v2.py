@@ -503,11 +503,9 @@ class CompilerWorkerSettingsV2:
         from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
         # Existing parser/actor/population/file-whitelist checks BEFORE bytes.
         before=self.authority_window_v3(job)
-        self._custody_state(job)
-        appointed=_worker_json(self.config.custody_appointment_file,self.config.custody_appointment_sha256,
-            CompilerPhaseCustodyAppointmentV2)
+        _,appointment_until=self._custody_appointment_v2(job)
         final=self.authority_window_v3(job)
-        operation=min(before.operation_horizon,final.operation_horizon,appointed.expires_at,job.expires_at,job.original_horizon)
+        operation=min(before.operation_horizon,final.operation_horizon,appointment_until,job.expires_at,job.original_horizon)
         current=min(final.current_until,operation)
         _require(datetime.now(timezone.utc)<current,'actual V3 custody boundary expired')
         return ProcessingProjectionAuthorityWindowV3(current,operation)
@@ -529,8 +527,8 @@ class CompilerWorkerSettingsV2:
         self.authority_horizon(job)
         return job
 
-    def _custody_state(self,job):
-        authority_until=self.authority_horizon(job)
+    def _custody_appointment_v2(self,job):
+        """Pure protected appointment validation; caller supplies current authority."""
         c=self.config
         appointed=_worker_json(c.custody_appointment_file,c.custody_appointment_sha256,CompilerPhaseCustodyAppointmentV2)
         now=datetime.now(timezone.utc)
@@ -543,7 +541,12 @@ class CompilerWorkerSettingsV2:
         _require(files and len({(f.kind,f.artifact_id,f.artifact_version,f.dispatch_id) for f in files})==len(files)
                  and len({f.path for f in files})==len(files),
                  'exact independently qualified phase-result file whitelist required')
-        return files,min(appointed.expires_at,job.expires_at,authority_until)
+        return files,min(appointed.expires_at,job.expires_at)
+
+    def _custody_state(self,job):
+        authority_until=self.authority_horizon(job)
+        files,appointment_until=self._custody_appointment_v2(job)
+        return files,min(appointment_until,authority_until)
 
     def custody(self,job):
         return self._custody_state(job)[0]
@@ -772,9 +775,7 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
             and manifest.workspace_id==c.workspace_id and manifest.compiler_digest==c.runtime_hash
             and manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'},
             'exact current compiler extraction target required')
-        until=s.authority_horizon(self.job)
-        files,custody_until=s._custody_state(self.job)
-        until=min(until,custody_until)
+        files,until=s._custody_state(self.job)
         targets=[f for f in files if f.kind=='native_job' and f.artifact_id==manifest.artifact_id
                  and f.artifact_version==manifest.version]
         _require(len(targets)==1,'artifact has no unique externally appointed paid extraction target')
