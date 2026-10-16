@@ -302,3 +302,32 @@ class BoundProcessingSourceResolver(ProcessingSourceResolver):
             self._check(conn)
             if datetime.now(timezone.utc)>=expiry:
                 raise PermissionError('processing hold authority expired')
+
+
+class ProcessingArtifactResolver(ProcessingSourceResolver):
+    """Current generated metadata; no original bytes in artifact lookup."""
+    _signatures={**ProcessingSourceResolver._signatures,
+        'oracle2._processing_dependency_digest(uuid,uuid,integer)':frozenset(),
+        'oracle2.commit_processing_candidate(jsonb,bytea,bytea,bytea,jsonb,text,text,timestamp with time zone)':frozenset({'oracle2_candidate_compiler'}),
+        'oracle2.hosting_processing_artifact(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_candidate_compiler','oracle2_documentary_executor'}),
+    }
+
+    def artifact_metadata(self,workspace_id,artifact_id,version,*,connection=None):
+        from .contracts import ArtifactManifest,PROCESSING_ARTIFACT_KINDS
+        if (self.binding.profile not in {'candidate-compiler','documentary-executor'}
+                or not isinstance(workspace_id,UUID) or not isinstance(artifact_id,UUID)
+                or type(version) is not int or version<1):
+            raise PermissionError('exact current processing artifact identity required')
+        with self._connection(connection) as conn:
+            self._check(conn)
+            rows=conn.execute('SELECT * FROM oracle2.hosting_processing_artifact(%s,%s,%s,%s,%s,%s)',
+                (workspace_id,artifact_id,version,self.binding.principal,self.binding.runtime_hash,self.binding.source_registry_hash)).fetchall()
+            self._check(conn)
+        if len(rows)!=1:raise PermissionError('unique current processing artifact required')
+        manifest=ArtifactManifest.model_validate_json(json.dumps(rows[0][0]))
+        refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in rows[0][1])
+        if ((manifest.workspace_id,manifest.artifact_id,manifest.version)!=(workspace_id,artifact_id,version)
+                or manifest.kind not in PROCESSING_ARTIFACT_KINDS or not refs
+                or len(set(refs))!=len(refs)):
+            raise PermissionError('current processing manifest differs')
+        return manifest,refs

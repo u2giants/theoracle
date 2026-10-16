@@ -58,29 +58,7 @@ class Ledger:
             raise PermissionError('artifact must have an authoritative source manifest')
         return receipts
 
-    def persist(self, *, workspace_id: UUID, artifact_id: UUID, version: int, kind: str,
-                payload: dict, refs: tuple[SourceRef, ...], permission_digest: str,
-                compiler_digest: str, dependencies: tuple[tuple[str,str,str], ...] = (),
-                failed: bool = False, before_commit: Callable[[], None] | None = None) -> ArtifactManifest:
-        if self.processing_sources is not None and self.processing_sources.metadata_only:
-            raise PermissionError('metadata-only processing resolver cannot compile artifacts')
-        if kind in PROCESSING_ARTIFACT_KINDS:
-            raise PermissionError('separately reviewed atomic processing write capability required')
-        event_derivation=None
-        if kind=='event_import' and 'event_derivation' in payload:
-            from .ingest.derived_event_lineage import EventDerivation,admitted_refs,derive_from_receipts
-            event_derivation=EventDerivation.model_validate_json(json.dumps(payload['event_derivation']))
-            event_mapping=Mapping.model_validate_json(json.dumps(payload['mapping']))
-            trust=self.resolve_event_intake()
-            expected_refs=admitted_refs(trust,workspace_id=workspace_id,actor_id=self.principal,
-                mapping=event_mapping,permission_digest=permission_digest,now=self.clock())
-            if refs!=expected_refs or payload.get('input_bytes_kind')!='derived-point-observation-csv':
-                raise PermissionError('derived CSV must retain independently admitted original lineage')
-            with psycopg.connect(self.url) as scope_connection:
-                _lock(scope_connection,workspace_id)
-                if not _has_authority_conn(scope_connection,workspace_id,self.principal,'event-import:'+event_mapping.scope):
-                    raise PermissionError('current event-import scope required before original resolution')
-        receipts = self.authorize_refs(refs, workspace_id)
+    def validate_reported_payload(self,payload,refs,workspace_id,receipts):
         if payload.get('source_refs') != [r.model_dump(mode='json') for r in refs]:
             raise ValueError('payload source manifest mismatch')
         # Validate persisted typed records, never trusting a graph description.
@@ -112,6 +90,31 @@ class Ledger:
             if not set(model.finding_ids)<=finding_ids or any(not set(w.finding_ids)<=finding_ids for w in model.workflows):raise ValueError('company finding absent from artifact')
             if any(w.status!='reported' for w in model.workflows):raise PermissionError('model output cannot confer confirmed policy')
             validate_assembly(model,validated_observations)
+
+    def persist(self, *, workspace_id: UUID, artifact_id: UUID, version: int, kind: str,
+                payload: dict, refs: tuple[SourceRef, ...], permission_digest: str,
+                compiler_digest: str, dependencies: tuple[tuple[str,str,str], ...] = (),
+                failed: bool = False, before_commit: Callable[[], None] | None = None) -> ArtifactManifest:
+        if self.processing_sources is not None and self.processing_sources.metadata_only:
+            raise PermissionError('metadata-only processing resolver cannot compile artifacts')
+        if kind in PROCESSING_ARTIFACT_KINDS:
+            raise PermissionError('separately reviewed atomic processing write capability required')
+        event_derivation=None
+        if kind=='event_import' and 'event_derivation' in payload:
+            from .ingest.derived_event_lineage import EventDerivation,admitted_refs,derive_from_receipts
+            event_derivation=EventDerivation.model_validate_json(json.dumps(payload['event_derivation']))
+            event_mapping=Mapping.model_validate_json(json.dumps(payload['mapping']))
+            trust=self.resolve_event_intake()
+            expected_refs=admitted_refs(trust,workspace_id=workspace_id,actor_id=self.principal,
+                mapping=event_mapping,permission_digest=permission_digest,now=self.clock())
+            if refs!=expected_refs or payload.get('input_bytes_kind')!='derived-point-observation-csv':
+                raise PermissionError('derived CSV must retain independently admitted original lineage')
+            with psycopg.connect(self.url) as scope_connection:
+                _lock(scope_connection,workspace_id)
+                if not _has_authority_conn(scope_connection,workspace_id,self.principal,'event-import:'+event_mapping.scope):
+                    raise PermissionError('current event-import scope required before original resolution')
+        receipts = self.authorize_refs(refs, workspace_id)
+        self.validate_reported_payload(payload,refs,workspace_id,receipts)
         event_log=None
         if kind=='event_import':
             event_log=LogReceipt.model_validate_json(json.dumps(payload['event_import']))
@@ -205,6 +208,9 @@ class Ledger:
         return self._read_authorized(workspace_id,artifact_id,version,include_failed=include_failed)
 
     def _read_authorized(self, workspace_id: UUID, artifact_id: UUID, version: int, *, include_failed: bool=False) -> tuple[ArtifactManifest,dict]:
+        from .authority_adapter import ProcessingArtifactResolver
+        if isinstance(self.processing_sources,ProcessingArtifactResolver):
+            return self._read_processing_authorized(workspace_id,artifact_id,version,include_failed=include_failed)
         with psycopg.connect(self.url) as conn:
             row = conn.execute('SELECT manifest FROM oracle2.artifact_manifests WHERE workspace_id=%s AND artifact_id=%s AND version=%s',(workspace_id,artifact_id,version)).fetchone()
             denied = conn.execute('SELECT 1 FROM oracle2.artifact_invalidations WHERE workspace_id=%s AND artifact_id=%s AND version=%s LIMIT 1',(workspace_id,artifact_id,version)).fetchone()
@@ -234,6 +240,26 @@ class Ledger:
         if processing:
             if self.processing_read_guard(manifest,payload,self.principal,self.clock()) is not None:
                 raise PermissionError('processing qualification guard did not validate')
+        return manifest,payload
+
+    def _read_processing_authorized(self,workspace_id,artifact_id,version,*,include_failed=False):
+        if self.processing_read_guard is None:
+            raise PermissionError('current trusted processing qualification required')
+        manifest,authoritative_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
+        if manifest.state!='ready' and not include_failed:
+            raise PermissionError('failed processing candidate cannot serve')
+        payload=json.loads(self.blobs.read(manifest.private_object_key,manifest.content_hash))
+        refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs'])
+        if (len(set(refs))!=len(refs) or set(refs)!=set(authoritative_refs)
+                or digest({'refs':[r.model_dump(mode='json') for r in refs]})!=manifest.source_digest):
+            raise PermissionError('processing blob source manifest differs')
+        if self.processing_read_guard(manifest,payload,self.principal,self.clock()) is not None:
+            raise PermissionError('processing qualification guard did not validate')
+        # Current metadata only, again after opening/validating the blob. No raw
+        # source getter or nested SQL lock is used by this serving path.
+        current,current_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
+        if current!=manifest or set(current_refs)!=set(refs):
+            raise PermissionError('processing artifact changed during read')
         return manifest,payload
 
     def append_review(self, *, workspace_id: UUID, artifact_id: UUID, version: int,
