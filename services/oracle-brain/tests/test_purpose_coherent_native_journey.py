@@ -157,16 +157,26 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     from oracle_brain.operating_model.retrieval import QueryPlan
     from oracle_brain.operating_model.summaries import summarize_from_ledger,persist_summary
     from uuid import uuid4
-    summary=summarize_from_ledger(summary_compiler,job.workspace_id,qualified[0].artifact_id,1,
-        QueryPlan(view='company_overview',question='Invented complete workflow',max_bytes=128*1024,page=0,page_size=25),
-        qualification_guard=summary_guard)
-    summary_manifest=persist_summary(summary_compiler,summary,summary_id=uuid4(),summary_version=1,
-        permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
-        qualification_guard=summary_guard)
-    assert summary_manifest.kind=='processing_summary_v1'
-    with psycopg.connect(admin_url) as connection:
-        assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
-            (job.workspace_id,)).fetchone()==(1,)
+    import cProfile,pstats,io
+    summary_profile=cProfile.Profile()
+    summary_profile.enable()
+    try:
+        summary=summarize_from_ledger(summary_compiler,job.workspace_id,qualified[0].artifact_id,1,
+            QueryPlan(view='company_overview',question='Invented complete workflow',max_bytes=128*1024,page=0,page_size=25),
+            qualification_guard=summary_guard)
+        summary_manifest=persist_summary(summary_compiler,summary,summary_id=uuid4(),summary_version=1,
+            permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
+            qualification_guard=summary_guard)
+        assert summary_manifest.kind=='processing_summary_v1'
+        with psycopg.connect(admin_url) as connection:
+            assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
+                (job.workspace_id,)).fetchone()==(1,)
+    finally:
+        summary_profile.disable()
+        summary_profile.dump_stats(str(tmp_path/'summary-compile-profile.pstats'))
+        profile_text=io.StringIO()
+        pstats.Stats(summary_profile,stream=profile_text).strip_dirs().sort_stats('cumulative').print_stats()
+        (tmp_path/'summary-compile-profile.txt').write_text(profile_text.getvalue())
     stage('compiler_summary_committed_without_second_projection')
     with unmounted_historical_extraction_wires(extraction,tmp_path/'unmounted-extraction-wire-backups') as absent:
         paid=load_paid_sdk_bundle_v3(delivered_worker,compile_job,artifact_id=qualified[0].artifact_id,artifact_version=1,
