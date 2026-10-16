@@ -179,7 +179,7 @@ class _ResultOwnedLoopV1:
                 self.records.pop(future,None)
 
     def result(self,peer,raw,*,absolute_monotonic_deadline):
-        _require(not self.closing,'result listener is closing')
+        _require(not self.closing and not self.service._cleanup_unknown,'owned result lifecycle unavailable')
         _require(type(absolute_monotonic_deadline) in (int,float)
             and math.isfinite(absolute_monotonic_deadline)
             and time.monotonic()<absolute_monotonic_deadline,'original result handler deadline expired')

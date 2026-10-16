@@ -1,5 +1,5 @@
 """Owned fake pools test resource lifecycle only, never serving authority."""
-import asyncio,threading
+import asyncio,threading,time
 from datetime import datetime,timedelta,timezone
 from types import SimpleNamespace
 import pytest
@@ -76,7 +76,8 @@ def test_pending_close_keeps_owned_loop_alive_then_observed_shutdown_joins():
         with pytest.raises(PermissionError,match='cleanup remains unknown'):future.result(timeout=6)
         actual=next(iter(s._owned_closes))
         assert s._cleanup_unknown and not actual.done() and owner.thread.is_alive()
-        with pytest.raises(PermissionError,match='lifecycle unavailable'):owner.result(b'not-a-peer',b'{}')
+        with pytest.raises(PermissionError,match='lifecycle unavailable'):
+            owner.result(b'not-a-peer',b'{}',absolute_monotonic_deadline=time.monotonic()+10)
         assert tuple(s._owned_closes.values())==(projection,)
         with pytest.raises(PermissionError,match='tasks remain pending'):owner.close()
         assert owner.thread.is_alive() and not actual.done() and not owner.loop.is_closed()
