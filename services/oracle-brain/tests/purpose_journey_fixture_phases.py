@@ -56,7 +56,7 @@ def admit_extraction_phase(x,*,admin_url,root,census_row):
     parent_hash=digest(parent.model_dump(mode='json'));allocation=p['allocation']
     population=ParentPopulationAdmissionV2(workspace_id=original['workspace'],parent_registry_sha256=parent_hash,runtime_hash=runtime,
         source_registry_hash=original['registry'],source_refs=refs,population_digest=x['population'].population_digest,
-        issuer_actor=issuer,reviewer_actor=reviewer,expires_at=end)
+        issuer_actor=issuer,reviewer_actor=reviewer,expires_at=x['population'].expires_at)
     qualified=QualifiedProcessingSources(workspace_id=original['workspace'],actor_id=actor,runtime_hash=runtime,source_registry_hash=original['registry'],
         expected_owner_role=original['binding'].expected_owner_role,source_refs=refs,issuer_actor=issuer,reviewer_actor=reviewer,expires_at=end)
     envelope=ProcessingEnvelope(run_id=uuid4(),worker_uri=WORKER,runtime_hash=runtime,source_registry_hash=original['registry'],parent_registry_sha256=parent_hash,
@@ -134,9 +134,14 @@ def extraction_worker_appointments(x,*,prior_settings,initial_job,census_row,roo
         qbytes=Path(x['settings'].config.extraction_qualification_file).read_bytes()
         assert hashlib.sha256(qbytes).hexdigest()==x['operation_hash']
         qpath.write_bytes(qbytes);qpath.chmod(0o600)
+        poppath=root/(str(native.dispatch_id)+'.population.json')
+        popbytes=Path(x['settings'].config.population_file).read_bytes()
+        assert hashlib.sha256(popbytes).hexdigest()==x['qualification'].population_admission_sha256
+        poppath.write_bytes(popbytes);poppath.chmod(0o600)
         outputs.extend([
             CompilerPhaseCustodyFileV2(kind='native_job',path=str(path),sha256=hashlib.sha256(raw).hexdigest(),**identity),
-            CompilerPhaseCustodyFileV2(kind='extraction_qualification',path=str(qpath),sha256=x['operation_hash'],**identity)])
+            CompilerPhaseCustodyFileV2(kind='extraction_qualification',path=str(qpath),sha256=x['operation_hash'],**identity),
+            CompilerPhaseCustodyFileV2(kind='extraction_population',path=str(poppath),sha256=x['qualification'].population_admission_sha256,**identity)])
         jobs.append(job);files[job.job_id]=tuple(outputs)
     # Explicit compiler custody covers all three current extraction outputs,
     # enabling the retained full-population handoff after all actual commits.
