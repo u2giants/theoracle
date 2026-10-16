@@ -6,6 +6,22 @@ from ..source_receipts import SourceRef, _StrictModel
 Nonempty = Annotated[str, Field(min_length=1)]
 SupportIds = Annotated[tuple[str, ...], Field(min_length=1)]
 
+# One identity contract for capture, independent evidence and SDK records.
+WORKFLOW_ITEM_IDENTITIES=(('steps','step_id'),('gateways','gateway_id'),
+    ('transitions','transition_id'),('roles','assignment_id'),('artifacts','artifact_id'),
+    ('handoffs','handoff_id'),('conditions','condition_id'))
+
+def canonical_workflow_items(model):
+    """Yield typed items by OWN identity, never a referenced step/artifact ID."""
+    if type(model) is not WorkflowModel:raise TypeError('exact typed workflow required')
+    seen=set()
+    for collection,field in WORKFLOW_ITEM_IDENTITIES:
+        for item in getattr(model,collection):
+            identity=getattr(item,field)
+            if identity in seen:raise ValueError('duplicate canonical workflow item identity')
+            seen.add(identity)
+            yield collection,identity,item
+
 class Support(_StrictModel):
     observation_ids: SupportIds
 

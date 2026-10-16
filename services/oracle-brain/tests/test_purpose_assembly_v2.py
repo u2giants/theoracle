@@ -84,8 +84,18 @@ def test_rich_fixture_builders_use_actual_observations_and_retain_conflict_unkno
     from oracle_brain.operating_model.semantic_runtime import ledger_object_evidence
     derived=ledger_object_evidence(payload,workspace_id=workspace,
         receipts={str(r.ref.source_id):r for r in receipts},inventories={})
+    assert evidence==derived
     assert {'art-flow:ART','art-flow:h0','art-flow:h1','ART'}<=derived.keys()
     assert derived['art-flow:h0']!=derived['art-flow:h1']
+    from oracle_brain.operating_model.workflows.process_model import WorkflowModel,Gateway,Condition,canonical_workflow_items
+    typed=WorkflowModel.model_validate_json(json.dumps(payload['workflows'][0]))
+    support=typed.steps[0].support
+    # The iterator is identity selection only, not graph-validity qualification.
+    every=typed.model_copy(update={'gateways':(Gateway(gateway_id='g0',kind='exclusive_split',support=support),),
+        'conditions':(Condition(condition_id='c0',wording='Only when approved',applicability='known',support=support),)})
+    selected={(kind,key) for kind,key,_ in canonical_workflow_items(every)}
+    assert {('steps','s0'),('gateways','g0'),('transitions','t0'),('roles','r0'),
+        ('artifacts','ART'),('handoffs','h0'),('conditions','c0')}<=selected
     damaged=json.loads(json.dumps(payload))
     for workflow in (damaged['workflows'][0],damaged['operating_models'][0]['workflows'][0]):
         workflow['handoffs'][1]['handoff_id']='h0'
