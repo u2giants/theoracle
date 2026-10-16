@@ -341,7 +341,7 @@ def paid_tls_connection_config_v3(graph_url,graph_name,config):
             or (config.host,config.port,config.username,config.password)!=(url.hostname,url.port or 6379,unquote(url.username),unquote(url.password))
             or config.graph_name!=graph_name or config.ssl is not True or config.ssl_check_hostname is not True
             or config.ssl_cert_reqs!='required' or any(not isinstance(v,str) or not v for v in (config.ssl_ca_certs,config.ssl_certfile,config.ssl_keyfile))
-            or config.query_timeout_ms!=30000 or type(config.retry_count) is not int or not 0<=config.retry_count<=3
+            or type(config.query_timeout_ms) is not int or not 1<=config.query_timeout_ms<=30000 or type(config.retry_count) is not int or not 0<=config.retry_count<=3
             or not isinstance(config.pool_timeout,(int,float)) or not math.isfinite(config.pool_timeout) or not 0<config.pool_timeout<=30):
         raise PermissionError('exact admitted paid graph TLS target, mutual credentials and finite SDK bounds required')
     return copy.deepcopy(config)
