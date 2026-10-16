@@ -17,6 +17,9 @@ class PurposeWorkerJobV2(StrictRecord):
     journey_id: UUID
     workspace_id: UUID
     actor_id: UUID
+    operation: Literal['dispatch','consume']='dispatch'
+    consume_of_job_id: UUID|None=None
+    resume_journal_hash: str|None=Field(default=None,pattern=HASH)
     phase: Literal['census', 'extraction', 'assembly', 'assessment', 'compile']
     source_refs: tuple[SourceRef, ...]
     source_id: UUID | None = None
@@ -34,6 +37,9 @@ class PurposeWorkerJobV2(StrictRecord):
 
     @model_validator(mode='after')
     def exact_population_and_phase(self):
+        _require((self.operation=='consume')==(self.consume_of_job_id is not None and self.resume_journal_hash is not None)
+            and (self.operation=='consume' or (self.consume_of_job_id is None and self.resume_journal_hash is None))
+            and self.consume_of_job_id!=self.job_id,'explicit exact externally admitted consume target required')
         _require(3 <= len(self.source_refs) <= 4096
                  and len({r.source_id for r in self.source_refs}) == len(self.source_refs)
                  and all(r.workspace_id == self.workspace_id for r in self.source_refs),

@@ -144,6 +144,7 @@ class PurposeJourneyJournalV2:
 
     def claim(self, job, *, now):
         self._current(job,now)
+        _require(job.operation=='dispatch','observational consume cannot claim a paid phase')
         with self._locked():
             rows=self.read(job.journey_id)
             if not rows:
@@ -175,19 +176,33 @@ class PurposeJourneyJournalV2:
             _durable_nonce(self.spool,'purpose-v2-nonce-'+job.nonce,canonical_bytes({'job_hash':digest(job.model_dump(mode='json'))}))
             return self._append(job,rows,'attempt-started',now)
 
-    def commit(self, job, *, receipt_hash, native_receipt_hash, now):
-        self._current(job,now)
+    def commit(self, job, *, receipt_hash, native_receipt_hash, now, consumer=None):
+        self._current(consumer or job,now)
+        if consumer is not None:self._consume_binding(job,consumer)
         _require(all(type(v) is str and re.fullmatch(HASH,v) for v in (receipt_hash,native_receipt_hash)),
                  'actual phase/native custody seals required')
         with self._locked():
             rows=self.read(job.journey_id);_require(rows, 'phase was not claimed');self._root(job,rows)
             phase=[r for r in rows if r['phase_key']==job.phase_key]
+            if consumer is not None:_require(phase and consumer.resume_journal_hash==phase[-1]['journal_hash'],
+                'consume cannot adopt a different current phase receipt')
             _require(phase and phase[0]['state']=='attempt-started'
                      and all(r['state'] in {'attempt-started','awaiting-external-custody'} for r in phase)
                      and all(r['job_hash']==digest(job.model_dump(mode='json')) for r in phase), 'same immutable claimed phase required')
             return self._append(job,rows,'qualified-model-outbox-committed' if job.phase=='compile'
-                else 'awaiting-external-phase-admission',now,receipt_hash=receipt_hash,native_receipt_hash=native_receipt_hash)
+                else 'awaiting-external-phase-admission',now,receipt_hash=receipt_hash,native_receipt_hash=native_receipt_hash,
+                **({'consumed_by_job_hash':digest(consumer.model_dump(mode='json'))} if consumer is not None else {}))
 
+
+    @staticmethod
+    def _consume_binding(original,consumer):
+        _require(type(original) is PurposeWorkerJobV2 and type(consumer) is PurposeWorkerJobV2
+            and original.operation=='dispatch' and consumer.operation=='consume'
+            and consumer.consume_of_job_id==original.job_id,'explicit original-attempt consume required')
+        fields=('journey_id','workspace_id','actor_id','runtime_hash','phase','source_id','source_refs',
+            'allocation_hash','original_horizon','dispatch_id','request_hash','phase_registry_sha256')
+        _require(all(getattr(original,k)==getattr(consumer,k) for k in fields),
+            'consume cannot replace original source/root/allocation/attempt/horizon')
 
     def awaiting_custody(self,job,*,now):
         self._current(job,now)
@@ -201,6 +216,27 @@ class PurposeJourneyJournalV2:
             if phase[-1]['state']=='awaiting-external-custody':return phase[-1]
             return self._append(job,rows,'awaiting-external-custody',now)
 
+
+    def failed_reported(self,job,manifest,*,now,consumer=None):
+        from oracle_brain.operating_model.contracts import ArtifactManifest
+        self._current(consumer or job,now)
+        if consumer is not None:self._consume_binding(job,consumer)
+        _require(job.phase=='extraction' and type(manifest) is ArtifactManifest
+            and manifest.kind=='processing_failed_extraction_v1' and manifest.state=='failed'
+            and manifest.workspace_id==job.workspace_id and manifest.compiler_digest==job.runtime_hash,
+            'actual failed native extraction artifact required')
+        with self._locked():
+            rows=self.read(job.journey_id);self._root(job,rows)
+            phase=[r for r in rows if r['phase_key']==job.phase_key]
+            _require(phase and all(r['state'] in {'attempt-started','awaiting-external-custody'} for r in phase)
+                and phase[0]['job_hash']==digest(job.model_dump(mode='json')),
+                'exact unresolved original attempt required')
+            if consumer is not None:_require(phase[-1]['journal_hash']==consumer.resume_journal_hash,'stale failed consume')
+            return self._append(job,rows,'native-failed-custody-reported',now,
+                failed_manifest_hash=digest(manifest.model_dump(mode='json')),
+                failed_artifact_id=str(manifest.artifact_id),failed_artifact_version=manifest.version,
+                settlement_verified=False,
+                **({'consumed_by_job_hash':digest(consumer.model_dump(mode='json'))} if consumer is not None else {}))
 
     def compile_committed(self,job,manifest,*,now):
         from oracle_brain.operating_model.contracts import ArtifactManifest
@@ -295,10 +331,13 @@ def _worker_file(path, seal=None, *, limit=20*1024**2):
     return raw
 
 
-def _worker_json(path,seal,model):
-    raw=_worker_file(path,seal)
+def _worker_parse(raw,model):
     value=json.loads(raw,object_pairs_hook=_unique,parse_constant=lambda _:_require(False,'nonfinite worker metadata'))
     return model.model_validate_json(canonical_bytes(value))
+
+
+def _worker_json(path,seal,model):
+    return _worker_parse(_worker_file(path,seal),model)
 
 
 class PurposeWorkerRegistryV2(StrictRecord):
@@ -572,7 +611,18 @@ class PurposeJourneyCustodyV2:
             job=PurposeWorkerJobV2.model_validate_json(raw)
             _require(path.name==str(job.job_id)+'.purpose-v2.pending','phase queue identity changed')
             self.settings.authorize(job) # no journal/queue lock during network
-            attempt=self.journal.claim(job,now=datetime.now(timezone.utc))
+            if job.operation=='consume':
+                original=self.original_attempt(job)
+                with self.journal._locked():
+                    rows=self.journal.read(job.journey_id);self.journal._root(job,rows)
+                    phase=[r for r in rows if r['phase_key']==job.phase_key]
+                    _require(phase and phase[-1]['journal_hash']==job.resume_journal_hash
+                        and phase[-1]['state'] in {'attempt-started','awaiting-external-custody'},
+                        'exact unresolved attempt journal required for consume')
+                    _durable_nonce(self.journal.spool,'purpose-v2-consume-'+job.nonce,
+                        canonical_bytes({'job_hash':digest(job.model_dump(mode='json'))}))
+                attempt=None # no paid phase claim or original nonce renewal
+            else:attempt=self.journal.claim(job,now=datetime.now(timezone.utc))
             # From this point the immutable phase/source marker is spent even if
             # a crash prevents rename; no alias may create a second paid attempt.
             with self.journal._locked():
@@ -586,13 +636,21 @@ class PurposeJourneyCustodyV2:
         return None
 
 
+    def original_attempt(self,consumer):
+        _require(consumer.operation=='consume','explicit consume operation required')
+        path=self.journal.spool/(str(consumer.consume_of_job_id)+'.purpose-v2.claimed')
+        original=PurposeWorkerJobV2.model_validate_json(_worker_file(path))
+        self.journal._consume_binding(original,consumer)
+        return original
+
+
 def _phase_commit_from_custody(settings,job,reply=None):
     """Consume actual authorized phase handoff, never turn HTTP hashes into a grant."""
     from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
     from oracle_brain.hosting.processing_extraction_runtime_v2 import ExtractionResponseCommitV2
     raw,entry=settings.private(job,'phase_commit',dispatch_id=job.dispatch_id)
     model=ExtractionResponseCommitV2 if job.phase=='extraction' else PhaseResponseCommitV2
-    commit=model.model_validate_json(raw)
+    commit=_worker_parse(raw,model)
     seal=digest(commit.model_dump(mode='json'))
     _require(commit.dispatch_id==job.dispatch_id and commit.phase==job.phase
         and commit.workspace_id==job.workspace_id and commit.source_refs==job.source_refs
@@ -677,7 +735,7 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
             tuple((kind,selector) for kind in ('native_job','extraction_qualification','raw_wire','phase_commit','native_receipt')))
         context=JobContext.model_validate_json(context_raw)
         qualification=ExtractionOperationQualificationV2.model_validate_json(qraw)
-        committed=ExtractionResponseCommitV2.model_validate_json(commit_raw)
+        committed=_worker_parse(commit_raw,ExtractionResponseCommitV2)
         content,witness=verify_extraction_paid_wire_v2(context,committed,wire,qualification,s.population,
             expected_qualification_hash=qentry.sha256,artifact_version=manifest.version)
         _require(witness.artifact_id==manifest.artifact_id and witness.artifact_version==manifest.version
@@ -772,6 +830,19 @@ def run_purpose_worker_once_v2(settings):
     claimed=custody.claim()
     if claimed is None:return None
     job,attempt=claimed
+    if job.operation=='consume':
+        _require(job.phase!='compile','compiler crash observation requires exact qualified artifact receipt')
+        original=custody.original_attempt(job)
+        try:commit=_phase_commit_from_custody(settings,job)
+        except FileNotFoundError:
+            if job.phase!='extraction':raise
+            failed=persist_purpose_extraction_result_v2(settings,job,failed=True)
+            settings.authorize(job)
+            return custody.journal.failed_reported(original,failed,now=datetime.now(timezone.utc),consumer=job)
+        if job.phase=='extraction':persist_purpose_extraction_result_v2(settings,job)
+        settings.authorize(job)
+        return custody.journal.commit(original,receipt_hash=digest(commit.model_dump(mode='json')),
+            native_receipt_hash=commit.native_custody_receipt_hash,now=datetime.now(timezone.utc),consumer=job)
     if job.phase=='compile':
         manifest=compile_purpose_worker_result_v3(settings,job)
         return custody.journal.compile_committed(job,manifest,now=datetime.now(timezone.utc))
@@ -787,11 +858,17 @@ def run_purpose_worker_once_v2(settings):
         settings.authorize(job)
         commit=_phase_commit_from_custody(settings,job,reply)
         if job.phase=='extraction':persist_purpose_extraction_result_v2(settings,job)
-    except Exception:
+    except Exception as original_error:
         # No retry, fabricated success, horizon extension or authority minting.
         # Current authority is required even for this owned metadata transition;
         # otherwise the original spent claim alone remains the durable record.
         settings.authorize(job)
+        if job.phase=='extraction':
+            try:failed=persist_purpose_extraction_result_v2(settings,job,failed=True)
+            except Exception:
+                custody.journal.awaiting_custody(job,now=datetime.now(timezone.utc))
+                raise original_error
+            return custody.journal.failed_reported(job,failed,now=datetime.now(timezone.utc))
         custody.journal.awaiting_custody(job,now=datetime.now(timezone.utc))
         raise
     return custody.journal.commit(job,receipt_hash=digest(commit.model_dump(mode='json')),
@@ -968,11 +1045,13 @@ def persist_purpose_extraction_result_v2(settings,job,*,failed=False):
     ledger=build_purpose_compiler_ledger_v3(settings,job)
     if not failed:
         commit_raw,_=settings.private(job,'phase_commit',**selector)
-        commit=ExtractionResponseCommitV2.model_validate_json(commit_raw)
+        commit=_worker_parse(commit_raw,ExtractionResponseCommitV2)
         content,witness=verify_extraction_paid_wire_v2(ctx,commit,wire,qualification,settings.population,
             expected_qualification_hash=qentry.sha256,artifact_version=entry.artifact_version)
         _require(witness.artifact_id==entry.artifact_id and witness.source_ref==entry.source_ref
             and witness.native_job_hash==entry.native_job_hash,'actual extraction output target changed')
+        existing=_existing_purpose_extraction(ledger,job,entry,failed=False)
+        if existing is not None:return existing
         return persist_response(ledger,ctx.receipt,content,artifact_id=entry.artifact_id,
             version=entry.artifact_version,permission_digest=ctx.permission_hash,
             compiler_digest=settings.config.runtime_hash,persistence_profile=ExtractionPersistenceProfile.PROCESSING_V1)
@@ -983,6 +1062,24 @@ def persist_purpose_extraction_result_v2(settings,job,*,failed=False):
         expected_qualification_hash=qentry.sha256,expected_ledger_hash=settings.allocation.ledger_registry_hash,
         artifact_version=entry.artifact_version,now=datetime.now(timezone.utc))
     payload=failed_extraction_payload_v2(witness)
+    existing=_existing_purpose_extraction(ledger,job,entry,failed=True)
+    if existing is not None:return existing
     return ledger.persist(workspace_id=job.workspace_id,artifact_id=entry.artifact_id,version=entry.artifact_version,
         kind='processing_failed_extraction_v1',payload=payload,refs=(witness.source_ref,),
         permission_digest=ctx.permission_hash,compiler_digest=settings.config.runtime_hash,failed=True)
+
+
+def _existing_purpose_extraction(ledger,job,entry,*,failed):
+    """Restart observation may reuse exact guarded artifact, never a new POST."""
+    import psycopg
+    try:
+        manifest,payload=ledger.read_with_manifest(job.workspace_id,entry.artifact_id,entry.artifact_version,
+            include_failed=failed)
+    except psycopg.errors.InsufficientPrivilege as error:
+        # Exact trusted SQL distinction only; all scope/role/currentness denials
+        # propagate and cannot be treated as permission to create an artifact.
+        if error.diag.message_primary!='processing artifact absent':raise
+        return None
+    _require(manifest.kind==('processing_failed_extraction_v1' if failed else 'processing_extraction_v1'),
+        'existing actual artifact has a different native result disposition')
+    return manifest
