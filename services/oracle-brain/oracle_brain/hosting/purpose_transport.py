@@ -6,6 +6,9 @@ import json
 import math
 import re
 import ssl
+import socket
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -68,10 +71,26 @@ class _FixedTLSClientV2:
         self._tls.load_cert_chain(binding.certificate_file, binding.key_file)
 
     def _post(self, route: str, value: dict, limit: int) -> bytes:
+        deadline = time.monotonic() + self.binding.timeout
         conn = http.client.HTTPSConnection(self.binding.hostname, self.binding.port,
             timeout=self.binding.timeout, context=self._tls)
+        timer = None
         try:
             conn.connect()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GatewayDenied("purpose transport deadline elapsed")
+            # Socket idle timeouts alone permit unbounded trickled headers/body.
+            # This one request owns its socket; abort it at the total deadline.
+            active_socket = conn.sock
+            def abort():
+                try:
+                    active_socket.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            timer = threading.Timer(remaining, abort)
+            timer.daemon = True
+            timer.start()
             uris = [v for k, v in conn.sock.getpeercert().get("subjectAltName", ()) if k == "URI"]
             if uris != [self.binding.server_uri]:
                 raise GatewayDenied("purpose server identity mismatch")
@@ -85,10 +104,12 @@ class _FixedTLSClientV2:
                     or response.headers.get_content_type() != "application/json"):
                 raise GatewayDenied("purpose response refused")
             raw = response.read(limit + 1)
-            if len(raw) != int(lengths[0]):
+            if time.monotonic() >= deadline or len(raw) != int(lengths[0]):
                 raise GatewayDenied("purpose response length mismatch")
             return raw
         finally:
+            if timer is not None:
+                timer.cancel()
             conn.close()
 
 
