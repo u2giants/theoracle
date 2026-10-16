@@ -12,6 +12,7 @@ def _aware(value: datetime):
 
 @dataclass(frozen=True)
 class ExperimentObservation:
+    """Inputs are validated when computing; construction does not attest validity."""
     baseline: Measurement
     followup: Measurement
     starts_at: datetime
