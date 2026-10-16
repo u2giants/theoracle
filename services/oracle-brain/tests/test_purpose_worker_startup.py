@@ -38,15 +38,19 @@ def compiler_worker(admin_url,native_census_startup,tmp_path):
         conn.execute('INSERT INTO oracle2.hosting_role_source_admissions SELECT %s,workspace_id,source_id,revision,principal_id,original_hash,reading_hash,parser_id,runtime_hash,registry_hash,expires_at FROM oracle2.hosting_role_source_admissions WHERE role_name=%s',(login,f['login']))
         owner=conn.execute('SELECT actor_id FROM oracle2.appointments WHERE appointment_id=%s',(f['root'],)).fetchone()[0]
         for ref in f['refs']:
+            if conn.execute('SELECT 1 FROM oracle2.appointments WHERE workspace_id=%s AND actor_id=%s AND scope=%s AND revoked_at IS NULL',(f['workspace'],f['actor'],'source-extraction:'+str(ref.source_id))).fetchone():continue
             conn.execute('INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s)',(uuid4(),f['workspace'],f['actor'],'source-extraction:'+str(ref.source_id),owner,f['root'],end))
     # Independent actual SQL login, never a provider/source-reader credential.
     url=psycopg.conninfo.make_conninfo(admin_url,user=login,password='invented-worker-only')
     url_file,_=store('compiler-url',url.encode())
     allocation=BudgetAllocationPinsV2.model_validate_json(Path(c.budget_allocation_projection_file).read_bytes())
+    extraction=x['mode']=='extraction'
     job=PurposeWorkerJobV2(job_id=uuid4(),journey_id=uuid4(),workspace_id=f['workspace'],actor_id=f['actor'],
-        phase='census',source_refs=f['refs'],allocation_hash=allocation.allocation_hash,nonce=uuid4().hex,
+        phase='extraction' if extraction else 'census',source_refs=f['refs'],
+        source_id=x['contexts'][0].receipt.ref.source_id if extraction else None,
+        parent_journal_hash='e'*64 if extraction else None,prior_receipt_hash='f'*64 if extraction else None,allocation_hash=allocation.allocation_hash,nonce=uuid4().hex,
         runtime_hash=f['runtime'],admission_hash='1'*64,dispatch_id=x['job'].dispatch_id,
-        request_hash=x['job'].request_hash,phase_registry_sha256=x['descriptor'].phase_registry_sha256,
+        request_hash=x['job'].request_hash,phase_registry_sha256=x['operation_hash'],
         expires_at=end,original_horizon=allocation.original_expires_at)
     issuer,reviewer,cissuer,creviewer,sissuer,sreviewer=(uuid4() for _ in range(6))
     registry=PurposeWorkerRegistryV2(workspace_id=f['workspace'],actor_id=f['actor'],worker_uri=c.worker_uri,
@@ -60,6 +64,21 @@ def compiler_worker(admin_url,native_census_startup,tmp_path):
     appointment=CompilerPhaseCustodyAppointmentV2(workspace_id=f['workspace'],actor_id=f['actor'],compiler_login=login,
         runtime_hash=f['runtime'],population_digest=x['settings'].population.population_digest,
         issuer_actor=cissuer,reviewer_actor=creviewer,valid_from=now-timedelta(seconds=1),expires_at=end,files={job.job_id:tuple(outputs)})
+    if extraction:
+        ctx=x['contexts'][0];target=x['qualification'].target(job.dispatch_id)
+        ctx_file,ctx_hash=store('extraction-context.json',ctx)
+        native=dict(dispatch_id=job.dispatch_id,native_job_hash=ctx.job_hash,artifact_id=target.artifact_id,
+            artifact_version=target.artifact_version,source_ref=target.source_ref)
+        outputs=[entry.model_copy(update={k:v for k,v in native.items() if k!='dispatch_id'}) for entry in outputs]
+        outputs.extend([
+            CompilerPhaseCustodyFileV2(kind='native_job',path=ctx_file,sha256=ctx_hash,**native),
+            CompilerPhaseCustodyFileV2(kind='extraction_qualification',path=c.extraction_qualification_file,
+                sha256=c.extraction_qualification_sha256,**native),
+            CompilerPhaseCustodyFileV2(kind='raw_wire',path=str(x['custody']/(str(job.dispatch_id)+'.wire')),
+                request_hash=job.request_hash,producer_runtime_hash=f['runtime'],**native),
+            CompilerPhaseCustodyFileV2(kind='wire_metadata',path=str(x['custody']/(str(job.dispatch_id)+'.wire.json')),
+                request_hash=job.request_hash,producer_runtime_hash=f['runtime'],**native)])
+        appointment=appointment.model_copy(update={'files':{job.job_id:tuple(outputs)}})
     custody_file,custody_hash=store('custody.json',appointment)
     semantic=dict(schema_version=3,qualification_purpose='captured-assembly-semantic-admission-v3',workspace_id=str(f['workspace']),
         runtime_hash=f['runtime'],compiler_profile='candidate-compiler',issuer_actor=str(sissuer),reviewer_actor=str(sreviewer),
@@ -79,12 +98,12 @@ def compiler_worker(admin_url,native_census_startup,tmp_path):
     config=CompilerWorkerConfigV2(workspace_id=f['workspace'],actor_id=f['actor'],worker_uri=c.worker_uri,runtime_hash=f['runtime'],
         source_registry_hash=f['registry'],expected_owner_role=f['binding'].expected_owner_role,expected_session_role=login,source_expires_at=end,
         database_url_file=url_file,jobs_registry_file=registry_file,jobs_registry_sha256=registry_hash,worker_issuer_actor=issuer,worker_reviewer_actor=reviewer,
-        population_file=c.population_file,population_sha256=x['pins'].population_admission_sha256,
-        allocation_projection_file=c.budget_allocation_projection_file,allocation_projection_sha256=x['pins'].budget_allocation_projection_sha256,
+        population_file=c.population_file,population_sha256=digest(x['settings'].population.model_dump(mode='json')),
+        allocation_projection_file=c.budget_allocation_projection_file,allocation_projection_sha256=digest(allocation.model_dump(mode='json')),
         custody_appointment_file=custody_file,custody_appointment_sha256=custody_hash,custody_issuer_actor=cissuer,custody_reviewer_actor=creviewer,
         parent_observer_admission_file=c.parent_observer_admission_file,parent_observer_admission_hash=c.parent_observer_admission_hash,
         observer_client=tls,observer_spool=str(observer),observer_namespace='parent-v2',observer_initialization_hash=replay['initialization_receipt_hash'],
-        clients={'census':provider},spool=str(spool),blob_root=str(root/'blobs'),semantic_registry_file=semantic_file,semantic_registry_sha256=semantic_hash,
+        clients={job.phase:provider},spool=str(spool),blob_root=str(root/'blobs'),semantic_registry_file=semantic_file,semantic_registry_sha256=semantic_hash,
         semantic_issuer_actor=sissuer,semantic_reviewer_actor=sreviewer,semantic_valid_from=now-timedelta(seconds=1),semantic_expires_at=end)
     config_file,config_hash=store('worker.json',config)
     settings=load_purpose_worker_settings_v2(config_file,config_hash)
@@ -133,3 +152,68 @@ def test_actual_compiler_revoked_before_claim_never_posts_or_opens_results(admin
     with pytest.raises(psycopg.errors.InsufficientPrivilege):run_purpose_worker_once_v2(settings)
     assert x['state']['posts']==0 and custody.journal.read(job.journey_id)==[]
     assert not list(Path(settings.config.spool).glob('*.claimed'))
+
+
+@pytest.mark.parametrize('native_census_startup',['extraction'],indirect=True)
+def test_actual_paid_extraction_compiler_guard_persists_and_rereads_original(admin_url,compiler_worker):
+    from oracle_brain.hosting.purpose_journey_v2 import persist_purpose_extraction_result_v2
+    x,settings,job=compiler_worker
+    reply=x['client'].dispatch(job.dispatch_id,job.request_hash,x['operation_hash'],deadline=x['expires_at'])
+    assert reply['extraction_qualification_sha256']==job.phase_registry_sha256 and x['state']['posts']==1
+    manifest=persist_purpose_extraction_result_v2(settings,job)
+    ledger=build_purpose_compiler_ledger_v3(settings,job)
+    actual,payload=ledger.read_with_manifest(job.workspace_id,manifest.artifact_id,manifest.version)
+    assert actual==manifest and payload['complete'] is True and manifest.kind=='processing_extraction_v1'
+    assert payload['findings'][0]['kind']=='missing_information'
+    assert payload['findings'][0]['evidence_refs'][0]['quote']==x['contexts'][0].receipt.reading
+    with psycopg.connect(admin_url) as conn:
+        assert conn.execute('SELECT count(*) FROM oracle2.outbox WHERE assertion_id=%s',(manifest.artifact_id,)).fetchone()[0]==0
+    assert x['state']['posts']==1
+
+
+@pytest.mark.parametrize('native_census_startup',['extraction'],indirect=True)
+def test_actual_native_failed_attempt_is_reported_without_success_or_settlement(admin_url,compiler_worker):
+    from oracle_brain.hosting.purpose_journey_v2 import persist_purpose_extraction_result_v2
+    from oracle_brain.hosting.gateway import GatewayDenied
+    x,settings,job=compiler_worker
+    def revoke_provider_only():
+        with psycopg.connect(admin_url) as conn:
+            conn.execute('DELETE FROM oracle2.hosting_role_source_admissions WHERE role_name=%s AND source_id=%s',
+                (x['f']['login'],job.source_refs[2].source_id))
+    x['state']['after_post']=revoke_provider_only
+    with pytest.raises(GatewayDenied):
+        x['client'].dispatch(job.dispatch_id,job.request_hash,x['operation_hash'],deadline=x['expires_at'])
+    assert x['state']['posts']==1
+    manifest=persist_purpose_extraction_result_v2(settings,job,failed=True)
+    ledger=build_purpose_compiler_ledger_v3(settings,job)
+    actual,payload=ledger.read_with_manifest(job.workspace_id,manifest.artifact_id,manifest.version,include_failed=True)
+    assert actual==manifest and manifest.kind=='processing_failed_extraction_v1' and manifest.state=='failed'
+    assert payload['complete'] is False and payload['observations']==[] and payload['findings']==[]
+    assert payload['settlement_verified'] is False and payload['native_failed_custody']['complete_wire'] is True
+    assert not (x['custody']/(str(job.dispatch_id)+'.phase-commit.json')).exists()
+    with psycopg.connect(admin_url) as conn:
+        assert conn.execute('SELECT count(*) FROM oracle2.outbox WHERE assertion_id=%s',(manifest.artifact_id,)).fetchone()[0]==0
+    assert x['state']['posts']==1
+
+
+@pytest.mark.parametrize('native_census_startup',['extraction'],indirect=True)
+def test_actual_compiler_revoked_during_bundle_returns_no_private_result(admin_url,compiler_worker,monkeypatch):
+    import oracle_brain.hosting.purpose_journey_v2 as worker
+    x,settings,job=compiler_worker
+    x['client'].dispatch(job.dispatch_id,job.request_hash,x['operation_hash'],deadline=x['expires_at'])
+    original=worker._worker_file;seen=[]
+    def revoke_after_first(path,*args,**kwargs):
+        raw=original(path,*args,**kwargs)
+        if str(path).endswith(str(job.dispatch_id)+'.wire'):
+            seen.append(str(path))
+            with psycopg.connect(admin_url) as conn:
+                conn.execute('DELETE FROM oracle2.hosting_role_source_admissions WHERE role_name=%s AND source_id=%s',
+                    (settings.config.expected_session_role,job.source_refs[2].source_id))
+        return raw
+    monkeypatch.setattr(worker,'_worker_file',revoke_after_first)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        settings.private_bundle(job,(('raw_wire',dict(dispatch_id=job.dispatch_id)),
+            ('native_receipt',dict(dispatch_id=job.dispatch_id))))
+    assert len(seen)==1
+    with psycopg.connect(admin_url) as conn:
+        assert conn.execute('SELECT count(*) FROM oracle2.artifact_manifests WHERE workspace_id=%s',(job.workspace_id,)).fetchone()[0]==0
