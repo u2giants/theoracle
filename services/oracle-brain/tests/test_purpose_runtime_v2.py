@@ -12,7 +12,7 @@ from oracle_brain.operating_model.contracts import canonical_bytes,digest
 
 def config(role='metadata'):
     common=dict(schema_version=2,phase='census',role=role,worker_uri='spiffe://oracle/census-worker',
-        pins_file='/own/pins.json',pins_sha256='a'*64,population_file='/own/population.json',
+        budget_allocation_projection_file='/own/allocation.json',pins_file='/own/pins.json',pins_sha256='a'*64,population_file='/own/population.json',
         projection_file='/own/projection.json',source_url_file='/own/source-url',expected_owner_role='oracle_schema_owner',
         expected_session_role='own_census_login',source_expires_at=datetime.now(timezone.utc),
         parent_observer_admission_file='/own/observer.json',parent_observer_admission_hash='b'*64,
@@ -25,7 +25,7 @@ def config(role='metadata'):
         provider_server_uri='spiffe://oracle/census-provider',provider_client_uri='spiffe://oracle/census-worker',
         provider_ca='/own/provider-ca',provider_certificate='/own/provider-cert',provider_key='/own/provider-client-key')
     else:common.update(phase_registry_file='/own/phase.json',private_context_files={},provider_key_file='/own/provider-key',
-        budget_allocation_projection_file='/own/allocation.json',ledger_url_file='/central/ledger-url',
+        ledger_url_file='/central/ledger-url',
         ledger_registry_file='/own/ledger.json',ledger_registry_hash='d'*64,coverage_admission_file='/own/coverage.json',
         coverage_admission_hash='e'*64,coverage_witness_file='/own/witness.json',coverage_observer_public_key='f'*64,
         private_receipts='/own/private-receipts')

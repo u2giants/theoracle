@@ -39,7 +39,8 @@ def census_case():
     dispatch=PurposeDispatchV2(dispatch_id=j.dispatch_id,source_refs=refs,job_hash=digest(j.model_dump(mode='json')),
         request_hash=j.request_hash,permission_hash=j.permission_hash,context_hash=digest(private.model_dump(mode='json')),
         model=request['model'],processing_request_hash=digest(policy),
-        account_policy_hash=digest({k:v for k,v in policy.items() if k!='terms_hash'}),terms_hash=policy['terms_hash'],
+        account_policy_hash=digest({k:v for k,v in policy.items() if k!='terms_hash'}),
+        account_identity_hash=digest({k:policy[k] for k in ('provider','account','endpoint')}),terms_hash=policy['terms_hash'],
         pricing_hash=digest(j.pricing.model_dump(mode='json')),register_hash=j.register_hash,
         approvals_hash=digest({'approvals':[a.model_dump(mode='json') for a in j.approvals]}),
         budget_identity_hash='1'*64,ledger_registry_hash='2'*64,key_coverage_hash='3'*64)

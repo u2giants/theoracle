@@ -22,7 +22,7 @@ def records(phase='census'):
     purpose,operation,model=PHASE_CONTRACTS[phase]
     dispatch=PurposeDispatchV2(dispatch_id=uuid4(),source_refs=refs,model=model,
         **{name:'d'*64 for name in ('job_hash','request_hash','permission_hash','context_hash',
-        'processing_request_hash','account_policy_hash','terms_hash','pricing_hash','register_hash',
+        'processing_request_hash','account_policy_hash','account_identity_hash','terms_hash','pricing_hash','register_hash',
         'approvals_hash','budget_identity_hash','ledger_registry_hash','key_coverage_hash')})
     descriptor=PurposeRunDescriptorV2(run_id=uuid4(),workspace_id=workspace,actor_id=uuid4(),
         provider_login='provider_fixture',worker_uri='spiffe://oracle/purpose-worker',phase=phase,
@@ -201,7 +201,7 @@ def allocation_projection():
     projection=BudgetAllocationPinsV2(original_batch_id=uuid4(),allocation_hash='1'*64,
         original_receipt_hash='2'*64,original_ceiling_usd=Decimal('.5'),original_expires_at=d.expires_at,
         ledger_registry_hash=j.ledger_registry_hash,key_coverage_hash=j.key_coverage_hash,
-        account_policy_hash=j.account_policy_hash)
+        account_identity_hash=j.account_identity_hash)
     seal=digest(projection.model_dump(mode='json'))
     dispatch=j.model_copy(update={'budget_identity_hash':seal})
     return projection,seal,dispatch,now
@@ -214,7 +214,7 @@ def test_same_original_allocation_projection_does_not_issue_or_renew_budget():
 
 
 @pytest.mark.parametrize('field',('allocation_hash','original_receipt_hash','original_ceiling_usd',
-    'original_expires_at','original_batch_id','ledger_registry_hash','key_coverage_hash','account_policy_hash'))
+    'original_expires_at','original_batch_id','ledger_registry_hash','key_coverage_hash','account_identity_hash'))
 def test_allocation_projection_cannot_change_original_receipt_scope_under_old_pin(field):
     from decimal import Decimal
     projection,seal,dispatch,now=allocation_projection()

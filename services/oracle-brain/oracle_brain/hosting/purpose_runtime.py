@@ -39,6 +39,7 @@ class PurposeCommonConfigV2(StrictRecord):
     role: Literal['provider','metadata']
     worker_uri: str=Field(pattern=WORKER)
     pins_file: str
+    budget_allocation_projection_file: str
     pins_sha256: str=Field(pattern=HASH)
     population_file: str
     projection_file: str
@@ -70,7 +71,6 @@ class PurposeProviderConfigV2(PurposeCommonConfigV2):
     phase_registry_file: str
     private_context_files: dict[UUID,str]
     provider_key_file: str
-    budget_allocation_projection_file: str
     ledger_url_file: str
     ledger_registry_file: str
     ledger_registry_hash: str=Field(pattern=HASH)
@@ -148,6 +148,14 @@ def load_purpose_runtime_settings_v2(config_path,trusted_config_sha256,*,expecte
     population=_typed(config.population_file,pins.population_admission_sha256,ParentPopulationAdmissionV2)
     projection=_typed(config.projection_file,pins.projection_sha256,PurposeMetadataProjectionV2)
     d=projection.descriptor
+    now=datetime.now(timezone.utc)
+    allocation=_typed(config.budget_allocation_projection_file,
+        pins.budget_allocation_projection_sha256,BudgetAllocationPinsV2)
+    allocation.verify_current(trusted_projection_hash=pins.budget_allocation_projection_sha256,
+        dispatches=d.dispatches,now=now)
+    if now>=min(pins.expires_at,population.expires_at,d.expires_at,config.source_expires_at,
+                allocation.original_expires_at):
+        raise PermissionError('own operation appointment expired before observer or private access')
     if (d.phase!=config.phase or d.phase!=pins.phase or d.provider_login!=pins.provider_login
             or d.worker_uri!=pins.worker_uri or config.worker_uri!=pins.worker_uri or d.source_refs!=population.source_refs
             or d.parent_registry_sha256!=population.parent_registry_sha256
@@ -189,6 +197,16 @@ class CurrentPurposeJobsV2:
 
     def metadata(self,dispatch_id):
         s=self.settings;d=s.projection.descriptor;j=d.dispatch(dispatch_id)
+        now=datetime.now(timezone.utc)
+        if _typed(s.config.pins_file,s.config.pins_sha256,PurposePinsV2)!=s.pins:
+            raise PermissionError('protected operation pins changed without external admission')
+        allocation=_typed(s.config.budget_allocation_projection_file,
+            s.pins.budget_allocation_projection_sha256,BudgetAllocationPinsV2)
+        allocation.verify_current(trusted_projection_hash=s.pins.budget_allocation_projection_sha256,
+            dispatches=d.dispatches,now=now)
+        if now>=min(s.pins.expires_at,s.population.expires_at,d.expires_at,
+                    s.config.source_expires_at,allocation.original_expires_at):
+            raise PermissionError('own operation appointment expired before observer or forwarding')
         # Reload sealed metadata so a changed mount cannot inherit a cached grant.
         if (_typed(s.config.population_file,s.pins.population_admission_sha256,ParentPopulationAdmissionV2)!=s.population
                 or _typed(s.config.projection_file,s.pins.projection_sha256,PurposeMetadataProjectionV2)!=s.projection):
@@ -263,7 +281,67 @@ class PurposeBrokerIngressV2:
                 or record.get('job_hash')!=digest(ctx.job.model_dump(mode='json'))
                 or not isinstance(record.get('raw_response_hash'),str)):
             raise PermissionError('exact successfully committed private phase receipt required')
-        return {**request,'raw_response_hash':record['raw_response_hash'],'receipt_hash':digest(record)}
+        committed=_commit_phase_response_v2(s,ctx,record)
+        return {**request,'raw_response_hash':record['raw_response_hash'],
+                'receipt_hash':digest(committed.model_dump(mode='json'))}
+
+
+def _commit_phase_response_v2(settings,context,record):
+    """No network under SQL hold; failed guards leave custody, no SUCCESS record."""
+    import os
+    from uuid import uuid4
+    from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
+    from .custody import _durable_nonce,_sync_spool
+    s=settings;d=s.projection.descriptor;j=d.dispatch(context.job.dispatch_id)
+    # Actual complete-parent fresh challenge happens before, never inside SQL.
+    witness=s.observer.current(s.population)
+    allocation=_typed(s.config.budget_allocation_projection_file,
+        s.pins.budget_allocation_projection_sha256,BudgetAllocationPinsV2)
+    allocation.verify_current(trusted_projection_hash=s.pins.budget_allocation_projection_sha256,
+        dispatches=d.dispatches,now=datetime.now(timezone.utc))
+    directory=Path(s.config.private_receipts)
+    pending=directory/(str(j.dispatch_id)+'.phase-pending-'+uuid4().hex+'.json')
+    success=directory/(str(j.dispatch_id)+'.phase-commit.json')
+    created=False;owned_inode=None
+    try:
+        with s.resolver.hold(d,j) as proof:
+            now=datetime.now(timezone.utc)
+            verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
+                actual_caller_login=s.config.expected_session_role,profile=s.resolver.binding.source.profile,now=now)
+            until=min(proof.expires_at,witness.expires_at,allocation.original_expires_at,s.pins.expires_at,
+                      s.population.expires_at,d.expires_at,s.config.source_expires_at)
+            committed=PhaseResponseCommitV2(phase=d.phase,operation=d.operation,processing_purpose=d.purpose,
+                dispatch_id=j.dispatch_id,workspace_id=d.workspace_id,actor_id=d.actor_id,
+                provider_login=d.provider_login,actual_caller_login=proof.actual_caller_login,
+                runtime_hash=d.runtime_hash,descriptor_hash=s.pins.descriptor_sha256,
+                operation_approval_hash=s.pins.operation_approval_hash,population_digest=d.population_digest,
+                source_refs=d.source_refs,job_hash=j.job_hash,request_hash=j.request_hash,permission_hash=j.permission_hash,
+                budget_identity_hash=j.budget_identity_hash,raw_response_hash=record['raw_response_hash'],
+                native_custody_receipt_hash=digest(record),committed_at=now,valid_until=until,
+                context_hash=j.context_hash,parent_registry_hash=d.parent_registry_sha256,
+                current_proof_hash=digest(proof.model_dump(mode='json')),
+                parent_witness_hash=digest(witness.model_dump(mode='json')),
+                account_policy_hash=j.account_policy_hash,model=j.model)
+            _durable_nonce(directory,pending.name,canonical_bytes(committed.model_dump(mode='json')))
+            info=pending.lstat();owned_inode=(info.st_dev,info.st_ino)
+            if datetime.now(timezone.utc)>=until:
+                raise PermissionError('phase authorization expired before bounded final commit')
+            # link is exclusive: a replay never overwrites an existing success.
+            os.link(pending,success,follow_symlinks=False);created=True;_sync_spool(directory)
+        # SQL hold's actual current-source/role/clock recheck completed. No success
+        # may escape when post-write guards refuse; preserve failed custody below.
+        if datetime.now(timezone.utc)>=until:
+            raise PermissionError('phase authorization expired before response handoff')
+        pending.unlink();_sync_spool(directory)
+        return committed
+    except BaseException:
+        if created and success.exists() and (success.lstat().st_dev,success.lstat().st_ino)==owned_inode:
+            # Only this invocation's exclusive link, never another attempt's file.
+            os.unlink(success);_sync_spool(directory)
+        # Pending metadata + original wire/cost/native receipt remain diagnostic
+        # custody. Their names never represent successful authorized handoff.
+        raise
+
 
 
 def _native_phase_broker_v2(settings,jobs,context):

@@ -80,6 +80,7 @@ class PurposeDispatchV2(StrictRecord):
     model: Literal['openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'openai/text-embedding-3-small']
     processing_request_hash: str = Field(pattern=HASH)
     account_policy_hash: str = Field(pattern=HASH)
+    account_identity_hash: str = Field(pattern=HASH)
     terms_hash: str = Field(pattern=HASH)
     pricing_hash: str = Field(pattern=HASH)
     register_hash: str = Field(pattern=HASH)
@@ -364,7 +365,7 @@ class BudgetAllocationPinsV2(StrictRecord):
     original_expires_at: AwareDatetime
     ledger_registry_hash: str=Field(pattern=HASH)
     key_coverage_hash: str=Field(pattern=HASH)
-    account_policy_hash: str=Field(pattern=HASH)
+    account_identity_hash: str=Field(pattern=HASH)
 
     def verify_current(self,*,trusted_projection_hash,dispatches,now):
         if (digest(self.model_dump(mode='json'))!=trusted_projection_hash
@@ -372,5 +373,5 @@ class BudgetAllocationPinsV2(StrictRecord):
                 or any(j.budget_identity_hash!=trusted_projection_hash
                     or j.ledger_registry_hash!=self.ledger_registry_hash
                     or j.key_coverage_hash!=self.key_coverage_hash
-                    or j.account_policy_hash!=self.account_policy_hash for j in dispatches)):
+                    or j.account_identity_hash!=self.account_identity_hash for j in dispatches)):
             raise PermissionError('current exact externally qualified original allocation projection required')

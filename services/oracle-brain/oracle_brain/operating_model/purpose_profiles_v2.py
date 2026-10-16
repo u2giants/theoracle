@@ -115,6 +115,7 @@ class PurposePrivateContextV2(StrictRecord):
             'permission_hash':job.permission_hash,'context_hash':digest(self.model_dump(mode='json')),
             'processing_request_hash':digest(policy),
             'account_policy_hash':digest({k:v for k,v in policy.items() if k!='terms_hash'}),
+            'account_identity_hash':digest({k:policy[k] for k in ('provider','account','endpoint')}),
             'terms_hash':policy['terms_hash'],'pricing_hash':digest(job.pricing.model_dump(mode='json')),
             'register_hash':job.register_hash,
             'approvals_hash':digest({'approvals':[a.model_dump(mode='json') for a in job.approvals]})}
