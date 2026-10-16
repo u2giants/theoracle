@@ -1,11 +1,26 @@
 """Persist complete typed fixed/provider responses before any graph conversion."""
 import json
+from enum import Enum
 from uuid import UUID
 from typing import Literal
 from pydantic import Field
 from .source_receipts import SourceReceipt, EvidenceRef, _StrictModel
 from .observations import ObservationKind, create_observation
 from .findings import Finding, validate_finding
+
+class ExtractionPersistenceProfile(Enum):
+    """Trusted compiler callsite only; selection is not source/write authority."""
+    DOCUMENTARY = 'documentary'
+    PROCESSING_V1 = 'processing-v1'
+
+
+def extraction_artifact_kinds(profile):
+    if profile is ExtractionPersistenceProfile.DOCUMENTARY:
+        return 'extraction','failed_extraction'
+    if profile is ExtractionPersistenceProfile.PROCESSING_V1:
+        return 'processing_extraction_v1','processing_failed_extraction_v1'
+    raise PermissionError('trusted exact extraction persistence profile required')
+
 
 class ObservationResponse(_StrictModel):
     occurrence_key: str = Field(min_length=1)
@@ -43,7 +58,9 @@ def validate_response(receipt: SourceReceipt, raw_response, *, inventories=None)
 
 
 def persist_response(ledger, receipt: SourceReceipt, raw_response: str, *, artifact_id: UUID,
-                     version: int, permission_digest: str, compiler_digest: str):
+                     version: int, permission_digest: str, compiler_digest: str,
+                     persistence_profile=ExtractionPersistenceProfile.DOCUMENTARY):
+    success_kind,failure_kind=extraction_artifact_kinds(persistence_profile)
     refs = (receipt.ref,)
     base = {'source_refs':[receipt.ref.model_dump(mode='json')]}
     try:
@@ -56,10 +73,10 @@ def persist_response(ledger, receipt: SourceReceipt, raw_response: str, *, artif
         failed = {**base,'complete':False,'raw_response':raw_response,
                   'failure_class':type(exc).__name__,'observations':[],'findings':[]}
         ledger.persist(workspace_id=receipt.ref.workspace_id,artifact_id=artifact_id,version=version,
-                       kind='failed_extraction',payload=failed,refs=refs,permission_digest=permission_digest,
+                       kind=failure_kind,payload=failed,refs=refs,permission_digest=permission_digest,
                        compiler_digest=compiler_digest,failed=True)
         raise ValueError('invalid extraction preserved in failed receipt') from None
 
     return ledger.persist(workspace_id=receipt.ref.workspace_id,artifact_id=artifact_id,version=version,
-                          kind='extraction',payload=payload,refs=refs,permission_digest=permission_digest,
+                          kind=success_kind,payload=payload,refs=refs,permission_digest=permission_digest,
                           compiler_digest=compiler_digest)

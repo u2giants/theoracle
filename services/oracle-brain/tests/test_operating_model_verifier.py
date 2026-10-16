@@ -75,3 +75,107 @@ def test_required_documentary_gate_includes_fresh_original_journey():
 
 def test_required_documentary_gate_includes_processing_contract_and_transport():
     assert {'processing_context','processing_profile'} <= set(verifier.required_suites('W10'))
+
+
+def test_qualified_assembly_suites_are_in_required_documentary_gate():
+    assert {'assembly_context','assembly_qualification','observed_assembly_capture'} <= set(verifier.DOCUMENTARY)
+    for name in ('assembly_context','assembly_qualification','observed_assembly_capture'):
+        assert (Path(__file__).parent/f'test_{name}.py').is_file()
+
+
+def test_processing_role_and_journey_proofs_are_required_with_explicit_migrations():
+    assert {'source_processing_qualification','processing_compiler_capabilities',
+        'processing_projection_leases','processing_documentary_journey'} <= set(verifier.DOCUMENTARY)
+    assert verifier.SYNTHETIC_MIGRATIONS==('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
+        '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
+        '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
+        '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
+        '012_processing_compiler_capabilities.sql')
+
+
+def test_parallel_population_is_exact_and_single_set_stages_remain_single():
+    for stage in ('W10','W12','all','documentary','W04'):
+        groups=verifier.test_groups(stage)
+        assert tuple(s for _,values in groups for s in values)==verifier.required_suites(stage)
+        assert len({s for _,values in groups for s in values})==len(verifier.required_suites(stage))
+        assert len(groups)==(2 if stage in ('W10','W12','all') else 1)
+
+
+def test_all_workers_share_real_deadline_and_preserve_partial_output(tmp_path):
+    import os,sys,time
+    jobs=[{'name':name,'command':[sys.executable,'-c',"import time;print('started',flush=True);time.sleep(5)"],'env':os.environ.copy()} for name in ('first','second')]
+    start=time.monotonic();results,errors=verifier.run_test_groups(jobs,tmp_path,deadline=start+0.20)
+    assert time.monotonic()-start<1.5
+    assert not errors and all(r['timed_out'] and r['exit_code'] is not None for r in results)
+    assert all((tmp_path/(name+'.stdout')).read_text()=='started\n' for name in ('first','second'))
+    outcome=verifier.aggregate_evidence(jobs,results,tmp_path)
+    assert outcome['exit_code']==1 and outcome['tests']==0
+    assert all(r['stdout_sha256'] and not r['junit_present'] for r in outcome['worker_results'])
+
+
+@pytest.mark.parametrize('damage',('failed','skipped','missing','malformed','partial-worker'))
+def test_parallel_evidence_never_launders_partial_or_failed_results(tmp_path,damage):
+    jobs=[{'name':n} for n in ('documentary','event')]
+    results=[]
+    for name in ('documentary','event'):
+        (tmp_path/(name+'.stdout')).write_text('actual synthetic output')
+        cases='<testcase name="retained"/>'
+        if name=='event' and damage in ('failed','skipped'):
+            cases='<testcase name="retained"><'+('failure' if damage=='failed' else 'skipped')+'/></testcase>'
+        if not (name=='event' and damage=='missing'):
+            (tmp_path/(name+'.xml')).write_text('bad' if name=='event' and damage=='malformed' else '<testsuite>'+cases+'</testsuite>')
+        results.append({'name':name,'exit_code':1 if name=='event' and damage=='failed' else 0,'timed_out':False})
+    if damage=='partial-worker':results.pop()
+    outcome=verifier.aggregate_evidence(jobs,results,tmp_path)
+    assert outcome['exit_code']==1 and outcome['evidence_errors']
+
+
+def test_parallel_success_combines_both_actual_junit_populations(tmp_path):
+    jobs=[{'name':n} for n in ('documentary','event')];results=[]
+    for name in ('documentary','event'):
+        (tmp_path/(name+'.stdout')).write_text('retained '+name)
+        (tmp_path/(name+'.xml')).write_text('<testsuites><testsuite><testcase name="'+name+'"/></testsuite></testsuites>')
+        results.append({'name':name,'exit_code':0,'timed_out':False})
+    outcome=verifier.aggregate_evidence(jobs,results,tmp_path)
+    assert outcome['exit_code']==0 and outcome['tests']==2 and not outcome['skipped']
+    assert len(outcome['worker_results'])==2 and all(r['junit_sha256'] for r in outcome['worker_results'])
+
+
+def test_timeout_stops_owned_descendant_session_and_preserves_other_process(tmp_path):
+    import os,sys,time,subprocess,psutil
+    pidfile=tmp_path/'child-pid'
+    code=("import subprocess,sys,time,signal;from pathlib import Path;"
+        "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],start_new_session=True);"
+        "Path("+repr(str(pidfile))+").write_text(str(child.pid));"
+        "signal.signal(signal.SIGTERM,lambda *a:(child.wait(timeout=2),sys.exit(0)));time.sleep(60)")
+    outsider=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])
+    try:
+        jobs=[{'name':'owned','command':[sys.executable,'-c',code],'env':os.environ.copy()}]
+        results,errors=verifier.run_test_groups(jobs,tmp_path,deadline=time.monotonic()+0.30)
+        assert not errors and results[0]['timed_out']
+        assert pidfile.is_file() and not psutil.pid_exists(int(pidfile.read_text()))
+        assert outsider.poll() is None
+    finally:outsider.terminate();outsider.wait(timeout=2)
+
+
+def test_worker_launch_failure_preserves_earlier_output_and_fails_closed(tmp_path):
+    import os,sys,time
+    jobs=[{'name':'first','command':[sys.executable,'-c',"print('first')"],'env':os.environ.copy()},
+        {'name':'missing','command':[str(tmp_path/'no-such-program')],'env':os.environ.copy()}]
+    results,errors=verifier.run_test_groups(jobs,tmp_path,deadline=time.monotonic()+1)
+    assert not errors and len(results)==2 and all(r['launch_error'] for r in results)
+    outcome=verifier.aggregate_evidence(jobs,results,tmp_path)
+    assert outcome['exit_code']==1 and not outcome['worker_results'][1]['junit_present']
+
+
+def test_cleanup_wrong_target_cannot_terminate_or_drop_database(monkeypatch):
+    queries=[]
+    class WrongTarget:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def execute(self,query,*args):queries.append(str(query));return self
+        def fetchone(self):return ('unexpected-database',)
+    monkeypatch.setattr(verifier.psycopg,'connect',lambda *a,**k:WrongTarget())
+    errors=verifier.cleanup_test_databases('invented',{'dbname':'expected'},['oracle_operating_model_test_owned'])
+    assert errors==[{'database':'oracle_operating_model_test_owned','reason':'owned database cleanup failed'}]
+    assert queries==['SELECT current_database()']

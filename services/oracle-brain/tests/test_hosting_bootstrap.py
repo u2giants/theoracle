@@ -62,7 +62,8 @@ def test_ledger_init_fixed_source_sql_only(tmp_path,monkeypatch):
     result=bootstrap.materialize('ledger-init',*bundle('ledger-init',{'seed-parameters.json':json.dumps(parameters()).encode()}),root=tmp_path)
     names=sorted(p.name for p in tmp_path.iterdir())
     assert names[0]=='00-empty-owned-preflight.sql' and names[-1]=='90-public-invented-seed.sql'
-    assert result['file_count']==10 and 'seed-parameters.json' not in names
+    assert result['file_count']==12 and 'seed-parameters.json' not in names
+    assert names[9]=='09-011_hosting_source_processing_permissions.sql' and names[10]=='10-012_processing_compiler_capabilities.sql'
     assert 'new empty owned synthetic ledger required' in (tmp_path/names[0]).read_text()
     assert all(p.stat().st_mode&0o777==0o600 for p in tmp_path.iterdir())
 

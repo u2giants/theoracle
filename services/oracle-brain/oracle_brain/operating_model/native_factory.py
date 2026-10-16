@@ -350,3 +350,67 @@ def validate_embedding_response(response, *, count):
         for value in row['embedding']:
             if isinstance(value,bool) or not isinstance(value,(int,float,Decimal)) or not Decimal(str(value)).is_finite():
                 raise ValueError('embedding vector contains nonfinite/non-numeric values')
+
+
+class ObservedAssemblyBrokerEgress(NativeBrokerEgress):
+    """Explicit versioned assembly path; legacy broker/extraction stays unchanged.
+
+    Protected startup supplies the independently pinned context/custodian and
+    existing SQL-backed current authority callback. This class neither issues
+    those authorities nor installs a provider/runtime entry point.
+    """
+    def __init__(self, *, assembly_context, expected_assembly_context_hash,
+                 assembly_observer, **kwargs):
+        from .assembly_context import AssemblyJobContext
+        from .captured_assembly import ObservedAssemblyCustodian
+        if (not isinstance(assembly_context,AssemblyJobContext)
+                or digest(assembly_context.model_dump(mode='json'))!=expected_assembly_context_hash
+                or not isinstance(assembly_observer,ObservedAssemblyCustodian)):
+            raise PermissionError('externally pinned assembly context and actual observer required')
+        self._assembly_context=assembly_context
+        self._assembly_context_hash=expected_assembly_context_hash
+        self._assembly_observer=assembly_observer
+        actual_authorize=kwargs['authorize_current_job']
+        if not callable(actual_authorize):
+            raise PermissionError('actual current assembly authority required')
+        def authorize_assembly(job):
+            context=self._assembly_context
+            clock=datetime.now(timezone.utc)
+            if (digest(context.model_dump(mode='json'))!=self._assembly_context_hash
+                    or context.expires_at<=clock
+                    or digest(job.model_dump(mode='json'))!=digest(context.job.model_dump(mode='json'))):
+                return False
+            self._assembly_observer.validate_job(job,key_fingerprint=self._key_fingerprint,
+                ledger_identity_hash=self._registry_hash,now=clock)
+            # Actual provider dispatch must recheck current parent and every
+            # source grant here; a queued metadata intent is never that proof.
+            return actual_authorize(job) is True
+        kwargs['authorize_current_job']=authorize_assembly
+        actual_validate=kwargs['validate_response']
+        if not callable(actual_validate):
+            raise PermissionError('actual trusted assembly validator required')
+        def validate_assembly(job,content):
+            self._assembly_context.validate_candidate(content,now=datetime.now(timezone.utc))
+            result=actual_validate(job,content)
+            if result is not None:
+                raise PermissionError('assembly response validation refused')
+        kwargs['validate_response']=validate_assembly
+        super().__init__(**kwargs)
+        self._assembly_observer.validate_job(assembly_context.job,key_fingerprint=self._key_fingerprint,
+            ledger_identity_hash=self._registry_hash,now=datetime.now(timezone.utc))
+
+    def _capture_wire(self,job,raw,reservation_id,*,complete):
+        observed=None;failure=None
+        if complete:
+            try:
+                observed=self._assembly_observer.observe(job,raw,reservation_id,
+                    key_fingerprint=self._key_fingerprint,ledger_identity_hash=self._registry_hash)
+            except Exception as exc:
+                failure=exc
+        # Even if the new qualification expired during the paid request, retain
+        # complete original wire under the existing custodian before refusing.
+        super()._capture_wire(job,raw,reservation_id,complete=complete)
+        if failure is not None:
+            raise PermissionError('observed assembly qualification unavailable; wire retained') from None
+        if observed is not None:
+            self._assembly_observer.retain(self._receipts,observed)

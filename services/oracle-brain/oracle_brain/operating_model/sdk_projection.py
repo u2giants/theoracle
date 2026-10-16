@@ -1,5 +1,5 @@
 """Real pinned SDK ingestion from sealed ledger records; never second extraction."""
-import json,logging
+import json,logging,hashlib
 from importlib.metadata import version
 from uuid import UUID
 from graphrag_sdk import GraphRAG,ConnectionConfig,FalkorDBConnection,Ontology,Entity,Relation,ChunkingStrategy,ExtractionStrategy,TextChunk,TextChunks
@@ -21,13 +21,16 @@ class LedgerExtraction(ExtractionStrategy):
     def __init__(self,observations,semantic_nodes=(),semantic_relations=(),semantic_chunks=None):
         self.observations,self.semantic_nodes,self.semantic_relations=observations,semantic_nodes,semantic_relations
         self.semantic_chunks=semantic_chunks or {}
+    def validate_document_observation(self,chunk,observation):
+        for evidence in observation['evidence']:
+            if chunk.text[evidence['start']:evidence['end']]!=evidence['quote']:
+                raise ValueError('ledger evidence does not match SDK source')
+
     async def extract(self,chunks,ontology,ctx):
         if len(chunks.chunks)!=1:raise ValueError('receipt must remain a complete source chunk')
         chunk=chunks.chunks[0];nodes=[];mentions=[]
         for observation in self.observations:
-            for evidence in observation['evidence']:
-                if chunk.text[evidence['start']:evidence['end']]!=evidence['quote']:
-                    raise ValueError('ledger evidence does not match SDK source')
+            self.validate_document_observation(chunk,observation)
             oid=observation['observation_id']
             nodes.append(GraphNode(id=oid,label='ReportedObservation',properties={
              'name':observation['value']+' ['+oid+']','display_name':observation['value'],
@@ -40,6 +43,20 @@ class LedgerExtraction(ExtractionStrategy):
             if chunk.uid in source_chunks:mentions.append(EntityMention(entity_id=identifier,chunk_id=chunk.uid))
         relationships=[GraphRelationship(start_node_id=a,end_node_id=b,type='RELATES',properties={'transition_key':key,'payload_hash':seal,'fact':fact,'description':fact,'source_chunk_ids':[chunk.uid],'status':'reported','rel_type':'RELATED_TO'}) for a,b,key,seal,fact in self.semantic_relations]
         return GraphData(nodes=nodes,relationships=relationships,mentions=mentions)
+
+
+class QualifiedLedgerExtraction(LedgerExtraction):
+    """Ingest sealed derived evidence, never treat derived text as an original."""
+    def __init__(self,*args,expected_text,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.expected_text=expected_text
+
+    def validate_document_observation(self,chunk,observation):
+        body=json.loads(chunk.text)
+        if (chunk.text!=self.expected_text or body.get('projection_schema')!='qualified-evidence-projection-v1'
+                or observation not in body['observations']
+                or any(e['ref']!=body['original_source_ref'] for e in observation['evidence'])):
+            raise ValueError('qualified derived evidence differs from sealed projection')
 
 class ReadOnlyGraph:
     """Route SDK data and ontology reads through the native read-only decoder."""
@@ -73,13 +90,16 @@ class ReadOnlyConnection:
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
 
 class SDKProjection:
-    def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False):
+    graph_prefix=PREFIX
+
+    def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False,qualification_guard=None):
         if version('graphrag-sdk')!='1.4.0':raise RuntimeError('exact qualified SDK required')
-        self.graph_name=f'{PREFIX}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
+        self.graph_name=f'{self.graph_prefix}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
         self.connection=FalkorDBConnection(ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000))
         if read_only:self.connection=ReadOnlyConnection(self.connection)
         self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
           ontology=Ontology() if read_only else Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')],relations=[Relation(label='RELATED_TO')]))
+        self.qualification_guard=qualification_guard
         self.read_only=read_only
         self.workspace_id=workspace_id
         logging.getLogger('graphrag_sdk').setLevel(logging.CRITICAL)
@@ -128,19 +148,33 @@ class SDKProjection:
                         relations[identifier+':'+suffix]=(a,b,digest(interface),'Reported handoff '+interface['artifact_id'],tuple(support))
         return nodes,relations
 
+    def source_texts(self,ledger,workspace_id,payload):
+        return {r['source_id']:ledger.current_source(workspace_id,UUID(r['source_id'])).reading for r in payload['source_refs']}
+
+    def document_id(self,ref,payload):return ref['source_id']
+
+    def document_hashes(self,payload):
+        return {r['source_id']:r['reading_sha256'] for r in payload['source_refs']}
+
+    def extractor(self,observations,nodes,relations,chunks,text):
+        return LedgerExtraction(observations,nodes,relations,chunks)
+
+    async def annotate_document(self,ref,payload):pass
+
     async def build(self,ledger,workspace_id:UUID,artifact_id:UUID,artifact_version:int):
         if self.read_only:raise PermissionError('read-only projection cannot build')
         if workspace_id!=self.workspace_id:raise PermissionError('projection workspace mismatch')
-        payload=ledger.read(workspace_id,artifact_id,artifact_version)
+        from .assembly_qualification import read_documentary_artifact
+        payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
         records=self.records(payload)
         count=await self.connection.query('MATCH (n) RETURN count(n)')
         if count.result_set[0][0]:raise ValueError('projection generation is already occupied; reload or rebuild separately')
         semantic_nodes,semantic_relations=self.semantic_projection(payload)
-        receipts={ref['source_id']:ledger.current_source(workspace_id,UUID(ref['source_id'])) for ref in payload['source_refs']}
-        observation_chunks={o['observation_id']:digest({'text':receipts[o['ref']['source_id']].reading}) for o in payload.get('observations',[])}
+        texts=self.source_texts(ledger,workspace_id,payload)
+        observation_chunks={o['observation_id']:digest({'text':texts[o['ref']['source_id']]}) for o in payload.get('observations',[])}
         semantic_chunks={identifier:sorted({observation_chunks[oid] for oid in values[3]}) for identifier,values in semantic_nodes.items()}
         for ref in payload['source_refs']:
-            receipt=receipts[ref['source_id']]
+            text=texts[ref['source_id']]
             observations=[o for o in payload.get('observations',[]) if o['ref']==ref]
             source_observations={o['observation_id'] for o in observations}
             source_nodes=[(identifier,label,title,seal) for identifier,(label,title,seal,support) in semantic_nodes.items() if source_observations.intersection(support)]
@@ -153,8 +187,9 @@ class SDKProjection:
             for identifier in sorted(required-present):
                 label,title,seal,_=semantic_nodes[identifier]
                 source_nodes.append((identifier,label,title,seal))
-            result=await self.rag.ingest(text=receipt.reading,document_id=ref['source_id'],chunker=ReceiptChunks(),extractor=LedgerExtraction(observations,source_nodes,source_relations,semantic_chunks),resolver=PreserveIds())
+            result=await self.rag.ingest(text=text,document_id=self.document_id(ref,payload),chunker=ReceiptChunks(),extractor=self.extractor(observations,source_nodes,source_relations,semantic_chunks,text),resolver=PreserveIds())
             if result.chunks_indexed!=1:raise RuntimeError('SDK source/chunk ingestion incomplete')
+            await self.annotate_document(ref,payload)
         finalized=await self.rag.finalize()
         if not finalized.indexes or not all(finalized.indexes.values()):raise RuntimeError('SDK finalization incomplete')
         # Artifact/finding/control records stay outside SDK entity name deduplication.
@@ -165,10 +200,10 @@ class SDKProjection:
             await self.connection.query('MATCH (r:OperatingModelRecord {id:$id}),(e:__Entity__ {id:$id}) CREATE (r)-[:PROJECTS]->(e)',params={'id':o['observation_id']})
         for f in payload.get('findings',[]):
             for evidence in f['evidence_refs']:
-                await self.connection.query('MATCH (f:OperatingModelRecord {id:$fid}),(d:Document {id:$sid}) CREATE (f)-[:SUPPORTED_BY {payload_hash:$seal}]->(d)',params={'fid':f['finding_id'],'sid':evidence['ref']['source_id'],'seal':digest(evidence)})
+                await self.connection.query('MATCH (f:OperatingModelRecord {id:$fid}),(d:Document {id:$sid}) CREATE (f)-[:SUPPORTED_BY {payload_hash:$seal}]->(d)',params={'fid':f['finding_id'],'sid':self.document_id(evidence['ref'],payload),'seal':digest(evidence)})
         await self.verify(payload)
         # Exact sources and current access are checked again after all asynchronous work.
-        if ledger.read(workspace_id,artifact_id,artifact_version)!=payload:raise PermissionError('input changed during projection')
+        if read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)!=payload:raise PermissionError('input changed during projection')
         await self.connection.query('CREATE (:OperatingModelSnapshot {content_hash:$seal,record_digest:$records,sdk:$sdk,finalized:true})',params={'seal':digest(payload),'records':digest({'records':records}),'sdk':'1.4.0'})
         return {'graph_name':self.graph_name,'content_hash':digest(payload),'record_digest':digest({'records':records}),'sdk_version':'1.4.0','finalized':finalized.model_dump(mode='json')}
 
@@ -188,14 +223,15 @@ class SDKProjection:
         expected_projects={(o['observation_id'],o['observation_id']) for o in payload.get('observations',[])}
         if len(projects)!=len(expected_projects) or {tuple(r) for r in projects}!=expected_projects:raise ValueError('projection lost observation lineage edges')
         supports=(await self.connection.query('MATCH (f:OperatingModelRecord)-[r:SUPPORTED_BY]->(d:Document) RETURN f.id,d.id,r.payload_hash')).result_set
-        expected_supports={(f['finding_id'],e['ref']['source_id'],digest(e)) for f in payload.get('findings',[]) for e in f['evidence_refs']}
+        expected_supports={(f['finding_id'],self.document_id(e['ref'],payload),digest(e)) for f in payload.get('findings',[]) for e in f['evidence_refs']}
         if len(supports)!=len(expected_supports) or {tuple(r) for r in supports}!=expected_supports:raise ValueError('projection lost finding lineage edges')
         documents=(await self.connection.query('MATCH (d:Document) RETURN d.id,d.content_hash')).result_set
-        expected_docs={r['source_id']:r['reading_sha256'] for r in payload['source_refs']}
+        expected_docs=self.document_hashes(payload)
         if {r[0]:r[1] for r in documents}!=expected_docs:raise ValueError('SDK source manifest mismatch')
 
     async def load(self,ledger,workspace_id:UUID,artifact_id:UUID,artifact_version:int):
-        payload=ledger.read(workspace_id,artifact_id,artifact_version)
+        from .assembly_qualification import read_documentary_artifact
+        payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
         rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized')).result_set
         expected=[digest(payload),digest({'records':self.records(payload)}),'1.4.0',True]
         if len(rows)!=1 or list(rows[0])!=expected:raise ValueError('current sealed finalized snapshot required')
@@ -203,3 +239,82 @@ class SDKProjection:
         return payload
 
     async def close(self):await self.connection.close()
+
+
+class ProcessingSDKProjection(SDKProjection):
+    """Explicit qualified processing namespace; no legacy graph reuse."""
+    graph_prefix='oracle_processing_v1_'
+
+    def __init__(self,*args,qualification_guard,**kwargs):
+        from .assembly_qualification import QualifiedAssemblyReadGuard
+        if not isinstance(qualification_guard,QualifiedAssemblyReadGuard):
+            raise PermissionError('trusted current processing qualification verifier required')
+        super().__init__(*args,qualification_guard=qualification_guard,**kwargs)
+
+    projection_schema='qualified-evidence-projection-v1'
+
+    @staticmethod
+    def projection_view(payload):
+        qualification=payload['qualified_lineage']
+        model=payload['operating_models'][0]
+        documents=[]
+        for ref in payload['source_refs']:
+            observations=[o for o in payload.get('observations',[]) if o['ref']==ref]
+            findings=[]
+            for finding in payload.get('findings',[]):
+                excerpts=[e for e in finding['evidence_refs'] if e['ref']==ref]
+                if excerpts:
+                    findings.append({'finding_id':finding['finding_id'],'kind':finding['kind'],
+                        'text':finding['text'],'status':finding['status'],'evidence_refs':excerpts})
+            content={'projection_schema':'qualified-evidence-projection-v1',
+                'original_source_ref':ref,'qualified_model':model,
+                'observations':observations,'findings':findings}
+            text=json.dumps(content,sort_keys=True,separators=(',',':'),ensure_ascii=False,allow_nan=False)
+            content_hash=hashlib.sha256(text.encode()).hexdigest()
+            identifier='qualified_doc_'+digest({'model_hash':digest(model),'candidate_hash':qualification['candidate_hash'],
+                'source_ref':ref,'derived_content_hash':content_hash})
+            documents.append({'document_id':identifier,'source_ref':ref,'content_hash':content_hash,'text':text})
+        return {'schema_version':1,'schema':'qualified-evidence-projection-v1',
+            'candidate_hash':qualification['candidate_hash'],'qualified_model_hash':digest(model),
+            'source_refs':payload['source_refs'],'documents':documents}
+
+    @classmethod
+    def processing_projection_digest(cls,payload):return digest(cls.projection_view(payload))
+
+    def source_texts(self,ledger,workspace_id,payload):
+        return {d['source_ref']['source_id']:d['text'] for d in self.projection_view(payload)['documents']}
+
+    def document_id(self,ref,payload):
+        return next(d['document_id'] for d in self.projection_view(payload)['documents'] if d['source_ref']==ref)
+
+    def document_hashes(self,payload):
+        return {d['document_id']:d['content_hash'] for d in self.projection_view(payload)['documents']}
+
+    def extractor(self,observations,nodes,relations,chunks,text):
+        return QualifiedLedgerExtraction(observations,nodes,relations,chunks,expected_text=text)
+
+    async def annotate_document(self,ref,payload):
+        await self.connection.query('MATCH (d:Document {id:$id}) SET d.original_source_ref=$ref,d.original_reading_hash=$original,d.projection_schema=$schema,d.projection_digest=$projection',
+            params={'id':self.document_id(ref,payload),'ref':json.dumps(ref,sort_keys=True),
+                'original':ref['reading_sha256'],'schema':self.projection_schema,
+                'projection':self.processing_projection_digest(payload)})
+
+    async def build(self,ledger,workspace_id,artifact_id,artifact_version):
+        result=await super().build(ledger,workspace_id,artifact_id,artifact_version)
+        from .assembly_qualification import read_documentary_artifact
+        payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
+        await self.connection.query('MATCH (s:OperatingModelSnapshot) SET s.projection_schema=$schema,s.projection_digest=$projection',
+            params={'schema':self.projection_schema,'projection':self.processing_projection_digest(payload)})
+        await self.verify(payload)
+        return {**result,'projection_schema':self.projection_schema,'projection_digest':self.processing_projection_digest(payload)}
+
+    async def verify(self,payload):
+        await super().verify(payload)
+        projection=self.processing_projection_digest(payload)
+        rows=(await self.connection.query('MATCH (d:Document) RETURN d.id,d.original_source_ref,d.original_reading_hash,d.projection_schema,d.projection_digest')).result_set
+        expected={self.document_id(r,payload):(json.dumps(r,sort_keys=True),r['reading_sha256'],self.projection_schema,projection) for r in payload['source_refs']}
+        if len(rows)!=len(expected) or {r[0]:tuple(r[1:]) for r in rows}!=expected:
+            raise ValueError('derived projection provenance differs from qualified model')
+        rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.projection_schema,s.projection_digest')).result_set
+        if rows and (len(rows)!=1 or list(rows[0])!=[self.projection_schema,projection]):
+            raise ValueError('qualified projection snapshot differs')

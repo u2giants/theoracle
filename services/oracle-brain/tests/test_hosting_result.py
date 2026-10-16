@@ -87,7 +87,7 @@ def test_actual_tls_result_and_crosspurpose(admin_url,result_job,certificates):
     store,job=result_job[:2]
     tls=server_tls(certfile=str(certificates/'server.pem'),keyfile=str(certificates/'server.key'),cafile=str(certificates/'ca.pem'))
     server=OpaqueGateway(('127.0.0.1',0),tls=tls,worker_uri=WORKER,signing_key=KEY,admit=store.admit,result=store.result)
-    t=threading.Thread(target=server.serve_forever,daemon=True);t.start()
+    t=threading.Thread(target=server.serve_forever, kwargs={'poll_interval':0.01},daemon=True);t.start()
     ctx=ssl.create_default_context(cafile=str(certificates/'ca.pem'));ctx.verify_flags|=ssl.VERIFY_X509_STRICT;ctx.load_cert_chain(str(certificates/'worker.pem'),str(certificates/'worker.key'))
     def request(path,signedpath,nonce,override=None):
         body=json.dumps({**job.__dict__,'nonce':nonce,**(override or {})}).encode();sig=hmac.new(KEY,body if signedpath=='legacy' else signature_message('POST',signedpath,body),hashlib.sha256).hexdigest()
