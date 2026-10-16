@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 import pytest
 from oracle_brain.operating_model.contracts import SourceRef
-from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2, PurposeJourneyJournalV2
+from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
+from oracle_brain.hosting.purpose_journey_v2 import PurposeJourneyJournalV2
 
 
 NOW=datetime.now(timezone.utc)

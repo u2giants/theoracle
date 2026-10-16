@@ -16,7 +16,7 @@ from uuid import UUID
 from .contracts import canonical_bytes, digest
 
 PURPOSE = "captured-assembly-semantic-admission-v3"
-HASH = re.compile(r"^[0-9a-f]{64}$")
+HASH_PATTERN = r"^[0-9a-f]{64}$"
 MAX_BYTES = 1_048_576
 
 
@@ -61,7 +61,7 @@ class SemanticRegistryAppointmentV3:
         _require(type(self.workspace_id) is UUID and type(self.issuer_actor) is UUID
                  and type(self.reviewer_actor) is UUID and self.issuer_actor != self.reviewer_actor
                  and self.purpose == PURPOSE and self.compiler_profile == "candidate-compiler"
-                 and type(self.runtime_hash) is str and HASH.fullmatch(self.runtime_hash),
+                 and type(self.runtime_hash) is str and re.fullmatch(HASH_PATTERN, self.runtime_hash),
                  "external schema3 appointment unavailable")
         _require(all(type(t) is datetime and t.tzinfo is not None and t.utcoffset() is not None
                      for t in (self.valid_from, self.expires_at))
@@ -79,7 +79,7 @@ class CurrentSemanticAdmissionsV3:
         _require(self.path.is_absolute() and self.path.parent.resolve() == self.path.parent,
                  "canonical protected semantic registry required")
         _require(type(expected_external_registry_sha256) is str
-                 and HASH.fullmatch(expected_external_registry_sha256)
+                 and re.fullmatch(HASH_PATTERN, expected_external_registry_sha256)
                  and type(appointment) is SemanticRegistryAppointmentV3,
                  "external startup registry pins required")
         self.expected_hash = expected_external_registry_sha256
@@ -121,7 +121,7 @@ class CurrentSemanticAdmissionsV3:
                      "valid_from", "expires_at", "revoked"} | set(scope), "fixed schema3 metadata only")
             _require(type(item["schema_version"]) is int and item["schema_version"] == 3
                      and all(item[k] == v for k, v in scope.items()) and item["revoked"] is False
-                     and type(item["admission_hash"]) is str and HASH.fullmatch(item["admission_hash"])
+                     and type(item["admission_hash"]) is str and re.fullmatch(HASH_PATTERN, item["admission_hash"])
                      and item["admission_hash"] not in admitted, "wrong/revoked/duplicate admission metadata")
             core = {k: v for k, v in item.items() if k != "record_seal"}
             _require(type(item["record_seal"]) is str and item["record_seal"] == digest(core),
