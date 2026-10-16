@@ -479,6 +479,39 @@ class CompilerWorkerSettingsV2:
         _require(datetime.now(timezone.utc)<until,'actual compiler/parent authority expired')
         return until
 
+    def authority_window_v3(self,job):
+        """NEW explicit timing; legacy <=5s authority_horizon stays unchanged."""
+        from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
+        from oracle_brain.operating_model.authority_adapter import ProcessingArtifactResolver
+        from .parent_observer_v2 import ParentCurrentnessConsumerV2
+        _require(type(self.resolver) is ProcessingArtifactResolver and type(self.observer) is ParentCurrentnessConsumerV2,
+            'actual compiler SQL and independently appointed observer required')
+        _worker_file(self.config_path,self.config_sha256)
+        _require(self.jobs.current(job.job_id,now=datetime.now(timezone.utc))==job,
+            'immutable externally admitted worker job changed')
+        before=self._source_horizon(job)
+        witness=self.observer.current(self.population)
+        after=self._source_horizon(job)
+        operation=min(before,after,self.config.source_expires_at,job.expires_at,job.original_horizon,
+            self.population.expires_at,self.allocation.original_expires_at,self.observer.admission.expires_at)
+        current=min(operation,witness.expires_at)
+        _require(datetime.now(timezone.utc)<current,'actual V3 current boundary expired')
+        return ProcessingProjectionAuthorityWindowV3(current,operation)
+
+    def custody_window_v3(self,job):
+        """Exact appointment, authentic currentness on both sides; no new grant."""
+        from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
+        # Existing parser/actor/population/file-whitelist checks BEFORE bytes.
+        before=self.authority_window_v3(job)
+        self._custody_state(job)
+        appointed=_worker_json(self.config.custody_appointment_file,self.config.custody_appointment_sha256,
+            CompilerPhaseCustodyAppointmentV2)
+        final=self.authority_window_v3(job)
+        operation=min(before.operation_horizon,final.operation_horizon,appointed.expires_at,job.expires_at,job.original_horizon)
+        current=min(final.current_until,operation)
+        _require(datetime.now(timezone.utc)<current,'actual V3 custody boundary expired')
+        return ProcessingProjectionAuthorityWindowV3(current,operation)
+
     def authorize_semantic(self,admission):
         from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
         c=self.config

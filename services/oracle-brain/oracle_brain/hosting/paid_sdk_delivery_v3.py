@@ -13,6 +13,7 @@ from oracle_brain.operating_model.paid_sdk_embeddings_v3 import (
 from .purpose_journey_v2 import (CompilerWorkerSettingsV2,_PurposeCompilerReadGuardV3,
     build_purpose_compiler_ledger_v3,_worker_parse,_unique,_require)
 import json
+from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
 
 
 class CurrentPaidSDKGuardV3(PurposeQualifiedAssemblyReadGuardV3):
@@ -36,7 +37,7 @@ class AuthenticatedPaidSDKBundleV3:
     ledger: object
     manifest: object
     payload: dict
-    valid_until: datetime
+    window: ProcessingProjectionAuthorityWindowV3
 
 
 def load_paid_sdk_bundle_v3(settings,job,*,artifact_id,artifact_version,embedding_dispatch_id):
@@ -85,6 +86,21 @@ def load_paid_sdk_bundle_v3(settings,job,*,artifact_id,artifact_version,embeddin
     _require(again==manifest and current==payload,'qualified artifact changed during embedding consumption')
     now=datetime.now(timezone.utc)
     guard(manifest,payload,settings.config.actor_id,now)
-    horizon=min(settings.custody_horizon(job),guard.valid_until(manifest,payload,settings.config.actor_id,now))
-    _require(now<horizon,'current compiler delivery horizon expired')
-    return AuthenticatedPaidSDKBundleV3(PaidProjectionEmbedderV3(data),guard,ledger,manifest,payload,horizon)
+    # Expensive qualification first; fresh currentness LAST. Observation age
+    # is never cached as the whole lifetime of this V3 paid delivery.
+    guard.valid_until(manifest,payload,settings.config.actor_id,now)
+    semantic_until=_semantic_operation_horizon_v3(settings,payload)
+    fresh=settings.custody_window_v3(job)
+    from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
+    operation=min(fresh.operation_horizon,semantic_until)
+    window=ProcessingProjectionAuthorityWindowV3(min(fresh.current_until,operation),operation)
+    _require(datetime.now(timezone.utc)<window.current_until,'current compiler delivery boundary expired')
+    return AuthenticatedPaidSDKBundleV3(PaidProjectionEmbedderV3(data),guard,ledger,manifest,payload,window)
+
+
+def _semantic_operation_horizon_v3(settings,payload):
+    from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
+    from .purpose_journey_v2 import _worker_parse
+    from oracle_brain.operating_model.contracts import canonical_bytes
+    admission=_worker_parse(canonical_bytes(payload['assembly_qualification']['admission']),PurposeSemanticAdmissionV3)
+    return settings.authorize_semantic(admission)
