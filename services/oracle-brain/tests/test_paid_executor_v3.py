@@ -56,3 +56,20 @@ def test_external_appointment_root_and_admission_cross_substitution_denies():
         changed=a.model_copy(update={name:value})
         with pytest.raises(PermissionError,match='appointment/config differs'):
             _appointment(c,changed,'a'*64,c.issuer_actor,c.reviewer_actor,datetime.now(timezone.utc))
+
+
+def test_summary_targets_require_exact_parent_kind_and_independent_appointment():
+    from oracle_brain.hosting.paid_executor_v3 import ExecutorSummaryTargetV3,PaidExecutorAppointmentV3,_appointment
+    c=executor_config()
+    target=dict(artifact_id=uuid4(),artifact_version=1,content_hash='9'*64,qualified_parent_id=c['artifact_id'],
+        qualified_parent_version=c['artifact_version'],qualified_parent_content_hash=c['content_hash'])
+    parsed=PaidExecutorConfigV3.model_validate({**c,'summary_targets':(target,)})
+    for update in ({'kind':'processing_extraction_v1'},{'qualified_parent_id':uuid4()},
+        {'qualified_parent_version':2},{'qualified_parent_content_hash':'0'*64},{'artifact_id':c['artifact_id']}):
+        with pytest.raises(Exception):PaidExecutorConfigV3.model_validate({**c,'summary_targets':({**target,**update},)})
+    with pytest.raises(Exception):PaidExecutorConfigV3.model_validate({**c,'summary_targets':(target,target)})
+    values={k:getattr(parsed,k) for k in PaidExecutorAppointmentV3.model_fields if hasattr(parsed,k)}
+    values['config_sha256']='a'*64;values['summary_targets']=()
+    a=PaidExecutorAppointmentV3.model_validate(values)
+    with pytest.raises(PermissionError,match='appointment/config differs'):
+        _appointment(parsed,a,'a'*64,parsed.issuer_actor,parsed.reviewer_actor,datetime.now(timezone.utc))
