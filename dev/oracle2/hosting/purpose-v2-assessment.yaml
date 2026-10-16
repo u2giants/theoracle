@@ -1,0 +1,41 @@
+# Opt-in assessment only; no future-phase hash or private context is required.
+# Select profile purpose-assessment-admitted only after this phase's external
+# complete mount/process/URI qualification and protected admissions exist.
+# Existing native/documentary topology and the ONE central PostgreSQL Budget
+# stay unchanged. This file contains no issuer, key, grant or install receipt.
+name: oracle-purpose-v2-assessment
+services:
+  assessment-provider:
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+    profiles: [purpose-assessment-admitted]
+    command: [--phase, assessment, --role, provider, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_ASSESSMENT_PROVIDER_SETTINGS_SHA256:?independently pinned current phase settings required}"]
+    expose: [8443]
+    networks: [assessment, ledger, assessment-outbound]
+    volumes: [assessment-provider-auth:/run/purpose-auth:ro, assessment-provider-state:/run/purpose-state, assessment-input:/run/purpose-input:ro]
+  assessment-metadata:
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+    profiles: [purpose-assessment-admitted]
+    command: [--phase, assessment, --role, metadata, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_ASSESSMENT_METADATA_SETTINGS_SHA256:?independently pinned current phase settings required}"]
+    expose: [8443]
+    networks: [assessment, ledger]
+    volumes: [assessment-metadata-auth:/run/purpose-auth:ro, assessment-metadata-state:/run/purpose-state]
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network required}
+  assessment:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  assessment-outbound: {}
+volumes:
+  assessment-provider-auth: {}
+  assessment-provider-state: {}
+  assessment-metadata-auth: {}
+  assessment-metadata-state: {}
+  assessment-input: {}

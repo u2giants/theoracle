@@ -268,22 +268,31 @@ def main(argv=None):
     import argparse
     from .gateway import server_tls
     parser = argparse.ArgumentParser()
-    parser.add_argument("--phase", choices=("census", "assembly", "assessment", "embedding"), required=True)
+    parser.add_argument("--phase", choices=("extraction", "census", "assembly", "assessment", "embedding"), required=True)
     parser.add_argument("--role", choices=("provider", "metadata"), required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--config-sha256", required=True)
     args = parser.parse_args(argv)
-    from .purpose_runtime import (load_purpose_runtime_settings_v2,
-        build_purpose_broker_v2, build_purpose_metadata_v2)
-    settings = load_purpose_runtime_settings_v2(args.config, args.config_sha256,
-        expected_phase=args.phase, expected_role=args.role)
+    if args.phase == "extraction":
+        from .processing_extraction_runtime_v2 import (load_extraction_runtime_settings_v2,
+            build_extraction_broker_v2, build_extraction_metadata_v2)
+        settings = load_extraction_runtime_settings_v2(args.config, args.config_sha256,
+            expected_role=args.role)
+        build_provider, build_metadata = build_extraction_broker_v2, build_extraction_metadata_v2
+        build_server = extraction_ingress_server_v2
+    else:
+        from .purpose_runtime import (load_purpose_runtime_settings_v2,
+            build_purpose_broker_v2, build_purpose_metadata_v2)
+        settings = load_purpose_runtime_settings_v2(args.config, args.config_sha256,
+            expected_phase=args.phase, expected_role=args.role)
+        build_provider, build_metadata = build_purpose_broker_v2, build_purpose_metadata_v2
+        build_server = purpose_ingress_server_v2
     if settings.phase != args.phase or settings.role != args.role:
         raise GatewayDenied("fixed startup phase/profile mismatch")
-    ingress = (build_purpose_broker_v2(settings) if args.role == "provider"
-               else build_purpose_metadata_v2(settings))
+    ingress = build_provider(settings) if args.role == "provider" else build_metadata(settings)
     tls = server_tls(certfile=str(settings.server_certificate),
         keyfile=str(settings.server_key), cafile=str(settings.client_ca))
-    with purpose_ingress_server_v2((settings.bind_host, settings.bind_port),
+    with build_server((settings.bind_host, settings.bind_port),
             tls=tls, worker_uri=settings.worker_uri, ingress=ingress) as server:
         server.serve_forever()
 

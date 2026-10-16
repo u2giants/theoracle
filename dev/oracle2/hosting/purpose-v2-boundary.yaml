@@ -1,0 +1,18 @@
+# Definition only: not an operational entry point. Each fixed phase extends
+# this one boundary; default selection launches no dummy/runtime service.
+services:
+  purpose-boundary:
+    profiles: [definition-only-never-run]
+    image: ${ORACLE_PURPOSE_IMAGE:?reviewed immutable image digest required}
+    entrypoint: [python, -m, oracle_brain.hosting.purpose_transport]
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    init: true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
+    labels:
+      oracle.purpose.boundary: isolated-v2-source-only

@@ -119,23 +119,43 @@ def test_actual_total_deadline_aborts_trickled_header(bound_tls):
     finally:server.shutdown();server.server_close();thread.join(2)
 
 
-def test_opt_in_profile_only_phase_local_mounts_and_fixed_startup():
+def test_fixed_phase_entrypoints_reuse_boundary_without_future_inputs():
     from pathlib import Path
     import yaml
-    root=Path(__file__).resolve().parents[3]
-    value=yaml.safe_load((root/'dev/oracle2/hosting/purpose-v2-isolated.yaml').read_text())
-    expected={p+'-'+r for p in ('census','assembly','assessment') for r in ('provider','metadata')}|{'embedding-provider'}
-    assert set(value['services'])==expected
-    assert value['networks']['ledger']['external'] is True
-    for name,service in value['services'].items():
-        phase,role=name.split('-')
-        assert service['entrypoint']==['python','-m','oracle_brain.hosting.purpose_transport']
-        assert service['command'][:4]==['--phase',phase,'--role',role]
-        assert service['user']=='65534:65534' and service['read_only'] is True
-        assert service['cap_drop']==['ALL'] and not service.get('ports')
-        assert service['networks']==[phase,'ledger']+([phase+'-outbound'] if role=='provider' else [])
-        assert service['volumes']==[name+'-auth:/run/purpose-auth:ro',name+'-state:/run/purpose-state']+([phase+'-input:/run/purpose-input:ro'] if role=='provider' else [])
-        assert not any('docker.sock' in m or '/run/purpose:' in m for m in service['volumes'])
+    root=Path(__file__).resolve().parents[3]/'dev/oracle2/hosting'
+    base=yaml.safe_load((root/'purpose-v2-boundary.yaml').read_text())['services']['purpose-boundary']
+    assert base['profiles']==['definition-only-never-run']
+    assert base['user']=='10001:10001' and base['read_only'] is True
+    assert base['cap_drop']==['ALL'] and not base.get('ports')
+    for phase in ('extraction','census','assembly','assessment','embedding'):
+        value=yaml.safe_load((root/('purpose-v2-'+phase+'.yaml')).read_text())
+        roles=('provider',) if phase=='embedding' else ('provider','metadata')
+        assert set(value['services'])=={phase+'-'+r for r in roles}
+        for name,service in value['services'].items():
+            role=name.split('-')[1]
+            assert service['extends']=={'file':'purpose-v2-boundary.yaml','service':'purpose-boundary'}
+            assert service['command'][:4]==['--phase',phase,'--role',role]
+            assert service['profiles']==['purpose-'+phase+'-admitted']
+            assert service['networks']==[phase,'ledger']+([phase+'-outbound'] if role=='provider' else [])
+            assert service['volumes']==[name+'-auth:/run/purpose-auth:ro',name+'-state:/run/purpose-state']+([phase+'-input:/run/purpose-input:ro'] if role=='provider' else [])
+        assert value['networks']['ledger']['external'] is True
+    assert not (root/'purpose-v2-isolated.yaml').exists()
+
+
+def test_actual_installed_compose_each_phase_needs_only_own_hashes():
+    import os,subprocess
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[3]/'dev/oracle2/hosting'
+    for phase in ('extraction','census','assembly','assessment','embedding'):
+        roles=('provider',) if phase=='embedding' else ('provider','metadata')
+        env={'PATH':os.defpath,'ORACLE_PURPOSE_IMAGE':'node@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20','ORACLE_PURPOSE_LEDGER_NETWORK':'invented-existing-ledger'}
+        for role in roles:env['ORACLE_'+phase.upper()+'_'+role.upper()+'_SETTINGS_SHA256']='a'*64
+        result=subprocess.run(['docker','compose','-f',str(root/('purpose-v2-'+phase+'.yaml')),'--profile','purpose-'+phase+'-admitted','config','--format','json'],env=env,capture_output=True,text=True,check=True,timeout=10)
+        value=json.loads(result.stdout)
+        assert set(value['services'])=={phase+'-'+r for r in roles}
+        for service in value['services'].values():
+            assert service['user']=='10001:10001' and service['read_only'] is True
+            assert not service.get('ports') and not service.get('privileged')
 
 
 def test_cli_requires_fixed_phase_role_and_seal_before_authority_load():
@@ -220,3 +240,10 @@ def test_actual_provider_response_can_exceed_observer_five_second_limit(bound_tl
         with pytest.raises(GatewayDenied):client.dispatch(uuid4(),'a'*64,'b'*64,deadline=datetime.now(timezone.utc)-timedelta(seconds=1))
         with pytest.raises(GatewayDenied):dataclasses.replace(pinned,timeout=91)
     finally:server.shutdown();server.server_close();thread.join(2)
+
+
+def test_unknown_phase_refuses_before_config_or_authority_load():
+    from oracle_brain.hosting.purpose_transport import main
+    with pytest.raises(SystemExit) as result:
+        main(['--phase','unknown','--role','provider','--config','/never/open','--config-sha256','a'*64])
+    assert result.value.code==2

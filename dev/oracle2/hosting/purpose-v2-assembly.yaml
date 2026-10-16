@@ -1,0 +1,41 @@
+# Opt-in assembly only; no future-phase hash or private context is required.
+# Select profile purpose-assembly-admitted only after this phase's external
+# complete mount/process/URI qualification and protected admissions exist.
+# Existing native/documentary topology and the ONE central PostgreSQL Budget
+# stay unchanged. This file contains no issuer, key, grant or install receipt.
+name: oracle-purpose-v2-assembly
+services:
+  assembly-provider:
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+    profiles: [purpose-assembly-admitted]
+    command: [--phase, assembly, --role, provider, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_ASSEMBLY_PROVIDER_SETTINGS_SHA256:?independently pinned current phase settings required}"]
+    expose: [8443]
+    networks: [assembly, ledger, assembly-outbound]
+    volumes: [assembly-provider-auth:/run/purpose-auth:ro, assembly-provider-state:/run/purpose-state, assembly-input:/run/purpose-input:ro]
+  assembly-metadata:
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+    profiles: [purpose-assembly-admitted]
+    command: [--phase, assembly, --role, metadata, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_ASSEMBLY_METADATA_SETTINGS_SHA256:?independently pinned current phase settings required}"]
+    expose: [8443]
+    networks: [assembly, ledger]
+    volumes: [assembly-metadata-auth:/run/purpose-auth:ro, assembly-metadata-state:/run/purpose-state]
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network required}
+  assembly:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  assembly-outbound: {}
+volumes:
+  assembly-provider-auth: {}
+  assembly-provider-state: {}
+  assembly-metadata-auth: {}
+  assembly-metadata-state: {}
+  assembly-input: {}
