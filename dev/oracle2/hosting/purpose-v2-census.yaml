@@ -1,0 +1,41 @@
+# Opt-in census only; no future-phase hash or private context is required.
+# Select profile purpose-census-admitted only after this phase's external
+# complete mount/process/URI qualification and protected admissions exist.
+# Existing native/documentary topology and the ONE central PostgreSQL Budget
+# stay unchanged. This file contains no issuer, key, grant or install receipt.
+name: oracle-purpose-v2-census
+services:
+  census-provider:
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+    profiles: [purpose-census-admitted]
+    command: [--phase, census, --role, provider, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_CENSUS_PROVIDER_SETTINGS_SHA256:?independently pinned current phase settings required}"]
+    expose: [8443]
+    networks: [census, ledger, census-outbound]
+    volumes: [census-provider-auth:/run/purpose-auth:ro, census-provider-state:/run/purpose-state, census-input:/run/purpose-input:ro]
+  census-metadata:
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+    profiles: [purpose-census-admitted]
+    command: [--phase, census, --role, metadata, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_CENSUS_METADATA_SETTINGS_SHA256:?independently pinned current phase settings required}"]
+    expose: [8443]
+    networks: [census, ledger]
+    volumes: [census-metadata-auth:/run/purpose-auth:ro, census-metadata-state:/run/purpose-state]
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network required}
+  census:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  census-outbound: {}
+volumes:
+  census-provider-auth: {}
+  census-provider-state: {}
+  census-metadata-auth: {}
+  census-metadata-state: {}
+  census-input: {}
