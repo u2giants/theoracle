@@ -190,3 +190,24 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
     assert verifier.SYNTHETIC_MIGRATIONS[-1]=='013_processing_purpose_permissions.sql'
+
+
+def test_runtime_transport_custody_and_policy_mutations_change_recorded_inputs(tmp_path,monkeypatch):
+    import hashlib,json,subprocess
+    subprocess.run(['git','init','--quiet','--template='],cwd=tmp_path,check=True)
+    (tmp_path/'.gitignore').write_text('__pycache__/\n*.private\n')
+    package=tmp_path/'services/oracle-brain/oracle_brain';hosting=package/'hosting';hosting.mkdir(parents=True)
+    paths=[hosting/'purpose_runtime.py',hosting/'purpose_transport.py',hosting/'custody.py',package/'provider_policy.py']
+    for p in paths:p.write_text('owned source = 1\n')
+    hidden=hosting/'__pycache__';hidden.mkdir();(hidden/'cache.pyc').write_bytes(b'generated')
+    (hosting/'fixture.private').write_text('not a source input')
+    monkeypatch.setattr(verifier,'ROOT',tmp_path)
+    def seal():return hashlib.sha256(json.dumps(verifier.source_input_hashes(),sort_keys=True).encode()).hexdigest()
+    baseline=verifier.source_input_hashes()
+    assert set(baseline)=={str(p.relative_to(tmp_path)) for p in paths}
+    original=seal()
+    for p in paths:
+        p.write_text('owned source = 2\n');assert seal()!=original
+        p.write_text('owned source = 1\n');assert seal()==original
+    (hidden/'cache.pyc').write_bytes(b'changed cache');(hosting/'fixture.private').write_text('changed private fixture')
+    assert seal()==original

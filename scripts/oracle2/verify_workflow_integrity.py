@@ -191,6 +191,23 @@ def cleanup_test_databases(admin,parts,owned):
     return errors
 
 
+
+SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/test_readonly_graph_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
+
+
+def source_input_hashes():
+    """Deterministic owned source inventory; ignored caches/private inputs stay out."""
+    tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','-z',
+        *SOURCE_INPUT_PATHS],cwd=ROOT).split(b'\0')
+    hashes={}
+    for encoded in sorted(set(tracked)):
+        if not encoded:continue
+        relative=os.fsdecode(encoded);path=ROOT/relative
+        if (any(p in {'__pycache__','.cache','.ai'} for p in Path(relative).parts)
+                or path.suffix in {'.pyc','.pyo'} or path.name.startswith('.env')):continue
+        if path.is_file():hashes[relative]=hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashes
+
 def main(argv=None):
     args=parse_options(argv)
     if args.mode!='synthetic':
@@ -229,8 +246,7 @@ def main(argv=None):
         report.update(aggregate_evidence(jobs,results,evidence))
         report['versions']={package:version(package) for package in ('graphrag-sdk','langgraph','pydantic','psycopg')}
         report['head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-        tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','services/oracle-brain/oracle_brain/operating_model','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/test_readonly_graph_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics'],cwd=ROOT,text=True).splitlines()
-        hashes={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in tracked if (ROOT/p).is_file()}
+        hashes=source_input_hashes()
         current_public_hashes=required_public_chain_hashes()
         if current_public_hashes!=public_hashes:raise RuntimeError('required public source changed during tests')
         hashes.update(current_public_hashes)
