@@ -10,6 +10,7 @@ import socket
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 from cryptography import x509
@@ -54,7 +55,7 @@ class PurposeTLSBindingV2:
                     r"spiffe://oracle/[A-Za-z0-9._/-]+", uri) is None
                     for uri in (self.server_uri, self.client_uri))
                 or type(self.timeout) not in (int, float)
-                or not math.isfinite(self.timeout) or not 0 < self.timeout <= 5):
+                or not math.isfinite(self.timeout) or not 0 < self.timeout <= 90):
             raise GatewayDenied("fixed purpose TLS pins required")
         for path in (self.ca_file, self.certificate_file, self.key_file):
             if (not isinstance(path, Path) or not path.is_absolute() or path.is_symlink()
@@ -82,10 +83,17 @@ class _FixedTLSClientV2:
         self._tls.load_verify_locations(cadata=binding.ca_file.read_text())
         self._tls.load_cert_chain(binding.certificate_file, binding.key_file)
 
-    def _post(self, route: str, value: dict, limit: int) -> bytes:
-        deadline = time.monotonic() + self.binding.timeout
+    def _post(self, route: str, value: dict, limit: int, *, valid_until: datetime | None = None) -> bytes:
+        duration = self.binding.timeout
+        if valid_until is not None:
+            if not isinstance(valid_until, datetime) or valid_until.tzinfo is None or valid_until.utcoffset() is None:
+                raise GatewayDenied("aware trusted RPC horizon required")
+            duration = min(duration, (valid_until-datetime.now(timezone.utc)).total_seconds())
+        if duration <= 0:
+            raise GatewayDenied("purpose RPC horizon elapsed")
+        deadline = time.monotonic() + duration
         conn = http.client.HTTPSConnection(self.binding.hostname, self.binding.port,
-            timeout=self.binding.timeout, context=self._tls)
+            timeout=duration, context=self._tls)
         timer = None
         try:
             conn.connect()
@@ -127,6 +135,11 @@ class _FixedTLSClientV2:
 
 class ParentObserverClientV2(_FixedTLSClientV2, ParentObserverTransportV2):
     """Consumer transport only; signature/currentness validation belongs to R3."""
+    def __init__(self, binding: PurposeTLSBindingV2):
+        if type(binding) is not PurposeTLSBindingV2 or binding.timeout > 5:
+            raise GatewayDenied("parent observer total deadline must not exceed five seconds")
+        super().__init__(binding)
+
     def fetch_current(self, challenge: str) -> bytes:
         if not _hex(challenge):
             raise GatewayDenied("fresh canonical observer challenge required")
@@ -139,12 +152,13 @@ class ParentObserverClientV2(_FixedTLSClientV2, ParentObserverTransportV2):
 
 
 class PurposeProviderClientV2(_FixedTLSClientV2):
-    def dispatch(self, dispatch_id: UUID, request_hash: str, phase_registry_sha256: str) -> dict:
+    def dispatch(self, dispatch_id: UUID, request_hash: str, phase_registry_sha256: str,
+                 *, deadline: datetime | None = None) -> dict:
         if type(dispatch_id) is not UUID or not _hex(request_hash) or not _hex(phase_registry_sha256):
             raise GatewayDenied("canonical purpose dispatch identity required")
         request = {"dispatch_id": str(dispatch_id), "request_hash": request_hash,
                    "phase_registry_sha256": phase_registry_sha256}
-        result = _object(self._post("/v1/provider/chat", request, 4096),
+        result = _object(self._post("/v1/provider/chat", request, 4096, valid_until=deadline),
             set(request) | {"raw_response_hash", "receipt_hash"})
         if (any(result[k] != v for k, v in request.items())
                 or not _hex(result["raw_response_hash"]) or not _hex(result["receipt_hash"])):
@@ -180,13 +194,14 @@ class PurposeIngressBridgeV2:
 
 class ExtractionProviderClientV2(_FixedTLSClientV2):
     """Distinct extraction qualification field/domain; no purpose-mode switch."""
-    def dispatch(self, dispatch_id: UUID, request_hash: str, extraction_qualification_sha256: str) -> dict:
+    def dispatch(self, dispatch_id: UUID, request_hash: str, extraction_qualification_sha256: str,
+                 *, deadline: datetime | None = None) -> dict:
         if (type(dispatch_id) is not UUID or not _hex(request_hash)
                 or not _hex(extraction_qualification_sha256)):
             raise GatewayDenied("canonical extraction dispatch identity required")
         request = {"dispatch_id": str(dispatch_id), "request_hash": request_hash,
                    "extraction_qualification_sha256": extraction_qualification_sha256}
-        result = _object(self._post("/v2/extraction/chat", request, 4096),
+        result = _object(self._post("/v2/extraction/chat", request, 4096, valid_until=deadline),
             set(request) | {"raw_response_hash", "receipt_hash"})
         if (any(result[k] != v for k, v in request.items())
                 or not _hex(result["raw_response_hash"]) or not _hex(result["receipt_hash"])):
