@@ -224,3 +224,122 @@ def verify_purpose_authority_proof_v2(proof, descriptor, dispatch, *,
             or proof.expires_at > descriptor.expires_at):
         raise PermissionError('current SQL purpose proof differs from sealed dispatch')
     return None
+
+
+class PurposePhaseRegistryV2(StrictRecord):
+    """Private independently qualified phase receipt, not an issuer or permission.
+
+    The protected external byte pin authenticates its reviewed operation meaning.
+    Metadata projection contains only its digest, never these private jobs.
+    """
+    schema_version: Literal[2] = 2
+    qualification_purpose: Literal['phase-operation-qualification-v2']
+    run_id: UUID
+    workspace_id: UUID
+    actor_id: UUID
+    provider_login: str = Field(pattern=LOGIN)
+    worker_uri: str = Field(pattern=WORKER)
+    phase: PurposePhaseV2
+    purpose: PurposeV2
+    operation: PurposeOperationV2
+    runtime_hash: str = Field(pattern=HASH)
+    source_registry_hash: str = Field(pattern=HASH)
+    parent_registry_sha256: str = Field(pattern=HASH)
+    population_admission_sha256: str = Field(pattern=HASH)
+    source_refs: tuple[SourceRef, ...] = Field(min_length=1)
+    population_digest: str = Field(pattern=HASH)
+    dispatches: tuple[PurposeDispatchV2, ...] = Field(min_length=1)
+    issuer_actor: UUID
+    reviewer_actor: UUID
+    expires_at: AwareDatetime
+
+    @model_validator(mode='after')
+    def qualified_operation(self):
+        _phase(self.phase, self.purpose, self.operation)
+        _population(self.workspace_id, self.source_refs, self.population_digest)
+        if len({self.actor_id, self.issuer_actor, self.reviewer_actor}) != 3:
+            raise ValueError('independent operation qualification required')
+        if len({d.dispatch_id for d in self.dispatches}) != len(self.dispatches):
+            raise ValueError('duplicate phase dispatch')
+        for dispatch in self.dispatches:
+            if (dispatch.source_refs != self.source_refs
+                    or dispatch.model != PHASE_CONTRACTS[self.phase][2]):
+                raise ValueError('qualified operation model or complete population differs')
+        return self
+
+
+class PurposePinsV2(StrictRecord):
+    """Protected startup authority supplied externally; never HTTP or self-issued."""
+    schema_version: Literal[2] = 2
+    qualification_purpose: Literal['phase-operation-qualification-v2']
+    phase: PurposePhaseV2
+    operation: PurposeOperationV2
+    runtime_hash: str = Field(pattern=HASH)
+    source_registry_hash: str = Field(pattern=HASH)
+    parent_registry_sha256: str = Field(pattern=HASH)
+    population_admission_sha256: str = Field(pattern=HASH)
+    phase_registry_sha256: str = Field(pattern=HASH)
+    descriptor_sha256: str = Field(pattern=HASH)
+    projection_sha256: str = Field(pattern=HASH)
+    provider_login: str = Field(pattern=LOGIN)
+    worker_uri: str = Field(pattern=WORKER)
+    issuer_actor: UUID
+    reviewer_actor: UUID
+    expires_at: AwareDatetime
+
+    @model_validator(mode='after')
+    def fixed_qualification(self):
+        if (PHASE_CONTRACTS[self.phase][1] != self.operation
+                or self.issuer_actor == self.reviewer_actor):
+            raise ValueError('exact independently qualified startup operation required')
+        return self
+
+    @property
+    def operation_approval_hash(self):
+        # No extra body hash can manufacture a second operation appointment.
+        return self.phase_registry_sha256
+
+
+def derive_purpose_descriptor_v2(registry, population, *, pins, phase_registry_bytes_hash, now):
+    """Pure sealed qualification consistency, after trusted observer/SQL admission.
+
+    Does not read parent bytes, authorize SQL, appoint issuers or reserve budget.
+    The caller must authenticate current observer output and external pins.
+    """
+    if (type(registry) is not PurposePhaseRegistryV2
+            or type(population) is not ParentPopulationAdmissionV2
+            or type(pins) is not PurposePinsV2):
+        raise PermissionError('exact separate V2 startup and operation qualification required')
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise PermissionError('aware current qualification clock required')
+    # Mutable nested models must be revalidated on every use, not trusted by type.
+    registry = PurposePhaseRegistryV2.model_validate(registry.model_dump(mode='python'))
+    population = ParentPopulationAdmissionV2.model_validate(population.model_dump(mode='python'))
+    pins = PurposePinsV2.model_validate(pins.model_dump(mode='python'))
+    if (phase_registry_bytes_hash != pins.phase_registry_sha256
+            or digest(population.model_dump(mode='json')) != pins.population_admission_sha256
+            or registry.population_admission_sha256 != pins.population_admission_sha256
+            or registry.phase != pins.phase or registry.operation != pins.operation
+            or registry.runtime_hash != pins.runtime_hash or population.runtime_hash != pins.runtime_hash
+            or registry.source_registry_hash != pins.source_registry_hash
+            or population.source_registry_hash != pins.source_registry_hash
+            or registry.parent_registry_sha256 != pins.parent_registry_sha256
+            or population.parent_registry_sha256 != pins.parent_registry_sha256
+            or registry.source_refs != population.source_refs
+            or registry.population_digest != population.population_digest
+            or registry.workspace_id != population.workspace_id
+            or registry.provider_login != pins.provider_login or registry.worker_uri != pins.worker_uri
+            or registry.issuer_actor != pins.issuer_actor or registry.reviewer_actor != pins.reviewer_actor
+            or registry.expires_at > min(population.expires_at, pins.expires_at)
+            or now >= min(registry.expires_at, population.expires_at, pins.expires_at)):
+        raise PermissionError('current externally qualified complete phase population required')
+    values = registry.model_dump(mode='python')
+    values.pop('qualification_purpose')
+    values['phase_registry_sha256'] = phase_registry_bytes_hash
+    descriptor = PurposeRunDescriptorV2.model_validate(values)
+    projection = PurposeMetadataProjectionV2(descriptor=descriptor,
+        descriptor_sha256=digest(descriptor.model_dump(mode='json')))
+    if (projection.descriptor_sha256 != pins.descriptor_sha256
+            or digest(projection.model_dump(mode='json')) != pins.projection_sha256):
+        raise PermissionError('qualified descriptor/projection differs from external startup seal')
+    return descriptor

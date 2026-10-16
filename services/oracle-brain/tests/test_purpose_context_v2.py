@@ -125,3 +125,69 @@ def test_proof_consistency_refuses_stale_forged_or_wrong_dispatch(damage):
         if damage not in {'bool','none'}:proof=PurposeAuthorityProofV2.model_validate_json(json.dumps(raw))
         verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=digest(p.model_dump(mode='json')),
             actual_caller_login='provider_fixture',profile='source-reader',now=clock)
+
+
+def qualification(phase='embedding'):
+    from oracle_brain.operating_model.purpose_context import PurposePhaseRegistryV2, PurposePinsV2
+    d,j,_,now=records(phase)
+    population=ParentPopulationAdmissionV2(workspace_id=d.workspace_id,
+        parent_registry_sha256=d.parent_registry_sha256,runtime_hash=d.runtime_hash,
+        source_registry_hash=d.source_registry_hash,source_refs=d.source_refs,
+        population_digest=d.population_digest,issuer_actor=d.issuer_actor,
+        reviewer_actor=d.reviewer_actor,expires_at=d.expires_at)
+    raw=d.model_dump(mode='python');raw.pop('phase_registry_sha256')
+    raw['qualification_purpose']='phase-operation-qualification-v2'
+    raw['population_admission_sha256']=digest(population.model_dump(mode='json'))
+    registry=PurposePhaseRegistryV2.model_validate(raw)
+    # Invented external qualification fixture; these hashes issue no runtime authority.
+    seal=digest(registry.model_dump(mode='json'))
+    d=d.model_copy(update={'population_admission_sha256':raw['population_admission_sha256'],
+                          'phase_registry_sha256':seal})
+    projection=PurposeMetadataProjectionV2(descriptor=d,descriptor_sha256=digest(d.model_dump(mode='json')))
+    pins=PurposePinsV2(qualification_purpose='phase-operation-qualification-v2',phase=d.phase,
+        operation=d.operation,runtime_hash=d.runtime_hash,source_registry_hash=d.source_registry_hash,
+        parent_registry_sha256=d.parent_registry_sha256,population_admission_sha256=d.population_admission_sha256,
+        phase_registry_sha256=seal,descriptor_sha256=projection.descriptor_sha256,
+        projection_sha256=digest(projection.model_dump(mode='json')),provider_login=d.provider_login,
+        worker_uri=d.worker_uri,issuer_actor=d.issuer_actor,reviewer_actor=d.reviewer_actor,expires_at=d.expires_at)
+    return registry,population,pins,now,d
+
+
+@pytest.mark.parametrize('phase',tuple(PHASE_CONTRACTS))
+def test_independently_pinned_phase_registry_is_exact_operation_qualification(phase):
+    from oracle_brain.operating_model.purpose_context import derive_purpose_descriptor_v2
+    registry,population,pins,now,expected=qualification(phase)
+    assert pins.operation_approval_hash==pins.phase_registry_sha256
+    assert derive_purpose_descriptor_v2(registry,population,pins=pins,
+        phase_registry_bytes_hash=pins.phase_registry_sha256,now=now)==expected
+
+
+@pytest.mark.parametrize('damage',('base-approval-only','chat-registry','model','request','account',
+    'terms','pricing','approvals','omitted-source','reordered-source','expired','issuer','population',
+    'external-seal','projection','meaning'))
+def test_embedding_qualification_never_borrows_chat_or_base_processing_approval(damage):
+    from oracle_brain.operating_model.purpose_context import (
+        PurposePhaseRegistryV2, PurposePinsV2, derive_purpose_descriptor_v2)
+    registry,population,pins,now,_=qualification()
+    seal=pins.phase_registry_sha256
+    raw=registry.model_dump(mode='python')
+    if damage=='base-approval-only':registry=None
+    elif damage=='chat-registry':registry=qualification('census')[0]
+    elif damage in {'model','request','account','terms','pricing','approvals'}:
+        name={'model':'model','request':'request_hash','account':'account_policy_hash',
+              'terms':'terms_hash','pricing':'pricing_hash','approvals':'approvals_hash'}[damage]
+        raw['dispatches'][0][name]='openai/gpt-6.1-sol' if name=='model' else '9'*64
+        registry=registry.model_copy(update={'dispatches':tuple(PurposeDispatchV2.model_validate(x) for x in raw['dispatches'])})
+        # A changed phase file cannot preserve its externally qualified byte seal.
+        seal=digest(registry.model_dump(mode='json'))
+    elif damage=='omitted-source':registry=registry.model_copy(update={'source_refs':registry.source_refs[:-1]})
+    elif damage=='reordered-source':registry=registry.model_copy(update={'source_refs':tuple(reversed(registry.source_refs))})
+    elif damage=='expired':now=pins.expires_at
+    elif damage=='issuer':pins=pins.model_copy(update={'issuer_actor':uuid4()})
+    elif damage=='population':population=population.model_copy(update={'parent_registry_sha256':'8'*64})
+    elif damage=='external-seal':seal='8'*64
+    elif damage=='projection':pins=pins.model_copy(update={'projection_sha256':'8'*64})
+    elif damage=='meaning':pins=pins.model_copy(update={'qualification_purpose':'chat-approval'})
+    with pytest.raises((PermissionError,ValueError,ValidationError)):
+        derive_purpose_descriptor_v2(registry,population,pins=pins,
+            phase_registry_bytes_hash=seal,now=now)
