@@ -7,7 +7,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
 from oracle_brain.outbox import ProjectionEvent
-from .contracts import ArtifactManifest,digest
+from .contracts import ArtifactManifest,ProcessingProjectionReceiptBodyV3,canonical_bytes,digest
 from .processing_ledger import ProcessingCompilerLedger
 from .projection_delivery import signature
 
@@ -95,6 +95,30 @@ def lease_processing_projection(ledger,workspace_id,*,lease_seconds=60):
     return ProcessingProjectionLease(event,r['lease_role'],UUID(r['lease_token']),until)
 
 
+def _validate_paid_ack_context(lease,receipt,manifest,payload):
+    """Bind the ONE actual final guarded read to this exact paid delivery."""
+    from .sdk_projection import ProcessingSDKProjection
+    from .paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
+    if type(receipt) is not dict or type(receipt.get('schema_version')) is not int or receipt['schema_version']!=3:
+        raise PermissionError('exact integer paid receipt schema required')
+    body=ProcessingProjectionReceiptBodyV3.model_validate_json(canonical_bytes(receipt))
+    event=lease.event
+    expected=ArtifactManifest.model_validate_json(canonical_bytes(event.payload.get('manifest')))
+    if (event.operation!='project' or event.payload!={'namespace':'oracle_processing_v1','manifest':expected.model_dump(mode='json')}
+            or manifest!=expected or manifest.kind!='processing_qualified_model_v1' or manifest.state!='ready'
+            or (manifest.workspace_id,manifest.artifact_id,manifest.version)!=(event.workspace_id,event.assertion_id,event.revision)
+            or digest(payload)!=manifest.content_hash
+            or manifest.source_digest!=digest({'refs':payload['source_refs']})
+            or (body.event_id,body.workspace_id,body.artifact_id,body.version)!=(str(event.event_id),str(event.workspace_id),str(event.assertion_id),event.revision)
+            or (body.content_hash,body.source_digest,body.permission_digest)!=(manifest.content_hash,manifest.source_digest,manifest.permission_digest)
+            or (body.lease_role,body.lease_token,body.lease_attempt,body.lease_until)!=(lease.lease_role,str(lease.lease_token),event.attempts,lease.lease_until.isoformat())
+            or not re.fullmatch(r'oracle_processing_v1_'+event.workspace_id.hex+'_'+event.assertion_id.hex+'_'+str(event.revision)+r'_[0-9a-f]{32}',body.graph_name)
+            or body.record_digest!=digest({'records':ProcessingSDKProjection.records(payload)})
+            or body.projection_digest!=ProcessingSDKProjection.processing_projection_digest(payload)
+            or body.embedding_inventory_hash!=digest(processing_embedding_inventory_v3(payload).model_dump(mode='json'))):
+        raise PermissionError('final current paid event/manifest/content/projection/lease differs')
+
+
 def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret,caller_deadline=None,authority=None):
     """Trusted application verified graph/HMAC; SQL cannot observe that network."""
     import hmac
@@ -104,6 +128,8 @@ def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret,caller_
     if not hmac.compare_digest(signature(secret,receipt),seal):raise PermissionError('processing receipt signature differs')
     event=lease.event
     manifest,payload=ledger.read_with_manifest(event.workspace_id,event.assertion_id,event.revision)
+    if receipt.get('schema_version')==3:
+        _validate_paid_ack_context(lease,receipt,manifest,payload)
     horizon=getattr(ledger.processing_read_guard,'valid_until',None)
     if not callable(horizon):raise PermissionError('trusted processing semantic horizon required')
     semantic_deadline=horizon(manifest,payload,ledger.principal,ledger.clock())
@@ -214,8 +240,12 @@ async def _project_processing_event(ledger,lease,projection,*,secret,projector_i
     else:await graph_work()
     # Both source and independent semantic authority are checked after network
     # work, before the short fenced SQL ACK. No implicit direct projection path.
-    again,latest=ledger.read_with_manifest(event.workspace_id,event.assertion_id,event.revision)
-    if again!=manifest or latest!=payload:raise PermissionError('processing input changed during projection')
+    if not paid:
+        again,latest=ledger.read_with_manifest(event.workspace_id,event.assertion_id,event.revision)
+        if again!=manifest or latest!=payload:raise PermissionError('processing input changed during projection')
+    # The paid ACK owns its ONE final actual guarded read and strict equality
+    # checks. It does not accept a pregraph body as current authority. Keeping
+    # another full read here only consumed the original lease twice.
     guard=ledger.processing_read_guard
     horizon=getattr(guard,'valid_until',None)
     if not callable(horizon):raise PermissionError('trusted processing semantic horizon required')
