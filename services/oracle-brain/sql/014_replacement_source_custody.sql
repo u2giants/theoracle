@@ -37,6 +37,31 @@ CREATE TABLE IF NOT EXISTS oracle2.source_original_revisions (
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  PRIMARY KEY(workspace_id,source_id,revision),
  FOREIGN KEY(workspace_id,source_id) REFERENCES oracle2.sources(workspace_id,source_id));
+CREATE TABLE IF NOT EXISTS oracle2.original_source_populations_v1 (
+ population_id uuid PRIMARY KEY,workspace_id uuid NOT NULL,
+ purpose text NOT NULL CHECK(purpose IN('source-original-reading','source-original-review')),
+ original_root_hash text NOT NULL CHECK(original_root_hash ~ '^[0-9a-f]{64}$'),
+ population_digest text NOT NULL CHECK(population_digest ~ '^[0-9a-f]{64}$'),
+ operation_registry_hash text NOT NULL CHECK(operation_registry_hash ~ '^[0-9a-f]{64}$'),
+ runtime_hash text NOT NULL CHECK(runtime_hash ~ '^[0-9a-f]{64}$'),
+ source_registry_hash text NOT NULL CHECK(source_registry_hash ~ '^[0-9a-f]{64}$'),
+ original_allocation_hash text NOT NULL CHECK(original_allocation_hash ~ '^[0-9a-f]{64}$'),
+ original_horizon timestamptz NOT NULL CHECK(isfinite(original_horizon)),
+ issuer_actor uuid NOT NULL,reviewer_actor uuid NOT NULL CHECK(issuer_actor<>reviewer_actor),
+ expires_at timestamptz NOT NULL CHECK(isfinite(expires_at) AND expires_at<=original_horizon));
+CREATE TABLE IF NOT EXISTS oracle2.original_source_population_members_v1 (
+ population_id uuid NOT NULL REFERENCES oracle2.original_source_populations_v1(population_id),
+ ordinal integer NOT NULL CHECK(ordinal BETWEEN 0 AND 4095),workspace_id uuid NOT NULL,source_id uuid NOT NULL,revision integer NOT NULL,
+ raw_ref_sha256 text NOT NULL CHECK(raw_ref_sha256 ~ '^[0-9a-f]{64}$'),
+ PRIMARY KEY(population_id,ordinal),UNIQUE(population_id,source_id),
+ FOREIGN KEY(workspace_id,source_id,revision) REFERENCES oracle2.source_original_revisions(workspace_id,source_id,revision));
+CREATE TABLE IF NOT EXISTS oracle2.hosting_original_population_admissions_v1 (
+ role_name name NOT NULL,population_id uuid NOT NULL REFERENCES oracle2.original_source_populations_v1(population_id),
+ principal_id uuid NOT NULL,purpose text NOT NULL CHECK(purpose IN('source-original-reading','source-original-review')),
+ runtime_hash text NOT NULL CHECK(runtime_hash ~ '^[0-9a-f]{64}$'),
+ source_registry_hash text NOT NULL CHECK(source_registry_hash ~ '^[0-9a-f]{64}$'),
+ operation_registry_hash text NOT NULL CHECK(operation_registry_hash ~ '^[0-9a-f]{64}$'),
+ expires_at timestamptz NOT NULL CHECK(isfinite(expires_at)),PRIMARY KEY(role_name,population_id));
 CREATE TABLE IF NOT EXISTS oracle2.source_reading_qualifications (
  workspace_id uuid NOT NULL,source_id uuid NOT NULL,revision integer NOT NULL,
  original_sha256 text NOT NULL CHECK(original_sha256 ~ '^[0-9a-f]{64}$'),
@@ -54,7 +79,9 @@ CREATE TABLE IF NOT EXISTS oracle2.hosting_original_source_admissions (
  principal_id uuid NOT NULL,original_sha256 text NOT NULL CHECK(original_sha256 ~ '^[0-9a-f]{64}$'),
  purpose text NOT NULL CHECK(purpose IN ('source-original-reading','source-original-review','source-original-view')),
  runtime_hash text NOT NULL CHECK(runtime_hash ~ '^[0-9a-f]{64}$'),registry_hash text NOT NULL CHECK(registry_hash ~ '^[0-9a-f]{64}$'),
+ population_id uuid REFERENCES oracle2.original_source_populations_v1(population_id),
  expires_at timestamptz NOT NULL CHECK(isfinite(expires_at)),
+ CHECK((purpose='source-original-view')=(population_id IS NULL)),
  PRIMARY KEY(role_name,workspace_id,source_id,revision),
  FOREIGN KEY(workspace_id,source_id,revision) REFERENCES oracle2.source_original_revisions(workspace_id,source_id,revision));
 CREATE TABLE IF NOT EXISTS oracle2.hosting_request_principal_admissions (
@@ -88,6 +115,7 @@ CREATE TABLE IF NOT EXISTS oracle2.replacement_journey_events (
  UNIQUE(run_id,journey_revision),UNIQUE(workspace_id,actor_id,idempotency_key));
 -- No runtime receives direct table access. Exact named capabilities follow.
 REVOKE ALL ON oracle2.source_original_revisions,oracle2.source_reading_qualifications,
+ oracle2.original_source_populations_v1,oracle2.original_source_population_members_v1,oracle2.hosting_original_population_admissions_v1,
  oracle2.hosting_original_source_admissions,oracle2.hosting_request_principal_admissions,
  oracle2.source_intake_reservations_v1,oracle2.processing_journey_runs_v1,oracle2.replacement_journey_events
  FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
@@ -376,7 +404,7 @@ END $body$;
 REVOKE ALL ON FUNCTION oracle2.finalize_source_revision_v1(uuid,integer,jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION oracle2.finalize_source_revision_v1(uuid,integer,jsonb) TO oracle2_replacement_requester;
 
-CREATE OR REPLACE FUNCTION oracle2._original_revision_access(source uuid,wanted_revision integer,wanted_group text)
+CREATE OR REPLACE FUNCTION oracle2._original_revision_member_access(source uuid,wanted_revision integer,wanted_group text)
  RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
 DECLARE a oracle2.hosting_original_source_admissions%ROWTYPE;r oracle2.hosting_role_runtime_admissions%ROWTYPE;
  original oracle2.source_original_revisions%ROWTYPE;owner_oid oid;login_oid oid;group_oid oid;purpose_name text;
@@ -438,7 +466,22 @@ BEGIN
  RETURN jsonb_build_object('schema_version',1,'workspace_id',a.workspace_id,'source_id',source,'revision',wanted_revision,
   'principal_id',a.principal_id,'original_sha256',original.original_sha256,'byte_count',original.byte_count,
   'media_type',original.media_type,'private_object_key',original.private_object_key,'runtime_hash',a.runtime_hash,
-  'registry_hash',a.registry_hash,'valid_until',deadline,'checked_at',clock_timestamp());
+  'registry_hash',a.registry_hash,'population_id',a.population_id,'valid_until',deadline,'checked_at',clock_timestamp());
+END $body$;
+REVOKE ALL ON FUNCTION oracle2._original_revision_member_access(uuid,integer,text) FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
+ oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer,oracle2_replacement_requester;
+CREATE OR REPLACE FUNCTION oracle2._original_revision_access(source uuid,wanted_revision integer,wanted_group text)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE identity jsonb;population jsonb;
+BEGIN
+ identity:=oracle2._original_revision_member_access(source,wanted_revision,wanted_group);
+ IF wanted_group<>'oracle2_source_original_viewer' THEN
+  IF identity->>'population_id' IS NULL THEN RAISE insufficient_privilege USING MESSAGE='complete raw population required'; END IF;
+  population:=oracle2.original_population_current_v1((identity->>'population_id')::uuid);
+  identity:=identity||jsonb_build_object('valid_until',least((identity->>'valid_until')::timestamptz,(population->>'valid_until')::timestamptz));
+ END IF;
+ RETURN identity;
 END $body$;
 REVOKE ALL ON FUNCTION oracle2._original_revision_access(uuid,integer,text) FROM PUBLIC,
  oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
@@ -622,3 +665,71 @@ CREATE OR REPLACE FUNCTION oracle2.commit_original_review_response_v1(commit_byt
 REVOKE ALL ON FUNCTION oracle2.commit_original_reading_response_v1(bytea),oracle2.commit_original_review_response_v1(bytea) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION oracle2.commit_original_reading_response_v1(bytea) TO oracle2_source_original_reader;
 GRANT EXECUTE ON FUNCTION oracle2.commit_original_review_response_v1(bytea) TO oracle2_source_original_reviewer;
+
+CREATE OR REPLACE FUNCTION oracle2.original_population_current_v1(wanted_population uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE p oracle2.original_source_populations_v1%ROWTYPE;a oracle2.hosting_original_population_admissions_v1%ROWTYPE;
+ m oracle2.original_source_population_members_v1%ROWTYPE;o oracle2.source_original_revisions%ROWTYPE;
+ identity jsonb;ref jsonb;refs jsonb:='[]';population jsonb;until_at timestamptz;initial_workspace uuid;
+ total integer;first_ordinal integer;last_ordinal integer;expected_group text;seal text;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid() AND ssl)
+ OR current_setting('statement_timeout')='0' OR current_setting('statement_timeout')::interval>interval '5 seconds' THEN
+  RAISE insufficient_privilege USING MESSAGE='bounded TLS raw population session required';
+ END IF;
+ IF current_setting('lock_timeout')='0' OR current_setting('lock_timeout')::interval>interval '2 seconds' THEN
+  PERFORM set_config('lock_timeout','2s',true);
+ END IF;
+ SELECT x.workspace_id INTO initial_workspace FROM oracle2.original_source_populations_v1 x
+ JOIN oracle2.hosting_original_population_admissions_v1 y ON y.population_id=x.population_id AND y.role_name=SESSION_USER
+ WHERE x.population_id=wanted_population;
+ IF initial_workspace IS NULL THEN RAISE insufficient_privilege USING MESSAGE='complete raw population unavailable'; END IF;
+ PERFORM pg_advisory_xact_lock(hashtext('oracle2-authz:'||initial_workspace::text));
+ SELECT * INTO p FROM oracle2.original_source_populations_v1 WHERE population_id=wanted_population FOR SHARE;
+ SELECT * INTO a FROM oracle2.hosting_original_population_admissions_v1 WHERE role_name=SESSION_USER AND population_id=wanted_population FOR SHARE;
+ IF p.population_id IS NULL OR a.role_name IS NULL OR p.workspace_id IS DISTINCT FROM initial_workspace
+ OR a.purpose IS DISTINCT FROM p.purpose OR a.runtime_hash IS DISTINCT FROM p.runtime_hash
+ OR a.source_registry_hash IS DISTINCT FROM p.source_registry_hash OR a.operation_registry_hash IS DISTINCT FROM p.operation_registry_hash
+ OR p.expires_at<=clock_timestamp() OR a.expires_at<=clock_timestamp() OR p.original_horizon<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='current raw population admission denied';
+ END IF;
+ expected_group:=CASE p.purpose WHEN 'source-original-reading' THEN 'oracle2_source_original_reader'
+  WHEN 'source-original-review' THEN 'oracle2_source_original_reviewer' ELSE NULL END;
+ LOCK TABLE oracle2.original_source_population_members_v1 IN SHARE MODE;
+ PERFORM 1 FROM oracle2.original_source_population_members_v1 WHERE population_id=wanted_population ORDER BY ordinal FOR SHARE;
+ SELECT count(*),min(ordinal),max(ordinal) INTO total,first_ordinal,last_ordinal
+ FROM oracle2.original_source_population_members_v1 WHERE population_id=wanted_population;
+ IF expected_group IS NULL OR total NOT BETWEEN 1 AND 4096 OR first_ordinal<>0 OR last_ordinal<>total-1 THEN
+  RAISE insufficient_privilege USING MESSAGE='complete ordered raw population required';
+ END IF;
+ until_at:=least(p.expires_at,a.expires_at,p.original_horizon);
+ FOR m IN SELECT * FROM oracle2.original_source_population_members_v1 WHERE population_id=wanted_population ORDER BY ordinal LOOP
+  IF m.workspace_id IS DISTINCT FROM p.workspace_id THEN RAISE insufficient_privilege USING MESSAGE='raw population workspace differs'; END IF;
+  identity:=oracle2._original_revision_member_access(m.source_id,m.revision,expected_group);
+  IF (identity->>'principal_id')::uuid IS DISTINCT FROM a.principal_id
+  OR (identity->>'population_id')::uuid IS DISTINCT FROM wanted_population
+  OR identity->>'runtime_hash' IS DISTINCT FROM p.runtime_hash OR identity->>'registry_hash' IS DISTINCT FROM p.source_registry_hash THEN
+   RAISE insufficient_privilege USING MESSAGE='actual raw population role differs';
+  END IF;
+  SELECT * INTO o FROM oracle2.source_original_revisions WHERE workspace_id=p.workspace_id AND source_id=m.source_id AND revision=m.revision FOR SHARE;
+  ref:=jsonb_build_object('schema_version',1,'workspace_id',p.workspace_id,'source_id',m.source_id,'revision',m.revision,
+   'original_sha256',o.original_sha256,'byte_count',o.byte_count,'media_type',o.media_type,'filename',o.filename,
+   'custody_locator_seal_sha256',o.custody_locator_seal_sha256);
+  seal:=encode(sha256(convert_to(oracle2._replacement_metadata_json(ref),'UTF8')),'hex');
+  IF seal IS DISTINCT FROM m.raw_ref_sha256 THEN RAISE insufficient_privilege USING MESSAGE='immutable raw population member changed'; END IF;
+  refs:=refs||jsonb_build_array(ref);until_at:=least(until_at,(identity->>'valid_until')::timestamptz);
+ END LOOP;
+ seal:=encode(sha256(convert_to(oracle2._replacement_metadata_json(jsonb_build_object('raw_refs',refs)),'UTF8')),'hex');
+ IF seal IS DISTINCT FROM p.population_digest OR until_at<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='raw population seal or current horizon differs';
+ END IF;
+ population:=jsonb_build_object('schema_version',1,'purpose','raw-original-population-v1','population_id',p.population_id,
+  'workspace_id',p.workspace_id,'original_root_hash',p.original_root_hash,'operation_registry_hash',p.operation_registry_hash,
+  'runtime_hash',p.runtime_hash,'source_registry_hash',p.source_registry_hash,'raw_refs',refs,'population_digest',p.population_digest,
+  'issuer_actor',p.issuer_actor,'reviewer_actor',p.reviewer_actor,'expires_at',p.expires_at);
+ RETURN jsonb_build_object('population',population,'original_allocation_hash',p.original_allocation_hash,
+  'original_horizon',p.original_horizon,'actual_principal_id',a.principal_id,'session_role',SESSION_USER,
+  'checked_at',clock_timestamp(),'valid_until',until_at);
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.original_population_current_v1(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION oracle2.original_population_current_v1(uuid) TO oracle2_source_original_reader,oracle2_source_original_reviewer;
