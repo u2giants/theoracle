@@ -952,11 +952,19 @@ class _PurposeCompilerReadGuardV3:
         return self.qualified(manifest,payload,principal,now)
 
     def valid_until(self,manifest,payload,principal,now):
-        until=min(self.settings.authority_horizon(self.job),self.settings.custody_horizon(self.job))
+        # Authorization still precedes private/evidence access. Its short-lived
+        # parent witness must not be the deadline returned AFTER costly lineage
+        # replay: obtain a genuinely new current proof at the final boundary.
+        self.settings.authorize(self.job)
         if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
-            return min(until,self.extraction.valid_until(manifest,payload,principal,now))
-        return min(until,self.qualified.valid_until(manifest,payload,principal,now),
-            self.settings.semantic.valid_until(now))
+            validated_until=self.extraction.valid_until(manifest,payload,principal,now)
+        else:
+            validated_until=min(self.qualified.valid_until(manifest,payload,principal,now),
+                self.settings.semantic.valid_until(datetime.now(timezone.utc)))
+        current_until=self.settings.custody_horizon(self.job)
+        until=min(validated_until,current_until)
+        _require(datetime.now(timezone.utc)<until,'current compiler deadline expired after validation')
+        return until
 
 
 def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
