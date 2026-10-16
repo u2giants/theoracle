@@ -198,3 +198,91 @@ CREATE OR REPLACE FUNCTION oracle2.hosting_projection_embedding_identity_v2(
 $$;
 REVOKE ALL ON FUNCTION oracle2.hosting_projection_embedding_identity_v2(uuid,uuid,uuid,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
 GRANT EXECUTE ON FUNCTION oracle2.hosting_projection_embedding_identity_v2(uuid,uuid,uuid,text,text) TO oracle2_gateway_metadata;
+
+CREATE OR REPLACE FUNCTION oracle2._purpose_embedding_artifact_v2(
+ workspace uuid,artifact uuid,ver integer,principal uuid,expected_runtime text,expected_registry text)
+ RETURNS TABLE(manifest jsonb,source_refs jsonb)
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE m jsonb; a record; d record; q record; refs jsonb:='[]'; expiry timestamptz:='infinity'; kinds text[]; cycle boolean;
+BEGIN
+ IF current_setting('lock_timeout')::interval=interval '0' OR current_setting('lock_timeout')::interval>interval '2 seconds' THEN PERFORM set_config('lock_timeout','2s',true); END IF;
+ SELECT array_agg(rolname::text ORDER BY rolname) INTO kinds FROM pg_roles WHERE rolname IN
+ ('oracle2_source_reader','oracle2_candidate_compiler','oracle2_documentary_executor','oracle2_gateway_metadata') AND pg_has_role(SESSION_USER,oid,'MEMBER');
+ IF coalesce(cardinality(kinds),0)<>1 OR kinds[1]<>'oracle2_gateway_metadata' THEN RAISE insufficient_privilege; END IF;
+ PERFORM pg_advisory_xact_lock(hashtext('oracle2-authz:'||workspace::text));
+ SELECT x.manifest INTO m FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=artifact AND x.version=ver FOR SHARE;
+ IF NOT FOUND OR m->>'kind' NOT IN ('processing_extraction_v1','processing_failed_extraction_v1','processing_qualified_model_v1','processing_summary_v1','processing_failed_assembly_v1') THEN RAISE insufficient_privilege USING MESSAGE='processing artifact absent'; END IF;
+ -- Qualify rows before taking lineage-table locks, preserving source-first order.
+ FOR d IN SELECT x.upstream_id,x.upstream_revision FROM oracle2.artifact_dependencies x
+ WHERE x.workspace_id=workspace AND x.artifact_id=artifact AND x.version=ver AND x.upstream_kind='source' ORDER BY x.upstream_id,x.upstream_revision LOOP
+  SELECT * INTO q FROM oracle2._purpose_source_v2(workspace,d.upstream_id::uuid,principal,expected_runtime,expected_registry,'source-extraction',false);
+  IF q.revision::text<>d.upstream_revision THEN RAISE insufficient_privilege; END IF;
+  expiry:=least(expiry,q.valid_until);
+  refs:=refs||jsonb_build_array(jsonb_build_object('schema_version',1,'workspace_id',workspace,'source_id',d.upstream_id::uuid,
+   'revision',q.revision,'original_sha256',q.original_hash,'reading_sha256',q.reading_hash,'parser_id',q.parser_id));
+ END LOOP;
+ IF jsonb_array_length(refs)=0 THEN RAISE insufficient_privilege USING MESSAGE='processing source population missing'; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended('operating-lineage:'||workspace::text,0));
+ LOCK TABLE oracle2.artifact_manifests,oracle2.artifact_dependencies,oracle2.artifact_invalidations IN SHARE MODE;
+ -- UNION reaches a finite immutable population even if untrusted legacy INSERTs
+ -- introduced cycles; pair reachability below detects cycles without depth guesses.
+ FOR a IN WITH RECURSIVE ancestors(id,v) AS (
+  SELECT artifact,ver UNION SELECT x.upstream_id::uuid,x.upstream_revision::integer FROM oracle2.artifact_dependencies x JOIN ancestors n ON x.artifact_id=n.id AND x.version=n.v
+  WHERE x.workspace_id=workspace AND x.upstream_kind='artifact')
+ SELECT x.* FROM ancestors n JOIN oracle2.artifact_manifests x ON x.workspace_id=workspace AND x.artifact_id=n.id AND x.version=n.v LOOP
+  IF (to_jsonb(a)-ARRAY['manifest','created_at']) IS DISTINCT FROM (a.manifest-'schema_version') OR a.manifest->'schema_version' IS DISTINCT FROM '1'::jsonb
+  OR a.kind NOT IN ('processing_extraction_v1','processing_failed_extraction_v1','processing_qualified_model_v1','processing_summary_v1','processing_failed_assembly_v1')
+  OR ((a.artifact_id,a.version)<>(artifact,ver) AND a.state<>'ready')
+  OR a.manifest->>'dependency_digest' IS DISTINCT FROM oracle2._processing_dependency_digest(workspace,a.artifact_id,a.version)
+  OR EXISTS(SELECT 1 FROM oracle2.artifact_invalidations i WHERE i.workspace_id=workspace AND i.artifact_id=a.artifact_id AND i.version=a.version)
+  OR EXISTS(SELECT 1 FROM oracle2.artifact_dependencies x WHERE x.workspace_id=workspace AND x.artifact_id=a.artifact_id AND x.version=a.version
+   AND ((x.upstream_kind='source' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(refs) r WHERE r->>'source_id'=x.upstream_id AND r->>'revision'=x.upstream_revision))
+   OR x.upstream_kind NOT IN ('source','artifact')
+   OR (x.upstream_kind='artifact' AND NOT EXISTS(SELECT 1 FROM oracle2.artifact_manifests parent WHERE parent.workspace_id=workspace AND parent.artifact_id=x.upstream_id::uuid AND parent.version=x.upstream_revision::integer)))) THEN
+   RAISE insufficient_privilege USING MESSAGE='processing lineage unavailable or extended'; END IF;
+ END LOOP;
+ WITH RECURSIVE ancestors(id,v) AS (
+  SELECT artifact,ver UNION SELECT x.upstream_id::uuid,x.upstream_revision::integer FROM oracle2.artifact_dependencies x JOIN ancestors n ON x.artifact_id=n.id AND x.version=n.v WHERE x.workspace_id=workspace AND x.upstream_kind='artifact'),
+ paths(origin,ov,id,v) AS (
+  SELECT x.artifact_id,x.version,x.upstream_id::uuid,x.upstream_revision::integer FROM oracle2.artifact_dependencies x JOIN ancestors n ON x.artifact_id=n.id AND x.version=n.v WHERE x.workspace_id=workspace AND x.upstream_kind='artifact'
+  UNION SELECT p.origin,p.ov,x.upstream_id::uuid,x.upstream_revision::integer FROM paths p JOIN oracle2.artifact_dependencies x ON x.artifact_id=p.id AND x.version=p.v WHERE x.workspace_id=workspace AND x.upstream_kind='artifact')
+ SELECT EXISTS(SELECT 1 FROM paths WHERE (origin,ov)=(id,v)) INTO cycle;
+ IF cycle OR expiry<=clock_timestamp() THEN RAISE insufficient_privilege USING MESSAGE='processing lineage cycle or expired authority'; END IF;
+ RETURN QUERY SELECT m,refs;
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN RAISE insufficient_privilege USING MESSAGE='invalid processing lineage';
+END $body$;
+REVOKE ALL ON FUNCTION oracle2._purpose_embedding_artifact_v2(uuid,uuid,integer,uuid,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+
+-- Metadata-only embedding capability; Trust A app owns semantic/body validation.
+CREATE OR REPLACE FUNCTION oracle2.hosting_projection_embedding_seal_v2(
+ workspace uuid,artifact uuid,ver integer,principal uuid,expected_runtime text,expected_registry text)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE q record; e record; x record; mh text; eh text; extracts jsonb:='[]';
+BEGIN
+ SELECT * INTO STRICT q FROM oracle2._purpose_embedding_artifact_v2(workspace,artifact,ver,principal,expected_runtime,expected_registry);
+ IF q.manifest->>'kind'<>'processing_qualified_model_v1' OR q.manifest->>'state'<>'ready' THEN RAISE insufficient_privilege; END IF;
+ FOR x IN WITH RECURSIVE ancestors(id,v) AS (
+  SELECT artifact,ver UNION SELECT d.upstream_id::uuid,d.upstream_revision::integer
+  FROM oracle2.artifact_dependencies d JOIN ancestors n ON d.artifact_id=n.id AND d.version=n.v
+  WHERE d.workspace_id=workspace AND d.upstream_kind='artifact')
+ SELECT a.artifact_id,a.version FROM ancestors n JOIN oracle2.artifact_manifests a
+ ON a.workspace_id=workspace AND a.artifact_id=n.id AND a.version=n.v
+ WHERE a.kind='processing_extraction_v1' ORDER BY a.artifact_id,a.version LOOP
+  SELECT * INTO STRICT e FROM oracle2._purpose_embedding_artifact_v2(workspace,x.artifact_id,x.version,principal,expected_runtime,expected_registry);
+  SELECT encode(sha256(convert_to('{'||string_agg(to_jsonb(key)::text||':'||value::text,',' ORDER BY key COLLATE "C")||'}','UTF8')),'hex') INTO eh FROM jsonb_each(e.manifest);
+  extracts:=extracts||jsonb_build_array(jsonb_build_object('schema_version',1,'workspace_id',workspace,'artifact_id',x.artifact_id,'version',x.version,
+   'kind','processing_extraction_v1','state','ready','content_hash',e.manifest->>'content_hash','input_digest',e.manifest->>'input_digest',
+   'source_digest',e.manifest->>'source_digest','permission_digest',e.manifest->>'permission_digest','compiler_digest',e.manifest->>'compiler_digest',
+   'dependency_digest',e.manifest->>'dependency_digest','manifest_hash',eh,'source_refs',e.source_refs));
+ END LOOP;
+ IF jsonb_array_length(extracts)=0 THEN RAISE insufficient_privilege; END IF;
+ -- Recheck the whole population's actual clock after all extraction seals.
+ SELECT * INTO STRICT q FROM oracle2._purpose_embedding_artifact_v2(workspace,artifact,ver,principal,expected_runtime,expected_registry);
+ SELECT encode(sha256(convert_to('{'||string_agg(to_jsonb(key)::text||':'||value::text,',' ORDER BY key COLLATE "C")||'}','UTF8')),'hex') INTO mh FROM jsonb_each(q.manifest);
+ RETURN jsonb_build_object('schema_version',2,'workspace_id',workspace,'artifact_id',artifact,'version',ver,
+ 'kind','processing_qualified_model_v1','state','ready','content_hash',q.manifest->>'content_hash','input_digest',q.manifest->>'input_digest',
+ 'source_digest',q.manifest->>'source_digest','permission_digest',q.manifest->>'permission_digest','compiler_digest',q.manifest->>'compiler_digest',
+ 'dependency_digest',q.manifest->>'dependency_digest','manifest_hash',mh,'source_refs',q.source_refs,'extraction_seals',extracts);
+END $$;
+REVOKE ALL ON FUNCTION oracle2.hosting_projection_embedding_seal_v2(uuid,uuid,integer,uuid,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+GRANT EXECUTE ON FUNCTION oracle2.hosting_projection_embedding_seal_v2(uuid,uuid,integer,uuid,text,text) TO oracle2_gateway_metadata;
