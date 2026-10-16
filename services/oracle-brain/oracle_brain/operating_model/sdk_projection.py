@@ -98,7 +98,7 @@ class SDKProjection:
         if _paid_connection_config is None:
             config=ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000)
         else:
-            if type(self) is not PaidProcessingSDKProjectionV3:raise PermissionError('TLS override is restricted to explicit paid SDK profile')
+            if type(self) not in (PaidProcessingSDKProjectionV3,PaidMetadataSDKProjectionV3):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
             config=paid_tls_connection_config_v3(graph_url,self.graph_name,_paid_connection_config)
         self.connection=FalkorDBConnection(config)
         if read_only:self.connection=ReadOnlyConnection(self.connection)
@@ -431,14 +431,35 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         return {**result,'paid_embedding':proof.model_dump(mode='json')}
 
     async def load(self,ledger,workspace_id,artifact_id,artifact_version):
-        # Trusted runtime obtains this receipt from the actual committed ACK
-        # registry, never an HTTP body. HMAC key remains compiler/projector-only.
+        # Only the current real compiler SQL getter may supply prior ACK data.
+        # Caller/cache/HMAC alone is not proof that an ACK actually committed.
+        from .authority_adapter import ProcessingArtifactResolver
+        from .contracts import ProcessingProjectionReceiptV3
+        from datetime import datetime,timezone
+        if type(self._paid_receipt_secret) is not bytes or len(self._paid_receipt_secret)<32:
+            raise PermissionError('fresh paid SDK load requires authenticated prior committed V3 delivery receipt')
+        source=ledger.processing_sources
+        if (type(source) is not ProcessingArtifactResolver or source.binding.profile!='candidate-compiler'
+                or ledger.principal!=source.binding.principal):
+            raise PermissionError('actual compiler receipt read capability required')
         manifest,payload=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
+        current=source.projection_receipt_v3(workspace_id,artifact_id,artifact_version)
+        if type(current) is not ProcessingProjectionReceiptV3:raise PermissionError('actual current compiler ACK required')
+        receipt={**current.receipt.model_dump(mode='json'),'signature':current.signature}
+        if self._paid_signed_receipt is not None and self._paid_signed_receipt!=receipt:
+            raise PermissionError('cached paid SDK receipt differs from actual current ACK')
+        self._paid_signed_receipt=receipt
         self._verify_paid_receipt(payload)
-        receipt=self._paid_signed_receipt
         if (receipt['source_digest'],receipt['permission_digest'])!=(manifest.source_digest,manifest.permission_digest):
             raise PermissionError('paid SDK ACK source/compiler manifest seal differs')
-        return await super().load(ledger,workspace_id,artifact_id,artifact_version)
+        result=await super().load(ledger,workspace_id,artifact_id,artifact_version)
+        again=source.projection_receipt_v3(workspace_id,artifact_id,artifact_version)
+        latest,body=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
+        if (again.receipt!=current.receipt or again.signature!=current.signature or again.source_refs!=current.source_refs
+                or datetime.now(timezone.utc)>=min(current.valid_until,again.valid_until)
+                or latest!=manifest or body!=payload):
+            raise PermissionError('paid SDK ACK or current authority changed during graph load')
+        return result
 
     async def paid_projection_proof(self,payload):
         # ALWAYS query again immediately before the handler signs/ACKs; cached
@@ -473,3 +494,77 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
                 or body['sdk_version']!='1.4.0' or any(getattr(proof,k)!=v for k,v in expected.items())):
             raise PermissionError('signed paid SDK receipt does not bind current graph/model/vectors')
         self._paid_expected_receipt_proof=proof
+
+
+class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
+    """Executor-only verified ACK metadata/graph read; no wire, key or provider."""
+    def __init__(self,graph_url,*,workspace_id,artifact_id,artifact_version,generation,resolver,
+                 qualification_guard,connection_config):
+        from .authority_adapter import ProcessingArtifactResolver
+        from .contracts import ProcessingProjectionDeliverySealV3
+        from graphrag_sdk.core.providers import LLMInterface,Embedder
+        if (type(resolver) is not ProcessingArtifactResolver or resolver.binding.profile!='documentary-executor'
+                or connection_config is None):raise PermissionError('actual metadata-only executor and explicit TLS graph profile required')
+        seal=resolver.projection_delivery_seal(workspace_id,artifact_id,artifact_version)
+        if type(seal) is not ProcessingProjectionDeliverySealV3:raise PermissionError('actual current executor delivery metadata required')
+        expected=f'oracle_processing_v1_{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
+        if seal.graph_name!=expected:raise PermissionError('configured graph differs from current SQL delivery')
+        class NoGeneration(LLMInterface):
+            def __init__(self):super().__init__('sealed-executor-no-generation')
+            def invoke(self,*args,**kwargs):raise PermissionError('executor cannot generate')
+        class NoEmbedding(Embedder):
+            model_name='no-query-embedding-authority'
+            def embed_query(self,*args,**kwargs):raise PermissionError('executor has no paid query embedding authority')
+        self.delivery_resolver=resolver;self._executor_manifest=None;self._executor_ledger=None
+        super().__init__(graph_url,workspace_id=workspace_id,artifact_id=artifact_id,artifact_version=artifact_version,
+            generation=generation,llm=NoGeneration(),embedder=NoEmbedding(),dimensions=256,read_only=True,
+            qualification_guard=qualification_guard,_paid_connection_config=connection_config)
+        self._delivery_target=(workspace_id,artifact_id,artifact_version)
+
+    async def build(self,*args,**kwargs):raise PermissionError('metadata-only executor cannot build')
+
+    def _delivery(self,payload):
+        from .contracts import ProcessingProjectionDeliverySealV3
+        from .paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
+        from datetime import datetime,timezone
+        if self._executor_manifest is None:raise PermissionError('actual authorized executor load context required')
+        seal=self.delivery_resolver.projection_delivery_seal(*self._delivery_target)
+        m=self._executor_manifest;inventory=processing_embedding_inventory_v3(payload)
+        if (type(seal) is not ProcessingProjectionDeliverySealV3 or datetime.now(timezone.utc)>=seal.valid_until
+                or seal.graph_name!=self.graph_name or seal.content_hash!=digest(payload)
+                or (seal.content_hash,seal.source_digest,seal.permission_digest)!=(m.content_hash,m.source_digest,m.permission_digest)
+                or len(seal.source_refs)!=len(inventory.source_refs) or set(seal.source_refs)!=set(inventory.source_refs) or seal.record_digest!=digest({'records':self.records(payload)})
+                or seal.projection_schema!=self.projection_schema or seal.projection_digest!=self.processing_projection_digest(payload)
+                or seal.embedding_inventory_hash!=digest(inventory.model_dump(mode='json'))):
+            raise PermissionError('current executor delivery does not bind this graph/model/projection')
+        return seal,inventory
+
+    async def verify(self,payload):
+        from .paid_sdk_embeddings_v3 import graph_vector_coverage_v3,PaidSDKProjectionProofV3
+        before,inventory=self._delivery(payload)
+        await super().verify(payload)
+        chunks=(await self.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set
+        entities=(await self.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set
+        relations=(await self.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set
+        coverage,_=graph_vector_coverage_v3(inventory,chunks=chunks,entities=entities,relations=relations)
+        if coverage!=before.embedding_coverage_hash:raise PermissionError('executor graph vectors differ from authenticated ACK coverage')
+        proof=PaidSDKProjectionProofV3.model_validate({k:getattr(before,k) for k in PaidSDKProjectionProofV3.model_fields})
+        marker=(await self.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set
+        if marker!=[[digest(proof.model_dump(mode='json'))]]:raise PermissionError('executor completed graph marker differs')
+        after,_=self._delivery(payload)
+        # checked_at is a fresh observation, not immutable delivery identity.
+        if before.model_dump(exclude={'checked_at','valid_until'})!=after.model_dump(exclude={'checked_at','valid_until'}):
+            raise PermissionError('current executor delivery changed during graph verification')
+        self._executor_ledger.read_with_manifest(*self._delivery_target)
+
+    async def load(self,ledger,workspace_id,artifact_id,artifact_version):
+        if ((workspace_id,artifact_id,artifact_version)!=self._delivery_target or ledger.processing_sources is not self.delivery_resolver
+                or ledger.principal!=self.delivery_resolver.binding.principal):
+            raise PermissionError('exact current executor ledger/profile required')
+        manifest,payload=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
+        self._executor_manifest=manifest;self._executor_ledger=ledger
+        self._delivery(payload)
+        result=await super().load(ledger,workspace_id,artifact_id,artifact_version)
+        again,body=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
+        if again!=manifest or body!=payload:raise PermissionError('qualified executor input changed during graph load')
+        return result
