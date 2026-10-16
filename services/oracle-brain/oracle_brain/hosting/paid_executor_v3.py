@@ -233,8 +233,8 @@ class PaidExecutorSettingsV3:
             summary=_worker_parse(canonical_bytes(payload['summary']),DocumentarySummary)
             _require((summary.pack.artifact_id,summary.pack.version)==(target.qualified_parent_id,target.qualified_parent_version),
                 'summary qualified parent differs')
-            # TOCTOU currentness; summary guard already re-validated parent lineage.
-            self.authorize_current()
+            # TOCTOU: full parent/manifest proof again after summary parse.
+            self.read_target()
             return payload
 
 
