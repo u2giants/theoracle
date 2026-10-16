@@ -11,13 +11,16 @@ from test_replacement_source_intake_sql import requester,call,reserve,custody
 
 
 @pytest.fixture
-def raw_reader(requester):
+def raw_reader(requester,request):
     x=requester;refs=[]
+    native=getattr(request,'param',None)=='native-utf8'
+    media='text/plain' if native else 'application/pdf'
+    original_hash=__import__('hashlib').sha256(b'invent!').hexdigest() if native else 'c'*64
     for _ in range(3):
-        e=reserve(x);r=e['reservation']
-        call(x,'finalize_source_revision_v1',r['reservation_id'],0,psycopg.types.json.Jsonb(custody(e)))
+        e=call(x,'reserve_source_revision_v1',0,psycopg.types.json.Jsonb(dict(source_id=None,filename='invented.txt' if native else 'invented.pdf',media_type=media,byte_count=7,caller_deadline=x['until'].isoformat())),uuid4());r=e['reservation']
+        call(x,'finalize_source_revision_v1',r['reservation_id'],0,psycopg.types.json.Jsonb(custody(e,original_sha256=original_hash)))
         refs.append(RawOriginalRefV1(workspace_id=x['workspace'],source_id=UUID(r['source_id']),revision=1,
-            original_sha256='c'*64,byte_count=7,media_type='application/pdf',filename='invented.pdf',custody_locator_seal_sha256='d'*64))
+            original_sha256=original_hash,byte_count=7,media_type=media,filename='invented.txt' if native else 'invented.pdf',custody_locator_seal_sha256='d'*64))
     login='raw_reader_'+uuid4().hex[:12];actor,population=uuid4(),uuid4();runtime='e'*64;registry='f'*64
     phase_until=x['until']-timedelta(seconds=10);role_until=phase_until-timedelta(seconds=5)
     pop=RawOriginalPopulationV1(population_id=population,workspace_id=x['workspace'],original_root_hash='1'*64,
