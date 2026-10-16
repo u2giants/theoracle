@@ -51,7 +51,7 @@ def make_initial_compiler_worker_v2(admin_url,x,compiler_root):
         parent_journal_hash='e'*64 if extraction else None,prior_receipt_hash='f'*64 if extraction else None,allocation_hash=allocation.allocation_hash,nonce=uuid4().hex,
         runtime_hash=f['runtime'],admission_hash='1'*64,dispatch_id=x['job'].dispatch_id,
         request_hash=x['job'].request_hash,phase_registry_sha256=x['operation_hash'],
-        expires_at=end,original_horizon=allocation.original_expires_at)
+        expires_at=min(end,x.get('phase_expires_at',end),datetime.now(timezone.utc)+timedelta(seconds=x.get('worker_job_seconds',600))),original_horizon=allocation.original_expires_at)
     issuer,reviewer,cissuer,creviewer,sissuer,sreviewer=(uuid4() for _ in range(6))
     registry=PurposeWorkerRegistryV2(workspace_id=f['workspace'],actor_id=f['actor'],worker_uri=c.worker_uri,
         runtime_hash=f['runtime'],issuer_actor=issuer,reviewer_actor=reviewer,valid_from=now-timedelta(seconds=1),expires_at=end,jobs=(job,))
@@ -79,6 +79,15 @@ def make_initial_compiler_worker_v2(admin_url,x,compiler_root):
             CompilerPhaseCustodyFileV2(kind='wire_metadata',path=str(x['custody']/(str(job.dispatch_id)+'.wire.json')),
                 request_hash=job.request_hash,producer_runtime_hash=f['runtime'],**native)])
         appointment=appointment.model_copy(update={'files':{job.job_id:tuple(outputs)}})
+    if not extraction:
+        outputs.extend(CompilerPhaseCustodyFileV2(kind=kind,
+            path=str(x['custody']/(str(job.dispatch_id)+suffix)),dispatch_id=job.dispatch_id,
+            native_job_hash=digest(x['job'].model_dump(mode='json')),request_hash=job.request_hash,
+            producer_runtime_hash=f['runtime']) for kind,suffix in [('raw_wire','.wire'),('wire_metadata','.wire.json')])
+        context_path=Path(x['context_file'])
+        outputs.append(CompilerPhaseCustodyFileV2(kind='census_context',path=str(context_path),
+            sha256=hashlib.sha256(context_path.read_bytes()).hexdigest(),dispatch_id=job.dispatch_id))
+        appointment=appointment.model_copy(update={'files':{job.job_id:tuple(outputs)}})
     custody_file,custody_hash=store('custody.json',appointment)
     semantic=dict(schema_version=3,qualification_purpose='captured-assembly-semantic-admission-v3',workspace_id=str(f['workspace']),
         runtime_hash=f['runtime'],compiler_profile='candidate-compiler',issuer_actor=str(sissuer),reviewer_actor=str(sreviewer),
@@ -102,7 +111,7 @@ def make_initial_compiler_worker_v2(admin_url,x,compiler_root):
         allocation_projection_file=c.budget_allocation_projection_file,allocation_projection_sha256=digest(allocation.model_dump(mode='json')),
         custody_appointment_file=custody_file,custody_appointment_sha256=custody_hash,custody_issuer_actor=cissuer,custody_reviewer_actor=creviewer,
         parent_observer_admission_file=c.parent_observer_admission_file,parent_observer_admission_hash=c.parent_observer_admission_hash,
-        observer_client=tls,observer_spool=str(observer),observer_namespace='parent-v2',observer_initialization_hash=replay['initialization_receipt_hash'],
+        observer_client=tls,observer_timeout_seconds=5.0,provider_rpc_timeout_seconds=float(client.timeout),observer_spool=str(observer),observer_namespace='parent-v2',observer_initialization_hash=replay['initialization_receipt_hash'],
         clients={job.phase:provider},spool=str(spool),blob_root=str(root/'blobs'),semantic_registry_file=semantic_file,semantic_registry_sha256=semantic_hash,
         semantic_issuer_actor=sissuer,semantic_reviewer_actor=sreviewer,semantic_valid_from=now-timedelta(seconds=1),semantic_expires_at=end)
     config_file,config_hash=store('worker.json',config)
@@ -278,6 +287,15 @@ def make_next_compiler_worker_v2(x,compiler_root,*,prior_settings,jobs,custody_f
         compiler_login=old.expected_session_role,runtime_hash=old.runtime_hash,
         population_digest=prior_settings.population.population_digest,issuer_actor=old.custody_issuer_actor,
         reviewer_actor=old.custody_reviewer_actor,valid_from=now,expires_at=end,files=custody_files)
+    if not extraction:
+        outputs.extend(CompilerPhaseCustodyFileV2(kind=kind,
+            path=str(x['custody']/(str(job.dispatch_id)+suffix)),dispatch_id=job.dispatch_id,
+            native_job_hash=digest(x['job'].model_dump(mode='json')),request_hash=job.request_hash,
+            producer_runtime_hash=f['runtime']) for kind,suffix in [('raw_wire','.wire'),('wire_metadata','.wire.json')])
+        context_path=Path(x['context_file'])
+        outputs.append(CompilerPhaseCustodyFileV2(kind='census_context',path=str(context_path),
+            sha256=hashlib.sha256(context_path.read_bytes()).hexdigest(),dispatch_id=job.dispatch_id))
+        appointment=appointment.model_copy(update={'files':{job.job_id:tuple(outputs)}})
     custody_file,custody_hash=store('custody.json',appointment)
     binding=x['client'].binding
     client=dict(hostname=binding.hostname,port=binding.port,server_uri=binding.server_uri,client_uri=binding.client_uri,
@@ -290,3 +308,34 @@ def make_next_compiler_worker_v2(x,compiler_root,*,prior_settings,jobs,custody_f
     config=CompilerWorkerConfigV2.model_validate(config.model_dump(mode='python'))
     config_file,config_hash=store('worker.json',config)
     return load_purpose_worker_settings_v2(config_file,config_hash),jobs
+
+
+def test_actual_provider_rpc_can_exceed_five_seconds_without_renewing_horizon(compiler_worker):
+    import time
+    x,settings,job=compiler_worker
+    assert settings.clients['census'].binding.timeout==90.0
+    original=job.original_horizon
+    x['state']['after_post']=lambda:time.sleep(5.2)
+    PurposeJourneyCustodyV2(settings).admit(job.job_id)
+    row=run_purpose_worker_once_v2(settings)
+    assert row['state']=='awaiting-external-phase-admission' and x['state']['posts']==1
+    assert row['original_horizon']==original.isoformat() and job.original_horizon==original
+    for field,value in (('observer_timeout_seconds',5.01),('provider_rpc_timeout_seconds',90.01),
+                        ('observer_timeout_seconds',float('inf')),('provider_rpc_timeout_seconds',True)):
+        with pytest.raises(ValueError):
+            CompilerWorkerConfigV2.model_validate({**settings.config.model_dump(mode='python'),field:value})
+
+
+def test_actual_worker_short_original_job_deadline_wins_over_long_provider_rpc(admin_url,native_census_startup,tmp_path):
+    import time
+    x=native_census_startup;x['worker_job_seconds']=4
+    settings,jobs=make_initial_compiler_worker_v2(admin_url,x,tmp_path/'short-worker');job=jobs[0]
+    original=job.original_horizon
+    x['state']['after_post']=lambda:time.sleep(5.5)
+    custody=PurposeJourneyCustodyV2(settings);custody.admit(job.job_id)
+    with pytest.raises((PermissionError,TimeoutError,OSError)):
+        run_purpose_worker_once_v2(settings)
+    assert datetime.now(timezone.utc)>=job.expires_at and job.original_horizon==original
+    assert x['state']['posts']==1
+    assert custody.journal.read(job.journey_id)[0]['state']=='attempt-started'
+    assert not list(Path(settings.config.spool).glob('*.pending'))
