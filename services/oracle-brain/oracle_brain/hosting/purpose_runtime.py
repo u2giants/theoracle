@@ -49,6 +49,7 @@ class PurposeCommonConfigV2(StrictRecord):
     source_expires_at: AwareDatetime
     parent_observer_admission_file: str
     parent_observer_admission_hash: str=Field(pattern=HASH)
+    observer_timeout_seconds: float=Field(gt=0,le=5,allow_inf_nan=False)
     observer_hostname: str
     observer_port: int=Field(strict=True,ge=1,le=65535)
     observer_server_uri: str=Field(pattern=WORKER)
@@ -91,6 +92,7 @@ class PurposeProviderConfigV2(PurposeCommonConfigV2):
 
 class PurposeMetadataConfigV2(PurposeCommonConfigV2):
     role: Literal['metadata']='metadata'
+    provider_rpc_timeout_seconds: float=Field(gt=0,le=90,allow_inf_nan=False)
     provider_hostname: str
     provider_port: int=Field(strict=True,ge=1,le=65535)
     provider_server_uri: str=Field(pattern=WORKER)
@@ -185,7 +187,7 @@ def load_purpose_runtime_settings_v2(config_path,trusted_config_sha256,*,expecte
     resolver=PurposeSourceResolverV2(tls_url(config.source_url_file),binding=binding)
     transport=ParentObserverClientV2(PurposeTLSBindingV2(hostname=config.observer_hostname,port=config.observer_port,
         server_uri=config.observer_server_uri,client_uri=config.observer_client_uri,
-        ca_file=Path(config.observer_ca),certificate_file=Path(config.observer_certificate),key_file=Path(config.observer_key)))
+        ca_file=Path(config.observer_ca),certificate_file=Path(config.observer_certificate),key_file=Path(config.observer_key),timeout=config.observer_timeout_seconds))
     replay=DurableNonceSequenceV2(config.observer_spool,namespace=config.observer_namespace,
         appointment_hash=config.parent_observer_admission_hash,minimum_sequence=admission.minimum_sequence,
         initialization_receipt_hash=config.observer_initialization_hash)
@@ -455,7 +457,7 @@ class PurposeMetadataIngressV2:
         self.settings=settings;self.jobs=CurrentPurposeJobsV2(settings)
         self.client=PurposeProviderClientV2(PurposeTLSBindingV2(hostname=c.provider_hostname,port=c.provider_port,
             server_uri=c.provider_server_uri,client_uri=c.provider_client_uri,ca_file=Path(c.provider_ca),
-            certificate_file=Path(c.provider_certificate),key_file=Path(c.provider_key)))
+            certificate_file=Path(c.provider_certificate),key_file=Path(c.provider_key),timeout=c.provider_rpc_timeout_seconds))
 
     def dispatch(self,peer_uri,request):
         s=self.settings
@@ -470,11 +472,15 @@ class PurposeMetadataIngressV2:
                 verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
                     actual_caller_login=s.config.expected_session_role,profile='gateway-metadata',
                     now=datetime.now(timezone.utc))
-        current_sql()
+                return proof
+        proof=current_sql()
         _local_operation_records_current_v2(s,now=datetime.now(timezone.utc))
         if datetime.now(timezone.utc)>=witness.expires_at:
             raise PermissionError('parent witness expired before metadata POST')
-        receipt=self.client.dispatch(dispatch_id,j.request_hash,s.pins.phase_registry_sha256)
+        allocation=_local_operation_records_current_v2(s,now=datetime.now(timezone.utc))
+        deadline=min(proof.expires_at,s.pins.expires_at,s.population.expires_at,d.expires_at,
+            s.config.source_expires_at,allocation.original_expires_at,s.observer.admission.expires_at)
+        receipt=self.client.dispatch(dispatch_id,j.request_hash,s.pins.phase_registry_sha256,deadline=deadline)
         self.jobs.metadata(dispatch_id);current_sql()
         return receipt
 
