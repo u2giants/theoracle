@@ -71,11 +71,14 @@ def ledger_object_evidence(payload, *, workspace_id, receipts, inventories):
                 raise ValueError('duplicate or divergent workflow identity')
             return model
         workflows[model.workflow_id] = model
-        for item in (*model.steps, *model.gateways, *model.transitions, *model.roles,
-                     *model.artifacts, *model.handoffs, *model.conditions):
-            key = next(getattr(item, key) for key in ('step_id', 'gateway_id', 'transition_id',
-                'assignment_id', 'artifact_id', 'handoff_id', 'condition_id') if hasattr(item, key))
-            support(model.workflow_id + ':' + key, item.support.observation_ids)
+        # A handoff references artifact_id AND owns handoff_id. Referenced
+        # identifiers must never replace the canonical identity of that item.
+        # Keep the same explicit collection/key mapping as SDKProjection.records.
+        for collection,key in (('steps','step_id'),('gateways','gateway_id'),
+                ('transitions','transition_id'),('roles','assignment_id'),
+                ('artifacts','artifact_id'),('handoffs','handoff_id'),('conditions','condition_id')):
+            for item in getattr(model,collection):
+                support(model.workflow_id + ':' + getattr(item,key), item.support.observation_ids)
         return model
 
     for raw in payload.get('workflows', ()):
