@@ -423,6 +423,7 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         if type(self) is not PaidProcessingSDKProjectionV3 or self.read_only or workspace_id!=self.workspace_id:
             raise PermissionError('exact writable paid projection identity required')
         from .assembly_qualification import read_documentary_artifact
+        self._paid_built_here=False
         self._paid_building=True
         try:
             # BOTH actual ledger authority and independent SDK scope precede
