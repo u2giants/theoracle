@@ -640,7 +640,7 @@ def test_paid_compiler_load_retains_new_final_sdk_scope_and_ack(damage):
     else:
         with pytest.raises(PermissionError):asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))
 
-@pytest.mark.parametrize('damage',['allow','initial-sdk-deny','initial-sdk-false','final-sdk-deny','final-sdk-false','final-ledger-deny','final-body','final-manifest','base-marker','paid-marker'])
+@pytest.mark.parametrize('damage',['allow','initial-sdk-deny','initial-sdk-false','final-sdk-deny','final-sdk-false','final-ledger-deny','final-body','final-manifest','base-marker','paid-marker','failed-rebuild'])
 def test_paid_build_operation_keeps_both_independent_scopes_and_final_actual_markers(paid_case,monkeypatch,damage):
     """Controlled distinct authority boundaries; actual graph proof runs separately."""
     import asyncio
@@ -656,7 +656,7 @@ def test_paid_build_operation_keeps_both_independent_scopes_and_final_actual_mar
             phase='final' if state['graph'] else 'initial'
             if damage==phase+'-sdk-deny':raise PermissionError('independent SDK scope revoked')
             if damage==phase+'-sdk-false':return False
-    p=object.__new__(PaidProcessingSDKProjectionV3);p.workspace_id=data.witness.workspace_id;p.read_only=False;p.graph_name='owned-controlled';p._paid_built_here=False
+    p=object.__new__(PaidProcessingSDKProjectionV3);p.workspace_id=data.witness.workspace_id;p.read_only=False;p.graph_name='owned-controlled';p._paid_built_here=damage=='failed-rebuild'
     p.paid_embedder=PaidProjectionEmbedderV3(data);p.qualification_guard=Scope()
     manifest=SimpleNamespace(kind='processing_qualified_model_v1',version=1)
     def read(*args):
@@ -669,6 +669,7 @@ def test_paid_build_operation_keeps_both_independent_scopes_and_final_actual_mar
     ledger=SimpleNamespace(principal=uuid4(),read_with_manifest=read)
     async def writes(*args):
         assert state['guards']==state['reads']==1
+        if damage=='failed-rebuild':raise ValueError('occupied prior generation')
         state['graph']=True
         return p.records(payload),SimpleNamespace(model_dump=lambda **kw:{'indexes':{'actual':True}})
     p._build_graph_payload=writes
@@ -693,7 +694,7 @@ def test_paid_build_operation_keeps_both_independent_scopes_and_final_actual_mar
         assert result['paid_embedding']==proof.model_dump(mode='json')
         assert state['reads']==state['guards']==2 and state['proofs']==1 and p._paid_built_here
     else:
-        with pytest.raises(PermissionError):asyncio.run(p.build(ledger,p.workspace_id,data.witness.qualified_artifact_id,data.witness.qualified_artifact_version))
+        with pytest.raises(ValueError if damage=='failed-rebuild' else PermissionError):asyncio.run(p.build(ledger,p.workspace_id,data.witness.qualified_artifact_id,data.witness.qualified_artifact_version))
         assert not p._paid_built_here
         if damage.startswith('initial'):assert not state['graph'] and state['queries']==0
     assert p._paid_building is False
