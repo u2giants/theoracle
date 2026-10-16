@@ -5,7 +5,7 @@ from uuid import UUID
 from graphrag_sdk import GraphRAG,ConnectionConfig,FalkorDBConnection,Ontology,Entity,Relation,ChunkingStrategy,ExtractionStrategy,TextChunk,TextChunks
 from graphrag_sdk.core.models import GraphData,GraphNode,GraphRelationship,EntityMention,ResolutionResult
 from graphrag_sdk.ingestion.resolution_strategies.base import ResolutionStrategy
-from .contracts import digest
+from .contracts import digest,canonical_bytes
 
 PREFIX='oracle_operating_model_v1_'
 
@@ -485,9 +485,12 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
     """Executor-only verified ACK metadata/graph read; no wire, key or provider."""
     def __init__(self,graph_url,*,workspace_id,artifact_id,artifact_version,generation,resolver,
                  qualification_guard,connection_config):
+        from .purpose_qualification_v3 import PurposeQualifiedAssemblyReadGuardV3
         from .authority_adapter import ProcessingArtifactResolver
         from .contracts import ProcessingProjectionDeliverySealV3
         from graphrag_sdk.core.providers import LLMInterface,Embedder
+        if type(qualification_guard) is not PurposeQualifiedAssemblyReadGuardV3:
+            raise PermissionError('actual current schema3 semantic verifier required before graph access')
         if (type(resolver) is not ProcessingArtifactResolver or resolver.binding.profile!='documentary-executor'
                 or connection_config is None):raise PermissionError('actual metadata-only executor and explicit TLS graph profile required')
         seal=resolver.projection_delivery_seal(workspace_id,artifact_id,artifact_version)
@@ -512,7 +515,11 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
         from .contracts import ProcessingProjectionDeliverySealV3
         from .paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
         from datetime import datetime,timezone
+        from .purpose_qualification_v3 import PurposeAssemblyQualificationV3,PurposeFinalLineageV3
         if self._executor_manifest is None:raise PermissionError('actual authorized executor load context required')
+        # No reinterpretation of a legacy qualification as new V3 authority.
+        PurposeAssemblyQualificationV3.model_validate_json(canonical_bytes(payload.get('assembly_qualification')))
+        PurposeFinalLineageV3.model_validate_json(canonical_bytes(payload.get('qualified_lineage')))
         seal=self.delivery_resolver.projection_delivery_seal(*self._delivery_target)
         m=self._executor_manifest;inventory=processing_embedding_inventory_v3(payload)
         if (type(seal) is not ProcessingProjectionDeliverySealV3 or datetime.now(timezone.utc)>=seal.valid_until
