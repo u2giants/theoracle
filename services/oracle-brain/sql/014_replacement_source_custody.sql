@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS oracle2.hosting_original_population_admissions_v1 (
  source_registry_hash text NOT NULL CHECK(source_registry_hash ~ '^[0-9a-f]{64}$'),
  operation_registry_hash text NOT NULL CHECK(operation_registry_hash ~ '^[0-9a-f]{64}$'),
  expires_at timestamptz NOT NULL CHECK(isfinite(expires_at)),PRIMARY KEY(role_name,population_id));
+CREATE TABLE IF NOT EXISTS oracle2.source_original_withdrawals_v1 (
+ event_id uuid PRIMARY KEY,workspace_id uuid NOT NULL,source_id uuid NOT NULL,revision integer NOT NULL,
+ original_sha256 text NOT NULL CHECK(original_sha256 ~ '^[0-9a-f]{64}$'),principal_id uuid NOT NULL,session_role name NOT NULL,
+ runtime_hash text NOT NULL CHECK(runtime_hash ~ '^[0-9a-f]{64}$'),reason text NOT NULL CHECK(length(reason) BETWEEN 1 AND 1600),
+ idempotency_key uuid NOT NULL,request_sha256 text NOT NULL CHECK(request_sha256 ~ '^[0-9a-f]{64}$'),
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ FOREIGN KEY(workspace_id,source_id,revision) REFERENCES oracle2.source_original_revisions(workspace_id,source_id,revision),
+ UNIQUE(workspace_id,source_id,revision),UNIQUE(workspace_id,principal_id,idempotency_key));
+REVOKE ALL ON oracle2.source_original_withdrawals_v1 FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
+ oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer,oracle2_replacement_requester;
 CREATE TABLE IF NOT EXISTS oracle2.source_reading_qualifications (
  workspace_id uuid NOT NULL,source_id uuid NOT NULL,revision integer NOT NULL,
  original_sha256 text NOT NULL CHECK(original_sha256 ~ '^[0-9a-f]{64}$'),
@@ -461,10 +472,9 @@ BEGIN
  WHERE workspace_id=a.workspace_id AND source_id=source FOR SHARE;
  SELECT * INTO original FROM oracle2.source_original_revisions WHERE workspace_id=a.workspace_id
  AND source_id=source AND revision=wanted_revision FOR SHARE;
- LOCK TABLE oracle2.drafts IN SHARE MODE;
- IF EXISTS(SELECT 1 FROM oracle2.drafts d WHERE d.workspace_id=a.workspace_id AND d.source_id=source AND d.status='withdrawn')
- OR (SELECT count(*) FROM oracle2.drafts d WHERE d.workspace_id=a.workspace_id AND d.source_id=source)>1 THEN
-  RAISE insufficient_privilege USING MESSAGE='original source withdrawn or ambiguous';
+ IF EXISTS(SELECT 1 FROM oracle2.source_original_withdrawals_v1 w WHERE w.workspace_id=a.workspace_id
+  AND w.source_id=source AND w.revision=wanted_revision) THEN
+  RAISE insufficient_privilege USING MESSAGE='exact original revision withdrawn';
  END IF;
  IF current_revision IS DISTINCT FROM wanted_revision OR current_status NOT IN('processing','draft','confirmed')
  OR current_status IS NULL OR original.source_id IS NULL OR original.original_sha256 IS DISTINCT FROM a.original_sha256 THEN
@@ -946,3 +956,64 @@ REVOKE ALL ON FUNCTION oracle2.reconcile_source_intake_v1(uuid) FROM PUBLIC,
  oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
  oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer;
 GRANT EXECUTE ON FUNCTION oracle2.reconcile_source_intake_v1(uuid) TO oracle2_replacement_requester;
+
+CREATE OR REPLACE FUNCTION oracle2.withdraw_original_revision_v1(source uuid,expected_head integer,withdrawal jsonb,idempotency uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE candidate_workspace uuid;a oracle2.hosting_request_principal_admissions%ROWTYPE;
+ s oracle2.sources%ROWTYPE;o oracle2.source_original_revisions%ROWTYPE;prior oracle2.source_original_withdrawals_v1%ROWTYPE;
+ known uuid[];actual uuid[];artifact uuid;event uuid:=gen_random_uuid();deadline timestamptz;caller_deadline timestamptz;seal text;pins jsonb;
+BEGIN
+ SELECT p.workspace_id INTO candidate_workspace FROM oracle2.hosting_request_principal_admissions p WHERE role_name=SESSION_USER;
+ IF candidate_workspace IS NULL THEN RAISE insufficient_privilege; END IF;
+ SELECT coalesce(array_agg(DISTINCT x.artifact_id ORDER BY x.artifact_id),'{}'::uuid[]) INTO known
+ FROM oracle2._replacement_affected(candidate_workspace,source) x;
+ FOREACH artifact IN ARRAY known LOOP
+  PERFORM pg_advisory_xact_lock(hashtextextended('operating-model:'||candidate_workspace::text||':'||artifact::text,0));
+ END LOOP;
+ a:=oracle2._replacement_request_context();
+ IF a.workspace_id IS DISTINCT FROM candidate_workspace OR expected_head IS NULL OR expected_head<1 OR idempotency IS NULL
+ OR jsonb_typeof(withdrawal) IS DISTINCT FROM 'object' OR NOT withdrawal ?& ARRAY['reason','expected_context','caller_deadline']
+ OR withdrawal-ARRAY['reason','expected_context','caller_deadline']<>'{}'::jsonb
+ OR jsonb_typeof(withdrawal->'reason') IS DISTINCT FROM 'string' OR length(withdrawal->>'reason') NOT BETWEEN 1 AND 1600
+ OR jsonb_typeof(withdrawal->'caller_deadline') IS DISTINCT FROM 'string'
+ OR withdrawal->>'caller_deadline' !~ '(Z|[+-][0-9]{2}:[0-9]{2})$' THEN RAISE invalid_parameter_value; END IF;
+ pins:=jsonb_build_object('principal_id',a.principal_id,'workspace_id',a.workspace_id,'session_role',SESSION_USER,
+  'runtime_hash',a.runtime_hash,'source_registry_hash',a.registry_hash);
+ IF withdrawal->'expected_context' IS DISTINCT FROM pins THEN RAISE insufficient_privilege; END IF;
+ caller_deadline:=(withdrawal->>'caller_deadline')::timestamptz;
+ IF NOT isfinite(caller_deadline) THEN RAISE insufficient_privilege; END IF;
+ deadline:=least(a.expires_at,caller_deadline,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'),
+  oracle2._replacement_scope(a.workspace_id,a.principal_id,'source-read:'||source::text));
+ SELECT * INTO s FROM oracle2.sources WHERE workspace_id=a.workspace_id AND source_id=source FOR UPDATE;
+ SELECT * INTO o FROM oracle2.source_original_revisions WHERE workspace_id=a.workspace_id AND source_id=source AND revision=expected_head FOR SHARE;
+ IF s.source_id IS NULL OR s.revision IS DISTINCT FROM expected_head OR o.source_id IS NULL THEN
+  RAISE serialization_failure USING MESSAGE='replacement revision conflict'; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended('operating-lineage:'||a.workspace_id::text,0));
+ LOCK TABLE oracle2.artifact_manifests,oracle2.artifact_dependencies,oracle2.artifact_invalidations IN SHARE ROW EXCLUSIVE MODE;
+ SELECT coalesce(array_agg(DISTINCT x.artifact_id ORDER BY x.artifact_id),'{}'::uuid[]) INTO actual FROM oracle2._replacement_affected(a.workspace_id,source) x;
+ IF NOT actual<@known THEN RAISE serialization_failure USING MESSAGE='replacement dependency set changed'; END IF;
+ seal:=encode(sha256(convert_to(oracle2._replacement_metadata_json(jsonb_build_object('source_id',source,'revision',expected_head,
+  'original_sha256',o.original_sha256,'reason',withdrawal->>'reason')),'UTF8')),'hex');
+ SELECT * INTO prior FROM oracle2.source_original_withdrawals_v1 WHERE workspace_id=a.workspace_id
+  AND ((principal_id=a.principal_id AND idempotency_key=idempotency) OR (source_id=source AND revision=expected_head)) FOR SHARE;
+ IF prior.event_id IS NOT NULL AND (prior.principal_id IS DISTINCT FROM a.principal_id OR prior.idempotency_key IS DISTINCT FROM idempotency
+ OR prior.request_sha256 IS DISTINCT FROM seal) THEN RAISE unique_violation USING MESSAGE='replacement idempotency conflict'; END IF;
+ IF deadline<=clock_timestamp() THEN RAISE insufficient_privilege; END IF;
+ IF prior.event_id IS NULL THEN
+  INSERT INTO oracle2.source_original_withdrawals_v1 VALUES(event,a.workspace_id,source,expected_head,o.original_sha256,a.principal_id,
+   SESSION_USER,a.runtime_hash,withdrawal->>'reason',idempotency,seal,clock_timestamp());
+  UPDATE oracle2.sources SET status='error',error='original revision withdrawn' WHERE workspace_id=a.workspace_id AND source_id=source;
+  INSERT INTO oracle2.artifact_invalidations(workspace_id,artifact_id,version,reason,event_id)
+   SELECT a.workspace_id,x.artifact_id,x.version,'original revision withdrawn',event FROM oracle2._replacement_affected(a.workspace_id,source) x ON CONFLICT DO NOTHING;
+  UPDATE oracle2.processing_journey_runs_v1 j SET answer_hold=true,state='error',journey_revision=journey_revision+1
+   WHERE j.workspace_id=a.workspace_id AND EXISTS(SELECT 1 FROM jsonb_array_elements(j.original_population) r WHERE r->>'source_id'=source::text);
+ ELSE event:=prior.event_id; END IF;
+ IF deadline<=clock_timestamp() THEN RAISE insufficient_privilege; END IF;
+ RETURN jsonb_build_object('source_id',source,'revision',expected_head,'original_sha256',o.original_sha256,'withdrawn',true,
+  'event_id',event,'checked_at',clock_timestamp(),'valid_until',deadline);
+EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN RAISE invalid_parameter_value;
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.withdraw_original_revision_v1(uuid,integer,jsonb,uuid) FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
+ oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer;
+GRANT EXECUTE ON FUNCTION oracle2.withdraw_original_revision_v1(uuid,integer,jsonb,uuid) TO oracle2_replacement_requester;
