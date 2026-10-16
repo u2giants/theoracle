@@ -140,3 +140,22 @@ def test_result_fixture_helper_never_accepts_injected_executor(tmp_path):
                 summary_artifact_id=uuid4(),summary_version=1,client_certificate_file='/absent',client_uri='spiffe://oracle/a',
                 server_certificate_file='/absent',server_key_file='/absent',client_ca_file='/absent',server_uri='spiffe://oracle/b')
     assert not (tmp_path/'absent').exists()
+
+
+def test_current_result_observation_age_never_becomes_appointment_lifetime():
+    import json
+    from test_replacement_source_authority import target_metadata
+    from oracle_brain.operating_model.contracts import ReplacementExecutorTargetV1
+    now=datetime.now(timezone.utc);end=now+timedelta(seconds=60)
+    value=target_metadata();value.update(checked_at=now.isoformat(),valid_until=end.isoformat())
+    t=ReplacementExecutorTargetV1.model_validate_json(json.dumps(value))
+    assert m._fresh_result_target_v1(t,end,now=now+timedelta(seconds=4))==end
+    with pytest.raises(PermissionError,match='stale'):
+        m._fresh_result_target_v1(t,end,now=now+timedelta(seconds=5,microseconds=1))
+    # A genuinely NEW current getter snapshot may pass; the unchanged true
+    # expiry remains the original end, not now+60 and not an observer renewal.
+    fresh=t.model_copy(update={'checked_at':now+timedelta(seconds=6)})
+    assert m._fresh_result_target_v1(fresh,end,now=now+timedelta(seconds=6))==end
+    with pytest.raises(PermissionError):m._fresh_result_target_v1(fresh,end,now=now+timedelta(seconds=5))
+    with pytest.raises(PermissionError):m._fresh_result_target_v1(fresh,end,now=end)
+    with pytest.raises(PermissionError):m._fresh_result_target_v1(t,end,now=now.replace(tzinfo=None))

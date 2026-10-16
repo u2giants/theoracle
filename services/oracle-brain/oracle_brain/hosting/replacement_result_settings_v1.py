@@ -103,6 +103,15 @@ def _appointment(c,a,config_hash,issuer,reviewer,now):
         and a.expires_at<=c.original_horizon,'current independent result appointment differs')
 
 
+def _fresh_result_target_v1(target,semantic_horizon,*,now):
+    _require(type(target) is ReplacementExecutorTargetV1 and type(now) is datetime and now.tzinfo is not None
+        and type(semantic_horizon) is datetime and semantic_horizon.tzinfo is not None,
+        'actual finite result target clocks required')
+    _require(target.checked_at<=now<min(target.valid_until,semantic_horizon)
+        and (now-target.checked_at).total_seconds()<=5,'current result target expired or stale')
+    return min(target.valid_until,semantic_horizon)
+
+
 def _current_registered_target(c,e,resolver,semantic):
     now=datetime.now(timezone.utc)
     _require(c.executor_runtime_hash==e.runtime_hash and c.executor_login==e.expected_session_role
@@ -132,7 +141,8 @@ def _current_registered_target(c,e,resolver,semantic):
         'current independently registered summary differs')
     _require(target.state=='delivered' and not target.answer_hold and not target.cancelled,
         'current result is unavailable')
-    _require(target.checked_at<=datetime.now(timezone.utc)<min(target.valid_until,semantic.valid_until(datetime.now(timezone.utc))),'current result target expired')
+    semantic_horizon=semantic.valid_until(datetime.now(timezone.utc))
+    _fresh_result_target_v1(target,semantic_horizon,now=datetime.now(timezone.utc))
     return target
 
 
