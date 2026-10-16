@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import threading
+from decimal import Decimal
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from uuid import uuid4
@@ -15,7 +16,7 @@ from test_source_processing_qualification import processing
 from test_purpose_transport import bound_tls,certificates,WORKER,SERVER
 from test_parent_observer_v2 import provision
 from oracle_brain.operating_model.contracts import canonical_bytes,digest
-from oracle_brain.operating_model.purpose_context import ParentPopulationAdmissionV2,PurposeMetadataProjectionV2,PurposePinsV2
+from oracle_brain.operating_model.purpose_context import ParentPopulationAdmissionV2,PurposeMetadataProjectionV2,PurposePinsV2,BudgetAllocationPinsV2
 from oracle_brain.hosting.parent_observer_v2 import ParentObserverAdmissionV2,ParentCurrentnessWitnessV2,DOMAIN
 from oracle_brain.hosting.purpose_runtime import load_purpose_runtime_settings_v2,build_purpose_metadata_v2
 from oracle_brain.hosting.purpose_transport import purpose_ingress_server_v2,PurposeProviderClientV2
@@ -25,7 +26,11 @@ from http.server import BaseHTTPRequestHandler
 @pytest.fixture
 def actual_metadata_startup(admin_url,purpose_population,bound_tls,tmp_path):
     f=purpose_population('census','gateway-metadata');_,descriptor,dispatch=context(f,caller_kind='gateway')
-    descriptor=descriptor.model_copy(update={'worker_uri':WORKER})
+    allocation=BudgetAllocationPinsV2(original_batch_id=uuid4(),allocation_hash='8'*64,original_receipt_hash='9'*64,
+        original_ceiling_usd=Decimal('.25'),original_expires_at=f['expiry'],ledger_registry_hash=dispatch.ledger_registry_hash,
+        key_coverage_hash=dispatch.key_coverage_hash,account_identity_hash=dispatch.account_identity_hash)
+    dispatch=dispatch.model_copy(update={'budget_identity_hash':digest(allocation.model_dump(mode='json'))})
+    descriptor=descriptor.model_copy(update={'worker_uri':WORKER,'dispatches':(dispatch,)})
     now=datetime.now(timezone.utc)
     population=ParentPopulationAdmissionV2(workspace_id=f['workspace'],parent_registry_sha256=descriptor.parent_registry_sha256,
         runtime_hash=f['runtime'],source_registry_hash=f['registry'],source_refs=f['refs'],population_digest=descriptor.population_digest,
@@ -72,12 +77,13 @@ def actual_metadata_startup(admin_url,purpose_population,bound_tls,tmp_path):
         spool=tmp_path/'observer-state';spool.mkdir();_,replay=provision(spool,admission)
         pins_file,pins_hash=store('pins.json',pins);pop_file,_=store('population.json',population);projection_file,_=store('projection.json',projection)
         observer_file,observer_hash=store('observer.json',admission);url_file,_=store('source-url',f['url'].encode())
+        allocation_file,_=store('allocation.json',allocation)
         b=binding(provider.server_port)
         import socket
         with socket.socket() as reserved:
             reserved.bind(('127.0.0.1',0));metadata_port=reserved.getsockname()[1]
         config=dict(schema_version=2,phase='census',role='metadata',worker_uri=WORKER,pins_file=pins_file,pins_sha256=pins_hash,
-            population_file=pop_file,projection_file=projection_file,source_url_file=url_file,expected_owner_role=f['binding'].expected_owner_role,
+            population_file=pop_file,projection_file=projection_file,budget_allocation_projection_file=allocation_file,source_url_file=url_file,expected_owner_role=f['binding'].expected_owner_role,
             expected_session_role=f['login'],source_expires_at=f['expiry'].isoformat(),parent_observer_admission_file=observer_file,parent_observer_admission_hash=observer_hash,
             observer_hostname='localhost',observer_port=observer.server_port,observer_server_uri=SERVER,observer_client_uri=WORKER,
             observer_ca=str(b.ca_file),observer_certificate=str(b.certificate_file),observer_key=str(b.key_file),observer_spool=str(spool),
@@ -151,3 +157,11 @@ def test_actual_fixed_metadata_cli_process_uses_protected_files_and_mtls(actual_
             try:child.wait(timeout=3)
             except subprocess.TimeoutExpired:child.kill();child.wait(timeout=3)
     assert 'PRIVATE' not in output.read_text()
+
+
+def test_actual_operation_qualification_change_is_not_adopted_or_forwarded(actual_metadata_startup):
+    x=actual_metadata_startup
+    x['pins_file'].write_bytes(canonical_bytes(x['pins'].model_copy(update={
+        'expires_at':datetime.now(timezone.utc)-timedelta(seconds=1)}).model_dump(mode='json')))
+    with pytest.raises(PermissionError):x['ingress'].dispatch(WORKER,x['request'])
+    assert x['state']['provider_calls']==0
