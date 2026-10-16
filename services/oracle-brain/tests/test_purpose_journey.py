@@ -129,3 +129,21 @@ def test_independently_admitted_consume_can_observe_original_attempt_without_ren
     assert row['allocation_hash']==first.allocation_hash and row['original_horizon']==first.original_horizon.isoformat()
     assert row['state']=='awaiting-external-phase-admission' and row['consumed_by_job_hash']
     with pytest.raises(PermissionError):j.commit(first,receipt_hash='f'*64,native_receipt_hash='0'*64,now=later,consumer=consumer)
+
+
+from test_purpose_qualification_v3 import qualified_v3,context
+
+def test_actual_schema3_admission_json_uses_strict_worker_parser(qualified_v3):
+    from oracle_brain.hosting.purpose_journey_v2 import _worker_parse
+    from oracle_brain.operating_model.contracts import canonical_bytes
+    from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
+    admission=qualified_v3['admission']
+    value=admission.model_dump(mode='json')
+    assert _worker_parse(canonical_bytes(value),PurposeSemanticAdmissionV3)==admission
+    for change in ({'workspace_id':'not-a-uuid'}, {'expires_at':'2026-10-16T03:00:00'},
+                   {'expires_at':True}, {'compiler_actor':12}, {'schema_version':True},
+                   {'unexpected_field':'denied'}, {'expires_at':{'future':'date'}}):
+        with pytest.raises(Exception):
+            _worker_parse(canonical_bytes({**value,**change}),PurposeSemanticAdmissionV3)
+    missing=dict(value);del missing['issuer_actor']
+    with pytest.raises(Exception):_worker_parse(canonical_bytes(missing),PurposeSemanticAdmissionV3)

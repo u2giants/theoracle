@@ -948,7 +948,7 @@ class _PurposeCompilerReadGuardV3:
         self.settings.authorize(self.job)
         if manifest.kind=='processing_qualified_model_v1':
             from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
-            self.settings.authorize_semantic(PurposeSemanticAdmissionV3.model_validate(payload['assembly_qualification']['admission']))
+            self.settings.authorize_semantic(_worker_parse(canonical_bytes(payload['assembly_qualification']['admission']),PurposeSemanticAdmissionV3))
         return self.qualified(manifest,payload,principal,now)
 
     def valid_until(self,manifest,payload,principal,now):
