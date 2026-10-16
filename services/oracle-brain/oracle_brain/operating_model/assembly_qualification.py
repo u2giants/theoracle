@@ -124,10 +124,10 @@ def final_assembly_envelope(captured, *, census, assessment, admission):
 
 def _verify_final_assembly_lineage(manifest,payload,principal,now,*,trusted_admission_hashes,
         runtime_hash,current_source_identity,current_extraction_seal,qualification_model,lineage_model,
-        protocol_model,wire_model,permission_field='permission_hash',additional_check=None):
+        protocol_model,wire_model,permission_field='permission_hash',additional_check=None,metadata_model=ArtifactManifest):
     """Serving-only: minimized admitted core/current metadata, never raw originals."""
     import json
-    if (not isinstance(manifest,ArtifactManifest) or manifest.kind!='processing_qualified_model_v1'
+    if (not isinstance(manifest,metadata_model) or manifest.kind!='processing_qualified_model_v1'
             or manifest.state!='ready' or not isinstance(principal,UUID)
             or now.tzinfo is None or now.utcoffset() is None):
         raise PermissionError('qualified model serving context required')

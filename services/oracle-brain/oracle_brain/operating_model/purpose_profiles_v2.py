@@ -34,10 +34,15 @@ class DerivedEmbeddingContextV2(StrictRecord):
     source_refs: tuple[SourceRef,...]=Field(min_length=1)
     # This view must separately match the actual currently qualified artifact.
     projection: dict
+    qualified_payload: dict
 
     @model_validator(mode='after')
     def sanitized_projection(self):
+        from .sdk_projection import ProcessingSDKProjection
         view=self.projection
+        if (digest(self.qualified_payload)!=self.qualified_content_hash
+                or ProcessingSDKProjection.projection_view(self.qualified_payload)!=view):
+            raise PermissionError('derived view differs from exact sealed qualified content')
         if (set(view)!={'schema_version','schema','candidate_hash','qualified_model_hash','source_refs','documents'}
                 or view['schema_version']!=1 or view['schema']!='qualified-evidence-projection-v1'
                 or digest(view)!=self.projection_digest

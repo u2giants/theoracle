@@ -131,3 +131,28 @@ def test_no_typed_or_boolean_fake_compiler_can_trigger_private_compile_parsing(q
             assessment=q['assessment'],admission=q['admission'],trusted_admission_hashes=q['trusted_admission_hashes'],
             source_regions=q['wire']['context'].census.regions,phase_commits=q['commits'],
             census_private_context=None,assessment_private_context=None,census_raw=b'',assessment_raw=b'',now=q['now'])
+
+
+def test_explicit_embedding_metadata_bridge_uses_typed_seal_without_blob_location(qualified_v3):
+    from oracle_brain.operating_model.contracts import ProcessingQualifiedProjectionSealV2
+    from oracle_brain.operating_model.assembly_qualification import _verify_final_assembly_lineage
+    from oracle_brain.operating_model.purpose_qualification_v3 import PurposeFinalLineageV3,_serve_schema3
+    q=qualified_v3;m=q['manifest'];refs=tuple(r.ref for r in q['wire']['context'].receipts)
+    extractions=tuple(q['current_extraction_seal'](m.workspace_id,q['principal'],e.manifest.artifact_id,e.manifest.version)
+        for e in q['wire']['context'].extractions)
+    fields=m.model_dump(mode='python');fields.pop('private_object_key');fields['schema_version']=2
+    seal=ProcessingQualifiedProjectionSealV2(**fields,manifest_hash=sealed(m),source_refs=refs,extraction_seals=extractions)
+    assert 'private_object_key' not in seal.model_dump() and not isinstance(seal,type(m))
+    def check(actual,payload=q['payload'],trust=q['trusted_admission_hashes']):
+        return _verify_final_assembly_lineage(actual,payload,q['principal'],q['now'],
+            trusted_admission_hashes=trust,runtime_hash=q['runtime_hash'],
+            current_source_identity=q['current_source_identity'],current_extraction_seal=q['current_extraction_seal'],
+            qualification_model=PurposeAssemblyQualificationV3,lineage_model=PurposeFinalLineageV3,
+            protocol_model=ObservedAssemblyProtocolV2,wire_model=ObservedAssemblyWireV2,
+            permission_field='compiler_permission_hash',additional_check=_serve_schema3,
+            metadata_model=ProcessingQualifiedProjectionSealV2)
+    assert check(seal) is None
+    with pytest.raises(Exception):check(m)
+    with pytest.raises(Exception):check(seal,trust=frozenset())
+    for field in ('content_hash','source_digest','permission_digest','compiler_digest'):
+        with pytest.raises(Exception):check(seal.model_copy(update={field:'f'*64}))

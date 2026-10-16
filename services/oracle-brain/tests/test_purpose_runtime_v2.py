@@ -65,3 +65,23 @@ def test_embedding_has_own_metadata_only_provider_login_and_no_gateway_variant()
     raw=config();raw['phase']='embedding'
     with pytest.raises(PermissionError,match='no gateway'):
         PurposeMetadataConfigV2.model_validate(raw)
+
+@pytest.mark.parametrize('field,values',[
+ ('observer_timeout_seconds',[None,0,-1,5.01,float('inf'),float('nan')]),
+ ('provider_rpc_timeout_seconds',[None,0,-1,90.01,float('inf'),float('nan')])])
+def test_explicit_independent_observer_and_provider_deadlines_required(field,values):
+    for value in values:
+        raw=config()
+        if value is None:raw.pop(field)
+        else:raw[field]=value
+        with pytest.raises(ValidationError):PurposeMetadataConfigV2.model_validate(raw)
+
+
+def test_only_embedding_provider_can_mount_current_semantic_registry():
+    raw=config('provider');raw['semantic_registry_file']='/private/qualified-registry'
+    with pytest.raises(PermissionError):PurposeProviderConfigV2.model_validate(raw)
+    raw=config('provider');raw['phase']='embedding'
+    with pytest.raises(PermissionError):PurposeProviderConfigV2.model_validate(raw)
+    raw.update(semantic_registry_file='/own/registry',semantic_registry_sha256='1'*64,
+        semantic_appointment_file='/own/appointment',semantic_appointment_sha256='2'*64)
+    assert PurposeProviderConfigV2.model_validate(raw).phase=='embedding'
