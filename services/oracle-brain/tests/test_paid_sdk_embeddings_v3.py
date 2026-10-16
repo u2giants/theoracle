@@ -229,6 +229,41 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
                 actual=q['source'].projection_receipt_v3(m.workspace_id,m.artifact_id,m.version)
                 assert actual.receipt.event_id==str(event)
                 return actual.receipt.model_dump(mode='json')|{'signature':actual.signature}
+            from dev.oracle2.test_readonly_graph_fixture import processing_reader_scope,retire_processing_reader
+            import redis
+            scoped_root=tmp_path/'scoped-reader';observed=[]
+            original_execute=redis.Redis.execute_command
+            def observed_execute(client,*args,**kwargs):
+                if len(args)>2 and args[:2]==('ACL','SETUSER'):
+                    owner=json.loads((scoped_root/'ownership.json').read_text())
+                    assert args[2]==owner['username']
+                    assert (scoped_root/'ownership.json').stat().st_mode&0o777==0o600
+                    observed.append('durable-owner-before-acl')
+                return original_execute(client,*args,**kwargs)
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(redis.Redis,'execute_command',observed_execute)
+                with processing_reader_scope(container,graph_url,scoped_root,receipt=result,secret=secret,current_delivery=actual_delivery) as scoped:
+                    owner_raw=(scoped_root/'ownership.json').read_bytes();owner=json.loads(owner_raw)
+                    owner_hash=hashlib.sha256(owner_raw).hexdigest()
+                    with pytest.raises(PermissionError,match='hash'):
+                        retire_processing_reader(container,graph_url,scoped_root,expected_ownership_sha256='0'*64)
+                    admin=redis.Redis.from_url(graph_url,socket_timeout=2,decode_responses=True)
+                    restricted=redis.Redis.from_url(scoped['ORACLE2_TEST_PROCESSING_READONLY_GRAPH_URL'],socket_timeout=2)
+                    try:
+                        assert restricted.ping()
+                        for mutation in ('+graph.query','~unrelated-exact-reader-test'):
+                            admin.execute_command('ACL','SETUSER',owner['username'],mutation)
+                            try:
+                                with pytest.raises(PermissionError,match='ACL drifted'):
+                                    retire_processing_reader(container,graph_url,scoped_root,expected_ownership_sha256=owner_hash)
+                            finally:admin.execute_command('ACL','SETUSER',owner['username'],'resetkeys','~'+owner['graph_name'],
+                                '-@all','+graph.ro_query','+ping','+hello','+info|server')
+                    finally:restricted.close();admin.close()
+            check=redis.Redis.from_url(graph_url,socket_timeout=2)
+            try:
+                assert check.acl_getuser(owner['username']) is None and check.exists(owner['graph_name'])
+            finally:check.close()
+            assert observed and (scoped_root/'reader-retired.json').is_file()
             readonly=processing_reader(container,graph_url,tmp_path/'v3-reader',receipt=result,secret=secret,current_delivery=actual_delivery)
             readonly_username=json.loads((tmp_path/'v3-reader'/'qualification.json').read_text())['readonly_username']
             tls,_=bound_tls
