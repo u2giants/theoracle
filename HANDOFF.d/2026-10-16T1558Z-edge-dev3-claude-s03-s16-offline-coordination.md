@@ -133,6 +133,8 @@ Every W01–W12 and S03–S16 **acceptance** obligation remains open on #27/#58 
 
 No credential values in this file. Use existing protected references and the secrets skill before any real value/file operation; serialize vault access. Predecessor private inventory `S03-20261016-closeout-private-index-v2` and its durable private evidence archive remain LOCAL ONLY in preserved owner worktree custody — root coordinator has the locator; no portable private cloud archive was proved. S03 retained one isolated PG fixture (idle, not retired). Historical foreign orphan readonly ACL remains UNKNOWN. No shared-db object claim/stage owned here. OS authentication is an external block; no known sudo vault item.
 
+**Vercel access RESOLVED (2026-10-16, same day):** Albert created a new Personal Access Token and stored it in 1Password `vibe_coding` item `Vercel Personal Access Token` (id `3bgyzyrc7t7qi5ux47ibry44pi`). Verified read-only: `/v9/projects`, `/v9/projects/{id}`, `/v6/deployments`, `/v9/projects/{id}/domains` return 200. Team `team_FonXKKdriM1qMhxHlJNqzaFz` (popcre); project `theoracle` `prj_rP6Jlima7iK1paffEPhLqxlswGsC`; domain `oracle.designflow.app`; latest deploy READY. `/v2/user` is 404 and `/v1/teams` is 403 — use the known teamId. Vercel PATs cannot set fine-grained permissions. Previous metadata GET 403 is superseded. Use `op read "op://vibe_coding/Vercel Personal Access Token/credential"` piped into headers only — never argv, never chat.
+
 ## 9. Open questions and risks
 
 - Canonical **120s FAIL** is unexplained beyond known fixture cost; do not predict a pass (2026-10-16).
