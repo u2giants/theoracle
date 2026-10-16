@@ -63,6 +63,14 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
     catalog=deepcopy(MODELS)
     catalog['data'][0]['context_length']=131072
     catalog['data'][0]['top_provider']['context_length']=131072
+    if coherent:
+        # Invented fixed model catalogue is authored before any operation admission.
+        # Later phases still require exact current pricing and their own qualification.
+        for model in ('openai/gpt-6-astra','openai/text-embedding-3-small'):
+            record=deepcopy(catalog['data'][0]);record['id']=model
+            if model=='openai/gpt-6-astra':
+                record['context_length']=262144;record['top_provider']['context_length']=262144
+            catalog['data'].append(record)
     state={'posts':0,'after_post':None,'revoked':False,'sequence':1,'wire':None,'requests':[],'failure':None}
     input_parent=None;input_actor=None;input_runtime=None;original_batch=uuid4()
     phase_actors={name:uuid4() for name in ('extraction','assembly','assessment','embedding')} if coherent else {}
@@ -173,12 +181,18 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
             raw=canonical_bytes(value);self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
         def do_GET(self):
             assert self.headers['Authorization']=='Bearer '+KEY
-            if self.path=='/models':self.reply(catalog)
+            if self.path in {'/models','/embeddings/models'}:self.reply(catalog)
             elif self.path=='/key':self.reply({'data':{'usage_daily':0,'byok_usage_daily':0,'usage_monthly':0,'byok_usage_monthly':0,'limit':25,'limit_remaining':25,'is_free_tier':False}})
             else:raise AssertionError('unadmitted fake-provider operation')
         def do_POST(self):
-            assert self.path=='/chat/completions' and self.headers['Authorization']=='Bearer '+KEY
+            assert self.path in {'/chat/completions','/embeddings'} and self.headers['Authorization']=='Bearer '+KEY
             body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));state['requests'].append(body);state['posts']+=1
+            if self.path=='/embeddings':
+                from purpose_journey_fixture_models import embedding_response
+                assert coherent and digest(body) in state.get('embedding_requests',set())
+                assert body['dimensions']==256 and body['model']=='openai/text-embedding-3-small'
+                wire=embedding_response(len(body['input']));wire['usage']['cost']='.00001'
+                state['wire']=canonical_bytes(wire);self.reply(wire);return
             if digest(body) in state.get('content_by_request_hash',{}):
                 content=state['content_by_request_hash'][digest(body)]
             elif mode=='census':
