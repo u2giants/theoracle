@@ -228,3 +228,21 @@ def test_metadata_coverage_needs_no_paidwire_and_matches_compiler_actual_vector_
     assert changed[0]!=compiler[0]  # Executor MUST compare current authenticated ACK.
     with pytest.raises(PermissionError):graph_vector_coverage_v3(data.inventory,**damaged,paid_data=data)
     with pytest.raises(PermissionError):graph_vector_coverage_v3(data.inventory,**(rows|{'chunks':rows['chunks'][:-1]}))
+
+
+def test_cached_paid_receipt_and_key_cannot_substitute_current_sql_ack():
+    import asyncio
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3,PaidMetadataSDKProjectionV3
+    # No SDK/client construction: reject the missing actual role capability
+    # before consulting caller-provided artifact data or opening any graph.
+    projection=object.__new__(PaidProcessingSDKProjectionV3)
+    projection._paid_receipt_secret=b'x'*32
+    projection._paid_signed_receipt={'signature':'a'*64}
+    def forbidden(*args):raise AssertionError('unqualified artifact read attempted')
+    ledger=SimpleNamespace(processing_sources=object(),principal=uuid4(),read_with_manifest=forbidden)
+    with pytest.raises(PermissionError,match='actual compiler receipt'):
+        asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))
+    with pytest.raises(PermissionError,match='actual metadata-only executor'):
+        PaidMetadataSDKProjectionV3('rediss://unused.invalid',workspace_id=uuid4(),artifact_id=uuid4(),
+            artifact_version=1,generation=uuid4(),resolver=object(),qualification_guard=object(),connection_config=object())
