@@ -19,7 +19,7 @@ def test_rich_originals_are_sealed_before_source_admission(admin_url,purpose_pop
     with psycopg.connect(admin_url) as connection:
         for receipt,text in zip(receipts,RICH_SOURCE_TEXTS):
             expected=hashlib.sha256(text.encode()).hexdigest()
-            assert receipt.ref.reading_sha256==expected
+            assert receipt.ref.reading_sha256==expected and receipt.ref.original_sha256==expected
             admitted=connection.execute(
                 'SELECT reading_hash FROM oracle2.hosting_role_source_admissions '
                 'WHERE role_name=%s AND workspace_id=%s AND source_id=%s',
@@ -53,16 +53,27 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     except Exception as error:raise AssertionError(str(x['state'].get('failure'))) from error
     assert row['state']=='awaiting-external-phase-admission' and x['state']['posts']==1
     assert len(custody.journal.read(job.journey_id))==2
+    from purpose_journey_fixture_phases import freeze_authorized_census
+    frozen=freeze_authorized_census(settings,job)
+    assert len(frozen.obligations)==6 and frozen.frozen_at<=__import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     assert x['state']['requests'][0]['messages']==x['job'].request['messages']
     # Original-input custody is sealed; no extraction operation registry, paid
     # result, or future phase body was manufactured to establish this barrier.
     assert not list(x['custody'].glob('*.extraction*'))
     from purpose_journey_fixture_phases import admit_extraction_phase
     extraction=admit_extraction_phase(x,admin_url=admin_url,root=tmp_path/'late-extraction',census_row=row)
-    for context in parent.contexts:
+    from purpose_journey_fixture_phases import extraction_worker_appointments
+    current,jobs=extraction_worker_appointments(extraction,prior_settings=settings,initial_job=job,census_row=row,root=tmp_path/'extraction-worker')
+    extraction_custody=PurposeJourneyCustodyV2(current)
+    for admitted in jobs:
         x['observe_fixture_coverage']()
-        reply=extraction['client'].dispatch(context.job.dispatch_id,context.job.request_hash,extraction['operation_hash'],deadline=x['expires_at'])
-        assert reply['dispatch_id']==str(context.job.dispatch_id)
+        extraction_custody.admit(admitted.job_id)
+        result=run_purpose_worker_once_v2(current)
+        assert result['state']=='awaiting-external-phase-admission'
+    with psycopg.connect(admin_url) as connection:
+        manifests=connection.execute("SELECT artifact_id,kind,state FROM oracle2.artifact_manifests WHERE workspace_id=%s",(job.workspace_id,)).fetchall()
+        assert len(manifests)==3 and all(m[1:] == ('processing_extraction_v1','ready') for m in manifests)
+        assert connection.execute('SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s',(job.workspace_id,)).fetchone()==(0,)
     assert x['state']['posts']==4
     assert extraction['settings'].population.parent_registry_sha256==settings.population.parent_registry_sha256
 

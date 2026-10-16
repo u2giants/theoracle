@@ -56,6 +56,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         f=purpose_population('embedding','source-reader');f['refs']=tuple(sorted(f['refs'],key=lambda ref:ref.source_id.int));source=ProcessingSourceResolver(f['url'],binding=f['binding'])
         receipts=tuple(source.current_for_processing(f['workspace'],ref.source_id) for ref in f['refs'])
     now=datetime.now(timezone.utc);expiry=now+timedelta(seconds=110 if coherent else 90)
+    overall_expiry=now+timedelta(seconds=180) if coherent else expiry
     ledger_url,registry,billing_admin=actual_ledger
     registry=registry.model_copy(update={'transport':'verify-full-tls'})
     ledger_hash=digest(registry.model_dump(mode='json'))
@@ -64,11 +65,13 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
     catalog['data'][0]['top_provider']['context_length']=131072
     state={'posts':0,'after_post':None,'revoked':False,'sequence':1,'wire':None,'requests':[],'failure':None}
     input_parent=None;input_actor=None;input_runtime=None;original_batch=uuid4()
+    phase_actors={name:uuid4() for name in ('extraction','assembly','assessment','embedding')} if coherent else {}
+    phase_runtimes={name:hashlib.sha256(('invented-coherent-'+name+'-runtime').encode()).hexdigest() for name in phase_actors}
     if coherent:
         from purpose_journey_fixture_inputs import original_input_parent
-        input_actor=uuid4();input_runtime=hashlib.sha256(b'invented-coherent-extractor-runtime').hexdigest()
+        input_actor=phase_actors['extraction'];input_runtime=phase_runtimes['extraction']
         input_parent=original_input_parent(receipts,actor_id=input_actor,runtime_hash=input_runtime,batch_id=original_batch,
-            expires_at=expiry,catalog=catalog,now=now,account='key-sha256:'+FP)
+            expires_at=overall_expiry,catalog=catalog,now=now,account='key-sha256:'+FP)
     if mode=='census':
         regions=tuple(SourceRegion(region_id=f'original-{i}',kind='section',evidence=EvidenceRef(ref=r.ref,start=0,end=len(r.reading),quote=r.reading)) for i,r in enumerate(receipts))
         scope=OriginalScope(workspace_id=f['workspace'],receipts=receipts,regions=regions,
@@ -98,15 +101,15 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
                 pricing=current_pricing(catalog,model=request['model'],max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),
                 register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
             contexts.append(JobContext(job=job,actor_id=f['actor'],job_hash=digest(job.model_dump(mode='json')),permission_hash=job.permission_hash,receipt=receipt,inventories={}))
-        private=JobRegistry(issuer_actor=uuid4(),reviewer_actor=uuid4(),runtime_hash=f['runtime'],expires_at=expiry,contexts=tuple(contexts))
+        private=JobRegistry(issuer_actor=uuid4(),reviewer_actor=uuid4(),runtime_hash=f['runtime'],expires_at=overall_expiry,phase_expires_at=expiry,contexts=tuple(contexts))
         job=contexts[0].job;request=job.request
     coverage=KeyCoverageAdmission(domain='existing-owner-authorized-oracle-key',key_fingerprint=FP,provider_key_record_hash='4'*64,
-        consumers=tuple(KeyConsumer(consumer_id='invented-runtime-'+str(i),runtime_revision_hash=runtime,mode='central-reservation',proof_hash='5'*64) for i,runtime in enumerate((f['runtime'],input_runtime) if coherent else (f['runtime'],))),
+        consumers=tuple(KeyConsumer(consumer_id='invented-runtime-'+str(i),runtime_revision_hash=runtime,mode='central-reservation',proof_hash='5'*64) for i,runtime in enumerate((f['runtime'],*phase_runtimes.values()) if coherent else (f['runtime'],))),
         census_hash='6'*64,ledger_identity_hash=ledger_hash,external_liability_receipt_hash='7'*64,issuer_actor=uuid4(),reviewer_actor=uuid4(),
-        observed_at=now,expires_at=expiry,census_complete=True,unreserved_paid_callers=0,unreserved_outstanding_liabilities=0)
+        observed_at=now,expires_at=overall_expiry,census_complete=True,unreserved_paid_callers=0,unreserved_outstanding_liabilities=0)
     coverage_hash=digest(coverage.model_dump(mode='json'));policy=processing_request.model_dump(mode='json')
     allocation=BudgetAllocationPinsV2(original_batch_id=job.batch_id,allocation_hash='8'*64,original_receipt_hash='9'*64,original_ceiling_usd=Decimal('.25'),
-        original_expires_at=expiry,ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash,
+        original_expires_at=overall_expiry,ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash,
         account_identity_hash=digest({k:policy[k] for k in ('provider','account','endpoint')}))
     if mode=='census':
         dispatch=PurposeDispatchV2(dispatch_id=job.dispatch_id,source_refs=f['refs'],job_hash=digest(job.model_dump(mode='json')),request_hash=job.request_hash,
@@ -116,7 +119,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
             budget_identity_hash=digest(allocation.model_dump(mode='json')),ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash)
         issuer,reviewer=uuid4(),uuid4()
         population=ParentPopulationAdmissionV2(workspace_id=f['workspace'],parent_registry_sha256=digest(input_parent.model_dump(mode='json')) if coherent else '1'*64,runtime_hash=f['runtime'],source_registry_hash=f['registry'],
-            source_refs=f['refs'],population_digest=source_population_digest(f['refs']),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+            source_refs=f['refs'],population_digest=source_population_digest(f['refs']),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=overall_expiry)
         phase=PurposePhaseRegistryV2(qualification_purpose='phase-operation-qualification-v2',run_id=uuid4(),workspace_id=f['workspace'],actor_id=f['actor'],provider_login=f['login'],worker_uri=WORKER,
             phase='census',purpose='source-census',operation='chat',runtime_hash=f['runtime'],source_registry_hash=f['registry'],parent_registry_sha256=population.parent_registry_sha256,
             population_admission_sha256=digest(population.model_dump(mode='json')),source_refs=f['refs'],population_digest=population.population_digest,
@@ -138,7 +141,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         from oracle_brain.hosting.processing_extraction_runtime_v2 import ExtractionOperationQualificationV2,ExtractionTargetV2
         issuer,reviewer=private.issuer_actor,private.reviewer_actor;parent_hash=digest(private.model_dump(mode='json'))
         population=ParentPopulationAdmissionV2(workspace_id=f['workspace'],parent_registry_sha256=parent_hash,runtime_hash=f['runtime'],source_registry_hash=f['registry'],
-            source_refs=f['refs'],population_digest=source_population_digest(f['refs']),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+            source_refs=f['refs'],population_digest=source_population_digest(f['refs']),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=overall_expiry)
         source_qualification=QualifiedProcessingSources(workspace_id=f['workspace'],actor_id=f['actor'],runtime_hash=f['runtime'],source_registry_hash=f['registry'],
             expected_owner_role=f['binding'].expected_owner_role,source_refs=f['refs'],issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
         envelope=ProcessingEnvelope(run_id=uuid4(),worker_uri=WORKER,runtime_hash=f['runtime'],source_registry_hash=f['registry'],parent_registry_sha256=parent_hash,
@@ -195,7 +198,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
     monkeypatch.setattr(native_module,'ENDPOINT','http://127.0.0.1:'+str(fake.server_port))
     signing=Ed25519PrivateKey.generate();public=signing.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)
     admission=ParentObserverAdmissionV2(purpose='complete-parent-currentness-v2',population=population,principal_id=f['actor'],observer_uri=SERVER,client_uri=WORKER,
-        signing_public_key=public.hex(),signing_key_fingerprint=hashlib.sha256(public).hexdigest(),issuer_actor=uuid4(),reviewer_actor=uuid4(),minimum_sequence=1,max_age_seconds=5,expires_at=expiry)
+        signing_public_key=public.hex(),signing_key_fingerprint=hashlib.sha256(public).hexdigest(),issuer_actor=uuid4(),reviewer_actor=uuid4(),minimum_sequence=1,max_age_seconds=5,expires_at=overall_expiry)
     class Observer(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def do_POST(self):
@@ -276,8 +279,8 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         provider=server_factory(('127.0.0.1',0),tls=tls,worker_uri=WORKER,ingress=ingress);start(provider)
         yield dict(f=f,job=job,private=private,settings=settings,client=client_factory(replace(binding(provider.server_port),timeout=90)),dispatch=dispatch,
             descriptor=descriptor,state=state,custody=private_dir,billing_admin=billing_admin,context_file=context_file,pins_file=Path(pins_file),pins=pins,mode=mode,operation_hash=descriptor.phase_registry_sha256 if mode=='census' else extraction_hash,
-            expires_at=expiry,contexts=tuple(contexts) if mode=='extraction' else (),qualification=qualification if mode=='extraction' else None,population=population,observe_fixture_coverage=observe_fixture_coverage,
-            input_parent=input_parent,input_actor=input_actor,input_runtime=input_runtime,
+            expires_at=overall_expiry,phase_expires_at=expiry,contexts=tuple(contexts) if mode=='extraction' else (),qualification=qualification if mode=='extraction' else None,population=population,observe_fixture_coverage=observe_fixture_coverage,
+            input_parent=input_parent,input_actor=input_actor,input_runtime=input_runtime,phase_actors=phase_actors,phase_runtimes=phase_runtimes,
             platform=dict(start=start,tls=tls,binding=binding,catalog=catalog,ledger_registry=registry,ledger_hash=ledger_hash,coverage=coverage,coverage_hash=coverage_hash,
                 coverage_file=coverage_file,coverage_witness_file=coverage_witness_file,coverage_public=coverage_public,allocation=allocation,
                 key_file=key_file,ledger_url_file=ledger_url_file,ledger_file=ledger_file,allocation_file=allocation_file))
