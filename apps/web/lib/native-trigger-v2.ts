@@ -54,6 +54,8 @@ async function metadata(){
   if(login?.login!=='oracle_native_v2_gateway'||login.database!==identity.database||login.role!==identity.groups.gateway||login.rolcanlogin!==true||login.rolinherit!==false||login.powerful!==false)deny();
   const membership=await tx`WITH RECURSIVE members(oid) AS (SELECT roleid FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname=session_user) UNION SELECT a.roleid FROM pg_auth_members a JOIN members m ON a.member=m.oid) SELECT rolname FROM pg_roles WHERE oid IN (SELECT oid FROM members) ORDER BY rolname`;
   if(membership.length!==1||membership[0]?.rolname!=='oracle_native_v2_gateway_metadata')deny();
+  const [admin]=await tx`SELECT count(*)::int AS count FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname=session_user) AND admin_option`;
+  if(admin?.count!==0)deny();
   await tx`SET LOCAL ROLE oracle_native_v2_gateway_metadata`;
   const [role]=await tx`SELECT rolcanlogin,rolinherit,rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication AS powerful FROM pg_roles WHERE rolname=current_user`;
   if(role?.rolcanlogin!==false||role.rolinherit!==false||role.powerful!==false)deny();

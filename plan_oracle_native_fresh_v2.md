@@ -9,10 +9,10 @@ Planning baton: [session handoff](HANDOFF.d/2026-10-18T1838Z-edge-dev3-codex-fre
 | Step | State | Evidence / next gate |
 |---|---|---|
 | 0. Architecture reviewed | done | Muse plan-review fa656f452d9a22f5ea593773f3ff1f7972eaccefbfadc260c8204fdb9ec55f9b on fb94fb79; plan-only, no production authority |
-| 1. Additive fixed v2 core and SQL | partial | Section 9.1; no v2 authority exists |
-| 2. Isolated browser/worker transport | partial | Section 9.2 |
-| 3. One-time issuer/installer/projector and ACL tools | partial | Section 9.3 |
-| 4. Review, source offer, W10 and merge | open | Section 9.4 |
+| 1. Additive fixed v2 core and SQL | done | Integrated fb2960eb; 73 native tests plus retained boundary coverage; no authority exists |
+| 2. Isolated browser/worker transport | done | Integrated 529aeea7; 27 web and 26 worker/config checks passed |
+| 3. One-time issuer/installer/projector and ACL tools | done | Integrated a4174718; 25 tool checks including actual local TLS/SCRAM and SDK |
+| 4. Review, source offer, W10 and merge | active | Integrated 107 Python checks including actual source archive, 27 web, 26 workers; source review and exact-head CI next |
 | 5. Recoverable retirement of unused expired v1 runtime settings; new v2 ACL credentials | open | Section 9.5; exact separate action review required |
 | 6. Prebuild/index native-v2 WITHOUT live-test authority | open | Section 9.6 |
 | 7. Issue late, custody, install and project ONE new v2 permission | open | Section 9.7 |

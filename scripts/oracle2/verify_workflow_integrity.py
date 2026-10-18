@@ -28,6 +28,7 @@ DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternat
 DOCUMENTARY += ('falkor_native_proof_acl',)
 DOCUMENTARY += PURPOSE_V2_SUITES
 DOCUMENTARY += ('native_trigger_v1',)
+DOCUMENTARY += ('native_trigger_v2','native_trigger_v2_sql','native_trigger_v2_tooling','falkor_native_proof_acl_v2_tooling')
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
@@ -212,6 +213,7 @@ def cleanup_test_databases(admin,parts,owned):
 
 
 SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_worker_postgres_fixture.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
+SOURCE_INPUT_PATHS += ('dev/oracle2/native-v2-fixed-identities.json', 'dev/oracle2/hosting/prepare_native_trigger_v2.py', 'dev/oracle2/hosting/install_native_trigger_v2.py', 'dev/oracle2/hosting/project_native_trigger_v2.py', 'dev/oracle2/hosting/falkor_native_proof_acl_v2.py')
 
 
 

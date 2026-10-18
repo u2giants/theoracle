@@ -50,3 +50,37 @@ operating_model:
     - ORACLE2_PROJECTION_SIGNING_KEY
     - ORACLE2_CHECKPOINT_DATABASE_URL
     - SUPABASE_SERVICE_ROLE_KEY
+
+native_v2:
+  synthetic_only: true
+  deployment: dedicated-oracle2-projector-preview
+  project_ref: proj_jtaztxnmppzfchdsgvea
+  environment: prod
+  task: oracle2-native-invented-v2
+  database: oracle_native_proof_v2
+  database_role: oracle_native_v2_executor
+  database_group: oracle_native_v2_documentary_executor
+  graph_credential: exact_v2_read_only
+  preview_status: source_only_public_invented_unadmitted
+  forbidden:
+    - ANTHROPIC_API_KEY
+    - GEMINI_API_KEY
+    - GOOGLE_API_KEY
+    - GROQ_API_KEY
+    - MISTRAL_API_KEY
+    - ZHIPU_API_KEY
+    - AZURE_OPENAI_API_KEY
+    - ORACLE2_NATIVE_TRIGGER_BUNDLE
+    - ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256
+    - ORACLE2_PREVIEW_ADMIN_URL
+    - ORACLE_NATIVE_ADMIN_URL
+    - DATABASE_URL
+    - ORACLE2_DATABASE_URL
+    - TRIGGER_ACCESS_TOKEN
+    - ORACLE2_PROJECTOR_GRAPH_URL
+    - SUPABASE_SERVICE_ROLE_KEY
+    - OPENAI_API_KEY
+    - OPENROUTER_API_KEY
+    - ORACLE2_CONFIRMED_GRAPH_URL
+    - ORACLE2_PROJECTION_SIGNING_KEY
+    - ORACLE2_CHECKPOINT_DATABASE_URL
