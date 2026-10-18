@@ -49,6 +49,7 @@ async def project(body,files,root):
           projection.graph_name,manifest.content_hash,digest({'records':records}),'1.4.0')
       and isinstance(built['finalized'],dict) and isinstance(built['finalized'].get('indexes'),dict)
       and built['finalized']['indexes'] and all(v is True for v in built['finalized']['indexes'].values()),'native SDK build result differs from sealed projection')
+  await projection._check_graph_snapshot(payload)
   await projection.verify(payload);authority(row);binding.check_url(url)
   require(time.time()<body['expires_at'],'new projection permission expired')
   with psycopg.connect(url) as c:c.execute('SELECT oracle2.native_trigger_projection(%s,true)',(SCENARIO.run,))

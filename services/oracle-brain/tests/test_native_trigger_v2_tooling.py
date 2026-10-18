@@ -53,7 +53,7 @@ def test_installer_refuses_any_existing_target_without_writes(collision):
  assert len(calls)==(1 if collision=='db' else 2)
 
 
-@pytest.mark.parametrize('damage',[None,'graph_name','content_hash','record_digest','sdk_version','unexpected_key','finalized'])
+@pytest.mark.parametrize('damage',[None,'graph_name','content_hash','record_digest','sdk_version','unexpected_key','finalized','missing_snapshot','duplicate_snapshot','damaged_snapshot'])
 def test_projector_consumes_real_sdk_build_mapping_once_and_finishes_only_matching_result(tmp_path,monkeypatch,damage):
  import asyncio,importlib.util,time
  from types import SimpleNamespace
@@ -83,9 +83,16 @@ def test_projector_consumes_real_sdk_build_mapping_once_and_finishes_only_matchi
  class Finalized:
   def model_dump(self,**kwargs):return {'indexes':{'invented':True}}
  class Connection:
-  async def query(self,query,params):events.append(('snapshot',params))
+  async def query(self,query,params=None):
+   if query.startswith('CREATE '):events.append(('snapshot',params));return
+   assert query=='MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized'
+   events.append(('read_snapshot',True))
+   row=[sdk_projection.digest(payload),sdk_projection.digest({'records':sdk_projection.SDKProjection.records(payload)}),'1.4.0',True]
+   rows=[] if damage=='missing_snapshot' else [row,row] if damage=='duplicate_snapshot' else [[*row[:3],False]] if damage=='damaged_snapshot' else [row]
+   return SimpleNamespace(result_set=rows)
  class Projection:
   records=staticmethod(sdk_projection.SDKProjection.records)
+  _check_graph_snapshot=sdk_projection.SDKProjection._check_graph_snapshot
   read_only=False;workspace_id=SCENARIO.workspace;graph_name=release.graph_name;qualification_guard=None
   connection=Connection()
   async def _build_graph_payload(self,*args):
@@ -95,7 +102,7 @@ def test_projector_consumes_real_sdk_build_mapping_once_and_finishes_only_matchi
   async def build(self,*args):
    result=await sdk_projection.SDKProjection.build(self,*args)
    assert isinstance(result,dict) and len(result)==5
-   if damage:result[damage]='wrong'
+   if damage and not damage.endswith('_snapshot'):result[damage]='wrong'
    return result
  monkeypatch.setattr(psycopg,'connect',lambda *args,**kwargs:Database())
  monkeypatch.setattr(operator,'database_url',lambda *args,**kwargs:'invented://projector')
@@ -107,12 +114,13 @@ def test_projector_consumes_real_sdk_build_mapping_once_and_finishes_only_matchi
  monkeypatch.setattr(assembly_qualification,'read_documentary_artifact',lambda *args,**kwargs:payload)
  monkeypatch.setattr(sdk_projection,'NativeInventedTLSProjectionV2',lambda *args,**kwargs:Projection())
  if damage:
-  with pytest.raises(PermissionError,match='SDK build result differs'):asyncio.run(operator.project(body,{'database_url':b'invented','database_ca':b'invented','graph_url':b'invented'},tmp_path))
+  with pytest.raises(ValueError if damage.endswith('_snapshot') else PermissionError,match='sealed finalized snapshot' if damage.endswith('_snapshot') else 'SDK build result differs'):asyncio.run(operator.project(body,{'database_url':b'invented','database_ca':b'invented','graph_url':b'invented'},tmp_path))
   assert claims==[False]
  else:
   result=asyncio.run(operator.project(body,{'database_url':b'invented','database_ca':b'invented','graph_url':b'invented'},tmp_path))
   assert result=={'state':'completed','job_id':str(SCENARIO.run),'graph_name':release.graph_name,'artifact_hash':manifest.content_hash,'records':3,'sdk_version':'1.4.0'}
   assert claims==[False,True]
+  assert events.index(('read_snapshot',True))<events.index(('claim',True))
  assert events[0][0]=='binding'
  assert events.index(('claim',False))<events.index(('build',True))
  assert sum(name=='build' for name,_ in events)==1
