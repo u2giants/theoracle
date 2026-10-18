@@ -26,9 +26,9 @@ PURPOSE_V2_SUITES=('purpose_context_v2','parent_observer_v2','purpose_profiles_v
 # heavy native suite owns one worker without exceeding the ten-worker cap.
 DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternate_operator','native_alternate_chain_operator','hosting_restore_platform')
 DOCUMENTARY += ('falkor_native_proof_acl',)
+DOCUMENTARY += ('native_trigger_v2','native_trigger_v2_sql','native_trigger_v2_tooling','falkor_native_proof_acl_v2_tooling')
 DOCUMENTARY += PURPOSE_V2_SUITES
 DOCUMENTARY += ('native_trigger_v1',)
-DOCUMENTARY += ('native_trigger_v2','native_trigger_v2_sql','native_trigger_v2_tooling','falkor_native_proof_acl_v2_tooling')
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
