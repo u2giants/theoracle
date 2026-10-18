@@ -26,7 +26,8 @@ function canonical(v:unknown):string{if(v===null||typeof v!=='object')return JSO
 type Settings={schema_version:1;purpose:typeof PURPOSE;issued_at:number;expires_at:number;runtime_hash:string;review_hash:string;release_hash:string;admission_hash:string;files:{database_url:string;database_ca:string}};
 let cached:{seal:string;url:string}|undefined;
 export function triggerV2Settings(now=Math.floor(Date.now()/1000)){
- if(['DATABASE_URL','ORACLE2_DATABASE_URL','TRIGGER_ACCESS_TOKEN','ORACLE2_PROJECTOR_GRAPH_URL','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','TRIGGER_PAT','ANTHROPIC_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','GROQ_API_KEY','MISTRAL_API_KEY','ZHIPU_API_KEY','AZURE_OPENAI_API_KEY','SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ORACLE2_CONFIRMED_GRAPH_URL','ORACLE2_PROJECTION_SIGNING_KEY','ORACLE2_CHECKPOINT_DATABASE_URL','ORACLE2_PREVIEW_ADMIN_URL','ORACLE_NATIVE_ADMIN_URL','ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256'].some(k=>process.env[k]!==undefined))deny();
+ // Ordinary app credentials are never consulted by this sealed gateway adapter.
+ if(['ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_GRAPH_URL','ORACLE_NATIVE_ADMIN_URL','ORACLE2_CONFIRMED_GRAPH_URL','ORACLE2_PROJECTION_SIGNING_KEY','ORACLE2_CHECKPOINT_DATABASE_URL','ORACLE2_PREVIEW_ADMIN_URL','TRIGGER_PAT'].some(k=>process.env[k]!==undefined))deny();
  const raw=process.env.ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE;const seal=process.env.ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE_SHA256;
  if(!raw||Buffer.byteLength(raw)>65536||!seal||!HASH.test(seal)||sha(raw)!==seal)deny();
  const value:unknown=JSON.parse(raw!);

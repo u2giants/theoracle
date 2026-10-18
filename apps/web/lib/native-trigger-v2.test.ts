@@ -79,9 +79,9 @@ test('framing and GET-body refusals happen before any native metadata or dispatc
  assert.equal(await nativeTriggerV2HasEmptyBody(new Request('https://invented.invalid')),true);
 });
 
-test('v2 refuses old v1 bundles and every privileged/provider environment before metadata',()=>{
+test('v2 refuses foreign native/projector/admin environment before metadata',()=>{
  install({purpose:'public-invented-trigger-v1'});assert.throws(()=>triggerV2Settings());
- for(const name of ['DATABASE_URL','ORACLE2_DATABASE_URL','TRIGGER_ACCESS_TOKEN','ORACLE2_PROJECTOR_GRAPH_URL','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','TRIGGER_PAT','ANTHROPIC_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','GROQ_API_KEY','MISTRAL_API_KEY','ZHIPU_API_KEY','AZURE_OPENAI_API_KEY','SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ORACLE2_PREVIEW_ADMIN_URL','ORACLE_NATIVE_ADMIN_URL','ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256']){
+ for(const name of ['ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_GRAPH_URL','ORACLE_NATIVE_ADMIN_URL','ORACLE2_CONFIRMED_GRAPH_URL','ORACLE2_PROJECTION_SIGNING_KEY','ORACLE2_CHECKPOINT_DATABASE_URL','ORACLE2_PREVIEW_ADMIN_URL','TRIGGER_PAT']){
   install();const before=process.env[name];process.env[name]='';
   try{assert.throws(()=>triggerV2Settings());}finally{if(before===undefined)delete process.env[name];else process.env[name]=before;}
  }
@@ -157,4 +157,12 @@ test('v2 rejects shortened and extended authority instead of accepting a reseale
  const now=Math.floor(Date.now()/1000);
  for(const expires_at of [now+99,now+3598,now+3600]){install({issued_at:now-1,expires_at});assert.throws(()=>triggerV2Settings());}
  install({issued_at:now-1,expires_at:now+3599});assert.doesNotThrow(()=>triggerV2Settings());
+});
+
+
+test('v2 ignores ordinary configured website credentials and uses only its sealed gateway URL',()=>{
+ const names=['ANTHROPIC_API_KEY','DATABASE_URL','OPENAI_API_KEY','OPENROUTER_API_KEY','ORACLE2_DATABASE_URL','SUPABASE_SERVICE_ROLE_KEY'];
+ const previous=Object.fromEntries(names.map(k=>[k,process.env[k]]));
+ try{for(const name of names)process.env[name]='invented ordinary website value';install();assert.match(triggerV2Settings().url,/oracle_native_proof_v2/);}
+ finally{for(const name of names){if(previous[name]===undefined)delete process.env[name];else process.env[name]=previous[name];}}
 });
