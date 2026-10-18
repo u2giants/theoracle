@@ -4,6 +4,7 @@ from datetime import datetime,timedelta,timezone
 from uuid import uuid4
 import pytest
 from test_purpose_transport import bound_tls,SERVER
+from test_source_processing_qualification import processing
 from test_hosting_boundary import certificates,WORKER
 from test_assembly_qualification import qualified
 from test_assembly_context import context
