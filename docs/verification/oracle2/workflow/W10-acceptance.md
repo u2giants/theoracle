@@ -1,5 +1,58 @@
 # W10 — staged synthetic verification only; full acceptance open
 
+## Current synthetic inventory — October 18, 2026, 11:40 AM EDT
+
+Exact committed source `198bc7d86680aa6cf4cf5bd10937fffad017a028` passes W10 synthetic: **1,825 tests,
+zero failures, zero setup errors, zero skips, zero cleanup errors**. Documentary:
+1,712 tests; event: 113 tests. This supersedes the failing October 18 inventory
+and retains the older 195-test records below as historical populations only.
+The coherent native module passes **10 tests in 85.24 seconds** in this complete
+inventory. The canonical global test deadline remains 120 seconds. The historical
+89.55-second receipt at `5ebe8ee0` remains a separate exact-head receipt.
+
+The nine documentary workers and one event worker retain the complete ordered,
+deduplicated suite population, each on a separate owned synthetic PostgreSQL
+cluster and fresh database. Canonical Compose/TLS helpers enforce exact labelled
+loopback targets, verify-full TLS, SCRAM, and plaintext/wrong-password refusals.
+Only these newly created, regenerable fixture projects are removed; ownership,
+TLS qualification and test evidence remain. Setup stays outside the existing
+120-second test budget. All workers share that one unchanged monotonic deadline;
+native HTTP/TLS caps and original 180/60/30 horizons remain unchanged.
+
+Repairs include the mandatory population inventory, missing fixture imports and
+helper, supported historical registry expiry, independently runnable phase
+configuration definitions, strict typed currentness fixture windows, and shared
+source sockets whose getter transactions end before external validation. Actual
+source, semantic, final SDK-scope and ACK/currentness checks remain mandatory.
+The source connection repair passes independent security review; fixture-only
+controls do not create runtime authority.
+
+Receipt input SHA256: `02b29b645fa815b69156574671a7579f91105a1392c7ee4fd8c51c0f0aa500d3`.
+Combined JUnit SHA256: `e3d2904eb2fbf938b15f0593d28d3064f60a225e57e9a1eb59098d778bc03a21`.
+All ten worker reports are present and all owned cleanup completed. The exact
+source's independent synthetic-action review is Muse run
+`20261018T153438-872651-22991`, report SHA256
+`20cc5e35f657abd5f54534cd42092165c22719840d822cc0bbd073d30216ac5a`.
+Final PR review and exact-head CI are recorded on [#27](https://github.com/u2giants/theoracle/issues/27).
+
+**Next native/browser proof path:** use the existing Vercel login and the
+`/consultant/native-acceptance` application path, with its server-side native
+bridge; compare exact completion/identity metadata with the native gateway.
+This names the path; it is not a live proof or permission to replay a spent job,
+renew expired authority, install a browser client certificate, issue a new
+account, or deploy SQL014. Re-prove current admission and the exact native identity
+before any protected request; an admission refusal stays open on #27.
+
+Private original-source and independent semantic acceptance remain open;
+actual-event acceptance remains unavailable; analytical runtime qualification
+and business acceptance remain false. Installing the locked process-analysis
+extra for local/CI tests does not qualify a deployed analytical runtime. W11/W12,
+S03–S16, private/spending/event/solver and full hosted comparison/cutover/retirement
+obligations remain on the existing issue and plan. Company questions/reports,
+employee messages and Ilona/Jessica grading remain paused. The predecessor
+handoff is retained: its remaining unique decisions/dead ends and obligations
+have not all been transferred into the durable plan (successor conditions 2/3).
+
 ## Successor protocol engineering — October 12, 2026, 11:26 AM EDT
 
 [Independent original-source semantic protocol](W10-semantic-protocol.md) and
