@@ -99,7 +99,7 @@ class SDKProjection:
         if _paid_connection_config is None:
             config=ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000)
         else:
-            if type(self) not in (PaidProcessingSDKProjectionV3,PaidMetadataSDKProjectionV3):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
+            if type(self) not in (PaidProcessingSDKProjectionV3,PaidMetadataSDKProjectionV3,NativeInventedTLSProjectionV1):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
             config=paid_tls_connection_config_v3(graph_url,self.graph_name,_paid_connection_config)
         self.connection=FalkorDBConnection(config)
         if read_only:self.connection=ReadOnlyConnection(self.connection)
@@ -642,3 +642,20 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
             again,body=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
             if again!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed:raise PermissionError('qualified executor input changed during graph load')
         return payload
+
+
+class NativeInventedTLSProjectionV1(SDKProjection):
+    """Exact new invented proof graph; no private projection or old-job reuse."""
+    def __init__(self,graph_url,*,connection_config,read_only=True):
+        from urllib.parse import urlsplit
+        from oracle_brain.hosting.synthetic_fixture import fixed_scenario,NATIVE_TRIGGER_SCENARIO
+        from .runtime import NoGeneration,SyntheticEmbedding
+        scenario=fixed_scenario(NATIVE_TRIGGER_SCENARIO)
+        parsed=urlsplit(graph_url)
+        expected_user='oracle_native_proof_executor_v1' if read_only else 'oracle_native_proof_projector_v1'
+        if (type(read_only) is not bool or parsed.hostname!='oracle-graph.designflow.app'
+                or parsed.port!=16391 or parsed.username!=expected_user):
+            raise PermissionError('exact separately admitted invented graph role and endpoint required')
+        super().__init__(graph_url,workspace_id=scenario.workspace,artifact_id=scenario.artifact,
+            artifact_version=1,generation=scenario.generation,llm=NoGeneration(),embedder=SyntheticEmbedding(),
+            dimensions=8,read_only=read_only,_paid_connection_config=connection_config)

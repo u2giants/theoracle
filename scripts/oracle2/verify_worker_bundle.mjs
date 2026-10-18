@@ -13,6 +13,7 @@ const pairs = [
   ['trigger.oracle2-project.config.ts', 'src/trigger/oracle2-project.ts'],
   ['trigger.oracle2-holistic.config.ts', 'src/trigger/oracle2-holistic.ts'],
   ['trigger.oracle2-operating.config.ts', 'src/trigger/oracle2-operating-model.ts'],
+  ['trigger.oracle2-native-invented.config.ts', 'src/trigger/oracle2-native-invented.ts'],
 ];
 for (const [config, task] of pairs) {
   const glob = readFileSync(join(workers, config), 'utf8').match(/scripts: \['([^']+)'\]/)?.[1];
@@ -29,6 +30,7 @@ for (const [config, task] of pairs) {
 
 // Identity guards must match dev/oracle2/runtime-identities.yaml forbidden lists.
 const forbidden = {
+  'src/trigger/oracle2-native-invented.ts': ['SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ORACLE2_CONFIRMED_GRAPH_URL','ORACLE2_PROJECTION_SIGNING_KEY','ORACLE2_CHECKPOINT_DATABASE_URL'],
   'src/trigger/oracle2-operating-model.ts': ['ORACLE2_CONFIRMED_GRAPH_URL','ORACLE2_PROJECTION_SIGNING_KEY','ORACLE2_CHECKPOINT_DATABASE_URL','SUPABASE_SERVICE_ROLE_KEY'],
   'src/trigger/oracle2-run.ts': ['ORACLE2_CONFIRMED_GRAPH_URL', 'ORACLE2_PROJECTION_SIGNING_KEY',
     'ORACLE2_CHECKPOINT_DATABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
@@ -45,7 +47,7 @@ for (const [task, names] of Object.entries(forbidden)) {
 }
 const legacy = readFileSync(join(workers, 'trigger.config.ts'), 'utf8');
 if (!legacy.includes("'**/oracle2-run.ts'") || !legacy.includes("'**/oracle2-project.ts'")
-    || !legacy.includes("'**/oracle2-holistic.ts'") || !legacy.includes("'**/oracle2-operating-model.ts'")) {
+    || !legacy.includes("'**/oracle2-native-invented.ts'") || !legacy.includes("'**/oracle2-holistic.ts'") || !legacy.includes("'**/oracle2-operating-model.ts'")) {
   throw new Error('legacy trigger.config.ts must exclude Oracle 2 tasks');
 }
 console.log('ok identity guards and legacy exclusion');

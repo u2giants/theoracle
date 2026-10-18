@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 LEGACY_SCENARIO='public-invented-v1'
 FORWARD_SCENARIO='public-invented-forward-v2'
+NATIVE_TRIGGER_SCENARIO='public-invented-trigger-v1'
 
 @dataclass(frozen=True)
 class FixedScenario:
@@ -55,7 +56,21 @@ def fixed_scenario(scenario_id=LEGACY_SCENARIO):
             UUID('88888888-8888-4888-8888-888888888888'),UUID('99999999-9999-4999-8999-999999999999'),
             tuple(UUID(int=100+i) for i in range(2)),tuple(UUID(int=200+i) for i in range(2)),
             tuple(UUID(int=300+i) for i in range(4)),'public-invented-remote-v1','spiffe://oracle/synthetic-worker')
-    if scenario_id!=FORWARD_SCENARIO:raise PermissionError('only two fixed public invented scenarios exist')
+    if scenario_id==NATIVE_TRIGGER_SCENARIO:
+        # Separately owner-authorized October 18 live test. No historical
+        # scenario/job/source/root identifier or issuer CLI is changed.
+        return FixedScenario(scenario_id,
+            UUID('6426980e-6287-4f58-9e94-d1cb49b5cd5d'),UUID('ca80de21-6773-4975-87dd-2c2802114028'),
+            UUID('c4892a10-e3b7-46b6-b772-22a6157ff849'),UUID('992fa7e3-138e-443a-99fd-a466205b2fde'),
+            UUID('b30a0da3-5a5b-4a97-9c51-733e383aa21e'),UUID('0b7f159f-3953-44bb-9a24-2b641d99cebc'),
+            UUID('9c9c7424-8e16-4f71-be10-c935160e16c7'),
+            hashlib.sha256(b'oracle-public-invented-trigger-fixture/v1').hexdigest(),
+            ((UUID('274d32b6-f440-4a48-88d7-ea44dde3f830'),'Invented Alder sends violet envelopes to Invented Maple.'),
+             (UUID('6a359163-cbb5-4678-b336-7402c5e85e5d'),'Invented Maple counts the violet envelopes received from Invented Alder.')),
+            UUID('62b4902e-9865-4fb3-8d30-872c76cf06c4'),UUID('08561c51-7a66-4996-9bcb-0acd3674d8ec'),
+            tuple(UUID(int=2000100+i) for i in range(2)),tuple(UUID(int=2000200+i) for i in range(2)),
+            tuple(UUID(int=2000300+i) for i in range(4)),'public-invented-trigger-v1','spiffe://oracle/synthetic-trigger-worker-v1')
+    if scenario_id!=FORWARD_SCENARIO:raise PermissionError('fixed public invented scenario required')
     return FixedScenario(scenario_id,
         UUID('21111111-1111-4111-8111-111111111111'),UUID('2aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
         UUID('2bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),UUID('24444444-4444-4444-8444-444444444444'),
