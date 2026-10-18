@@ -146,3 +146,70 @@ def test_native_tls_adapter_fixed_ids_match_new_fixture_without_hosting_import(m
  NativeInventedTLSProjectionV1('rediss://oracle_native_proof_executor_v1:invented@oracle-graph.designflow.app:16391',connection_config=object())
  assert (captured['workspace_id'],captured['artifact_id'],captured['artifact_version'],captured['generation'])==(SCENARIO.workspace,SCENARIO.artifact,1,SCENARIO.generation)
  assert captured['read_only'] is True
+
+
+@pytest.mark.parametrize('damage',[None,'graph_name','content_hash','record_digest','sdk_version','unexpected_key'])
+def test_projector_consumes_real_sdk_build_mapping_once_and_finishes_only_matching_result(tmp_path,monkeypatch,damage):
+ import asyncio,importlib.util,time
+ from types import SimpleNamespace
+ import psycopg
+ from oracle_brain.operating_model import sdk_projection,assembly_qualification,authority_adapter,ledger
+ from oracle_brain.hosting import job_authority
+ path=Path(__file__).resolve().parents[3]/'dev/oracle2/hosting/project_native_trigger.py'
+ spec=importlib.util.spec_from_file_location('native_projector_operator_contract',path)
+ operator=importlib.util.module_from_spec(spec);spec.loader.exec_module(operator)
+ body={'runtime_hash':'a'*64,'review_hash':'b'*64,'source_role_registry_hash':'c'*64,'expires_at':int(time.time())+3600}
+ _,_,payload,manifest,release=fixture(body['runtime_hash'],body['review_hash'],NATIVE_TRIGGER_SCENARIO)
+ events=[];claims=[]
+ class Database:
+  def __enter__(self):return self
+  def __exit__(self,*args):pass
+  def execute(self,sql,params):
+   assert sql in ('SELECT oracle2.native_trigger_projection(%s,false)','SELECT oracle2.native_trigger_projection(%s,true)')
+   assert params==(SCENARIO.run,)
+   claims.append(sql.endswith('true)'));events.append(('claim',claims[-1]))
+ class Binding:
+  def __init__(self,*args,**kwargs):pass
+  def check_url(self,url):events.append(('binding',url))
+ class Authority:
+  def __init__(self,*args,**kwargs):pass
+  def resolve(self,*args):return {'expires_at':body['expires_at']}
+  def __call__(self,row):events.append(('authority',True))
+ class Finalized:
+  def model_dump(self,**kwargs):return {'indexes':{'invented':True}}
+ class Connection:
+  async def query(self,query,params):events.append(('snapshot',params))
+ class Projection:
+  records=staticmethod(sdk_projection.SDKProjection.records)
+  read_only=False;workspace_id=SCENARIO.workspace;graph_name=release.graph_name;qualification_guard=None
+  connection=Connection()
+  async def _build_graph_payload(self,*args):
+   events.append(('build',True));return self.records(payload),Finalized()
+  async def verify(self,actual):assert actual==payload;events.append(('verify',True))
+  async def close(self):events.append(('close',True))
+  async def build(self,*args):
+   result=await sdk_projection.SDKProjection.build(self,*args)
+   assert isinstance(result,dict) and len(result)==5
+   if damage:result[damage]='wrong'
+   return result
+ monkeypatch.setattr(psycopg,'connect',lambda *args,**kwargs:Database())
+ monkeypatch.setattr(operator,'database_url',lambda *args,**kwargs:'invented://projector')
+ monkeypatch.setattr(operator,'tls_config',lambda *args,**kwargs:('invented://new-graph',object()))
+ monkeypatch.setattr(operator,'NativeSourceRoleBindingV1',Binding)
+ monkeypatch.setattr(job_authority,'PostgresJobAuthority',Authority)
+ monkeypatch.setattr(authority_adapter,'PostgresSources',lambda *args,**kwargs:SimpleNamespace(can_read=lambda *a:True,current=lambda *a:None))
+ monkeypatch.setattr(ledger,'Ledger',lambda *args,**kwargs:object())
+ monkeypatch.setattr(assembly_qualification,'read_documentary_artifact',lambda *args,**kwargs:payload)
+ monkeypatch.setattr(sdk_projection,'NativeInventedTLSProjectionV1',lambda *args,**kwargs:Projection())
+ if damage:
+  with pytest.raises(PermissionError,match='SDK build result differs'):asyncio.run(operator.project(body,{'database_url':b'invented','database_ca':b'invented','graph_url':b'invented'},tmp_path))
+  assert claims==[False]
+ else:
+  result=asyncio.run(operator.project(body,{'database_url':b'invented','database_ca':b'invented','graph_url':b'invented'},tmp_path))
+  assert result=={'state':'completed','job_id':str(SCENARIO.run),'graph_name':release.graph_name,'artifact_hash':manifest.content_hash,'records':3,'sdk_version':'1.4.0'}
+  assert claims==[False,True]
+ assert events[0][0]=='binding'
+ assert events.index(('claim',False))<events.index(('build',True))
+ assert sum(name=='build' for name,_ in events)==1
+ assert sum(name=='snapshot' for name,_ in events)==1
+ assert events[-1]==('close',True)
