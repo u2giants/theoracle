@@ -352,3 +352,68 @@ The installed public action profile registry names Oracle alternate-serializatio
 - [ ] Accepted comparison/rollback/cutover and private semantic/source/permission acceptance remain unproved; existing W01–W12/S03–S16 and #27/#58 ledgers retain their dependency gates.
 
 No admission POST, job replay, expired-authority renewal, new-scenario issuance, paid provider dispatch, native production deployment/configuration/database mutation, or paused-work resumption occurred. Company questions/reports, employee messages and Ilona/Jessica grading remain paused. W10 source green and PR150 merged remain separately proved source outcomes. Root retains technical ownership of native integration/current admission and every remaining existing issue obligation; there is no human technical-approval request or invented background activity.
+
+
+## October 18, 2026 EDT — fresh V2 installation; browser proof blocked
+
+## Verified source and installation facts
+
+PR150 merged after W10 documentary repair. The unchanged documentary ceiling remains 120 seconds; source qualification is separate from native delivery and private acceptance.
+
+PR158's corrected source 038292d9977f548cacb5235e2c9d285f07147686 passed exact-head CI run 39158029884, artifact 12148002064: 1974 passed, zero failures/setup errors/skips, maximum partition 94.037 seconds. Report SHA256 877e30a5c1fe5448a89136e068e075a375c08cbfc289a34a2c5b5fb65b1641d7. Qualified tree ee8c8d3ff410e2524f863c17bdaf2be4cc612ba8 matches the merged source tree. Root's issue #27 checkpoint comment 6254306611 retains the detailed chronology.
+
+The expired v1 Trigger bundle/hash settings were recoverably archived and retired; Python path and historical deployment records were retained. Receipt SHA256 e8d729d0b3e8de2f204dfa235d232d4c4fb39c6c4bddd5283514a4a3c520f6b7. This did not renew authority or replay its job. Original v1 expiry remains October 18, 2026, 2:33:15 PM EDT.
+
+Graph ACL read-only reconciliation receipt SHA256 c8695bc0299d9e9fb35e20d3e4d70c3f412b5b4eca7a15a7e9caec5a38d5f29e proves the recorded configuration without graph writes, new grants, or job dispatch. Reconciliation is not a fresh ACL installation or native proof.
+
+The actual 038 authority-free prebuild failed because the official Trigger 4.5.15 index child omitted the controller's project environment. Both historical failed deployments remain preserved, with no indexed worker or native job. The V2-only repair defaults to its one fixed project only when both override variables are undefined; every defined wrong, empty, shared or conflicting override still fails. V1 behavior is unchanged. Actual official index-worker Docker child regression plus retained config coverage: 43 passed, zero failed/skipped; worker typecheck and six-pair bundle guard passed.
+
+PR159 contains exact repair source 9b67a703d60b71f2c92bc33f1423e421ca5f7bcb. Independent Muse final-check APPROVE report SHA256 5959d567ff184af629a8a06d92821ceded076452fff6364f2e6f971f431c9420 covers that exact source. This is source review, not production-action permission. PR159 merged normally on main f7882df78100c821fb1273406423c6c07e3a0f14; source9b67 is an ancestor. Final native proof remains PENDING.
+
+Existing Vercel login remains the chosen browser path. Ordinary Google login was proved at /admin/employees with the existing account and Sign out visible; its replacement secret was concealed in vibe_coding and read back successfully. Google completion is separate from native execution.
+## Verified installation and remaining browser proof
+
+- Source/merge/CI and source-review: verified by the exact merged-repair qualification below; unchanged Python runtime638f6b3987021fb59ca76ad823ebfdab830db3c5c21d709784b4e239716876b5.
+- Authority-free prebuild and final Trigger deployment/source/task/image are verified in the deployment sections below; final Vercel preview dpl_aqFbrhkqSmd76LMAJarGJ1Ya2Qqy is READY on the same source.
+- Exact action reviews and the one permission issued4:00:52PM EDT/expires5:00:52PM EDT are verified below; permission457d55… and six-entry custodyb87f19… receipts bind the concealed readbacks.
+- New database/seven roles, one-time three-record SDK projection, two V2 Trigger settings and five branch-only Vercel settings preserving68 old records are verified by the installation/runtime receipts below.
+- Browser one-click timestamp/screenshot/input SHA; opaque Trigger run ID and genuine COMPLETED attestation; canonical PostgreSQL output bytes and browser bytes equality; worker/dispatch counts; exact SDK graph snapshot: UNBOUND.
+- Measured end-to-end elapsed time below unchanged 120 seconds, denied stale/foreign/revoked cases, and final bounded outcome: UNBOUND.
+
+Until every required field is bound, native/browser live proof is not complete. Never treat source green, a READY page, a queued task, or provider status alone as acceptance.
+## Acceptance boundary
+
+This appendix may close only the specifically proved public-invented native/browser need. Existing W01–W12 and S03–S16 private-source, semantic, permissions, comparison, recovery, elapsed adoption and business acceptance remain governed by their existing ledgers. Company questions/reports, employee messages, and Ilona/Jessica grading remain paused. No source-green result substitutes for those outcomes.
+
+### Exact merged repair qualification and authority-free deployment
+
+Source9b67a703d60b71f2c92bc33f1423e421ca5f7bcb passed W10 CI run39160132948, artifact12148282996:1974passed/0fail/0setup/0skip; maximum86.879seconds under unchanged120. Report SHAbe09b544d8880c8a6ab32f42f0bd0d168af7a83edda0627d324eda4e7c428c55; artifact ZIP SHA904135276df5b4a9069efc2bb81b3ef1e5179969f5d285650edd9a9793c30ccc. CI synthetic merge e2d273e3ea17deaab8a9109bb9248713d7e53c47 and source9b/final mergef788 have the same tree2b18. Verification receipt SHAca53418e2b6e1c3aa166c1c0b95990ec6109c22a054f9181e5b748b6b848faa1.
+
+Authority-free prebuild actually succeeded: deployment_tffm3bpwqvcphjifghsgs, version20261018.3, source9b67, image sha256:b693f6be5a77947d0a20c6f0309a8e0e450b5f55743ab4cc1ec3b02c72e95ac7; sole V2 task, Python-path-only environment, zero runs, two historical FAILED builds retained. State receipt SHA3a33c194ac71d6e7b8a0a6a72c0c632fd00ecfb8f72f25d5dff1020470c586e3. Actual seven-field readiness receipt SHAd6cef3b4e0ed00a90ed3c62da51db5480534483bb672eefc275a87b7488d9772. No permission was issued at this checkpoint; neither prebuild nor source green proves live native acceptance.
+
+### One late V2 permission and sealed installation checkpoint
+
+Root issued exactly one new V2 permission October18,2026 at4:00:52PM EDT, expiring5:00:52PM EDT; no old permission renewed. Public permission receipt SHA457d55d379729b5a0690f958f44ce388930bdb75ce1165676eefe873f229701b. Six new concealed1Password entries were independently readback-verified, custody receipt SHAb87f19dc553d457c84a06aa2fc741d62d86fb84ce3922d6a9bbbb1945bd28bb2. Issuer action APPROVEf41c… and sealed installation action APPROVE9bf113… are distinct from source review.
+
+Actual new database/seven-role installation passed, receipt SHA793959e46e4af346e3fc433db4006bf39d22ac710c8f3cd07ebe92f5f38d4300. One SDK projection completed with exactly three records, receipt SHA0cc3a60f17c1089b5204cd4d3d168dd6c1b04d70b0f20dbd352fe26e314eb377. Two V2 Trigger runtime settings were added and verified with zero runs. Final sealed worker deployment is DEPLOYED as recorded below; no UI job exists. Browser proof is NOT PROVEN; recovery archive custody is verified below. Expiry never authorizes renewal or replay.
+
+### Final READY deployment; browser proof NOT PROVEN
+
+Actual final Trigger deployment deployment_wwizipvpoct3owo9otesr, version20261018.4 is DEPLOYED, source9b67a703d60b71f2c92bc33f1423e421ca5f7bcb, sole task oracle2-native-invented-v2, digest sha256:b693f6be5a77947d0a20c6f0309a8e0e450b5f55743ab4cc1ec3b02c72e95ac7, zero runs. Final Vercel preview dpl_aqFbrhkqSmd76LMAJarGJ1Ya2Qqy is READY at https://theoracle-iur6jti98-popcre.vercel.app on the same source; five branch-only new settings preserve68 old records. Read-only new admission check proved database oracle_native_proof_v2, projection complete, run pending, native_attempt_count0, verifiedTLS and no database writes.
+
+Root's actual browser attempt was blocked by a1Password paste-confirmation modal. All documented CUA input and getJsDialog attempts failed with CDP Emulation.setFocusEmulationEnabled timeout. Neither Sign in nor Run was clicked. No new job existed before that browser attempt. Browser-to-native proof is NOT PROVEN; there is no completed-run attestation, canonical browser/native byte comparison or measured120-second outcome. This is a visible-input/tool failure, not permission to bypass the browser or weaken authentication.
+
+Cold restart must inspect the existing permission's original5:00:52PM EDT expiry and read-only current attempt/run state before any action. Do not issue/extend/reissue a permission, replay an old job, resume paused work or blindly retry an uncertain submission. If the original permission is expired, do not dispatch it. If any attempt exists, reconcile it read-only rather than dispatching another. Preserve the unresolved same-issue live-proof checklist and single immutable baton. Durable recovery item IDs and full readback are verified in the custody section below.
+
+Root verified the post-browser-failure state read-only at4:28:59PM EDT on October18,2026: run pending, native_attempt_count0, projection complete, original5:00:52PM EDT expiry retained, TLS verified, no database writes. Receipt no-admission-after-browser-failure.json and exact read-only helper72d2ffd9d84b986bb09ecc30fc60f3efc7b880447fb61c76051ebcfc4dc81b29 are preserved in the second public recovery archive. This proves no admission after the failed UI calls; it does not prove browser execution.
+
+### Durable public recovery custody — verified
+
+Root stored and independently reconstructed every concealed archive chunk from fresh1Password GETs in vibe_coding. These are complete public-file archives, not hash-only notes; credentials remain in their separate existing concealed items.
+
+- Primary title: The Oracle native-v2 recovery — job6714d4ed — source9b67a703d60b — 27c8e9eac33201be; item ryw2pxjv6n7qavz4fn2jg3p5ea;191511bytes; SHA25627c8e9eac33201bea1fc3e07f57f9493f98ab3be4b253d4d60965c7158fc5206;69full public files plus recovery manifest.
+- Late title: The Oracle native-v2 recovery — job6714d4ed — source9b67a703d60b — e2fe7d6b5ec86a5d; item dbrowdlkk4do4rihkjvsfkgpky;80915bytes; SHA256e2fe7d6b5ec86a5db44c24b9ae857686b53a915a4313444416a7ca152820a1a7;20full public files plus recovery manifest.
+
+For each item, independently read concealed archive_part_NNNN fields in numeric order through protected custody, concatenate their ASCIIbase64, decode the ZIP, and verify archive_bytes and archive_sha256 exactly. Verify every RECOVERY-MANIFEST.json member, complete inventory and member SHA before restoring only into a new owned0700 directory with regular0600 files. Never overwrite or execute during restoration. Primary includes native-v2-public-recovery.py and ROOT-recovery-instructions.md bootstrap. Its two compose Markdown wrappers contain full literalUTF8 JSON with original byte counts/hashes and explicit single-separator-newline extraction; reconstruct exact bytes before use. Resolve existing op://vibe_coding references only under serialized credential custody; never print values. Archived operators/report dates never issue authority, extend expiry or authorize replay. Both full-byte local restores passed70/21members and root independently verified concealed Vault reconstruction. Public custody receipts are public-recovery-primary/public-recovery-custody-receipt.json and public-recovery-late/public-recovery-custody-receipt.json in the retained custody evidence.
+
+Google credential custody: exact item title `Google OAuth Client Secret - The Oracle (oauth-popdam, 904692193547-06ev7igg0dvoldoo372k7jdm7apcu435)`; itemID `cvcwyour3xc526uclrngsojbsu`; concealed reference `op://vibe_coding/cvcwyour3xc526uclrngsojbsu/client_secret` in vibe_coding. Existing saved credential and successful ordinary login remain verified; no value is reproduced here.
