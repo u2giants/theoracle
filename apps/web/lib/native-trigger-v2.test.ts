@@ -10,7 +10,7 @@ const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 const enc=(s:string)=>Buffer.from(s).toString('base64');
 function install(patch:Record<string,unknown>={}){
  const now=Math.floor(Date.now()/1000);
- const body={schema_version:1,purpose:'public-invented-trigger-v2',issued_at:now-1,expires_at:now+100,runtime_hash:'a'.repeat(64),review_hash:'b'.repeat(64),release_hash:'c'.repeat(64),admission_hash:hash('oracle-public-invented-trigger-fixture/v2'),files:{database_url:enc('postgresql://oracle_native_v2_gateway.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v2'),database_ca:enc('invented unit CA only')},...patch};
+ const body={schema_version:1,purpose:'public-invented-trigger-v2',issued_at:now-1,expires_at:now+3599,runtime_hash:'a'.repeat(64),review_hash:'b'.repeat(64),release_hash:'c'.repeat(64),admission_hash:hash('oracle-public-invented-trigger-fixture/v2'),files:{database_url:enc('postgresql://oracle_native_v2_gateway.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v2'),database_ca:enc('invented unit CA only')},...patch};
  const raw=JSON.stringify(body);process.env.ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE=raw;process.env.ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE_SHA256=hash(raw);return body;
 }
 test('new native web bundle keeps exact isolated SQL target and verify-full',()=>{install();const s=triggerV2Settings();assert.match(s.url,/sslmode=verify-full/);assert.match(s.url,/oracle_native_proof_v2/);});
@@ -81,7 +81,7 @@ test('framing and GET-body refusals happen before any native metadata or dispatc
 
 test('v2 refuses old v1 bundles and every privileged/provider environment before metadata',()=>{
  install({purpose:'public-invented-trigger-v1'});assert.throws(()=>triggerV2Settings());
- for(const name of ['ANTHROPIC_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','GROQ_API_KEY','MISTRAL_API_KEY','ZHIPU_API_KEY','AZURE_OPENAI_API_KEY','SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ORACLE2_PREVIEW_ADMIN_URL','ORACLE_NATIVE_ADMIN_URL','ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256']){
+ for(const name of ['DATABASE_URL','ORACLE2_DATABASE_URL','TRIGGER_ACCESS_TOKEN','ORACLE2_PROJECTOR_GRAPH_URL','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','TRIGGER_PAT','ANTHROPIC_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','GROQ_API_KEY','MISTRAL_API_KEY','ZHIPU_API_KEY','AZURE_OPENAI_API_KEY','SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ORACLE2_PREVIEW_ADMIN_URL','ORACLE_NATIVE_ADMIN_URL','ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256']){
   install();const before=process.env[name];process.env[name]='';
   try{assert.throws(()=>triggerV2Settings());}finally{if(before===undefined)delete process.env[name];else process.env[name]=before;}
  }
@@ -150,4 +150,11 @@ test('only explicit v2 mode selects the new adapter; v1 and default retain their
   for(const [mode,v1,v2] of [['v1',true,false],['v2',false,true],['',false,false]] as const){process.env.ORACLE2_NATIVE_TRIGGER_MODE=mode;assert.equal(nativeTriggerEnabled(),v1);assert.equal(nativeTriggerV2Enabled(),v2);}
   delete process.env.ORACLE2_NATIVE_TRIGGER_MODE;assert.equal(nativeTriggerEnabled(),false);assert.equal(nativeTriggerV2Enabled(),false);
  }finally{if(previous===undefined)delete process.env.ORACLE2_NATIVE_TRIGGER_MODE;else process.env.ORACLE2_NATIVE_TRIGGER_MODE=previous;}
+});
+
+
+test('v2 rejects shortened and extended authority instead of accepting a resealed lifetime',()=>{
+ const now=Math.floor(Date.now()/1000);
+ for(const expires_at of [now+99,now+3598,now+3600]){install({issued_at:now-1,expires_at});assert.throws(()=>triggerV2Settings());}
+ install({issued_at:now-1,expires_at:now+3599});assert.doesNotThrow(()=>triggerV2Settings());
 });
