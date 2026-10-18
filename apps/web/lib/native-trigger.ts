@@ -3,6 +3,7 @@ import { createHash,randomUUID,timingSafeEqual } from 'node:crypto';
 import { mkdtempSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { tasks,runs,auth as triggerAuth } from '@trigger.dev/sdk/v3';
 import { pilotPostgres } from './oracle2-postgres';
 import { NATIVE_COOKIE } from './native-browser-auth';
@@ -79,10 +80,27 @@ export async function authorizeTriggerNativeRequest(headers:Headers):Promise<Aut
  }catch{return {ok:false,status:403,error:'Current new native permission unavailable'};}}
 export async function destroyTriggerNativeSession(id:string){await withSql(async sql=>{await sql`SELECT oracle2.native_trigger_session_revoke(${sha(id)})`;});}
 const error=(status:number)=>Response.json({error:'Hosted invented-data test unavailable'},{status,headers:{'Cache-Control':'no-store'}});
+export async function nativeTriggerHasEmptyBody(req:Request,timeoutMs=1000):Promise<boolean>{
+ if(req.headers.has('transfer-encoding')||(req.headers.has('content-length')&&req.headers.get('content-length')!=='0'))return false;
+ if(req.method==='GET')return req.body===null;
+ if(req.body===null)return true;
+ if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>1000)return false;
+ try{
+  const stream=Readable.fromWeb(req.body as Parameters<typeof Readable.fromWeb>[0],{highWaterMark:1});
+  return await new Promise<boolean>(resolve=>{
+   let settled=false;
+   const finish=(empty:boolean)=>{if(settled)return;settled=true;clearTimeout(timer);stream.destroy();resolve(empty);};
+   const timer=setTimeout(()=>finish(false),timeoutMs);
+   stream.once('end',()=>finish(true));stream.once('error',()=>finish(false));stream.once('close',()=>finish(false));
+   stream.on('readable',()=>{if(!settled&&stream.read(1)!==null)finish(false);});
+   if(stream.read(1)!==null)finish(false);
+  });
+ }catch{return false;}
+}
 export async function triggerNativeHandler(req:Request,operation:'admit'|'result'){
  try{
+  const u=new URL(req.url);if(u.search||(operation==='admit'&&(req.method!=='POST'||req.headers.get('origin')!==u.origin||req.headers.get('sec-fetch-site')==='cross-site'))||(operation==='result'&&req.method!=='GET')||!(await nativeTriggerHasEmptyBody(req)))return error(400);
   const auth=await authorizeTriggerNativeRequest(req.headers);if(!auth.ok)return error(auth.status);
-  const u=new URL(req.url);if(u.search||req.headers.get('transfer-encoding')||req.body!==null||(operation==='admit'&&(req.method!=='POST'||req.headers.get('origin')!==u.origin||req.headers.get('sec-fetch-site')==='cross-site'))||(operation==='result'&&req.method!=='GET'))return error(400);
   const m=await metadata();const key=process.env.ORACLE2_NATIVE_TRIGGER_SECRET_KEY;if(!key)deny();
   if(operation==='admit'){
    if(m.status!=='pending'||m.triggerId)return error(409);
