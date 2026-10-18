@@ -8,9 +8,10 @@ Planning baton: [session handoff](HANDOFF.d/2026-10-18T1838Z-edge-dev3-codex-fre
 
 | Step | State | Evidence / next gate |
 |---|---|---|
-| 1. Additive fixed v2 core and SQL | open | Section 9.1; no v2 authority exists |
-| 2. Isolated browser/worker transport | open | Section 9.2 |
-| 3. One-time issuer/installer/projector and ACL tools | open | Section 9.3 |
+| 0. Architecture reviewed | done | Muse plan-review fa656f452d9a22f5ea593773f3ff1f7972eaccefbfadc260c8204fdb9ec55f9b on fb94fb79; plan-only, no production authority |
+| 1. Additive fixed v2 core and SQL | partial | Section 9.1; no v2 authority exists |
+| 2. Isolated browser/worker transport | partial | Section 9.2 |
+| 3. One-time issuer/installer/projector and ACL tools | partial | Section 9.3 |
 | 4. Review, source offer, W10 and merge | open | Section 9.4 |
 | 5. Recoverable retirement of unused expired v1 runtime settings; new v2 ACL credentials | open | Section 9.5; exact separate action review required |
 | 6. Prebuild/index native-v2 WITHOUT live-test authority | open | Section 9.6 |
@@ -45,7 +46,7 @@ Google ordinary sign-in reached /admin/employees. Concealed new Google credentia
 V1 public seed ledger oracle_native_proof_v1 exists with completed projection bookkeeping, run pending, native_trigger_attempts EMPTY at 2:34 PM EDT. Its grant/root/row and native core runtime c65df7edb3cf3a386f62950cb4f767329a16619cf9d637d4b024f5151dac2c9e / genuine core review92bfa2f876f48560a14a9834662385ef02eb6d879c561677fad8ac83ca0f06d1 remain immutable. Actual v1 graph snapshot finalized once,3records. Never build/replay it.
 Trigger isolated project proj_jtaztxnmppzfchdsgvea, internalcmulapth5239xn70j4yfpt3ta, production has sole FAILED build deployment_ms2wqvzocpjgugzwgrcyh/version20261018.1, no indexed task or runs. Existing prod variables: expired v1 bundle/hash and source-generated PYTHON_BIN_PATH=/opt/venv/bin/python. Staging IS NOT EMPTY: historical oracle2-synthetic-project deployed September28; preserve entirely.
 Vercel project prj_rP6Jlima7iK1paffEPhLqxlswGsC, teamteam_FonXKKdriM1qMhxHlJNqzaFz. READY old v1 preview dpl_uiPDmrXuVFCGQ8HpUCUTGXaASej2 at https://theoracle-m0nv2notf-popcre.vercel.app, source838ee38ce9dd60ccc73c0e45c8332bd7165529b9. Its5settings are preview-only and branch codex/native-projector-return-contract; existing63 records preserved. Keep this old preview/source and settings; v2 uses its own branch preview.
-No v2 credentials, SQL, graph ACL, permission, provider call or job exists yet. Public identities only were drafted in dev/oracle2/native-v2-fixed-identities.json and the pure immutable core identity module.
+No v2 credentials, live SQL, graph ACL, permission, provider call or job exists yet. Source implementation is active in three dedicated lanes (core, transport, tooling) after architecture plan approval. Nothing from those lanes has landed here yet. Public identities were drafted in dev/oracle2/native-v2-fixed-identities.json and the pure immutable core identity module.
 
 ## 6. Key findings and root cause
 
@@ -88,6 +89,17 @@ Add hosting/native_trigger_v2.py with the strict v1 behavior but ONLY fixed v2 p
 Add sql/016_native_trigger_proof_v2.sql: equivalent reviewed one-use v1 SQL in the fresh v2DB, fixed v2 job/logins/groups/DB only. Add hosting/native_trigger_v2_sql.py to deterministically map ONLY seven exact old role identifiers in fixed001/002/004/006–010 scripts into new v2 names; originals unchanged, v2 SQL016 separate. It must reject missing/mismatched mapping and never replace arbitrary text from callers. compile_v2_seed wraps compile_seed with exact v2 scenario and fixed seven-role mapping, plus truthful silver-envelope question; no existing role alteration or original data.
 Gate: test_native_trigger_v2.py actual fresh PostgreSQL/TLS/SCRAM tests for default role, group membership, powerful flag, wrong DB/login, exact one-use claims, duplicate start and expired/tampered seals, old payloads denied, v1 DB/row untouched; test identity module matches JSON and every prior scenario disjoint; SDK actual build return contract and exact graph boundary tests; existing v1/core boundary suites pass.
 
+Exact role translation pairs (and no caller-defined pairs):
+- oracle2_gateway_metadata → oracle_native_v2_gateway_metadata
+- oracle2_source_reader → oracle_native_v2_source_reader
+- oracle2_candidate_compiler → oracle_native_v2_candidate_compiler
+- oracle2_documentary_executor → oracle_native_v2_documentary_executor
+- oracle_synthetic_gateway → oracle_native_v2_gateway
+- oracle_synthetic_executor → oracle_native_v2_executor
+- oracle_synthetic_projector → oracle_native_v2_projector
+
+Apply the fixed mapping only WHERE these identifiers occur. Foundation001/002/004 legitimately contain none; the three login identifiers occur in the compiler's original seed, while groups occur in hosting migrations. Never require seven names per individual input file. Require the aggregate known migration+seed input union to contain exactly the expected seven old names, reject any unreviewed migration name or source drift, and prove their absence from translated new-DB outputs. Record original and translated script hashes separately. Already-v2 SQL016 must contain only fixed v2 identifiers and is not an excuse to mutate original015.
+
 ### 9.2 Browser/worker transport (parallel after public identity constants exist)
 Add apps/web/lib/native-trigger-v2.ts, meaningful tests using real installed Next adapter, and narrowly route native-acceptance/session/source to V2 only for modev2; v1 mode and default keep current behavior. Reuse factored empty-body helper if needed without weakening v1. V2 checks actual new login/group/db, exact source refs/release/artifact, expiry before and after, current canonical bytes, single Trigger task/env and full attestation.
 Add apps/workers/src/trigger/oracle2-native-invented-v2.ts and trigger.oracle2-native-invented-v2.config.ts. New exact project guard reads custom??official, rejects conflict; only v2 task included; legacy trigger.config.ts explicitly excludes V2, existing scoped configs retain exclusion. Keep maxDuration120 and retry1. New task passes ONLY opaque fixed job/workspace and Trigger runID to native_trigger_v2.py, never source text. Reject old native bundle/provider/admin/projector credentials.
@@ -111,6 +123,7 @@ Prepare exact retirement preview for ONLY expired v1 native bundle/hash in dedic
 Generate/store two NEW graph role passwords, prepare exact additive ACL manifest and compose/env diff. Review exact credential/provider/consumer action. Backup candidate Falkor app64jpwr1mqe5tkgjpvah1ojti; candidate service tsxh56ftblv1hhkgdagoql1l; confirmedh8yuvjbycpdsoaxol0yn2ovv untouched. API-managed only, no SSH; prove old namespace/user/config/health and new exact-key ACL positive/negative RO tests. This step creates no execution grant.
 
 ### 9.6 Prebuild/index before the clock starts
+Entry requires completed9.4 and independently APPROVED/executed9.5 retirement with exact readback. If retirement review refuses, this step is BLOCKED pending a coordinator-reviewed alternative; do not prebuild with old native bundles or silently change environment/project.
 Use isolated proj_jtaz prod ONLY with generated PYTHON_BIN_PATH and NO native bundles/provider/admin creds. Deploy one native-v2-only image from reviewed merged source using official4.5.15 CLI, exact project scope and minimal controlled env. Record deployment/task inventory/source/image/runtime. Config indexing must succeed with official project env. No run can pass without a bundle/permission. If build fails, repair/source-review normally now, before any permission issuance. Repeat only with a separately reviewed, bounded failed-build recovery, never a job.
 Prepare GitHub-created v2 preview (mode/env absent, no authority), existing Vercel login reaches page, source offer exact. Require all platforms ready and repair-free before9.7.
 
