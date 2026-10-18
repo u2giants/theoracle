@@ -1,0 +1,70 @@
+# Source-only independent phase. No future phase settings or inputs required.
+name: oracle-purpose-v2-assessment
+services:
+  assessment-provider:
+    profiles:
+    - purpose-assessment-admitted
+    command:
+    - --phase
+    - assessment
+    - --role
+    - provider
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_ASSESSMENT_PROVIDER_SETTINGS_SHA256:?independently pinned settings
+      required}
+    expose:
+    - 8443
+    networks:
+    - assessment
+    - ledger
+    - assessment-outbound
+    volumes:
+    - assessment-provider-auth:/run/purpose-auth:ro
+    - assessment-provider-state:/run/purpose-state
+    - assessment-input:/run/purpose-input:ro
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+  assessment-metadata:
+    profiles:
+    - purpose-assessment-admitted
+    command:
+    - --phase
+    - assessment
+    - --role
+    - metadata
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_ASSESSMENT_METADATA_SETTINGS_SHA256:?independently pinned settings
+      required}
+    expose:
+    - 8443
+    networks:
+    - assessment
+    - ledger
+    volumes:
+    - assessment-metadata-auth:/run/purpose-auth:ro
+    - assessment-metadata-state:/run/purpose-state
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network
+      required}
+  assessment:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  assessment-outbound: {}
+volumes:
+  assessment-provider-auth: {}
+  assessment-provider-state: {}
+  assessment-input: {}
+  assessment-metadata-auth: {}
+  assessment-metadata-state: {}

@@ -1,0 +1,70 @@
+# Source-only independent phase. No future phase settings or inputs required.
+name: oracle-purpose-v2-extraction
+services:
+  extraction-provider:
+    profiles:
+    - purpose-extraction-admitted
+    command:
+    - --phase
+    - extraction
+    - --role
+    - provider
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_EXTRACTION_PROVIDER_SETTINGS_SHA256:?independently pinned settings
+      required}
+    expose:
+    - 8443
+    networks:
+    - extraction
+    - ledger
+    - extraction-outbound
+    volumes:
+    - extraction-provider-auth:/run/purpose-auth:ro
+    - extraction-provider-state:/run/purpose-state
+    - extraction-input:/run/purpose-input:ro
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+  extraction-metadata:
+    profiles:
+    - purpose-extraction-admitted
+    command:
+    - --phase
+    - extraction
+    - --role
+    - metadata
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_EXTRACTION_METADATA_SETTINGS_SHA256:?independently pinned settings
+      required}
+    expose:
+    - 8443
+    networks:
+    - extraction
+    - ledger
+    volumes:
+    - extraction-metadata-auth:/run/purpose-auth:ro
+    - extraction-metadata-state:/run/purpose-state
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network
+      required}
+  extraction:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  extraction-outbound: {}
+volumes:
+  extraction-provider-auth: {}
+  extraction-provider-state: {}
+  extraction-input: {}
+  extraction-metadata-auth: {}
+  extraction-metadata-state: {}

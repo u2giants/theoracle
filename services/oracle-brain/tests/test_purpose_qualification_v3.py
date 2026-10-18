@@ -126,7 +126,7 @@ def test_schema3_never_borrows_legacy_or_changed_current_qualification(qualified
 
 def test_no_typed_or_boolean_fake_compiler_can_trigger_private_compile_parsing(qualified_v3):
     q=qualified_v3
-    with pytest.raises(PermissionError,match='actual compiler'):
+    with pytest.raises(PermissionError,match='actual explicit compiler'):
         compile_purpose_assembly_v3(compiler_ledger=True,**{k:v for k,v in q['wire'].items() if k!='now'},
             assessment=q['assessment'],admission=q['admission'],trusted_admission_hashes=q['trusted_admission_hashes'],
             source_regions=q['wire']['context'].census.regions,phase_commits=q['commits'],

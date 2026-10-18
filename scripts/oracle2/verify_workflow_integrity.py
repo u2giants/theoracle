@@ -86,13 +86,26 @@ def required_suites(stage):
     if stage in {'event','W04','W07','W08'}:return EVENT
     return DOCUMENTARY+EVENT
 
+# Measured heavy native suites each retain a whole worker. Every worker owns a
+# fresh database; all start under the SAME 120-second test deadline below.
+DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
+    'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
+    'paid_sdk_embeddings_v3','purpose_coherent_native_journey','falkordb_coolify_plan')
+
+
 def test_groups(stage):
     required=required_suites(stage)
-    groups=(('documentary',DOCUMENTARY),('event',EVENT)) if required==DOCUMENTARY+EVENT else (('required',required),)
+    groups=[]
+    if required in (DOCUMENTARY,DOCUMENTARY+EVENT):
+        starts=(0,*(DOCUMENTARY.index(name) for name in DOCUMENTARY_BOUNDARIES),len(DOCUMENTARY))
+        groups.extend((f'documentary-{index+1:02d}',DOCUMENTARY[start:end])
+            for index,(start,end) in enumerate(zip(starts,starts[1:])))
+    if required in (EVENT,DOCUMENTARY+EVENT):groups.append(('event',EVENT))
     flattened=tuple(suite for _,suites in groups for suite in suites)
-    if flattened!=required or len(set(flattened))!=len(flattened):
+    if (flattened!=required or len(set(flattened))!=len(flattened)
+            or any(not suites for _,suites in groups) or len(groups)>10):
         raise RuntimeError('required suite population is duplicated or omitted')
-    return groups
+    return tuple(groups)
 
 
 def stop_owned_workers(workers):

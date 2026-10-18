@@ -1,6 +1,7 @@
 """Injected wire/context fixtures prove bindings, never appoint a live consumer."""
 import copy,hashlib,json
 from datetime import datetime,timedelta,timezone
+from contextlib import nullcontext
 from uuid import uuid4
 import pytest
 from test_purpose_transport import bound_tls,SERVER
@@ -166,7 +167,9 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
         # Invented semantic admission fixture; real role/source SQL is exercised.
         def authorize_current(self):
             current,body=q['ledger'].read_with_manifest(m.workspace_id,m.artifact_id,m.version)
-            return q['guard'].valid_until(current,body,q['ledger'].principal,q['ledger'].clock())
+            from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
+            until=q['guard'].valid_until(current,body,q['ledger'].principal,q['ledger'].clock())
+            return ProcessingProjectionAuthorityWindowV3(until,until)
     async def exercise():
         nonlocal readonly_username
         graph_completion_known=True
@@ -594,7 +597,7 @@ def test_paid_compiler_separate_sdk_scope_denies_before_receipt_or_graph():
     class SDKScope(QualifiedAssemblyReadGuard):
         def __init__(self):pass
         def __call__(self,*args):raise PermissionError('separate compiler SDK scope denied')
-    source=object.__new__(ProcessingArtifactResolver);source.binding=SimpleNamespace(profile='candidate-compiler',principal=uuid4())
+    source=object.__new__(ProcessingArtifactResolver);source.shared_connection=nullcontext;source.binding=SimpleNamespace(profile='candidate-compiler',principal=uuid4())
     def forbidden(*args):raise AssertionError('receipt/graph consulted before independent SDK scope')
     source.projection_receipt_v3=forbidden
     projection=object.__new__(PaidProcessingSDKProjectionV3);projection._paid_receipt_secret=b'x'*32;projection.qualification_guard=SDKScope();projection._check_graph_snapshot=forbidden
@@ -616,7 +619,7 @@ def test_paid_compiler_load_retains_new_final_sdk_scope_and_ack(damage):
         def __call__(self,*args):
             state['guards']+=1
             if damage=='post-sdk-scope' and state['graph']:raise PermissionError('final separate compiler SDK scope revoked')
-    source=object.__new__(ProcessingArtifactResolver);source.binding=SimpleNamespace(profile='candidate-compiler',principal=uuid4())
+    source=object.__new__(ProcessingArtifactResolver);source.shared_connection=nullcontext;source.binding=SimpleNamespace(profile='candidate-compiler',principal=uuid4())
     identity=SimpleNamespace(source_digest='a',permission_digest='b',kind='processing_qualified_model_v1')
     receipt=SimpleNamespace(model_dump=lambda **kw:{'source_digest':'a','permission_digest':'b'})
     def current(*args):

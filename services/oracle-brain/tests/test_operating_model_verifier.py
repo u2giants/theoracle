@@ -93,12 +93,16 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql')
 
 
-def test_parallel_population_is_exact_and_single_set_stages_remain_single():
+def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
     for stage in ('W10','W12','all','documentary','W04'):
         groups=verifier.test_groups(stage)
         assert tuple(s for _,values in groups for s in values)==verifier.required_suites(stage)
         assert len({s for _,values in groups for s in values})==len(verifier.required_suites(stage))
-        assert len(groups)==(2 if stage in ('W10','W12','all') else 1)
+        assert len(groups)==(10 if stage in ('W10','W12','all') else 9 if stage=='documentary' else 1)
+        assert all(values for _,values in groups)
+        if stage!='W04':
+            for heavy in ('purpose_worker_startup','purpose_coherent_native_journey'):
+                assert [values for _,values in groups if heavy in values]==[(heavy,)]
 
 
 def test_all_workers_share_real_deadline_and_preserve_partial_output(tmp_path):
