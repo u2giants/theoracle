@@ -31,6 +31,11 @@ For separating qualified original processing from generated-truth confirmation, 
 **STATUS first**. It is an unimplemented architecture prerequisite on #27 under #24,
 not permission to change roles, read private originals, dispatch providers or apply SQL.
 
+For S03 original-to-generated replacement knowledge integration, read
+[`plan_oracle_replacement_documentary_journey.md`](plan_oracle_replacement_documentary_journey.md)
+**STATUS first**. The hosted quotation-only preview is transport proof, not
+holistic generation acceptance; the W ledger remains the single authority.
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of
