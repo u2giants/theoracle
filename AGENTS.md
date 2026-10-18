@@ -36,6 +36,10 @@ For S03 original-to-generated replacement knowledge integration, read
 **STATUS first**. The hosted quotation-only preview is transport proof, not
 holistic generation acceptance; the W ledger remains the single authority.
 
+For the genuinely fresh native/browser v2 invented proof after the unexecuted v1
+permission expired, read [plan_oracle_native_fresh_v2.md](plan_oracle_native_fresh_v2.md)
+STATUS first on #27. It adds a separate fixed test; it never renews v1 or resumes paused work.
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of
