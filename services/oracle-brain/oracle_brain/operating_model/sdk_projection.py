@@ -648,14 +648,15 @@ class NativeInventedTLSProjectionV1(SDKProjection):
     """Exact new invented proof graph; no private projection or old-job reuse."""
     def __init__(self,graph_url,*,connection_config,read_only=True):
         from urllib.parse import urlsplit
-        from oracle_brain.hosting.synthetic_fixture import fixed_scenario,NATIVE_TRIGGER_SCENARIO
         from .runtime import NoGeneration,SyntheticEmbedding
-        scenario=fixed_scenario(NATIVE_TRIGGER_SCENARIO)
         parsed=urlsplit(graph_url)
         expected_user='oracle_native_proof_executor_v1' if read_only else 'oracle_native_proof_projector_v1'
         if (type(read_only) is not bool or parsed.hostname!='oracle-graph.designflow.app'
                 or parsed.port!=16391 or parsed.username!=expected_user):
             raise PermissionError('exact separately admitted invented graph role and endpoint required')
-        super().__init__(graph_url,workspace_id=scenario.workspace,artifact_id=scenario.artifact,
-            artifact_version=1,generation=scenario.generation,llm=NoGeneration(),embedder=SyntheticEmbedding(),
+        # Transport admission is fixed to this new invented graph. Keep the core
+        # independent of hosting fixtures; the adapter test binds these IDs to it.
+        super().__init__(graph_url,workspace_id=UUID('6426980e-6287-4f58-9e94-d1cb49b5cd5d'),
+            artifact_id=UUID('992fa7e3-138e-443a-99fd-a466205b2fde'),artifact_version=1,
+            generation=UUID('b30a0da3-5a5b-4a97-9c51-733e383aa21e'),llm=NoGeneration(),embedder=SyntheticEmbedding(),
             dimensions=8,read_only=read_only,_paid_connection_config=connection_config)
