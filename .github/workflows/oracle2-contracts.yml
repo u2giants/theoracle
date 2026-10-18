@@ -58,6 +58,8 @@ jobs:
         run: pnpm --filter @oracle/workers typecheck
       - name: Typecheck corrected pilot web
         run: pnpm --filter @oracle/web typecheck
+      - name: Verify new native browser authority and result binding
+        run: pnpm --filter @oracle/web exec tsx --test lib/native-trigger.test.ts
       - name: Verify Oracle 2 worker script bundle paths
         run: node scripts/oracle2/verify_worker_bundle.mjs
       - name: Install uv

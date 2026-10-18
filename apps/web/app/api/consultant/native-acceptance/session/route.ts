@@ -1,3 +1,4 @@
+import {nativeTriggerEnabled,createTriggerNativeSession,authorizeTriggerNativeRequest,destroyTriggerNativeSession} from '@/lib/native-trigger';
 import { nativeRequestOrigin } from '@/lib/native-acceptance';
 import { createNativeSession, authorizeNativeRequest, destroyNativeSession, nativeCookie, clearNativeCookie } from '@/lib/native-browser-auth';
 export const runtime='nodejs';
@@ -14,12 +15,12 @@ export async function POST(req:Request){
     const raw=Buffer.concat(chunks).toString('utf8');
     const body:unknown=JSON.parse(raw);
     if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).join('|')!=='token'||typeof (body as {token:unknown}).token!=='string')return denied(400);
-    const auth=await createNativeSession((body as {token:string}).token);if(!auth.ok)return denied(auth.status);
+    const auth=await (nativeTriggerEnabled()?createTriggerNativeSession:createNativeSession)((body as {token:string}).token);if(!auth.ok)return denied(auth.status);
     return Response.json({actorId:auth.actorId},{headers:{'Cache-Control':'no-store','Set-Cookie':nativeCookie(auth.sessionId)}});
   }catch{return denied(403);}
 }
 export async function DELETE(req:Request){
   if(!sameOrigin(req))return denied(400);
-  const auth=await authorizeNativeRequest(req.headers);if(auth.ok)destroyNativeSession(auth.sessionId);
+  const auth=await (nativeTriggerEnabled()?authorizeTriggerNativeRequest:authorizeNativeRequest)(req.headers);if(auth.ok){if(nativeTriggerEnabled())await destroyTriggerNativeSession(auth.sessionId);else destroyNativeSession(auth.sessionId);}
   return Response.json({ok:true},{headers:{'Cache-Control':'no-store','Set-Cookie':clearNativeCookie()}});
 }
