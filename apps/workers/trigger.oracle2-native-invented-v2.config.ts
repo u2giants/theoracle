@@ -4,7 +4,10 @@ import { defineConfig } from '@trigger.dev/sdk/v3';
 import { oracle2Python } from './oracle2-python-extension';
 const customProject=process.env.ORACLE2_NATIVE_TRIGGER_PROJECT_REF;
 const officialProject=process.env.TRIGGER_PROJECT_REF;
-const project=customProject??officialProject;
+// The official index worker deliberately receives only runtime variables, not
+// its controller's project env. The source-pinned target is the default; any
+// explicit override must still equal that exact isolated target.
+const project=customProject??officialProject??'proj_jtaztxnmppzfchdsgvea';
 if (project!=='proj_jtaztxnmppzfchdsgvea'||(customProject!==undefined&&officialProject!==undefined&&customProject!==officialProject))
   throw new Error('Exact dedicated isolated native proof project required');
 const dir=fileURLToPath(new URL('./src/trigger',import.meta.url));
