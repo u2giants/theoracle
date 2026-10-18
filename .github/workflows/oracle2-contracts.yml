@@ -56,6 +56,8 @@ jobs:
         run: pnpm --filter @oracle/brain-contracts verify:parity
       - name: Typecheck workers and Oracle 2 Trigger configs
         run: pnpm --filter @oracle/workers typecheck
+      - name: Verify isolated native Trigger project configuration
+        run: pnpm --filter @oracle/workers exec tsx --test oracle2-native-config.test.ts
       - name: Typecheck corrected pilot web
         run: pnpm --filter @oracle/web typecheck
       - name: Verify new native browser authority and result binding

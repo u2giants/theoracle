@@ -2,8 +2,11 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@trigger.dev/sdk/v3';
 import { oracle2Python } from './oracle2-python-extension';
-const project=process.env.ORACLE2_NATIVE_TRIGGER_PROJECT_REF;
-if (!project || project==='proj_wgpzsvhmsopqhvwqaycn') throw new Error('Dedicated isolated native proof project required');
+const customProject=process.env.ORACLE2_NATIVE_TRIGGER_PROJECT_REF;
+const officialProject=process.env.TRIGGER_PROJECT_REF;
+const project=customProject??officialProject;
+if (project!=='proj_jtaztxnmppzfchdsgvea'||(customProject!==undefined&&officialProject!==undefined&&customProject!==officialProject))
+  throw new Error('Exact dedicated isolated native proof project required');
 const dir=fileURLToPath(new URL('./src/trigger',import.meta.url));
 export default defineConfig({
   project,runtime:'node-24',maxDuration:120,logLevel:'error',
