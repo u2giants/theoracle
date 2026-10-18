@@ -98,3 +98,53 @@ def test_platform_recovery_cannot_admit_changed_application_code(tmp_path):
     root,_=repo(tmp_path);(root/'vercel.json').write_text(' { } ');(root/'apps/web/app.ts').write_text('unreviewed application code\n')
     result=subprocess.run(['node','scripts/licensing/build_source_offer.mjs'],cwd=root,env={**os.environ,'VERCEL':'1'},text=True,capture_output=True)
     assert result.returncode!=0 and 'Commit source changes before building' in result.stderr
+
+
+def test_native_v2_offer_contains_actual_executable_sources_and_fixed_scope(tmp_path):
+    # A browser must receive the exact independently reproducible v2 sources,
+    # including its JSON dependency and the retained v1 source rather than a
+    # generated/minified substitute or an invented fixture with matching names.
+    required = (
+        'dev/oracle2/native-v2-fixed-identities.json',
+        'services/oracle-brain/oracle_brain/operating_model/native_proof_v2_identity.py',
+        'services/oracle-brain/oracle_brain/hosting/synthetic_fixture.py',
+        'services/oracle-brain/oracle_brain/hosting/native_trigger_v2.py',
+        'services/oracle-brain/oracle_brain/hosting/native_trigger_v2_sql.py',
+        'services/oracle-brain/oracle_brain/operating_model/sdk_projection.py',
+        'services/oracle-brain/sql/016_native_trigger_proof_v2.sql',
+        'dev/oracle2/hosting/prepare_native_trigger_v2.py',
+        'dev/oracle2/hosting/install_native_trigger_v2.py',
+        'dev/oracle2/hosting/project_native_trigger_v2.py',
+        'dev/oracle2/hosting/falkor_native_proof_acl_v2.py',
+        'apps/web/lib/native-trigger-v2.ts',
+        'apps/workers/src/trigger/oracle2-native-invented-v2.ts',
+        'apps/workers/trigger.oracle2-native-invented-v2.config.ts',
+        'apps/workers/oracle2-requirements.txt',
+        'services/oracle-brain/oracle_brain/hosting/native_trigger_v1.py',
+        'services/oracle-brain/sql/015_native_trigger_proof.sql',
+        'apps/workers/src/trigger/oracle2-native-invented.ts',
+    )
+    root, git = repo(tmp_path)
+    expected = {}
+    for name in required:
+        original = ROOT / name
+        assert original.is_file() and not original.is_symlink(), name
+        expected[name] = original.read_bytes()
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(expected[name])
+    git('add', '--', *required)
+    git('commit', '-qm', 'actual native v2 and retained v1 source')
+    result = run(root)
+    assert result.returncode == 0, result.stderr
+    with tarfile.open(root / 'apps/web/.source-offer/oracle-source.tar.gz', 'r:gz') as archive:
+        manifest = json.load(archive.extractfile('SOURCE_ARCHIVE_MANIFEST.json'))
+        for name, original in expected.items():
+            delivered = archive.extractfile(name).read()
+            assert delivered == original
+            assert manifest['files'][name] == hashlib.sha256(original).hexdigest()
+        identity = json.load(archive.extractfile('dev/oracle2/native-v2-fixed-identities.json'))
+    assert identity['run'] == '6714d4ed-51df-4c38-9155-c456edf7b727'
+    assert identity['purpose'] == 'public-invented-trigger-v2'
+    assert manifest['revision'] == git('rev-parse', 'HEAD').stdout.strip()
+    assert manifest['private_data_included'] is False

@@ -14,6 +14,7 @@ const pairs = [
   ['trigger.oracle2-holistic.config.ts', 'src/trigger/oracle2-holistic.ts'],
   ['trigger.oracle2-operating.config.ts', 'src/trigger/oracle2-operating-model.ts'],
   ['trigger.oracle2-native-invented.config.ts', 'src/trigger/oracle2-native-invented.ts'],
+  ['trigger.oracle2-native-invented-v2.config.ts', 'src/trigger/oracle2-native-invented-v2.ts'],
 ];
 for (const [config, task] of pairs) {
   const glob = readFileSync(join(workers, config), 'utf8').match(/scripts: \['([^']+)'\]/)?.[1];
@@ -45,8 +46,24 @@ for (const [task, names] of Object.entries(forbidden)) {
     if (!guard.includes(`process.env.${name}`)) throw new Error(`${task}: guard misses ${name}`);
   }
 }
+// V2 uses an explicit presence-based validator so even empty forbidden values
+// are denied. Keep this independently enumerated scope and require the actual
+// task handler to call its validator before starting Python.
+const v2 = readFileSync(join(workers, 'src/trigger/oracle2-native-invented-v2.ts'), 'utf8');
+const v2Forbidden = ['ANTHROPIC_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','GROQ_API_KEY','MISTRAL_API_KEY','ZHIPU_API_KEY','AZURE_OPENAI_API_KEY','ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256','ORACLE2_PREVIEW_ADMIN_URL','ORACLE_NATIVE_ADMIN_URL','DATABASE_URL','ORACLE2_DATABASE_URL','TRIGGER_ACCESS_TOKEN','ORACLE2_PROJECTOR_GRAPH_URL','SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ORACLE2_CONFIRMED_GRAPH_URL','ORACLE2_PROJECTION_SIGNING_KEY','ORACLE2_CHECKPOINT_DATABASE_URL','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','TRIGGER_PAT'];
+const list = v2.match(/const forbidden=\[([^\]]+)\];/)?.[1];
+if (!list || v2Forbidden.some(name => !list.includes("'"+name+"'"))
+    || !v2.includes("forbidden.some(k=>env[k]!==undefined)")) {
+  throw new Error('native v2 must refuse every old/privileged variable by presence');
+}
+const invocation=v2.indexOf('validateNativeV2Payload(payload);');
+const execution=v2.indexOf('python.runScript(');
+if (invocation<0 || execution<0 || invocation>=execution) {
+  throw new Error('native v2 must validate identity and environment before Python');
+}
 const legacy = readFileSync(join(workers, 'trigger.config.ts'), 'utf8');
 if (!legacy.includes("'**/oracle2-run.ts'") || !legacy.includes("'**/oracle2-project.ts'")
+    || !legacy.includes("'**/oracle2-native-invented-v2.ts'")
     || !legacy.includes("'**/oracle2-native-invented.ts'") || !legacy.includes("'**/oracle2-holistic.ts'") || !legacy.includes("'**/oracle2-operating-model.ts'")) {
   throw new Error('legacy trigger.config.ts must exclude Oracle 2 tasks');
 }
