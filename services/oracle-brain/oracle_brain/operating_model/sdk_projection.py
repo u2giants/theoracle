@@ -99,7 +99,7 @@ class SDKProjection:
         if _paid_connection_config is None:
             config=ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000)
         else:
-            if type(self) not in (PaidProcessingSDKProjectionV3,PaidMetadataSDKProjectionV3,NativeInventedTLSProjectionV1):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
+            if type(self) not in (PaidProcessingSDKProjectionV3,PaidMetadataSDKProjectionV3,NativeInventedTLSProjectionV1,NativeInventedTLSProjectionV2):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
             config=paid_tls_connection_config_v3(graph_url,self.graph_name,_paid_connection_config)
         self.connection=FalkorDBConnection(config)
         if read_only:self.connection=ReadOnlyConnection(self.connection)
@@ -659,4 +659,22 @@ class NativeInventedTLSProjectionV1(SDKProjection):
         super().__init__(graph_url,workspace_id=UUID('6426980e-6287-4f58-9e94-d1cb49b5cd5d'),
             artifact_id=UUID('992fa7e3-138e-443a-99fd-a466205b2fde'),artifact_version=1,
             generation=UUID('b30a0da3-5a5b-4a97-9c51-733e383aa21e'),llm=NoGeneration(),embedder=SyntheticEmbedding(),
+            dimensions=8,read_only=read_only,_paid_connection_config=connection_config)
+
+
+class NativeInventedTLSProjectionV2(SDKProjection):
+    """Exact fresh v2 graph; pure identity dependency, no hosting import."""
+    def __init__(self,graph_url,*,connection_config,read_only=True):
+        from urllib.parse import urlsplit
+        from .native_proof_v2_identity import IDENTITY as i
+        from .runtime import NoGeneration,SyntheticEmbedding
+        parsed=urlsplit(graph_url)
+        expected=i['graph_executor'] if read_only else i['graph_projector']
+        if (type(read_only) is not bool or parsed.scheme!='rediss'
+                or parsed.hostname!='oracle-graph.designflow.app' or parsed.port!=16391
+                or parsed.username!=expected or not parsed.password
+                or parsed.path not in ('','/','/0') or parsed.query or parsed.fragment):
+            raise PermissionError('exact separately admitted v2 graph role and endpoint required')
+        super().__init__(graph_url,workspace_id=UUID(i['workspace']),artifact_id=UUID(i['artifact']),
+            artifact_version=1,generation=UUID(i['generation']),llm=NoGeneration(),embedder=SyntheticEmbedding(),
             dimensions=8,read_only=read_only,_paid_connection_config=connection_config)

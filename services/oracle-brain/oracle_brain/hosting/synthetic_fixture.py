@@ -23,6 +23,7 @@ from dataclasses import dataclass
 LEGACY_SCENARIO='public-invented-v1'
 FORWARD_SCENARIO='public-invented-forward-v2'
 NATIVE_TRIGGER_SCENARIO='public-invented-trigger-v1'
+NATIVE_TRIGGER_V2_SCENARIO='public-invented-trigger-v2'
 
 @dataclass(frozen=True)
 class FixedScenario:
@@ -56,6 +57,17 @@ def fixed_scenario(scenario_id=LEGACY_SCENARIO):
             UUID('88888888-8888-4888-8888-888888888888'),UUID('99999999-9999-4999-8999-999999999999'),
             tuple(UUID(int=100+i) for i in range(2)),tuple(UUID(int=200+i) for i in range(2)),
             tuple(UUID(int=300+i) for i in range(4)),'public-invented-remote-v1','spiffe://oracle/synthetic-worker')
+    if scenario_id==NATIVE_TRIGGER_V2_SCENARIO:
+        from oracle_brain.operating_model.native_proof_v2_identity import IDENTITY as i
+        return FixedScenario(scenario_id,
+            *(UUID(i[k]) for k in ('workspace','actor','owner','artifact','generation','release','run')),
+            hashlib.sha256(i['parser_label'].encode()).hexdigest(),
+            tuple((UUID(i[k]),text) for k,text in zip(('source_a','source_b'),i['source_texts'])),
+            UUID(i['root_appointment']),UUID(i['grantor']),
+            tuple(UUID(i[k]) for k in ('event_a','event_b')),
+            tuple(UUID(i[k]) for k in ('fact_a','fact_b')),
+            tuple(UUID(i[k]) for k in ('claim_a','claim_b','claim_c','claim_d')),
+            i['purpose'],i['spiffe'])
     if scenario_id==NATIVE_TRIGGER_SCENARIO:
         # Separately owner-authorized October 18 live test. No historical
         # scenario/job/source/root identifier or issuer CLI is changed.
