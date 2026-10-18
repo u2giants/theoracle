@@ -185,12 +185,21 @@ def test_v2_claims_refuse_replay_and_unknown_retry(v2_sql):
   c.execute('SELECT oracle2.native_trigger_session_revoke(%s)',('1'*64,));assert not c.execute('SELECT oracle2.native_trigger_session_live(%s,%s,%s)',('1'*64,'2'*64,'3'*64)).fetchone()[0]
 
 
-@pytest.mark.parametrize('variable',['ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256','ORACLE_NATIVE_ADMIN_URL','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','TRIGGER_ACCESS_TOKEN','TRIGGER_PAT'])
-def test_v2_entrypoint_rejects_old_or_privileged_environment_before_work(monkeypatch,capsys,variable):
+EXPECTED_FORBIDDEN=('ANTHROPIC_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','GROQ_API_KEY','MISTRAL_API_KEY','ZHIPU_API_KEY','AZURE_OPENAI_API_KEY','ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256','ORACLE2_PREVIEW_ADMIN_URL','ORACLE_NATIVE_ADMIN_URL','DATABASE_URL','ORACLE2_DATABASE_URL','TRIGGER_ACCESS_TOKEN','ORACLE2_PROJECTOR_GRAPH_URL','SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','ORACLE2_CONFIRMED_GRAPH_URL','ORACLE2_PROJECTION_SIGNING_KEY','ORACLE2_CHECKPOINT_DATABASE_URL','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','TRIGGER_PAT')
+
+@pytest.mark.parametrize('variable',EXPECTED_FORBIDDEN)
+@pytest.mark.parametrize('value',['','invented-sensitive-marker'])
+def test_v2_entrypoint_rejects_old_or_privileged_environment_before_work(monkeypatch,capsys,variable,value):
  from oracle_brain.hosting import native_trigger_v2 as module
- monkeypatch.setenv(variable,'invented-sensitive-marker')
+ assert set(module.FORBIDDEN_ENV)==set(EXPECTED_FORBIDDEN)
+ for name in EXPECTED_FORBIDDEN:monkeypatch.delenv(name,raising=False)
+ monkeypatch.setenv(variable,value)
+ monkeypatch.setattr(module.sys,'argv',['native_trigger_v2.py',json.dumps({'jobId':I['run'],'workspaceId':I['workspace']}),'run_inventedV2NoDispatch'])
+ visited=[]
+ def payload_called(value):visited.append('payload')
+ monkeypatch.setattr(module,'validate_payload',payload_called)
  with pytest.raises(SystemExit) as failure:module.main()
- assert failure.value.code==1
+ assert failure.value.code==1 and visited==[]
  output=capsys.readouterr();assert output.out=='{"state":"denied"}\n' and output.err==''
 
 

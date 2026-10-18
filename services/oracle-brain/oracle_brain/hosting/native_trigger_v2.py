@@ -16,6 +16,8 @@ SCENARIO=fixed_scenario(NATIVE_TRIGGER_V2_SCENARIO)
 FILES={'database_url','database_ca','graph_url','graph_ca','graph_cert','graph_key'}
 FIELDS={'schema_version','purpose','issued_at','expires_at','runtime_hash','review_hash','source_role_registry_hash','files'}
 HASH=re.compile('[a-f0-9]{64}')
+# Presence is forbidden even for empty values; task and Python enforce the same union.
+FORBIDDEN_ENV=('ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY', 'ZHIPU_API_KEY', 'AZURE_OPENAI_API_KEY', 'ORACLE2_NATIVE_TRIGGER_BUNDLE', 'ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256', 'ORACLE2_PREVIEW_ADMIN_URL', 'ORACLE_NATIVE_ADMIN_URL', 'DATABASE_URL', 'ORACLE2_DATABASE_URL', 'TRIGGER_ACCESS_TOKEN', 'ORACLE2_PROJECTOR_GRAPH_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'ORACLE2_CONFIRMED_GRAPH_URL', 'ORACLE2_PROJECTION_SIGNING_KEY', 'ORACLE2_CHECKPOINT_DATABASE_URL', 'ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD', 'ORACLE_NATIVE_PROJECTOR_DATABASE_URL', 'ORACLE2_PROJECTOR_DATABASE_URL', 'TRIGGER_PAT')
 
 
 @dataclass(frozen=True)
@@ -169,7 +171,7 @@ async def execute(payload,body,files,root,trigger_run):
 
 def main():
     try:
-        require(not any(os.environ.get(k) for k in ('ORACLE2_NATIVE_TRIGGER_BUNDLE','ORACLE2_NATIVE_TRIGGER_BUNDLE_SHA256','ORACLE_NATIVE_ADMIN_URL','ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD','ORACLE_NATIVE_PROJECTOR_DATABASE_URL','ORACLE2_PROJECTOR_DATABASE_URL','TRIGGER_ACCESS_TOKEN','TRIGGER_PAT','SUPABASE_SERVICE_ROLE_KEY','OPENROUTER_API_KEY','OPENAI_API_KEY','ORACLE2_CONFIRMED_GRAPH_URL','ORACLE2_PROJECTION_SIGNING_KEY','ORACLE2_CHECKPOINT_DATABASE_URL')),'native executor has forbidden credentials')
+        require(not any(k in os.environ for k in FORBIDDEN_ENV),'native executor has forbidden credentials')
         payload=json.loads(sys.argv[1],object_pairs_hook=unique);validate_payload(payload)
         raw=os.environ['ORACLE2_NATIVE_TRIGGER_V2_BUNDLE'].encode();body,files=decode_bundle(raw,os.environ['ORACLE2_NATIVE_TRIGGER_V2_BUNDLE_SHA256'])
         with tempfile.TemporaryDirectory(prefix='oracle-native-trigger-') as directory:
