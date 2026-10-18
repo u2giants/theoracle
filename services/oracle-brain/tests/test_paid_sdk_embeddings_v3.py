@@ -21,10 +21,14 @@ from oracle_brain.operating_model.paid_sdk_embeddings_v3 import (processing_embe
 
 @pytest.fixture
 def paid_case(qualified):
-    payload=qualified['payload'];view=ProcessingSDKProjection.projection_view(payload)
+    return paid_case_for(qualified['payload'],qualified['manifest'])
+
+
+def paid_case_for(payload,manifest):
+    view=ProcessingSDKProjection.projection_view(payload)
     inv=processing_embedding_inventory_v3(payload)
-    ctx=DerivedSDKEmbeddingContextV3(actor_id=uuid4(),workspace_id=qualified['manifest'].workspace_id,
-        runtime_hash='a'*64,permission_hash='b'*64,qualified_artifact_id=qualified['manifest'].artifact_id,
+    ctx=DerivedSDKEmbeddingContextV3(actor_id=uuid4(),workspace_id=manifest.workspace_id,
+        runtime_hash='a'*64,permission_hash='b'*64,qualified_artifact_id=manifest.artifact_id,
         qualified_artifact_version=1,qualified_content_hash=digest(payload),projection_digest=digest(view),
         source_refs=tuple(SourceRef.model_validate_json(canonical_bytes(r)) for r in view['source_refs']),
         projection=view,qualified_payload=payload,inventory=inv)

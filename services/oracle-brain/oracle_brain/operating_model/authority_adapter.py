@@ -126,12 +126,12 @@ class ProcessingSourceResolver:
 
     @contextmanager
     def shared_connection(self):
-        """Reuse one connection across nested identity/seal checks in one verify."""
+        """Reuse the socket, releasing each getter transaction before callbacks."""
         existing = getattr(self._shared, 'conn', None)
         if existing is not None:
             yield existing
             return
-        with self._connection() as conn:
+        with psycopg.connect(self.url, connect_timeout=5, autocommit=True) as conn:
             self._shared.conn = conn
             try:
                 yield conn
@@ -148,7 +148,10 @@ class ProcessingSourceResolver:
             shared = getattr(self, '_shared', None)
             existing = getattr(shared, 'conn', None) if shared is not None else None
             if existing is not None:
-                yield existing
+                # A getter remains atomic, but no row lock survives it into
+                # external validation or a later independent currentness sweep.
+                with existing.transaction():
+                    yield existing
                 return
         if connection is not None:
             wanted = psycopg.conninfo.conninfo_to_dict(self.url)

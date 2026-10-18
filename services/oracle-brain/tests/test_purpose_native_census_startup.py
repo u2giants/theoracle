@@ -109,7 +109,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
                 pricing=current_pricing(catalog,model=request['model'],max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),
                 register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
             contexts.append(JobContext(job=job,actor_id=f['actor'],job_hash=digest(job.model_dump(mode='json')),permission_hash=job.permission_hash,receipt=receipt,inventories={}))
-        private=JobRegistry(issuer_actor=uuid4(),reviewer_actor=uuid4(),runtime_hash=f['runtime'],expires_at=overall_expiry,phase_expires_at=expiry,contexts=tuple(contexts))
+        private=JobRegistry(issuer_actor=uuid4(),reviewer_actor=uuid4(),runtime_hash=f['runtime'],expires_at=expiry,contexts=tuple(contexts))
         job=contexts[0].job;request=job.request
     coverage=KeyCoverageAdmission(domain='existing-owner-authorized-oracle-key',key_fingerprint=FP,provider_key_record_hash='4'*64,
         consumers=tuple(KeyConsumer(consumer_id='invented-runtime-'+str(i),runtime_revision_hash=runtime,mode='central-reservation',proof_hash='5'*64) for i,runtime in enumerate((f['runtime'],*phase_runtimes.values()) if coherent else (f['runtime'],))),
