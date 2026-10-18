@@ -15,20 +15,20 @@ def test_exact_create_and_all_chained_commands_bound_to_same_platform_paths():
     import re
     raw=packet['body']['docker_compose_custom_start_command']
     guards=re.findall(r"/bin/sh -c 'test [0-9]+ -gt \$\(/bin/date \+%s\) && test [0-9]+ -gt \$\(/bin/date \+%s\)'",raw)
-    assert len(guards)==4
+    assert len(guards)==len(BOOTSTRAPS)+3
     commands=re.split(r"/bin/sh -c 'test [0-9]+ -gt \$\(/bin/date \+%s\) && test [0-9]+ -gt \$\(/bin/date \+%s\)' && ",raw)[1:]
     commands=[x.removesuffix(' && ') for x in commands]
-    assert len(commands)==4
+    assert len(commands)==len(BOOTSTRAPS)+3
     for command in commands:
         assert '--project-directory /data/coolify/applications/'+APP in command
         assert '-f /data/coolify/applications/'+APP+'/docker-compose.yaml' in command
         assert '--env-file /data/coolify/applications/'+APP+'/.env' in command
         assert command.startswith('timeout -s TERM -k 5 ')
-        assert '$' not in command and ';' not in command
+        if ' wait ' not in command:assert '$' not in command and ';' not in command
     assert commands[0].endswith(' create')
     assert commands[1].endswith(' start '+' '.join(BOOTSTRAPS))
-    assert commands[2].endswith(' wait '+' '.join(BOOTSTRAPS))
-    assert commands[3].endswith(' start '+' '.join(STORES))
+    assert all((' wait '+role+' >/dev/null 2>&1; test ') in command and command.endswith(' '+role+')" = exited:0\'') for command,role in zip(commands[2:-1],BOOTSTRAPS))
+    assert commands[-1].endswith(' start '+' '.join(STORES))
     assert all(role not in command.split(' start ')[-1].split() for command in commands[1:] for role in ('ledger-init','gateway','executor','synthetic-project'))
 
 @pytest.mark.parametrize('app',["../../foreign",'x; reboot','vhmcdkdk23dgvjvcvhyhcjzd','x'*41,''])
@@ -51,19 +51,30 @@ def test_restore_compose_preserves_all18_and_never_mounts_or_starts_seed():
     assert all(restore['services'][r]['network_mode']=='none' for r in BOOTSTRAPS)
     assert set(BOOTSTRAPS)==set(restore['services'])-set(STORES)-{'ledger-init','gateway','executor','synthetic-project'}
 
-def test_actual_local_compose_wait_refuses_failed_bootstrap(tmp_path):
-    # Public one-shot tools only, no auth/stores/mounts/network and no image pull.
-    import uuid
+@pytest.mark.parametrize('failed_role',[BOOTSTRAPS[0],BOOTSTRAPS[-1],None])
+def test_actual_generated_chain_requires_every_bootstrap_before_storage(tmp_path,failed_role):
+    # Execute the generated chain locally: either failure ordering must prevent
+    # all stores, while all successful bootstraps must preserve store startup.
+    import uuid,time,shlex
     project='oracle-source-wait-'+uuid.uuid4().hex
     image='postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297'
-    path=tmp_path/'compose.yaml';path.write_text(yaml.safe_dump({'services':{'pass':{'image':image,'entrypoint':['/bin/true'],'network_mode':'none'},'fail':{'image':image,'entrypoint':['/bin/false'],'network_mode':'none'}}}))
+    services={role:{'image':image,'entrypoint':['/bin/false' if role==failed_role else '/bin/true'],'network_mode':'none'} for role in (*BOOTSTRAPS,*STORES)}
+    path=tmp_path/'compose.yaml';path.write_text(yaml.safe_dump({'services':services}))
     base=['docker','compose','--project-name',project,'-f',str(path)]
     def run(args):return subprocess.run(base+args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+    directory='/data/coolify/applications/'+APP
+    platform='docker compose --project-directory '+directory+' -f '+directory+'/docker-compose.yaml --env-file '+directory+'/.env'
+    epoch=int(time.time());packet=stage_packet(APP,SOURCE,IMAGE,epoch+1000,epoch+1000,'e'*64,now=epoch)
+    chain=packet['body']['docker_compose_custom_start_command'].replace(platform,shlex.join(base))
     try:
         assert run(['create','--pull','never']).returncode==0
-        assert run(['start']).returncode==0
-        result=run(['wait','pass','fail'])
-        assert result.returncode!=0,'Compose wait must reject failed bootstrap before any storage start'
+        result=subprocess.run(['sh','-c',chain],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90)
+        assert (result.returncode==0)==(failed_role is None)
+        for store in STORES:
+            identity=run(['ps','--all','-q',store]);assert identity.returncode==0
+            state=subprocess.run(['docker','inspect','--format','{{.State.Status}}',identity.stdout.decode().strip()],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=5)
+            assert state.returncode==0
+            assert state.stdout.strip()!=(b'created') if failed_role is None else state.stdout.strip()==b'created'
     finally:assert run(['down']).returncode==0
 
 def test_actual_local_empty_postgres_custom_dump_roles_only_restore(tmp_path):
@@ -119,7 +130,7 @@ def test_actual_execution_prefix_valid_expired_and_queue_delay_never_dispatches(
     epoch=int(time.time())
     valid=stage_packet(APP,SOURCE,IMAGE,epoch+1000,epoch+1000,'e'*64,now=epoch)
     guards=re.findall(r"/bin/sh -c 'test [0-9]+ -gt \$\(/bin/date \+%s\) && test [0-9]+ -gt \$\(/bin/date \+%s\)'",valid['body']['docker_compose_custom_start_command'])
-    assert len(guards)==4
+    assert len(guards)==len(BOOTSTRAPS)+3
     for guard in guards:assert subprocess.run(['sh','-c',guard],timeout=2).returncode==0
     delayed=stage_packet(APP,SOURCE,IMAGE,epoch+301,epoch+1000,'e'*64,now=epoch)
     first=re.findall(r"/bin/sh -c 'test [0-9]+ -gt \$\(/bin/date \+%s\) && test [0-9]+ -gt \$\(/bin/date \+%s\)'",delayed['body']['docker_compose_custom_start_command'])[0]

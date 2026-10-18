@@ -25,12 +25,22 @@ def stage_packet(application,source,image,expires_at,review_lease_expires_at,rev
     compose='docker compose --project-directory '+directory+' -f '+directory+'/docker-compose.yaml --env-file '+directory+'/.env'
     # Coolify injects flags into only the first occurrence: each occurrence below
     # explicitly fixes all paths. Compose uses the reviewed file's fixed name.
-    commands=[('create',60),('start '+' '.join(BOOTSTRAPS),30),('wait '+' '.join(BOOTSTRAPS),90),('start '+' '.join(STORES),30)]
+    # Compose wait over multiple services can return a successful member's exit
+    # code. Require each fixed bootstrap separately before any store starts.
+    commands=[('create',60),('start '+' '.join(BOOTSTRAPS),30),
+              *(('wait '+role,90) for role in BOOTSTRAPS),('start '+' '.join(STORES),30)]
     phases=[]
     for i,(operation,seconds) in enumerate(commands):
         margin=300 if i==0 else seconds+5+15
         guard="/bin/sh -c 'test "+str(expires_at-margin)+" -gt $(/bin/date +%s) && test "+str(review_lease_expires_at-margin)+" -gt $(/bin/date +%s)'"
-        phases.append(guard+' && timeout -s TERM -k 5 '+str(seconds)+' '+compose+' '+operation)
+        if operation.startswith('wait '):
+            role=operation.split()[1]
+            # wait can miss an already-exited one-shot. Its return status is
+            # insufficient: require exactly this service to be exited:0.
+            check=compose+' ps --all --format "{{.State}}:{{.ExitCode}}" '+role
+            action="/bin/sh -c '"+compose+' '+operation+' >/dev/null 2>&1; test "$('+check+')" = exited:0'+"'"
+        else:action=compose+' '+operation
+        phases.append(guard+' && timeout -s TERM -k 5 '+str(seconds)+' '+action)
     command=' && '.join(phases)
     return {'method':'PATCH','path':'/api/v1/applications/'+application,'body':{'docker_compose_custom_start_command':command},
       'source_head':source,'image':image,'authority_expires_at':expires_at,'reviewer_lease_expires_at':review_lease_expires_at,'reviewer_report_sha256':review_report_sha256,'source_only':True,'authorizing':False,

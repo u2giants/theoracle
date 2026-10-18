@@ -9,6 +9,7 @@ from urllib.parse import urlsplit,urlunsplit,quote
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'services/oracle-brain'))
 from oracle_brain.hosting.native_trigger_v1 import decode_bundle,database_url,tls_config,SCENARIO,require,NativeSourceRoleBindingV1
 from oracle_brain.hosting.synthetic_fixture import fixture,NATIVE_TRIGGER_SCENARIO
+from oracle_brain.operating_model.contracts import digest
 
 
 async def project(body,files,root):
@@ -38,7 +39,12 @@ async def project(body,files,root):
  ledger=Ledger(url,blobs,principal=SCENARIO.actor,can_read=sources.can_read,current_source=sources.current)
  projection=NativeInventedTLSProjectionV1(graph,connection_config=config,read_only=False)
  try:
-  records,finalized=await projection.build(ledger,SCENARIO.workspace,SCENARIO.artifact,1)
+  built=await projection.build(ledger,SCENARIO.workspace,SCENARIO.artifact,1)
+  records=projection.records(payload)
+  require(isinstance(built,dict) and set(built)=={'graph_name','content_hash','record_digest','sdk_version','finalized'}
+      and (built['graph_name'],built['content_hash'],built['record_digest'],built['sdk_version'])==(
+          projection.graph_name,manifest.content_hash,digest({'records':records}),'1.4.0')
+      and isinstance(built['finalized'],dict),'native SDK build result differs from sealed projection')
   await projection.verify(payload);authority(row);binding.check_url(url)
   require(time.time()<body['expires_at'],'new projection permission expired')
   with psycopg.connect(url) as c:c.execute('SELECT oracle2.native_trigger_projection(%s,true)',(SCENARIO.run,))
