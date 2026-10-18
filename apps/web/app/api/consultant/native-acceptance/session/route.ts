@@ -1,3 +1,4 @@
+import {nativeTriggerV2Enabled,createTriggerNativeV2Session,authorizeTriggerNativeV2Request,destroyTriggerNativeV2Session} from '@/lib/native-trigger-v2';
 import {nativeTriggerEnabled,createTriggerNativeSession,authorizeTriggerNativeRequest,destroyTriggerNativeSession} from '@/lib/native-trigger';
 import { nativeRequestOrigin } from '@/lib/native-acceptance';
 import { createNativeSession, authorizeNativeRequest, destroyNativeSession, nativeCookie, clearNativeCookie } from '@/lib/native-browser-auth';
@@ -15,12 +16,12 @@ export async function POST(req:Request){
     const raw=Buffer.concat(chunks).toString('utf8');
     const body:unknown=JSON.parse(raw);
     if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).join('|')!=='token'||typeof (body as {token:unknown}).token!=='string')return denied(400);
-    const auth=await (nativeTriggerEnabled()?createTriggerNativeSession:createNativeSession)((body as {token:string}).token);if(!auth.ok)return denied(auth.status);
+    const auth=await (nativeTriggerV2Enabled()?createTriggerNativeV2Session:nativeTriggerEnabled()?createTriggerNativeSession:createNativeSession)((body as {token:string}).token);if(!auth.ok)return denied(auth.status);
     return Response.json({actorId:auth.actorId},{headers:{'Cache-Control':'no-store','Set-Cookie':nativeCookie(auth.sessionId)}});
   }catch{return denied(403);}
 }
 export async function DELETE(req:Request){
   if(!sameOrigin(req))return denied(400);
-  const auth=await (nativeTriggerEnabled()?authorizeTriggerNativeRequest:authorizeNativeRequest)(req.headers);if(auth.ok){if(nativeTriggerEnabled())await destroyTriggerNativeSession(auth.sessionId);else destroyNativeSession(auth.sessionId);}
+  const auth=await (nativeTriggerV2Enabled()?authorizeTriggerNativeV2Request:nativeTriggerEnabled()?authorizeTriggerNativeRequest:authorizeNativeRequest)(req.headers);if(auth.ok){if(nativeTriggerV2Enabled())await destroyTriggerNativeV2Session(auth.sessionId);else if(nativeTriggerEnabled())await destroyTriggerNativeSession(auth.sessionId);else destroyNativeSession(auth.sessionId);}
   return Response.json({ok:true},{headers:{'Cache-Control':'no-store','Set-Cookie':clearNativeCookie()}});
 }
