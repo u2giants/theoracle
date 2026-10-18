@@ -70,7 +70,8 @@ Comments: FalkorDB [6250263949](https://github.com/u2giants/theoracle/issues/27#
 
 ### Commit / push status
 
-- `claude/step4-combined-integration` at `5ebe8ee0` — **pushed**, not yet PR'd/merged (wrap-up ship step may open the PR).
+- `claude/step4-combined-integration` at `d3e25cb9` (gate `5ebe8ee0` + handoff) — **pushed**, PR [#150](https://github.com/u2giants/theoracle/pull/150) OPEN, **not merged**: required check `oracle2-offline` FAIL (W10 inventory, 113 tests, success false). Merge gated on W10 green (§6.3).
+- Live-proof operators branch `claude/live-proof-27-operators` at `e67260fb` — **pushed**, PR [#151](https://github.com/u2giants/theoracle/pull/151) OPEN.
 - Live-proof operators on worktree `oracle-live-proof-27` commits `def8ed25`→`e67260fb` — **unpushed at wrap-up start**; must land on a branch.
 - Cut worktrees `theoracle-step4-cut1` / `theoracle-step4-cut2` — commits already cherry-picked into `5ebe8ee0`; only a `.venv` symlink remains untracked on cut1.
 
