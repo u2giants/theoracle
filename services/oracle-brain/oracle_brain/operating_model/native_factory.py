@@ -17,13 +17,15 @@ from typing import Callable, Literal
 from uuid import UUID
 
 import psycopg
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, model_validator, field_validator
 
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest, authorize
 from .contracts import StrictRecord, canonical_bytes, digest
 from .key_coverage import VerifiedKeyCoverage
 from .native_provider import NativeOpenRouter
 from .provider_adapter import AdmittedProvider, Budget, Pricing
+from .original_qualification_v1 import RawOriginalRefV1
+from .raw_multimodal_pricing_v1 import RawMultimodalPricingQuoteV1
 
 
 class LedgerRegistry(StrictRecord):
@@ -57,6 +59,43 @@ class NativeDispatchJob(StrictRecord):
     pricing: Pricing
     register_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     input_tokens_upper_bound: int = Field(strict=True, gt=0)
+
+
+class RawOriginalDispatchJobV1(NativeDispatchJob):
+    """Fixed paid PDF phases before a qualified SourceRef can exist."""
+    schema_version:Literal[1]=1
+    job_schema:Literal['raw-original-dispatch-v1']='raw-original-dispatch-v1'
+    purpose:Literal['source-original-reading','source-original-review']
+    raw_ref: 'RawOriginalRefV1'
+    pricing:RawMultimodalPricingQuoteV1
+    population_id:UUID
+    operation_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    view_manifest_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    locator_map_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reading_commit_hash:str|None=Field(default=None,pattern=r'^[0-9a-f]{64}$')
+
+    @field_validator('schema_version',mode='before')
+    @classmethod
+    def exact_version_integer(cls,value):
+        if type(value) is not int or value!=1:
+            raise ValueError('raw native job version must be integer one')
+        return value
+
+    @model_validator(mode='after')
+    def exact_original_phase(self):
+        if (self.raw_ref.media_type!='application/pdf' or self.raw_ref.workspace_id!=self.workspace_id
+                or self.processing_request.purpose!=self.purpose
+                or (self.purpose=='source-original-review')!=(self.reading_commit_hash is not None)
+                or self.pricing.dispatch_id!=self.dispatch_id or self.pricing.request_hash!=self.request_hash
+                or self.pricing.population_id!=self.population_id
+                or self.pricing.view_manifest_hash!=self.view_manifest_hash
+                or self.pricing.account!=self.processing_request.account
+                or self.pricing.admitted_register_hash!=self.register_hash
+                or self.pricing.model!=self.request.get('model')
+                or self.pricing.max_output_tokens!=self.request.get('max_tokens')
+                or self.input_tokens_upper_bound!=self.pricing.text_input_tokens_upper_bound+self.pricing.vision_input_tokens_upper_bound):
+            raise ValueError('exact raw PDF phase, workspace and actual prior reading required')
+        return self
 
 
 class _AuthorizedNative(NativeOpenRouter):
@@ -165,7 +204,12 @@ class NativeBrokerEgress:
                  trusted_registry_hash: str, coverage_receipt: Callable[[], VerifiedKeyCoverage],
                  trusted_coverage_hash: str, resolve_job: Callable[[UUID], NativeDispatchJob],
                  authorize_current_job: Callable[[NativeDispatchJob], bool],
-                 validate_response: Callable[[NativeDispatchJob, object], None], private_receipts: Path):
+                 validate_response: Callable[[NativeDispatchJob, object], None], private_receipts: Path,
+                 admitted_allocation=None):
+        from .provider_adapter import AdmittedAllocationLimitV2
+        if admitted_allocation is not None and type(admitted_allocation) is not AdmittedAllocationLimitV2:
+            raise PermissionError('exact admitted shared allocation required')
+        self._allocation=admitted_allocation
         self._key = api_key
         self._key_fingerprint = hashlib.sha256(api_key.encode()).hexdigest()
         self._url,self._registry,self._registry_hash = ledger_url,registry,trusted_registry_hash
@@ -230,13 +274,19 @@ class NativeBrokerEgress:
             if not isinstance(job,NativeDispatchJob) or job.dispatch_id!=dispatch_id:
                 raise ValueError
             # Do not retain shared mutable dictionaries returned by a resolver.
-            job=NativeDispatchJob.model_validate_json(job.model_dump_json())
+            if type(job) is RawOriginalDispatchJobV1:
+                job=RawOriginalDispatchJobV1.model_validate_json(job.model_dump_json())
+            else:
+                # Legacy base validation remains closed to new extra fields.
+                job=NativeDispatchJob.model_validate_json(job.model_dump_json())
             encoded=canonical_bytes(envelope['request'])
             if (hashlib.sha256(encoded).hexdigest()!=job.request_hash
                     or envelope['request_hash']!=job.request_hash or encoded!=canonical_bytes(job.request)):
                 raise ValueError
         except (ValueError,TypeError,KeyError):
             raise PermissionError('provider request differs from immutable admitted job') from None
+        if self._allocation is not None and job.batch_id!=self._allocation.batch_id:
+            raise PermissionError('phase cannot choose a new allocation bucket')
         job_seal=digest(job.model_dump(mode='json'))
         def currently_authorized():
             return (digest(job.model_dump(mode='json'))==job_seal and self._authorize(job) is True
@@ -296,7 +346,7 @@ class NativeBrokerEgress:
                 or current.model_dump(exclude={'expires_at'})!=job.pricing.model_dump(exclude={'expires_at'})):
             raise PermissionError('current actual pricing differs from admitted job')
         provider=AdmittedProvider(request=job.processing_request,approvals=list(job.approvals),pricing=job.pricing,
-            budget=Budget(self._url,ledger_identity_hash=ledger_identity),sender=native.embed if embedding else native.send,operation='embedding' if embedding else 'chat',
+            budget=Budget(self._url,ledger_identity_hash=ledger_identity,admitted_allocation=self._allocation),sender=native.embed if embedding else native.send,operation='embedding' if embedding else 'chat',
             remaining_daily_allowance=native.allowance,admitted_register_hash=job.register_hash)
         # Recheck immediately before reservation/send, after all preflight work.
         if not currently_authorized():
@@ -352,7 +402,7 @@ def validate_embedding_response(response, *, count):
                 raise ValueError('embedding vector contains nonfinite/non-numeric values')
 
 
-class ObservedAssemblyBrokerEgress(NativeBrokerEgress):
+class _ObservedAssemblyBrokerBase(NativeBrokerEgress):
     """Explicit versioned assembly path; legacy broker/extraction stays unchanged.
 
     Protected startup supplies the independently pinned context/custodian and
@@ -361,11 +411,8 @@ class ObservedAssemblyBrokerEgress(NativeBrokerEgress):
     """
     def __init__(self, *, assembly_context, expected_assembly_context_hash,
                  assembly_observer, **kwargs):
-        from .assembly_context import AssemblyJobContext
-        from .captured_assembly import ObservedAssemblyCustodian
-        if (not isinstance(assembly_context,AssemblyJobContext)
-                or digest(assembly_context.model_dump(mode='json'))!=expected_assembly_context_hash
-                or not isinstance(assembly_observer,ObservedAssemblyCustodian)):
+        self._validate_context_types(assembly_context,assembly_observer)
+        if digest(assembly_context.model_dump(mode='json'))!=expected_assembly_context_hash:
             raise PermissionError('externally pinned assembly context and actual observer required')
         self._assembly_context=assembly_context
         self._assembly_context_hash=expected_assembly_context_hash
@@ -414,3 +461,13 @@ class ObservedAssemblyBrokerEgress(NativeBrokerEgress):
             raise PermissionError('observed assembly qualification unavailable; wire retained') from None
         if observed is not None:
             self._assembly_observer.retain(self._receipts,observed)
+
+
+class ObservedAssemblyBrokerEgress(_ObservedAssemblyBrokerBase):
+    """Legacy assembly context/protocol only; new phases require explicit V2."""
+    @staticmethod
+    def _validate_context_types(context,observer):
+        from .assembly_context import AssemblyJobContext
+        from .captured_assembly import ObservedAssemblyCustodian
+        if type(context) is not AssemblyJobContext or type(observer) is not ObservedAssemblyCustodian:
+            raise PermissionError('exact legacy assembly context and custodian required')

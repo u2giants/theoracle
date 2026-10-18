@@ -1,0 +1,231 @@
+"""Invented pure metadata tests; no issuer, SQL authority or provider is created."""
+import json
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+import pytest
+from pydantic import ValidationError
+
+from oracle_brain.operating_model.contracts import digest
+from oracle_brain.operating_model.purpose_context import (
+    PHASE_CONTRACTS, ParentPopulationAdmissionV2, PurposeDispatchV2,
+    PurposeRunDescriptorV2, PurposeMetadataProjectionV2, PurposeAuthorityProofV2,
+    source_population_digest, verify_purpose_authority_proof_v2,
+)
+from oracle_brain.operating_model.source_receipts import SourceRef
+
+
+def records(phase='census'):
+    workspace=uuid4();now=datetime.now(timezone.utc);expiry=now+timedelta(minutes=1)
+    refs=tuple(SourceRef(workspace_id=workspace,source_id=uuid4(),revision=1,
+        original_sha256='a'*64,reading_sha256='b'*64,parser_id='c'*64) for _ in range(3))
+    purpose,operation,model=PHASE_CONTRACTS[phase]
+    dispatch=PurposeDispatchV2(dispatch_id=uuid4(),source_refs=refs,model=model,
+        **{name:'d'*64 for name in ('job_hash','request_hash','permission_hash','context_hash',
+        'processing_request_hash','account_policy_hash','account_identity_hash','terms_hash','pricing_hash','register_hash',
+        'approvals_hash','budget_identity_hash','ledger_registry_hash','key_coverage_hash')})
+    descriptor=PurposeRunDescriptorV2(run_id=uuid4(),workspace_id=workspace,actor_id=uuid4(),
+        provider_login='provider_fixture',worker_uri='spiffe://oracle/purpose-worker',phase=phase,
+        purpose=purpose,operation=operation,runtime_hash='e'*64,source_registry_hash='f'*64,
+        parent_registry_sha256='1'*64,population_admission_sha256='2'*64,phase_registry_sha256='3'*64,
+        population_digest=source_population_digest(refs),source_refs=refs,dispatches=(dispatch,),
+        issuer_actor=uuid4(),reviewer_actor=uuid4(),expires_at=expiry)
+    projection=PurposeMetadataProjectionV2(descriptor=descriptor,
+        descriptor_sha256=digest(descriptor.model_dump(mode='json')))
+    return descriptor,dispatch,projection,now
+
+
+def valid_proof(d,j,p,now,*,caller='provider_fixture',profile='source-reader'):
+    return PurposeAuthorityProofV2(run_id=d.run_id,workspace_id=d.workspace_id,actor_id=d.actor_id,
+        admitted_provider_login=d.provider_login,actual_caller_login=caller,dispatch_id=j.dispatch_id,
+        phase=d.phase,purpose=d.purpose,operation=d.operation,source_refs=d.source_refs,
+        population_digest=d.population_digest,runtime_hash=d.runtime_hash,source_registry_hash=d.source_registry_hash,
+        descriptor_sha256=digest(d.model_dump(mode='json')),parent_registry_sha256=d.parent_registry_sha256,
+        population_admission_sha256=d.population_admission_sha256,phase_registry_sha256=d.phase_registry_sha256,
+        projection_sha256=digest(p.model_dump(mode='json')),dispatch_hash=digest(j.model_dump(mode='json')),
+        job_hash=j.job_hash,request_hash=j.request_hash,permission_hash=j.permission_hash,
+        session_role=caller,profile=profile,checked_at=now,expires_at=d.expires_at)
+
+
+@pytest.mark.parametrize('phase',tuple(PHASE_CONTRACTS))
+def test_fixed_phase_metadata_has_three_exact_originals_and_no_private_payload(phase):
+    d,j,p,_=records(phase)
+    assert len(d.source_refs)==3 and d.dispatch(j.dispatch_id)==j
+    assert j.source_refs==d.source_refs
+    assert d.purpose==PHASE_CONTRACTS[phase][0]
+    raw=p.model_dump(mode='json')
+    assert not any(word in json.dumps(raw) for word in ('reading"','private_object_key','messages','candidate','inventories'))
+    assert PurposeMetadataProjectionV2.model_validate_json(p.model_dump_json())==p
+
+
+@pytest.mark.parametrize('damage',('omitted','reordered','duplicate','workspace','model','purpose','operation','issuer','self-issuer','extra'))
+def test_descriptor_refuses_filtered_or_relabelled_population(damage):
+    d,_,_,_=records();raw=d.model_dump(mode='json')
+    if damage=='omitted':raw['dispatches'][0]['source_refs'].pop()
+    elif damage=='reordered':raw['dispatches'][0]['source_refs'].reverse()
+    elif damage=='duplicate':raw['source_refs'].append(raw['source_refs'][0])
+    elif damage=='workspace':raw['workspace_id']=str(uuid4())
+    elif damage=='model':raw['dispatches'][0]['model']='openai/gpt-6-astra'
+    elif damage=='purpose':raw['purpose']='operating-audit'
+    elif damage=='operation':raw['operation']='embedding'
+    elif damage=='issuer':raw['reviewer_actor']=raw['issuer_actor']
+    elif damage=='self-issuer':raw['issuer_actor']=raw['actor_id']
+    else:raw['request']={'raw':'not a metadata field'}
+    with pytest.raises((ValueError,ValidationError)):
+        PurposeRunDescriptorV2.model_validate_json(json.dumps(raw))
+
+
+def test_population_admission_is_strict_but_does_not_create_authority():
+    d,_,_,_=records()
+    fields={k:getattr(d,k) for k in ('workspace_id','parent_registry_sha256','runtime_hash','source_registry_hash',
+        'source_refs','population_digest','issuer_actor','reviewer_actor','expires_at')}
+    admitted=ParentPopulationAdmissionV2(**fields)
+    assert admitted.source_refs==d.source_refs
+    with pytest.raises(ValidationError):ParentPopulationAdmissionV2(**fields,reading='raw')
+    with pytest.raises(ValueError):ParentPopulationAdmissionV2(**{**fields,'source_refs':d.source_refs[:-1]})
+    with pytest.raises(ValueError):ParentPopulationAdmissionV2(**{**fields,'reviewer_actor':d.issuer_actor})
+    with pytest.raises(ValidationError):admitted.runtime_hash='0'*64
+
+
+@pytest.mark.parametrize('caller,profile,phase,allowed',(
+    ('provider_fixture','source-reader','census',True),
+    ('own_gateway','gateway-metadata','census',True),
+    ('borrowed','source-reader','census',False),
+    ('provider_fixture','source-reader','embedding',False),
+    ('provider_fixture','gateway-metadata','embedding',True),
+    ('other_gateway','gateway-metadata','embedding',False),
+))
+def test_actual_caller_and_admitted_provider_are_named_separately(caller,profile,phase,allowed):
+    d,j,p,now=records(phase)
+    if not allowed:
+        with pytest.raises(ValueError):valid_proof(d,j,p,now,caller=caller,profile=profile)
+    else:
+        proof=valid_proof(d,j,p,now,caller=caller,profile=profile)
+        assert proof.actual_caller_login==caller and proof.admitted_provider_login==d.provider_login
+        assert verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=digest(p.model_dump(mode='json')),
+            actual_caller_login=caller,profile=profile,now=now) is None
+
+
+@pytest.mark.parametrize('damage',('future','stale','expired','later-horizon','dispatch','parent','projection','provider','caller','population','bool','none'))
+def test_proof_consistency_refuses_stale_forged_or_wrong_dispatch(damage):
+    d,j,p,now=records();proof=valid_proof(d,j,p,now);raw=proof.model_dump(mode='json');clock=now
+    if damage=='future':raw['checked_at']=(now+timedelta(seconds=1)).isoformat()
+    elif damage=='stale':clock=now+timedelta(seconds=6)
+    elif damage=='expired':clock=d.expires_at
+    elif damage=='later-horizon':raw['expires_at']=(d.expires_at+timedelta(seconds=1)).isoformat()
+    elif damage=='dispatch':raw['dispatch_id']=str(uuid4())
+    elif damage=='parent':raw['parent_registry_sha256']='0'*64
+    elif damage=='projection':raw['projection_sha256']='0'*64
+    elif damage=='provider':raw['admitted_provider_login']='forged_provider'
+    elif damage=='caller':raw['actual_caller_login']='forged_caller'
+    elif damage=='population':raw['source_refs'].pop()
+    elif damage=='bool':proof=True
+    elif damage=='none':proof=None
+    with pytest.raises((ValueError,PermissionError)):
+        if damage not in {'bool','none'}:proof=PurposeAuthorityProofV2.model_validate_json(json.dumps(raw))
+        verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=digest(p.model_dump(mode='json')),
+            actual_caller_login='provider_fixture',profile='source-reader',now=clock)
+
+
+def qualification(phase='embedding'):
+    from oracle_brain.operating_model.purpose_context import PurposePhaseRegistryV2, PurposePinsV2
+    d,j,_,now=records(phase)
+    population=ParentPopulationAdmissionV2(workspace_id=d.workspace_id,
+        parent_registry_sha256=d.parent_registry_sha256,runtime_hash=d.runtime_hash,
+        source_registry_hash=d.source_registry_hash,source_refs=d.source_refs,
+        population_digest=d.population_digest,issuer_actor=d.issuer_actor,
+        reviewer_actor=d.reviewer_actor,expires_at=d.expires_at)
+    raw=d.model_dump(mode='python');raw.pop('phase_registry_sha256')
+    raw['qualification_purpose']='phase-operation-qualification-v2'
+    raw['population_admission_sha256']=digest(population.model_dump(mode='json'))
+    registry=PurposePhaseRegistryV2.model_validate(raw)
+    # Invented external qualification fixture; these hashes issue no runtime authority.
+    seal=digest(registry.model_dump(mode='json'))
+    d=d.model_copy(update={'population_admission_sha256':raw['population_admission_sha256'],
+                          'phase_registry_sha256':seal})
+    projection=PurposeMetadataProjectionV2(descriptor=d,descriptor_sha256=digest(d.model_dump(mode='json')))
+    pins=PurposePinsV2(qualification_purpose='phase-operation-qualification-v2',phase=d.phase,
+        operation=d.operation,runtime_hash=d.runtime_hash,source_registry_hash=d.source_registry_hash,
+        parent_registry_sha256=d.parent_registry_sha256,population_admission_sha256=d.population_admission_sha256,
+        phase_registry_sha256=seal,budget_allocation_projection_sha256=d.dispatches[0].budget_identity_hash,
+        descriptor_sha256=projection.descriptor_sha256,
+        projection_sha256=digest(projection.model_dump(mode='json')),provider_login=d.provider_login,
+        worker_uri=d.worker_uri,issuer_actor=d.issuer_actor,reviewer_actor=d.reviewer_actor,expires_at=d.expires_at)
+    return registry,population,pins,now,d
+
+
+@pytest.mark.parametrize('phase',tuple(PHASE_CONTRACTS))
+def test_independently_pinned_phase_registry_is_exact_operation_qualification(phase):
+    from oracle_brain.operating_model.purpose_context import derive_purpose_descriptor_v2
+    registry,population,pins,now,expected=qualification(phase)
+    assert pins.operation_approval_hash==pins.phase_registry_sha256
+    assert derive_purpose_descriptor_v2(registry,population,pins=pins,
+        phase_registry_bytes_hash=pins.phase_registry_sha256,now=now)==expected
+
+
+@pytest.mark.parametrize('damage',('base-approval-only','chat-registry','model','request','account',
+    'terms','pricing','approvals','omitted-source','reordered-source','expired','issuer','population',
+    'external-seal','projection','meaning'))
+def test_embedding_qualification_never_borrows_chat_or_base_processing_approval(damage):
+    from oracle_brain.operating_model.purpose_context import (
+        PurposePhaseRegistryV2, PurposePinsV2, derive_purpose_descriptor_v2)
+    registry,population,pins,now,_=qualification()
+    seal=pins.phase_registry_sha256
+    raw=registry.model_dump(mode='python')
+    if damage=='base-approval-only':registry=None
+    elif damage=='chat-registry':registry=qualification('census')[0]
+    elif damage in {'model','request','account','terms','pricing','approvals'}:
+        name={'model':'model','request':'request_hash','account':'account_policy_hash',
+              'terms':'terms_hash','pricing':'pricing_hash','approvals':'approvals_hash'}[damage]
+        raw['dispatches'][0][name]='openai/gpt-6.1-sol' if name=='model' else '9'*64
+        registry=registry.model_copy(update={'dispatches':tuple(PurposeDispatchV2.model_validate(x) for x in raw['dispatches'])})
+        # A changed phase file cannot preserve its externally qualified byte seal.
+        seal=digest(registry.model_dump(mode='json'))
+    elif damage=='omitted-source':registry=registry.model_copy(update={'source_refs':registry.source_refs[:-1]})
+    elif damage=='reordered-source':registry=registry.model_copy(update={'source_refs':tuple(reversed(registry.source_refs))})
+    elif damage=='expired':now=pins.expires_at
+    elif damage=='issuer':pins=pins.model_copy(update={'issuer_actor':uuid4()})
+    elif damage=='population':population=population.model_copy(update={'parent_registry_sha256':'8'*64})
+    elif damage=='external-seal':seal='8'*64
+    elif damage=='projection':pins=pins.model_copy(update={'projection_sha256':'8'*64})
+    elif damage=='meaning':pins=pins.model_copy(update={'qualification_purpose':'chat-approval'})
+    with pytest.raises((PermissionError,ValueError,ValidationError)):
+        derive_purpose_descriptor_v2(registry,population,pins=pins,
+            phase_registry_bytes_hash=seal,now=now)
+
+
+def allocation_projection():
+    from decimal import Decimal
+    from oracle_brain.operating_model.purpose_context import BudgetAllocationPinsV2
+    d,j,_,now=records()
+    projection=BudgetAllocationPinsV2(original_batch_id=uuid4(),allocation_hash='1'*64,
+        original_receipt_hash='2'*64,original_ceiling_usd=Decimal('.5'),original_expires_at=d.expires_at,
+        ledger_registry_hash=j.ledger_registry_hash,key_coverage_hash=j.key_coverage_hash,
+        account_identity_hash=j.account_identity_hash)
+    seal=digest(projection.model_dump(mode='json'))
+    dispatch=j.model_copy(update={'budget_identity_hash':seal})
+    return projection,seal,dispatch,now
+
+
+def test_same_original_allocation_projection_does_not_issue_or_renew_budget():
+    projection,seal,dispatch,now=allocation_projection()
+    assert projection.verify_current(trusted_projection_hash=seal,dispatches=(dispatch,),now=now) is None
+    assert projection.original_ceiling_usd<5
+
+
+@pytest.mark.parametrize('field',('allocation_hash','original_receipt_hash','original_ceiling_usd',
+    'original_expires_at','original_batch_id','ledger_registry_hash','key_coverage_hash','account_identity_hash'))
+def test_allocation_projection_cannot_change_original_receipt_scope_under_old_pin(field):
+    from decimal import Decimal
+    projection,seal,dispatch,now=allocation_projection()
+    value=uuid4() if field=='original_batch_id' else (
+        Decimal('25') if field=='original_ceiling_usd' else (
+        projection.original_expires_at+timedelta(days=1) if field=='original_expires_at' else 'f'*64))
+    projection=projection.model_copy(update={field:value})
+    with pytest.raises(PermissionError):projection.verify_current(trusted_projection_hash=seal,dispatches=(dispatch,),now=now)
+
+
+def test_original_expired_allocation_never_renews_from_phase_clock():
+    projection,seal,dispatch,now=allocation_projection()
+    with pytest.raises(PermissionError):
+        projection.verify_current(trusted_projection_hash=seal,dispatches=(dispatch,),now=projection.original_expires_at)

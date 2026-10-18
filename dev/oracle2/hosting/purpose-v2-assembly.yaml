@@ -1,0 +1,68 @@
+# Source-only independent phase. No future phase settings or inputs required.
+name: oracle-purpose-v2-assembly
+services:
+  assembly-provider:
+    profiles:
+    - purpose-assembly-admitted
+    command:
+    - --phase
+    - assembly
+    - --role
+    - provider
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_ASSEMBLY_PROVIDER_SETTINGS_SHA256:?independently pinned settings required}
+    expose:
+    - 8443
+    networks:
+    - assembly
+    - ledger
+    - assembly-outbound
+    volumes:
+    - assembly-provider-auth:/run/purpose-auth:ro
+    - assembly-provider-state:/run/purpose-state
+    - assembly-input:/run/purpose-input:ro
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+  assembly-metadata:
+    profiles:
+    - purpose-assembly-admitted
+    command:
+    - --phase
+    - assembly
+    - --role
+    - metadata
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_ASSEMBLY_METADATA_SETTINGS_SHA256:?independently pinned settings required}
+    expose:
+    - 8443
+    networks:
+    - assembly
+    - ledger
+    volumes:
+    - assembly-metadata-auth:/run/purpose-auth:ro
+    - assembly-metadata-state:/run/purpose-state
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network
+      required}
+  assembly:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  assembly-outbound: {}
+volumes:
+  assembly-provider-auth: {}
+  assembly-provider-state: {}
+  assembly-input: {}
+  assembly-metadata-auth: {}
+  assembly-metadata-state: {}

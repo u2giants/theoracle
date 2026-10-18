@@ -235,6 +235,7 @@ class Ledger:
               WHERE d.workspace_id=%s AND d.artifact_id=%s AND d.version=%s AND d.upstream_kind='source' ''',(workspace_id,artifact_id,version)).fetchall()
         authoritative_refs=tuple(SourceRef.model_validate_json(json.dumps(row[0])) for row in source_rows)
         self.authorize_refs(authoritative_refs,workspace_id)
+        if processing:self._authorize_processing_blob(manifest)
         payload = json.loads(self.blobs.read(manifest.private_object_key,manifest.content_hash))
         refs = tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs'])
         if set(refs)!=set(authoritative_refs):raise ValueError('blob source identities differ from relational ledger')
@@ -246,7 +247,14 @@ class Ledger:
                 raise PermissionError('processing qualification guard did not validate')
         return manifest,payload
 
+    def _authorize_processing_blob(self,manifest):
+        """Opt-in compiler custody check after source authorization, before bytes."""
+
     def _read_processing_authorized(self,workspace_id,artifact_id,version,*,include_failed=False):
+        manifest,payload,_=self._read_processing_boundary(workspace_id,artifact_id,version,include_failed=include_failed)
+        return manifest,payload
+
+    def _read_processing_boundary(self,workspace_id,artifact_id,version,*,include_failed=False):
         if self.processing_read_guard is None:
             raise PermissionError('current trusted processing qualification required')
         manifest,authoritative_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
@@ -256,19 +264,24 @@ class Ledger:
             raise PermissionError('processing profile cannot open extraction or failed candidate blobs')
         if manifest.state!='ready' and not include_failed:
             raise PermissionError('failed processing candidate cannot serve')
+        self._authorize_processing_blob(manifest)
         payload=json.loads(self.blobs.read(manifest.private_object_key,manifest.content_hash))
         refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs'])
         if (len(set(refs))!=len(refs) or set(refs)!=set(authoritative_refs)
                 or digest({'refs':[r.model_dump(mode='json') for r in refs]})!=manifest.source_digest):
             raise PermissionError('processing blob source manifest differs')
-        if self.processing_read_guard(manifest,payload,self.principal,self.clock()) is not None:
-            raise PermissionError('processing qualification guard did not validate')
+        validation=self._validate_processing_read_guard(manifest,payload,self.clock())
         # Current metadata only, again after opening/validating the blob. No raw
         # source getter or nested SQL lock is used by this serving path.
         current,current_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
         if current!=manifest or set(current_refs)!=set(refs):
             raise PermissionError('processing artifact changed during read')
-        return manifest,payload
+        return manifest,payload,validation
+
+    def _validate_processing_read_guard(self,manifest,payload,now):
+        """Body boundary; protected compilers may fuse validation and horizon."""
+        if self.processing_read_guard(manifest,payload,self.principal,now) is not None:
+            raise PermissionError('processing qualification guard did not validate')
 
     def append_review(self, *, workspace_id: UUID, artifact_id: UUID, version: int,
                       finding_id: str, event_id: UUID, action: str, scope: str,

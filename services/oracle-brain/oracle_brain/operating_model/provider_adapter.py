@@ -23,16 +23,33 @@ class Pricing(StrictRecord):
     expires_at: AwareDatetime
     admitted_register_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
 
+class AdmittedAllocationLimitV2(StrictRecord):
+    """Trusted externally qualified cap projection; fields alone grant nothing.
+
+    The native factory must authenticate the original receipt/hash/batch mapping.
+    SQL enforces the provided narrower numeric limit under its existing lock; it
+    does not authenticate allocation receipt provenance or persist its identity.
+    """
+    batch_id: UUID
+    allocation_hash: str=Field(pattern=r'^[0-9a-f]{64}$')
+    original_receipt_hash: str=Field(pattern=r'^[0-9a-f]{64}$')
+    ceiling_usd: Decimal=Field(gt=0,allow_inf_nan=False)
+    expires_at: AwareDatetime
+
 class Budget:
     """Single Oracle-key central ledger; never a workspace-specific budget shard."""
-    def __init__(self,url: str,*,ledger_identity_hash: str | None = None):
+    def __init__(self,url: str,*,ledger_identity_hash: str | None = None,
+                 admitted_allocation: AdmittedAllocationLimitV2 | None = None):
         import re
         if ledger_identity_hash is not None and not re.fullmatch('[0-9a-f]{64}',ledger_identity_hash):
             raise PermissionError('verified central ledger identity required')
+        if admitted_allocation is not None and type(admitted_allocation) is not AdmittedAllocationLimitV2:
+            raise PermissionError('exact externally admitted allocation cap required')
         self.url=url;self.ledger_identity_hash=ledger_identity_hash
+        self.admitted_allocation=admitted_allocation
     def reserve(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 maximum: Decimal,pricing_hash: str, account_remaining: Decimal | None = None, correction_hash: str | None = None) -> UUID:
-        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
+        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance','source-original-reading','source-original-review'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
             raise PermissionError('private dispatch purpose/attempt/cost not admitted')
         # Historical keyword account_remaining denotes this one Oracle key,
         # not unrelated application keys or the provider's whole account.
@@ -41,6 +58,12 @@ class Budget:
         reservation_id=uuid4()
         with psycopg.connect(self.url) as conn:
             conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',))
+            allocation=self.admitted_allocation
+            if allocation is not None:
+                AdmittedAllocationLimitV2.model_validate(allocation.model_dump(mode='python'))
+                if batch_id!=allocation.batch_id or conn.execute('SELECT clock_timestamp()<%s',
+                        (allocation.expires_at,)).fetchone()[0] is not True:
+                    raise PermissionError('original allocation batch or expiry unavailable')
             prior=conn.execute('SELECT reservation_id FROM oracle2.operating_dispatch_reservations WHERE workspace_id=%s AND artifact_id=%s AND purpose=%s AND attempt=%s',(workspace_id,artifact_id,purpose,attempt)).fetchone()
             if prior: raise PermissionError('attempt already dispatched; replay cannot charge again')
             if attempt==2:
@@ -66,7 +89,12 @@ class Budget:
             # central lock. Key totals may include finished calls; double-counting
             # is conservative. This store must never mix unrelated provider keys.
             ceiling=min(Decimal(25),account_remaining) if account_remaining is not None else Decimal(25)
-            if day+maximum>ceiling or batch+maximum>5: raise PermissionError('daily or batch reservation ceiling exceeded')
+            batch_ceiling=min(Decimal(5),allocation.ceiling_usd) if allocation is not None else Decimal(5)
+            if day+maximum>ceiling or batch+maximum>batch_ceiling:
+                raise PermissionError('daily or batch reservation ceiling exceeded')
+            if allocation is not None and conn.execute('SELECT clock_timestamp()<%s',
+                    (allocation.expires_at,)).fetchone()[0] is not True:
+                raise PermissionError('original allocation expired before reservation commit')
             conn.execute('INSERT INTO oracle2.operating_dispatch_reservations(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,reserved_usd,pricing_hash) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,maximum,pricing_hash))
         return reservation_id
 
@@ -122,6 +150,18 @@ class AdmittedProvider:
                        'pricing':self.pricing.model_dump(mode='json'),'register_hash':self.admitted_register_hash,
                        'input_tokens_upper_bound':input_tokens_upper_bound})
 
+    def _validate_reservation_input(self, *, purpose, input_tokens_upper_bound, messages):
+        # Raw originals need their separately appointed multimodal constructor.
+        # Text byte estimates cannot authenticate complete image-token pricing.
+        if purpose in {'source-original-reading','source-original-review'}:
+            raise PermissionError('protected raw original provider required')
+        required_bound=len(json.dumps(messages,ensure_ascii=False).encode()) + 1024*len(messages)
+        if input_tokens_upper_bound < required_bound:
+            raise ValueError('input reservation does not cover the complete dispatch payload')
+
+    def _reservation_maximum(self, *, input_tokens_upper_bound):
+        return (Decimal(input_tokens_upper_bound)*self.pricing.input_per_million_usd + Decimal(self.pricing.max_output_tokens)*self.pricing.output_per_million_usd)/Decimal(1_000_000)
+
     def extract(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 input_tokens_upper_bound: int, messages: list[dict], response_validator=None):
         authorize(self.request,self.approvals)
@@ -132,13 +172,11 @@ class AdmittedProvider:
             raise PermissionError('exact purpose/current price admission required')
         if isinstance(input_tokens_upper_bound,bool) or input_tokens_upper_bound<1:
             raise ValueError('bounded input token count required')
-        required_bound=len(json.dumps(messages,ensure_ascii=False).encode()) + 1024*len(messages)
-        if input_tokens_upper_bound < required_bound:
-            raise ValueError('input reservation does not cover the complete dispatch payload')
+        self._validate_reservation_input(purpose=purpose,input_tokens_upper_bound=input_tokens_upper_bound,messages=messages)
         if self.remaining_daily_allowance is None:
             raise PermissionError('authoritative remaining daily allowance unavailable')
         opts=transport_options(self.request,self.pricing.model,operation=self.operation)
-        maximum=(Decimal(input_tokens_upper_bound)*self.pricing.input_per_million_usd + Decimal(self.pricing.max_output_tokens)*self.pricing.output_per_million_usd)/Decimal(1_000_000)
+        maximum=self._reservation_maximum(input_tokens_upper_bound=input_tokens_upper_bound)
         allowance=self.remaining_daily_allowance()
         if maximum > allowance:
             raise PermissionError('current remaining daily allowance cannot fund dispatch')

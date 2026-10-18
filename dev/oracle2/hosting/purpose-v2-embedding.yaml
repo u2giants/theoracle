@@ -1,0 +1,43 @@
+# Source-only independent phase. No future phase settings or inputs required.
+name: oracle-purpose-v2-embedding
+services:
+  embedding-provider:
+    profiles:
+    - purpose-embedding-admitted
+    command:
+    - --phase
+    - embedding
+    - --role
+    - provider
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_EMBEDDING_PROVIDER_SETTINGS_SHA256:?independently pinned settings required}
+    expose:
+    - 8443
+    networks:
+    - embedding
+    - ledger
+    - embedding-outbound
+    volumes:
+    - embedding-provider-auth:/run/purpose-auth:ro
+    - embedding-provider-state:/run/purpose-state
+    - embedding-input:/run/purpose-input:ro
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network
+      required}
+  embedding:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  embedding-outbound: {}
+volumes:
+  embedding-provider-auth: {}
+  embedding-provider-state: {}
+  embedding-input: {}

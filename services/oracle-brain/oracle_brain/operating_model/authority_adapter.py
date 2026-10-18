@@ -119,8 +119,24 @@ class ProcessingSourceResolver:
         if not isinstance(binding, ProcessingSourceBinding):
             raise PermissionError('fixed processing binding required')
         self.url, self.binding = url, binding
+        import threading
+        self._shared = threading.local()
         with self._connection() as conn:
             self._check(conn)
+
+    @contextmanager
+    def shared_connection(self):
+        """Reuse the socket, releasing each getter transaction before callbacks."""
+        existing = getattr(self._shared, 'conn', None)
+        if existing is not None:
+            yield existing
+            return
+        with psycopg.connect(self.url, connect_timeout=5, autocommit=True) as conn:
+            self._shared.conn = conn
+            try:
+                yield conn
+            finally:
+                self._shared.conn = None
 
     @property
     def metadata_only(self):
@@ -128,10 +144,23 @@ class ProcessingSourceResolver:
 
     @contextmanager
     def _connection(self, connection=None):
+        if connection is None:
+            shared = getattr(self, '_shared', None)
+            existing = getattr(shared, 'conn', None) if shared is not None else None
+            if existing is not None:
+                # A getter remains atomic, but no row lock survives it into
+                # external validation or a later independent currentness sweep.
+                with existing.transaction():
+                    yield existing
+                return
         if connection is not None:
             wanted = psycopg.conninfo.conninfo_to_dict(self.url)
             actual = connection.info.get_parameters()
-            if any(str(wanted.get(k, '')) != str(actual.get(k, '')) for k in ('host','port','dbname','user')):
+            try:expected_port=int(wanted.get('port') or 5432)
+            except (TypeError,ValueError):raise PermissionError('processing connection port invalid') from None
+            if (('hostaddr' in wanted and connection.info.hostaddr!=wanted['hostaddr'])
+                    or connection.info.port!=expected_port
+                    or any(str(wanted.get(k, '')) != str(actual.get(k, '')) for k in ('host','dbname','user'))):
                 raise PermissionError('processing connection target differs')
             yield connection
         else:
@@ -139,6 +168,8 @@ class ProcessingSourceResolver:
                 yield conn
 
     def _check(self, conn):
+        # Same identity/ACL facts as the historical multi-statement check, proved
+        # in one current catalogue round-trip. No fact is cached or skipped.
         b = self.binding
         if datetime.now(timezone.utc) >= b.expires_at:
             raise PermissionError('processing caller admission expired')
@@ -147,49 +178,81 @@ class ProcessingSourceResolver:
             if (not b.synthetic or params.get('host') not in {'localhost','127.0.0.1','::1'}
                 or not params.get('dbname','').startswith('oracle_operating_model_test')):
                 raise PermissionError('processing ledger authenticated TLS required')
-        row = conn.execute("""SELECT session_user,current_user,rolsuper,rolbypassrls,
-            rolcreaterole,rolcreatedb,rolreplication FROM pg_roles WHERE rolname=session_user""").fetchone()
         group = 'oracle2_' + b.profile.replace('-','_')
-        if (not row or row[0] != b.expected_session_role or row[1] not in {row[0],group}
-                or any(row[2:])):
+        facts = conn.execute("""
+            SELECT
+              (SELECT row_to_json(s) FROM (
+                SELECT session_user,current_user,rolsuper,rolbypassrls,
+                       rolcreaterole,rolcreatedb,rolreplication
+                FROM pg_roles WHERE rolname=session_user) s),
+              (SELECT COALESCE(jsonb_agg(rolname::text ORDER BY rolname),'[]'::jsonb)
+               FROM pg_roles WHERE rolname=ANY(%s) AND pg_has_role(session_user,oid,'MEMBER')),
+              (SELECT row_to_json(o) FROM (
+                SELECT r.rolname,pg_has_role(session_user,r.oid,'MEMBER') AS reachable
+                FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner
+                WHERE n.nspname='oracle2') o),
+              (SELECT COALESCE(jsonb_agg(rolname::text),'[]'::jsonb)
+               FROM pg_roles WHERE pg_has_role(session_user,oid,'MEMBER')
+                 OR pg_has_role(session_user,oid,'SET') OR pg_has_role(session_user,oid,'USAGE')),
+              (SELECT row_to_json(f) FROM (
+                SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls,
+                       rolcreaterole,rolcreatedb,rolreplication
+                FROM pg_roles WHERE rolname=%s) f),
+              (SELECT row_to_json(e) FROM (
+                SELECT rolcanlogin,rolinherit,
+                       pg_has_role(session_user,%s,'USAGE') AS usage,
+                       pg_has_role(session_user,%s,'SET') AS set
+                FROM pg_roles WHERE rolname=session_user) e)
+        """, (list(self._groups), group, group, group)).fetchone()
+        session_row, groups, owner_row, reachable, flags, entry = facts
+        if (not session_row or session_row['session_user'] != b.expected_session_role
+                or session_row['current_user'] not in {session_row['session_user'], group}
+                or any(session_row[k] for k in
+                       ('rolsuper','rolbypassrls','rolcreaterole','rolcreatedb','rolreplication'))):
             raise PermissionError('processing session role differs')
-        groups = conn.execute("""SELECT rolname::text FROM pg_roles WHERE rolname=ANY(%s)
-            AND pg_has_role(session_user,oid,'MEMBER') ORDER BY rolname""", (list(self._groups),)).fetchall()
-        if groups != [(group,)]:
+        if groups != [group]:
             raise PermissionError('exclusive fixed processing role required')
-        owner = conn.execute("""SELECT r.rolname,pg_has_role(session_user,r.oid,'MEMBER')
-            FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname='oracle2'""").fetchone()
-        if owner != (b.expected_owner_role,False):
+        if (not owner_row or owner_row['rolname'] != b.expected_owner_role
+                or owner_row['reachable'] is not False):
             raise PermissionError('trusted schema owner differs or is reachable')
-        reachable=conn.execute("""SELECT rolname::text FROM pg_roles WHERE
-            pg_has_role(session_user,oid,'MEMBER') OR pg_has_role(session_user,oid,'SET')
-            OR pg_has_role(session_user,oid,'USAGE')""").fetchall()
-        if {r[0] for r in reachable}!={b.expected_session_role,group}:
+        if set(reachable) != {b.expected_session_role, group}:
             raise PermissionError('exact processing membership differs')
-        flags=conn.execute('SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreaterole,rolcreatedb,rolreplication FROM pg_roles WHERE rolname=%s',(group,)).fetchone()
-        if flags is None or any(flags):
+        if flags is None or any(flags.values() if isinstance(flags, dict) else flags):
             raise PermissionError('fixed processing group flags differ')
-        entry=conn.execute("SELECT rolcanlogin,rolinherit,pg_has_role(session_user,%s,'USAGE'),pg_has_role(session_user,%s,'SET') FROM pg_roles WHERE rolname=session_user",(group,group)).fetchone()
-        if (not entry or not entry[0] or (row[1]==row[0] and not entry[2])
-                or (row[1]==group and not entry[3])):
+        if (not entry or not entry['rolcanlogin']
+                or (session_row['current_user'] == session_row['session_user'] and not entry['usage'])
+                or (session_row['current_user'] == group and not entry['set'])):
             raise PermissionError('actual processing inherit/SET entry differs')
-        for signature, allowed in self._signatures.items():
-            function = conn.execute("""SELECT r.rolname,p.prosecdef,p.proconfig
-                FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid=to_regprocedure(%s)""",
-                (signature,)).fetchone()
-            if function != (b.expected_owner_role,True,['search_path=pg_catalog, oracle2']):
-                raise PermissionError('fixed processing function owner/config differs')
-            if allowed is not None:
-                grants = conn.execute("""SELECT coalesce(r.rolname,'PUBLIC'),a.is_grantable
-                    FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
-                    LEFT JOIN pg_roles r ON r.oid=a.grantee
-                    WHERE p.oid=to_regprocedure(%s) AND a.privilege_type='EXECUTE' AND a.grantee<>p.proowner""",
-                    (signature,)).fetchall()
-                if frozenset(name for name,_ in grants) != allowed or any(grantable for _,grantable in grants):
-                    raise PermissionError('fixed processing function ACL differs')
+        self._check_function_signatures(conn,self._signatures)
         if b.profile != 'gateway-metadata':
             from .source_binding import SourceRoleBinding
             SourceRoleBinding(b.runtime_hash,b.source_registry_hash,synthetic=b.synthetic).check(conn)
+
+    def _check_function_signatures(self,conn,signatures,rows=None):
+        b=self.binding
+        # One CURRENT catalogue statement, not a cached proof. LEFT joins retain
+        # every requested ordinal, including missing functions and empty ACLs.
+        if rows is None:
+            rows=conn.execute("""SELECT requested.signature,owner.rolname,p.prosecdef,p.proconfig,
+                coalesce(jsonb_agg(jsonb_build_array(coalesce(grantee.rolname,'PUBLIC'),acl.is_grantable))
+                    FILTER (WHERE acl.privilege_type='EXECUTE' AND acl.grantee<>p.proowner),'[]'::jsonb)
+            FROM unnest(%s::text[]) WITH ORDINALITY requested(signature,ordinal)
+            LEFT JOIN pg_proc p ON p.oid=to_regprocedure(requested.signature)
+            LEFT JOIN pg_namespace namespace ON namespace.oid=p.pronamespace
+            LEFT JOIN pg_roles owner ON owner.oid=p.proowner
+            LEFT JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl ON true
+            LEFT JOIN pg_roles grantee ON grantee.oid=acl.grantee
+            GROUP BY requested.signature,requested.ordinal,owner.rolname,p.prosecdef,p.proconfig
+            ORDER BY requested.ordinal""",(list(signatures),)).fetchall()
+        if len(rows)!=len(signatures):
+            raise PermissionError('fixed processing function owner/config differs')
+        for (signature,allowed),row in zip(signatures.items(),rows):
+            if (row[0]!=signature or tuple(row[1:4])!=(b.expected_owner_role,True,['search_path=pg_catalog, oracle2'])):
+                raise PermissionError('fixed processing function owner/config differs')
+            if allowed is not None:
+                grants=row[4]
+                if frozenset(name for name,_ in grants)!=allowed or any(grantable for _,grantable in grants):
+                    raise PermissionError('fixed processing function ACL differs')
 
     def _args(self, workspace_id, source_id):
         if not isinstance(workspace_id,UUID) or not isinstance(source_id,UUID):
@@ -267,7 +330,7 @@ class BoundProcessingSourceResolver(ProcessingSourceResolver):
         super().__init__(url,binding=run_binding.source_binding)
 
     @contextmanager
-    def hold(self,descriptor,dispatch):
+    def hold(self,descriptor,dispatch,*,connection=None):
         # Shared contracts come from the independently reviewed processing-context
         # lane. Missing integration fails closed; no substitute proof is minted.
         from .processing_context import ProcessingRunDescriptor,ProcessingDispatch,ProcessingAuthorityProof
@@ -289,7 +352,7 @@ class BoundProcessingSourceResolver(ProcessingSourceResolver):
                 or datetime.now(timezone.utc)>=descriptor.expires_at):
             raise PermissionError('exact admitted processing run and dispatch required')
         ref=dispatch.source_ref
-        with self._connection() as conn:
+        with self._connection(connection) as conn:
             self._check(conn)
             rows=conn.execute('SELECT * FROM oracle2.hosting_current_source_identity(%s,%s,%s,%s,%s)',
                               self._args(descriptor.workspace_id,ref.source_id)).fetchall()
@@ -331,6 +394,86 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
         'oracle2.hosting_processing_artifact(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_candidate_compiler','oracle2_documentary_executor'}),
     }
 
+    _delivery_signatures={
+        'oracle2._purpose_deadlines_v2()':frozenset(),
+        'oracle2._processing_projection_delivery_v3(uuid,uuid,integer,uuid,text,text)':frozenset(),
+        'oracle2.hosting_processing_projection_delivery_v3(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_documentary_executor'}),
+        'oracle2.hosting_processing_projection_receipt_v3(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_candidate_compiler'}),
+    }
+
+    def _projection_delivery_v3(self,workspace_id,artifact_id,version,*,receipt,connection=None):
+        from .contracts import ProcessingProjectionDeliverySealV3,ProcessingProjectionReceiptV3
+        profile='candidate-compiler' if receipt else 'documentary-executor'
+        if (self.binding.profile!=profile or type(workspace_id) is not UUID or type(artifact_id) is not UUID
+                or type(version) is not int or version<1):
+            raise PermissionError('exact current paid projection read capability required')
+        query=('SELECT oracle2.hosting_processing_projection_receipt_v3(%s,%s,%s,%s,%s,%s)' if receipt else
+               'SELECT oracle2.hosting_processing_projection_delivery_v3(%s,%s,%s,%s,%s,%s)')
+        with self._connection(connection) as conn:
+            # Pre-arm BEFORE fixed getter SELECT and preserve tighter callers.
+            for setting,bound in (('statement_timeout','5s'),('lock_timeout','2s')):
+                conn.execute("SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
+                    (setting,setting,setting,bound,bound,setting))
+            self._check(conn);self._check_function_signatures(conn,self._delivery_signatures)
+            rows=conn.execute(query,(workspace_id,artifact_id,version,self.binding.principal,self.binding.runtime_hash,self.binding.source_registry_hash)).fetchall()
+            self._check(conn);self._check_function_signatures(conn,self._delivery_signatures)
+            if len(rows)!=1 or rows[0][0] is None:raise PermissionError('unique actual paid projection ACK required')
+            model=ProcessingProjectionReceiptV3 if receipt else ProcessingProjectionDeliverySealV3
+            result=model.model_validate_json(json.dumps(rows[0][0]))
+            body=result.receipt if receipt else result
+            if (str(body.workspace_id),str(body.artifact_id),body.version)!=(str(workspace_id),str(artifact_id),version):
+                raise PermissionError('paid projection ACK target differs')
+            # SQL returns the complete canonical CURRENT metadata set. The
+            # historical manifest source_digest retains its original byte order;
+            # payload/context guards compare full SourceRef sets separately.
+            if (len({r.source_id for r in result.source_refs})!=len(result.source_refs)
+                    or any(r.workspace_id!=workspace_id for r in result.source_refs)
+                    or result.source_refs!=tuple(sorted(result.source_refs,key=lambda r:r.source_id.int))):
+                raise PermissionError('paid projection ACK source population differs')
+            until=min(result.valid_until,self.binding.expires_at)
+            actual_clock=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+            if not result.checked_at<=actual_clock<until:
+                raise PermissionError('paid projection ACK current authority expired')
+            result=result.model_copy(update={'valid_until':until})
+        return result
+
+    def projection_delivery_seal(self,workspace_id,artifact_id,version,*,connection=None):
+        return self._projection_delivery_v3(workspace_id,artifact_id,version,receipt=False,connection=connection)
+
+    def projection_receipt_v3(self,workspace_id,artifact_id,version,*,connection=None):
+        return self._projection_delivery_v3(workspace_id,artifact_id,version,receipt=True,connection=connection)
+
+    _replacement_target_signatures={
+        'oracle2.replacement_executor_target_v1(uuid)':frozenset({'oracle2_documentary_executor'}),
+    }
+
+    def replacement_executor_target_v1(self,run_id,*,connection=None):
+        from .contracts import ReplacementExecutorTargetV1
+        if self.binding.profile!='documentary-executor' or type(run_id) is not UUID:
+            raise PermissionError('exact current replacement executor capability required')
+        with self._connection(connection) as conn:
+            for setting,bound in (('statement_timeout','5s'),('lock_timeout','2s')):
+                conn.execute("SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
+                    (setting,setting,setting,bound,bound,setting))
+            self._check(conn)
+            self._check_function_signatures(conn,self._delivery_signatures)
+            self._check_function_signatures(conn,self._replacement_target_signatures)
+            rows=conn.execute('SELECT oracle2.replacement_executor_target_v1(%s)',(run_id,)).fetchall()
+            self._check(conn)
+            self._check_function_signatures(conn,self._replacement_target_signatures)
+            if len(rows)!=1 or rows[0][0] is None:
+                raise PermissionError('unique current replacement target required')
+            result=ReplacementExecutorTargetV1.model_validate_json(json.dumps(rows[0][0]))
+            if result.run_id!=run_id or result.requester_principal_id!=self.binding.principal:
+                raise PermissionError('replacement target principal or run differs')
+            if any(r.workspace_id!=result.workspace_id for r in result.source_refs):
+                raise PermissionError('replacement target source workspace differs')
+            until=min(result.valid_until,self.binding.expires_at)
+            actual_clock=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+            if not result.checked_at<=actual_clock<until:
+                raise PermissionError('replacement target current authority expired')
+            return result.model_copy(update={'valid_until':until})
+
     def artifact_metadata(self,workspace_id,artifact_id,version,*,connection=None):
         from .contracts import ArtifactManifest,PROCESSING_ARTIFACT_KINDS
         if (self.binding.profile not in {'candidate-compiler','documentary-executor'}
@@ -368,3 +511,235 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
         if (seal.workspace_id,seal.artifact_id,seal.version)!=(workspace_id,artifact_id,version):
             raise PermissionError('current extraction seal differs')
         return seal
+
+
+_PURPOSE_PHASES_V2={
+    'census':('source-census','chat'),
+    'assembly':('operating-audit','chat'),
+    'assessment':('independent-source-semantic-acceptance','chat'),
+    'embedding':('source-extraction','embedding'),
+}
+_PURPOSE_RAW_SQL_V2={
+    'source-census':'SELECT * FROM oracle2.hosting_source_census_receipt_v2(%s,%s,%s,%s,%s)',
+    'operating-audit':'SELECT * FROM oracle2.hosting_operating_audit_receipt_v2(%s,%s,%s,%s,%s)',
+    'independent-source-semantic-acceptance':'SELECT * FROM oracle2.hosting_independent_semantic_receipt_v2(%s,%s,%s,%s,%s)',
+}
+_PURPOSE_IDENTITY_SQL_V2={
+    'source-census':'SELECT * FROM oracle2.hosting_source_census_identity_v2(%s,%s,%s,%s,%s)',
+    'operating-audit':'SELECT * FROM oracle2.hosting_operating_audit_identity_v2(%s,%s,%s,%s,%s)',
+    'independent-source-semantic-acceptance':'SELECT * FROM oracle2.hosting_independent_semantic_identity_v2(%s,%s,%s,%s,%s)',
+    'source-extraction':'SELECT * FROM oracle2.hosting_projection_embedding_identity_v2(%s,%s,%s,%s,%s)',
+}
+
+
+@dataclass(frozen=True)
+class PurposeSourceBindingV2:
+    """External immutable startup pins. Construction is never appointment/issuance."""
+    source: ProcessingSourceBinding
+    phase: str
+    purpose: str
+    operation: str
+    expected_provider_login: str
+    caller_kind: str
+    source_refs: tuple[SourceRef,...]
+    population_digest: str
+    descriptor_sha256: str
+    parent_registry_sha256: str
+    population_admission_sha256: str
+    phase_registry_sha256: str
+    projection_sha256: str
+
+    def __post_init__(self):
+        from .purpose_context import source_population_digest
+        if (type(self.source) is not ProcessingSourceBinding
+                or any(type(v) is not str for v in (self.phase,self.purpose,self.operation,self.caller_kind))
+                or _PURPOSE_PHASES_V2.get(self.phase)!=(self.purpose,self.operation)
+                or not isinstance(self.expected_provider_login,str)
+                or not re.fullmatch('[a-z_][a-z0-9_]{0,62}',self.expected_provider_login)
+                or self.caller_kind not in {'provider','gateway'}
+                or type(self.source_refs) is not tuple or not self.source_refs
+                or any(type(r) is not SourceRef for r in self.source_refs)
+                or len({r.source_id for r in self.source_refs})!=len(self.source_refs)
+                or len({r.workspace_id for r in self.source_refs})!=1
+                or any(not re.fullmatch('[0-9a-f]{64}',r.parser_id) for r in self.source_refs)
+                or any(not isinstance(v,str) or not re.fullmatch('[0-9a-f]{64}',v) for v in (
+                    self.population_digest,self.descriptor_sha256,self.parent_registry_sha256,
+                    self.population_admission_sha256,self.phase_registry_sha256,self.projection_sha256))
+                or source_population_digest(self.source_refs)!=self.population_digest):
+            raise PermissionError('complete immutable purpose V2 pins required')
+        if self.caller_kind=='provider':
+            profile='gateway-metadata' if self.operation=='embedding' else 'source-reader'
+            if self.source.profile!=profile or self.source.expected_session_role!=self.expected_provider_login:
+                raise PermissionError('actual provider login/profile differs')
+        elif self.source.profile!='gateway-metadata' or self.operation!='chat':
+            raise PermissionError('only explicit chat gateway metadata profile permitted')
+
+
+class _PurposeRoleVerifierV2(ProcessingSourceResolver):
+    _signatures={**ProcessingSourceResolver._signatures,
+        'oracle2._purpose_deadlines_v2()':frozenset(),
+        'oracle2._purpose_source_v2(uuid,uuid,uuid,text,text,text,boolean)':frozenset(),
+        **{f'oracle2.hosting_{name}_receipt_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_source_reader'})
+           for name in ('source_census','operating_audit','independent_semantic')},
+        **{f'oracle2.hosting_{name}_identity_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_source_reader','oracle2_gateway_metadata'})
+           for name in ('source_census','operating_audit','independent_semantic')},
+        'oracle2.hosting_projection_embedding_identity_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_gateway_metadata'}),
+        'oracle2._processing_dependency_digest(uuid,uuid,integer)':frozenset(),
+        'oracle2._purpose_embedding_artifact_v2(uuid,uuid,integer,uuid,text,text)':frozenset(),
+        'oracle2.hosting_projection_embedding_seal_v2(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_gateway_metadata'}),
+    }
+
+    def _check(self,conn):
+        super()._check(conn)
+        # Executed before the fixed getter SELECT, so PostgreSQL actually arms
+        # this statement's timer. Preserve any tighter positive caller deadline.
+        conn.execute("SELECT set_config('statement_timeout',CASE WHEN current_setting('statement_timeout')::interval<=interval '0' OR current_setting('statement_timeout')::interval>interval '5 seconds' THEN '5s' ELSE current_setting('statement_timeout') END,true)")
+
+
+class PurposeSourceResolverV2:
+    """Own-session current purpose source access; no V1 method/write fallback.
+
+    Complete population pins come from independently admitted configuration.
+    SQL validates each source, not filesystem registry/provider/issuer truth.
+    Private parent/phase loading and provider calls must occur OUTSIDE holds.
+    """
+    def __init__(self,url: str,*,binding: PurposeSourceBindingV2):
+        if type(binding) is not PurposeSourceBindingV2:
+            raise PermissionError('exact externally admitted purpose binding required')
+        self.url,self.binding=url,binding
+        self._roles=_PurposeRoleVerifierV2(url,binding=binding.source)
+
+    @property
+    def metadata_only(self):
+        return self.binding.source.profile=='gateway-metadata'
+
+    def embedding_eligibility_seal(self,workspace_id,artifact_id,version,*,connection=None):
+        from .contracts import ProcessingQualifiedProjectionSealV2
+        b=self.binding;s=b.source
+        if (b.phase!='embedding' or b.operation!='embedding' or b.caller_kind!='provider'
+                or s.profile!='gateway-metadata' or s.expected_session_role!=b.expected_provider_login
+                or not isinstance(workspace_id,UUID) or not isinstance(artifact_id,UUID)
+                or type(version) is not int or version<1
+                or any(r.workspace_id!=workspace_id for r in b.source_refs)):
+            raise PermissionError('fixed own-login embedding metadata capability required')
+        with self._roles._connection(connection) as conn:
+            self._population(conn)
+            rows=conn.execute('SELECT oracle2.hosting_projection_embedding_seal_v2(%s,%s,%s,%s,%s,%s)',
+                (workspace_id,artifact_id,version,s.principal,s.runtime_hash,s.source_registry_hash)).fetchall()
+            self._population(conn)
+            if len(rows)!=1:raise PermissionError('unique qualified projection seal required')
+            seal=ProcessingQualifiedProjectionSealV2.model_validate_json(json.dumps(rows[0][0]))
+            if ((seal.workspace_id,seal.artifact_id,seal.version)!=(workspace_id,artifact_id,version)
+                    or len(set(seal.source_refs))!=len(seal.source_refs)
+                    or set(seal.source_refs)!=set(b.source_refs)
+                    or len({(e.artifact_id,e.version) for e in seal.extraction_seals})!=len(seal.extraction_seals)
+                    or any(e.workspace_id!=workspace_id or not set(e.source_refs)<=set(b.source_refs)
+                           for e in seal.extraction_seals)
+                    or set(r for e in seal.extraction_seals for r in e.source_refs)!=set(b.source_refs)):
+                raise PermissionError('qualified projection complete population differs')
+            # Canonical descriptor ordering is an application consistency pin;
+            # this does not fabricate or replace the full manifest digest.
+            return seal.model_copy(update={'source_refs':b.source_refs})
+
+    def _check(self,conn):
+        self._roles._check(conn)
+
+    def _population(self,conn,*,raw=False):
+        b=self.binding; s=b.source
+        if raw and (b.caller_kind!='provider' or self.metadata_only or b.operation!='chat'):
+            raise PermissionError('purpose context cannot open original bodies')
+        query=(_PURPOSE_RAW_SQL_V2 if raw else _PURPOSE_IDENTITY_SQL_V2).get(b.purpose)
+        if query is None:raise PermissionError('fixed purpose capability unavailable')
+        self._check(conn)
+        outputs=[];deadlines=[]
+        for expected in b.source_refs:
+            rows=conn.execute(query,(expected.workspace_id,expected.source_id,s.principal,s.runtime_hash,s.source_registry_hash)).fetchall()
+            if len(rows)!=1:raise PermissionError('unique current purpose source required')
+            row=rows[0]
+            actual=SourceRef(workspace_id=expected.workspace_id,source_id=expected.source_id,revision=row[0],
+                original_sha256=row[1],reading_sha256=row[2],parser_id=row[3])
+            if actual!=expected:raise PermissionError('purpose full population source changed')
+            if raw:
+                provenance=ReadingProvenance.model_validate_json(row[5])
+                if (provenance.original_hash,provenance.content_hash,provenance.parser_identity)!=(row[1],row[2],row[3]):
+                    raise PermissionError('purpose original custody differs')
+                output=SourceReceipt(ref=actual,reading=row[4],display_revision=f'r{actual.revision}')
+            else:output=actual
+            expiry,checked=row[-2:]
+            if (not isinstance(expiry,datetime) or expiry.tzinfo is None or expiry.utcoffset() is None
+                    or not isinstance(checked,datetime) or checked.tzinfo is None or checked.utcoffset() is None):
+                raise PermissionError('actual finite purpose SQL clock required')
+            outputs.append(output);deadlines.append(expiry)
+        self._check(conn)
+        now=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+        deadline=min(*deadlines,s.expires_at)
+        if now>=deadline:raise PermissionError('purpose population authority expired')
+        return tuple(outputs),deadline,now
+
+    def identity(self,workspace_id,source_id,*,connection=None):
+        if not any(r.workspace_id==workspace_id and r.source_id==source_id for r in self.binding.source_refs):
+            raise PermissionError('source outside admitted full parent population')
+        with self._roles._connection(connection) as conn:
+            refs,_,_=self._population(conn)
+        return next(r for r in refs if r.source_id==source_id)
+
+    def read_population(self,*,connection=None):
+        with self._roles._connection(connection) as conn:
+            # Authorize EVERY source before opening the first original body.
+            self._population(conn)
+            receipts,_,_=self._population(conn,raw=True)
+            self._population(conn)
+        return receipts
+
+    def current_for_purpose(self,workspace_id,source_id,*,connection=None):
+        if not any(r.workspace_id==workspace_id and r.source_id==source_id for r in self.binding.source_refs):
+            raise PermissionError('source outside admitted full parent population')
+        return next(r for r in self.read_population(connection=connection) if r.ref.source_id==source_id)
+
+    def _descriptor(self,descriptor,dispatch):
+        from .contracts import digest
+        from .purpose_context import PurposeRunDescriptorV2,PurposeDispatchV2
+        b=self.binding;s=b.source
+        if (type(descriptor) is not PurposeRunDescriptorV2 or type(dispatch) is not PurposeDispatchV2
+                or digest(descriptor.model_dump(mode='json'))!=b.descriptor_sha256
+                or descriptor.dispatch(dispatch.dispatch_id)!=dispatch
+                or descriptor.workspace_id!=b.source_refs[0].workspace_id or descriptor.actor_id!=s.principal
+                or descriptor.provider_login!=b.expected_provider_login
+                or descriptor.phase!=b.phase or descriptor.purpose!=b.purpose or descriptor.operation!=b.operation
+                or descriptor.runtime_hash!=s.runtime_hash or descriptor.source_registry_hash!=s.source_registry_hash
+                or descriptor.parent_registry_sha256!=b.parent_registry_sha256
+                or descriptor.population_admission_sha256!=b.population_admission_sha256
+                or descriptor.phase_registry_sha256!=b.phase_registry_sha256
+                or descriptor.population_digest!=b.population_digest
+                or descriptor.source_refs!=b.source_refs or dispatch.source_refs!=b.source_refs
+                or descriptor.issuer_actor==descriptor.reviewer_actor
+                or descriptor.actor_id in {descriptor.issuer_actor,descriptor.reviewer_actor}):
+            raise PermissionError('exact admitted purpose descriptor/dispatch required')
+        return digest(dispatch.model_dump(mode='json'))
+
+    @contextmanager
+    def hold(self,descriptor,dispatch,*,connection=None):
+        from .purpose_context import PurposeAuthorityProofV2
+        b=self.binding;s=b.source
+        dispatch_hash=self._descriptor(descriptor,dispatch)
+        with self._roles._connection(connection) as conn:
+            _,expiry,checked=self._population(conn)
+            expiry=min(expiry,descriptor.expires_at)
+            if checked>=expiry:raise PermissionError('purpose descriptor expired')
+            caller,role=conn.execute('SELECT session_user,current_user').fetchone()
+            if caller!=s.expected_session_role or (b.caller_kind=='provider' and caller!=descriptor.provider_login):
+                raise PermissionError('actual purpose caller differs')
+            proof=PurposeAuthorityProofV2(run_id=descriptor.run_id,workspace_id=descriptor.workspace_id,
+                actor_id=descriptor.actor_id,admitted_provider_login=descriptor.provider_login,
+                actual_caller_login=caller,dispatch_id=dispatch.dispatch_id,phase=b.phase,purpose=b.purpose,operation=b.operation,
+                source_refs=b.source_refs,population_digest=b.population_digest,runtime_hash=s.runtime_hash,
+                source_registry_hash=s.source_registry_hash,descriptor_sha256=b.descriptor_sha256,
+                parent_registry_sha256=b.parent_registry_sha256,population_admission_sha256=b.population_admission_sha256,
+                phase_registry_sha256=b.phase_registry_sha256,projection_sha256=b.projection_sha256,
+                dispatch_hash=dispatch_hash,job_hash=dispatch.job_hash,request_hash=dispatch.request_hash,
+                permission_hash=dispatch.permission_hash,session_role=role,profile=s.profile,
+                checked_at=checked,expires_at=expiry)
+            yield proof
+            self._descriptor(descriptor,dispatch)
+            _,current_expiry,now=self._population(conn)
+            if now>=min(expiry,current_expiry):raise PermissionError('purpose authority expired before commit')

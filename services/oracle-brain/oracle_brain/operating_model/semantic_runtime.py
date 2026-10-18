@@ -12,6 +12,7 @@ from .assembly import validate_assembly
 from .contracts import ArtifactManifest, digest
 from .findings import Finding, validate_finding
 from .model import BusinessOperatingModel
+from .workflows.process_model import canonical_workflow_items
 from .observations import Observation, create_observation
 from .semantic_acceptance import sealed, verify_semantic_acceptance
 from .source_receipts import SourceRef
@@ -71,10 +72,7 @@ def ledger_object_evidence(payload, *, workspace_id, receipts, inventories):
                 raise ValueError('duplicate or divergent workflow identity')
             return model
         workflows[model.workflow_id] = model
-        for item in (*model.steps, *model.gateways, *model.transitions, *model.roles,
-                     *model.artifacts, *model.handoffs, *model.conditions):
-            key = next(getattr(item, key) for key in ('step_id', 'gateway_id', 'transition_id',
-                'assignment_id', 'artifact_id', 'handoff_id', 'condition_id') if hasattr(item, key))
+        for _,key,item in canonical_workflow_items(model):
             support(model.workflow_id + ':' + key, item.support.observation_ids)
         return model
 

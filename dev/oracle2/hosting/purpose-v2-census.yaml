@@ -1,0 +1,68 @@
+# Source-only independent phase. No future phase settings or inputs required.
+name: oracle-purpose-v2-census
+services:
+  census-provider:
+    profiles:
+    - purpose-census-admitted
+    command:
+    - --phase
+    - census
+    - --role
+    - provider
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_CENSUS_PROVIDER_SETTINGS_SHA256:?independently pinned settings required}
+    expose:
+    - 8443
+    networks:
+    - census
+    - ledger
+    - census-outbound
+    volumes:
+    - census-provider-auth:/run/purpose-auth:ro
+    - census-provider-state:/run/purpose-state
+    - census-input:/run/purpose-input:ro
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+  census-metadata:
+    profiles:
+    - purpose-census-admitted
+    command:
+    - --phase
+    - census
+    - --role
+    - metadata
+    - --config
+    - /run/purpose-auth/settings.json
+    - --config-sha256
+    - ${ORACLE_CENSUS_METADATA_SETTINGS_SHA256:?independently pinned settings required}
+    expose:
+    - 8443
+    networks:
+    - census
+    - ledger
+    volumes:
+    - census-metadata-auth:/run/purpose-auth:ro
+    - census-metadata-state:/run/purpose-state
+    extends:
+      file: purpose-v2-boundary.yaml
+      service: purpose-boundary
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network
+      required}
+  census:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  census-outbound: {}
+volumes:
+  census-provider-auth: {}
+  census-provider-state: {}
+  census-input: {}
+  census-metadata-auth: {}
+  census-metadata-state: {}

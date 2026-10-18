@@ -94,14 +94,8 @@ class FileCustody:
             yield ResultLease(lease.status,lease.body,before_write)
 
     def _consume_nonce(self,job):
-        marker=self.spool/('nonce-'+job.nonce)
-        fd=os.open(marker,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-        try:
-            os.write(fd,hashlib.sha256(json.dumps(job.__dict__,sort_keys=True).encode()).hexdigest().encode());os.fsync(fd)
-        finally: os.close(fd)
-        directory=os.open(self.spool,os.O_RDONLY|os.O_DIRECTORY)
-        try: os.fsync(directory)
-        finally: os.close(directory)
+        _durable_nonce(self.spool,'nonce-'+job.nonce,
+            hashlib.sha256(json.dumps(job.__dict__,sort_keys=True).encode()).hexdigest().encode())
 
     def _enqueue(self,job):
         marker=self.spool/('nonce-'+job.nonce)
@@ -134,3 +128,143 @@ class FileCustody:
                     path.rename(target)
                 return job,row
         return None
+
+
+def _durable_nonce(spool,name,payload):
+    """Retained custody exclusive-create/fsync primitive; no authority issuance."""
+    marker=spool/name
+    fd=os.open(marker,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    try:
+        os.write(fd,payload);os.fsync(fd)
+    finally:os.close(fd)
+    _sync_spool(spool)
+
+
+def _sync_spool(spool):
+    directory=os.open(spool,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:os.fsync(directory)
+    finally:os.close(directory)
+
+
+class DurableNonceSequenceV2:
+    """Narrow appointment-scoped replay extension to an existing protected spool.
+
+    Initialization receipt, lock and state must already be externally provisioned.
+    No constructor/reset path creates an epoch or recreates missing state. Failed
+    journal-before-state commits fence the epoch until external recovery; no retry
+    can silently erase a consumed challenge or roll the highwater backwards.
+    """
+    def __init__(self,spool,*,namespace,appointment_hash,minimum_sequence,
+                 initialization_receipt_hash):
+        import re
+        self.spool=Path(spool)
+        if (not re.fullmatch(r'[a-z][a-z0-9-]{0,31}',namespace)
+                or not re.fullmatch(r'[0-9a-f]{64}',appointment_hash)
+                or not re.fullmatch(r'[0-9a-f]{64}',initialization_receipt_hash)
+                or type(minimum_sequence) is not int or minimum_sequence<0):
+            raise PermissionError('external replay namespace/appointment/initialization required')
+        self.namespace,self.appointment_hash,self.minimum_sequence=namespace,appointment_hash,minimum_sequence
+        self._check_owner(self.spool,directory=True)
+        self.initial={'schema_version':2,'namespace':namespace,'appointment_hash':appointment_hash,
+                      'minimum_sequence':minimum_sequence}
+        from .runtime import protected_file
+        self.init_path=self.spool/(namespace+'-init.json')
+        self._check_owner(self.init_path)
+        raw=protected_file(self.init_path,limit=4096)
+        from .gateway import unique_object
+        if (hashlib.sha256(raw).hexdigest()!=initialization_receipt_hash
+                or json.loads(raw,object_pairs_hook=unique_object)!=self.initial):
+            raise PermissionError('externally pinned replay initialization differs')
+        self.lock_path=self.spool/(namespace+'-lock')
+        self.state_path=self.spool/(namespace+'-state.json')
+        self._check_owner(self.lock_path)
+        self._read()
+
+    @staticmethod
+    def _check_owner(path,*,directory=False):
+        import stat
+        info=path.lstat()
+        if (info.st_uid!=os.geteuid() or info.st_mode&0o077 or stat.S_ISLNK(info.st_mode)
+                or (not stat.S_ISDIR(info.st_mode) if directory else not stat.S_ISREG(info.st_mode))):
+            raise PermissionError('own protected replay object required')
+
+    def _read(self):
+        from .runtime import protected_file
+        from .gateway import unique_object
+        self._check_owner(self.state_path)
+        state=json.loads(protected_file(self.state_path,limit=4096),object_pairs_hook=unique_object)
+        if (not isinstance(state,dict) or set(state)!=set(self.initial)|{'sequence'}
+                or any(state[k]!=v for k,v in self.initial.items())
+                or type(state['sequence']) is not int or state['sequence']<self.minimum_sequence):
+            raise PermissionError('missing, foreign or reset replay state')
+        highwater=self.minimum_sequence
+        for path in self.spool.glob(self.namespace+'-sequence-*.json'):
+            self._check_owner(path)
+            value=json.loads(protected_file(path,limit=4096),object_pairs_hook=unique_object)
+            if (set(value)!=set(self.initial)|{'sequence','challenge_hash'}
+                    or any(value[k]!=v for k,v in self.initial.items())
+                    or type(value['sequence']) is not int or value['sequence']<=self.minimum_sequence
+                    or path.name!=self.namespace+'-sequence-'+str(value['sequence'])+'.json'
+                    or not isinstance(value['challenge_hash'],str) or len(value['challenge_hash'])!=64):
+                raise PermissionError('partial or foreign replay sequence journal')
+            highwater=max(highwater,value['sequence'])
+        if highwater!=state['sequence']:
+            raise PermissionError('partial commit or rolled-back replay highwater')
+        return state
+
+    @contextmanager
+    def _locked(self):
+        self._check_owner(self.spool,directory=True);self._check_owner(self.lock_path)
+        fd=os.open(self.lock_path,os.O_RDWR|os.O_NOFOLLOW)
+        try:
+            if os.fstat(fd).st_uid!=os.geteuid() or os.fstat(fd).st_mode&0o077:
+                raise PermissionError('protected replay lock required')
+            fcntl.flock(fd,fcntl.LOCK_EX)
+            yield
+        finally:os.close(fd)
+
+    def claim(self,challenge):
+        import re
+        if not isinstance(challenge,str) or not re.fullmatch(r'[0-9a-f]{64}',challenge):
+            raise PermissionError('fresh exact 256-bit challenge required')
+        with self._locked():
+            state=self._read()
+            _durable_nonce(self.spool,self.namespace+'-nonce-'+challenge,
+                self.appointment_hash.encode())
+            return state['sequence']
+
+    def advance(self,challenge,sequence,*,verify):
+        """Pure verifier executes under replay lock; never network/SQL callbacks."""
+        import tempfile
+        from oracle_brain.operating_model.contracts import canonical_bytes
+        import re
+        if not isinstance(challenge,str) or not re.fullmatch(r'[0-9a-f]{64}',challenge):
+            raise PermissionError('exact claimed challenge required')
+        with self._locked():
+            state=self._read()
+            challenge_hash=hashlib.sha256(challenge.encode()).hexdigest()
+            for journal in self.spool.glob(self.namespace+'-sequence-*.json'):
+                if json.loads(journal.read_bytes())['challenge_hash']==challenge_hash:
+                    raise PermissionError('challenge already completed')
+            marker=self.spool/(self.namespace+'-nonce-'+challenge)
+            self._check_owner(marker)
+            if marker.read_bytes()!=self.appointment_hash.encode():
+                raise PermissionError('challenge was not durably claimed for appointment')
+            if type(sequence) is not int or sequence<=state['sequence']:
+                raise PermissionError('replayed or out-of-order observer sequence')
+            _durable_nonce(self.spool,self.namespace+'-attempt-'+challenge,
+                self.appointment_hash.encode())
+            verify(state['sequence'])
+            # Journal claim precedes state commit. A crash in between fences epoch.
+            value={**self.initial,'sequence':sequence,
+                   'challenge_hash':hashlib.sha256(challenge.encode()).hexdigest()}
+            _durable_nonce(self.spool,self.namespace+'-sequence-'+str(sequence)+'.json',canonical_bytes(value))
+            fd,name=tempfile.mkstemp(prefix='.'+self.namespace+'-',dir=self.spool)
+            try:
+                with os.fdopen(fd,'wb') as stream:
+                    stream.write(canonical_bytes({**self.initial,'sequence':sequence}));stream.flush();os.fsync(stream.fileno())
+                os.replace(name,self.state_path);_sync_spool(self.spool)
+                if self._read()['sequence']!=sequence:
+                    raise PermissionError('replay highwater durable readback failed')
+            finally:
+                if os.path.exists(name):os.unlink(name)

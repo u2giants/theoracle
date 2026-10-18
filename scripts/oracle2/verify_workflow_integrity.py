@@ -6,6 +6,7 @@ from importlib.metadata import version,PackageNotFoundError
 from pathlib import Path
 from uuid import uuid4
 from xml.etree import ElementTree as ET
+from contextlib import ExitStack
 import psycopg
 from psycopg import sql
 
@@ -15,12 +16,19 @@ DOCUMENTARY += ('replacement_documentary_journey', 'processing_context', 'proces
                 'assembly_context','assembly_qualification','observed_assembly_capture',
                 'source_processing_qualification','processing_compiler_capabilities',
                 'processing_projection_leases','processing_documentary_journey')
+PURPOSE_V2_SUITES=('purpose_context_v2','parent_observer_v2','purpose_profiles_v2',
+    'purpose_assembly_v2','purpose_capture_v2','purpose_qualification_v3','purpose_receipts_v2',
+    'purpose_runtime_v2','purpose_source_authority','purpose_transport','purpose_transport_startup',
+    'purpose_shared_budget','purpose_allocation_budget','semantic_registry_v3',
+    'processing_extraction_runtime_v2','extraction_connection_authority','purpose_native_census_startup','purpose_journey','purpose_worker_startup','paid_sdk_embeddings_v3',
+    'purpose_population_v3','purpose_coherent_native_journey')
+DOCUMENTARY += PURPOSE_V2_SUITES
 DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternate_operator','native_alternate_chain_operator','hosting_restore_platform')
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
-    '012_processing_compiler_capabilities.sql')
+    '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2
@@ -79,13 +87,26 @@ def required_suites(stage):
     if stage in {'event','W04','W07','W08'}:return EVENT
     return DOCUMENTARY+EVENT
 
+# Measured heavy native suites each retain a whole worker. Every worker owns a
+# fresh database; all start under the SAME 120-second test deadline below.
+DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
+    'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
+    'paid_sdk_embeddings_v3','purpose_coherent_native_journey','falkordb_coolify_plan')
+
+
 def test_groups(stage):
     required=required_suites(stage)
-    groups=(('documentary',DOCUMENTARY),('event',EVENT)) if required==DOCUMENTARY+EVENT else (('required',required),)
+    groups=[]
+    if required in (DOCUMENTARY,DOCUMENTARY+EVENT):
+        starts=(0,*(DOCUMENTARY.index(name) for name in DOCUMENTARY_BOUNDARIES),len(DOCUMENTARY))
+        groups.extend((f'documentary-{index+1:02d}',DOCUMENTARY[start:end])
+            for index,(start,end) in enumerate(zip(starts,starts[1:])))
+    if required in (EVENT,DOCUMENTARY+EVENT):groups.append(('event',EVENT))
     flattened=tuple(suite for _,suites in groups for suite in suites)
-    if flattened!=required or len(set(flattened))!=len(flattened):
+    if (flattened!=required or len(set(flattened))!=len(flattened)
+            or any(not suites for _,suites in groups) or len(groups)>10):
         raise RuntimeError('required suite population is duplicated or omitted')
-    return groups
+    return tuple(groups)
 
 
 def stop_owned_workers(workers):
@@ -185,6 +206,24 @@ def cleanup_test_databases(admin,parts,owned):
     return errors
 
 
+
+SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_worker_postgres_fixture.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
+
+
+
+def source_input_hashes():
+    """Deterministic owned source inventory; ignored caches/private inputs stay out."""
+    tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','-z',
+        *SOURCE_INPUT_PATHS],cwd=ROOT).split(b'\0')
+    hashes={}
+    for encoded in sorted(set(tracked)):
+        if not encoded:continue
+        relative=os.fsdecode(encoded);path=ROOT/relative
+        if (any(p in {'__pycache__','.cache','.ai'} for p in Path(relative).parts)
+                or path.suffix in {'.pyc','.pyo'} or path.name.startswith('.env')):continue
+        if path.is_file():hashes[relative]=hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashes
+
 def main(argv=None):
     args=parse_options(argv)
     if args.mode!='synthetic':
@@ -199,32 +238,39 @@ def main(argv=None):
     destination=ROOT/args.result;destination.parent.mkdir(parents=True,exist_ok=True)
     evidence=Path(tempfile.mkdtemp(prefix='workflow-evidence-',dir=destination.parent));evidence.chmod(0o700)
     report={'schema_version':1,'stage':args.stage,'mode':args.mode,'success':False,'synthetic':True,'business_accepted':False,'private_source_acceptance':'open','independent_semantic_acceptance':'open','actual_event_acceptance':'unavailable','analytical_runtime_qualified':False,'required_tests':[p.name for p in paths],'worker_evidence':str(evidence),'cleanup_errors':[]}
-    owned=[]
+    owned=[];targets=[];clusters=ExitStack()
     try:
         jobs=[]
         # Setup remains outside the existing 120-second TEST budget. Every group
         # gets its own proven fresh DB before any worker starts; EVENT has no
         # fixed-role mutations, shared advisory locks or graph operations.
+        sys.path.insert(0,str(ROOT))
+        from dev.oracle2.test_worker_postgres_fixture import worker_postgres
         for label,suites in groups:
+            worker_env,identity=clusters.enter_context(worker_postgres(dict(os.environ),evidence/(label+'-cluster'),label))
+            worker_admin=worker_env['ORACLE2_TEST_ADMIN_URL']
+            worker_parts=psycopg.conninfo.conninfo_to_dict(worker_admin)
+            report.setdefault('worker_clusters',[]).append(identity)
             name='oracle_operating_model_test_'+uuid4().hex
-            with psycopg.connect(admin,autocommit=True) as conn:
-                if conn.execute('SELECT current_database()').fetchone()[0]!=parts.get('dbname','postgres'):
+            with psycopg.connect(worker_admin,autocommit=True) as conn:
+                if conn.execute('SELECT current_database()').fetchone()[0]!=worker_parts.get('dbname','postgres'):
                     raise PermissionError('actual synthetic administrator target differs')
                 conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
-            owned.append(name);target=psycopg.conninfo.make_conninfo(**{**parts,'dbname':name})
+            owned.append(name);targets.append((worker_admin,worker_parts,name))
+            target=psycopg.conninfo.make_conninfo(**{**worker_parts,'dbname':name})
             with psycopg.connect(target) as conn:
                 if conn.execute('SELECT current_database()').fetchone()[0]!=name:
                     raise PermissionError('actual fresh synthetic target differs')
                 for migration in SYNTHETIC_MIGRATIONS:conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
-            command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--junitxml={evidence/(label+".xml")}']
-            jobs.append({'name':label,'command':command,'env':{**os.environ,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain')}})
+            command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--basetemp={evidence/(label+"-tmp")}',f'--junitxml={evidence/(label+".xml")}']
+            jobs.append({'name':label,'command':command,'env':{**os.environ,**worker_env,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain'),
+                'OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1','MKL_NUM_THREADS':'1','NUMEXPR_NUM_THREADS':'1'}})
         results,worker_cleanup=run_test_groups(jobs,evidence,deadline=time.monotonic()+120)
         report['cleanup_errors'].extend(worker_cleanup)
         report.update(aggregate_evidence(jobs,results,evidence))
         report['versions']={package:version(package) for package in ('graphrag-sdk','langgraph','pydantic','psycopg')}
         report['head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-        tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','services/oracle-brain/oracle_brain/operating_model','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/test_readonly_graph_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics'],cwd=ROOT,text=True).splitlines()
-        hashes={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in tracked if (ROOT/p).is_file()}
+        hashes=source_input_hashes()
         current_public_hashes=required_public_chain_hashes()
         if current_public_hashes!=public_hashes:raise RuntimeError('required public source changed during tests')
         hashes.update(current_public_hashes)
@@ -232,7 +278,10 @@ def main(argv=None):
         report['success']=report['exit_code']==0 and not report['cleanup_errors']
     finally:
         report['owned_databases']=owned
-        report['cleanup_errors'].extend(cleanup_test_databases(admin,parts,owned))
+        for worker_admin,worker_parts,name in targets:
+            report['cleanup_errors'].extend(cleanup_test_databases(worker_admin,worker_parts,[name]))
+        try:clusters.close()
+        except Exception:report['cleanup_errors'].append({'reason':'owned worker cluster cleanup failed'})
         if report['cleanup_errors']:report['success']=False
         destination.write_text(json.dumps(report,indent=2)+'\n');destination.chmod(0o600)
     print(json.dumps({k:report.get(k) for k in ('stage','success','tests','skipped','business_accepted','analytical_runtime_qualified')}))

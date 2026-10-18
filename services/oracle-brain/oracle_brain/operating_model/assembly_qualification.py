@@ -83,13 +83,13 @@ def verify_captured_assembly_semantic_acceptance(*, context, observer,
     return captured
 
 
-def qualified_content_core(captured, *, census, assessment):
+def _qualified_content_core(captured, *, census, assessment, lineage_model=FinalAssemblyLineage, lineage_extra=None):
     """Private compiler derivation; caller must obtain real independent V2 admission.
 
     Raw census/assessment/whole originals never enter the minimized serving core.
     """
     import json
-    if not isinstance(captured,CapturedAssemblyCandidate) or digest(captured.candidate)!=captured.candidate_hash:
+    if digest(captured.candidate)!=captured.candidate_hash:
         raise PermissionError('captured candidate identity differs')
     _,observations,findings=assembly_inputs((captured.candidate,))
     refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in captured.candidate['source_refs'])
@@ -97,11 +97,17 @@ def qualified_content_core(captured, *, census, assessment):
         refs=refs,observations=observations,findings=findings)
     coverage=validate_coverage(census.obligations,assessment.coverage,object_evidence=evidence,
         independent_inventory_hash=digest({'obligations':[o.model_dump(mode='json') for o in census.obligations]}))
-    lineage=FinalAssemblyLineage(candidate_hash=captured.candidate_hash,
+    lineage=lineage_model(**(lineage_extra or {}),candidate_hash=captured.candidate_hash,
         capture_hash=digest(captured.candidate['assembly_capture']),object_evidence_hash=captured.object_evidence_hash,
         census_hash=sealed(census),assessment_hash=sealed(assessment),source_refs=refs,
         extraction_manifest_hashes=tuple(e['manifest_hash'] for e in captured.candidate['assembly_capture']['extractions']))
     return {**captured.candidate,'coverage':coverage,'qualified_lineage':lineage.model_dump(mode='json')}
+
+
+def qualified_content_core(captured,*,census,assessment):
+    if type(captured) is not CapturedAssemblyCandidate:
+        raise PermissionError('legacy qualified core cannot consume a purpose V2 capture')
+    return _qualified_content_core(captured,census=census,assessment=assessment)
 
 
 def final_assembly_envelope(captured, *, census, assessment, admission):
@@ -116,17 +122,18 @@ def final_assembly_envelope(captured, *, census, assessment, admission):
     return {**core,'assembly_qualification':AssemblyQualification(admission=admission).model_dump(mode='json')}
 
 
-def verify_final_assembly_lineage(manifest,payload,principal,now,*,trusted_admission_hashes,
-        runtime_hash,current_source_identity,current_extraction_seal):
+def _verify_final_assembly_lineage(manifest,payload,principal,now,*,trusted_admission_hashes,
+        runtime_hash,current_source_identity,current_extraction_seal,qualification_model,lineage_model,
+        protocol_model,wire_model,permission_field='permission_hash',additional_check=None,metadata_model=ArtifactManifest):
     """Serving-only: minimized admitted core/current metadata, never raw originals."""
     import json
-    if (not isinstance(manifest,ArtifactManifest) or manifest.kind!='processing_qualified_model_v1'
+    if (not isinstance(manifest,metadata_model) or manifest.kind!='processing_qualified_model_v1'
             or manifest.state!='ready' or not isinstance(principal,UUID)
             or now.tzinfo is None or now.utcoffset() is None):
         raise PermissionError('qualified model serving context required')
-    qualification=AssemblyQualification.model_validate_json(json.dumps(payload['assembly_qualification']))
+    qualification=qualification_model.model_validate_json(json.dumps(payload['assembly_qualification']))
     admission=qualification.admission
-    lineage=FinalAssemblyLineage.model_validate_json(json.dumps(payload['qualified_lineage']))
+    lineage=lineage_model.model_validate_json(json.dumps(payload['qualified_lineage']))
     core={k:v for k,v in payload.items() if k!='assembly_qualification'}
     candidate={k:v for k,v in core.items() if k not in {'coverage','qualified_lineage'}}
     if (sealed(admission) not in trusted_admission_hashes or admission.expires_at<=now
@@ -136,7 +143,7 @@ def verify_final_assembly_lineage(manifest,payload,principal,now,*,trusted_admis
             or lineage.census_hash!=admission.census_hash or lineage.assessment_hash!=admission.assessment_hash
             or lineage.object_evidence_hash!=admission.object_evidence_hash
             or digest(candidate['assembly_capture'])!=lineage.capture_hash
-            or manifest.permission_digest!=admission.permission_hash):
+            or manifest.permission_digest!=getattr(admission,permission_field)):
         raise PermissionError('current external V2 assembly admission or minimized lineage differs')
     refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in candidate['source_refs'])
     if (refs!=lineage.source_refs or not refs or len(set(refs))!=len(refs)
@@ -147,9 +154,9 @@ def verify_final_assembly_lineage(manifest,payload,principal,now,*,trusted_admis
     if manifest.artifact_id!=UUID(model['model_id']) or manifest.version!=model['version']:
         raise PermissionError('qualified manifest differs from generated model identity')
     capture=candidate['assembly_capture']
-    from .captured_assembly import ObservedAssemblyProtocol,ObservedAssemblyWire
-    protocol=ObservedAssemblyProtocol.model_validate_json(json.dumps(capture['protocol']))
-    observed=ObservedAssemblyWire.model_validate_json(json.dumps(capture['observed_wire']))
+    protocol=protocol_model.model_validate_json(json.dumps(capture['protocol']))
+    observed=wire_model.model_validate_json(json.dumps(capture['observed_wire']))
+    if additional_check is not None:additional_check(capture,lineage,admission,principal)
     if (sealed(protocol)!=capture['protocol_hash'] or capture['protocol_hash']!=admission.protocol_hash
             or observed.observed_at!=admission.candidate_created_at
             or observed.observed_at>now or manifest.compiler_digest!=capture['compiler_digest']):
@@ -184,6 +191,17 @@ def verify_final_assembly_lineage(manifest,payload,principal,now,*,trusted_admis
         if current_source_identity(ref.workspace_id,principal,ref.source_id)!=ref:
             raise PermissionError('qualified source changed during serving checks')
     return None
+
+
+def verify_final_assembly_lineage(manifest,payload,principal,now,*,trusted_admission_hashes,
+        runtime_hash,current_source_identity,current_extraction_seal):
+    """Legacy schema2 guard; no purpose V2/schema3 protocol reinterpretation."""
+    from .captured_assembly import ObservedAssemblyProtocol,ObservedAssemblyWire
+    return _verify_final_assembly_lineage(manifest,payload,principal,now,
+        trusted_admission_hashes=trusted_admission_hashes,runtime_hash=runtime_hash,
+        current_source_identity=current_source_identity,current_extraction_seal=current_extraction_seal,
+        qualification_model=AssemblyQualification,lineage_model=FinalAssemblyLineage,
+        protocol_model=ObservedAssemblyProtocol,wire_model=ObservedAssemblyWire)
 
 
 class QualifiedAssemblyReadGuard:
