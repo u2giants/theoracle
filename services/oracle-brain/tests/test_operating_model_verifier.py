@@ -194,3 +194,44 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
     assert verifier.SYNTHETIC_MIGRATIONS[-1]=='013_processing_purpose_permissions.sql'
+
+
+@pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])
+def test_worker_cluster_rejects_foreign_target_before_tls_and_cleans_only_owned_project(tmp_path,monkeypatch,damage):
+    import json
+    from dev.oracle2 import test_worker_postgres_fixture as helper
+    calls=[];chosen={}
+    def run(*args,env=None):
+        calls.append(args)
+        if args[:3]==('docker','ps','-aq'):return ''
+        if 'up' in args:chosen['project']=env['COMPOSE_PROJECT_NAME'];return ''
+        if 'ps' in args:return 'a'*64
+        if args[:2]==('docker','inspect'):
+            project=chosen['project']
+            labels={'com.docker.compose.project':project,'com.docker.compose.service':'postgres','oracle.operating.synthetic':'true'}
+            networks={project+'_default':{}}
+            if damage=='foreign-project':labels['com.docker.compose.project']='foreign'
+            if damage=='foreign-service':labels['com.docker.compose.service']='foreign'
+            if damage=='foreign-network':networks={'foreign':{}}
+            if damage=='no-label':labels.pop('oracle.operating.synthetic')
+            return json.dumps([{'Config':{'Labels':labels},'NetworkSettings':{'Ports':{'5432/tcp':[{'HostIp':'0.0.0.0' if damage=='public-port' else '127.0.0.1','HostPort':'61234'}]},'Networks':networks}}])
+        return ''
+    monkeypatch.setattr(helper,'run',run)
+    monkeypatch.setattr(helper,'bootstrap',lambda *args:pytest.fail('foreign target reached TLS/write'))
+    with pytest.raises(PermissionError):
+        with helper.worker_postgres({'COMPOSE_PROJECT_NAME':'oracle2-synthetic-unit'},tmp_path/'cluster','documentary-01'):pass
+    cleanup=calls[-1]
+    assert cleanup[-2:]==('down','--volumes')
+    assert cleanup[cleanup.index('-p')+1]==chosen['project']
+    assert chosen['project']!='oracle2-synthetic-unit'
+
+
+def test_worker_cluster_existing_project_refuses_before_any_mutation(tmp_path,monkeypatch):
+    from dev.oracle2 import test_worker_postgres_fixture as helper
+    calls=[]
+    def run(*args,**kwargs):calls.append(args);return 'existing'
+    monkeypatch.setattr(helper,'run',run)
+    with pytest.raises(PermissionError,match='fresh empty'):
+        with helper.worker_postgres({'COMPOSE_PROJECT_NAME':'oracle2-synthetic-unit'},tmp_path/'cluster','event'):pass
+    assert len(calls)==1 and calls[0][:3]==('docker','ps','-aq')
+    assert not (tmp_path/'cluster').exists()

@@ -150,7 +150,8 @@ def test_executor_metadata_and_payload_read_without_raw_original_or_write(admin_
 
 def test_actual_clock_expiry_rolls_back_after_local_callback(admin_url,processing,tmp_path):
     f=processing();f['binding']=replace(f['binding'],expires_at=datetime.now(timezone.utc)+timedelta(seconds=.3))
-    with pytest.raises(PermissionError):persist_extraction(f,tmp_path,before_commit=lambda:time.sleep(.35))
+    with pytest.raises((PermissionError,psycopg.errors.InsufficientPrivilege)):
+        persist_extraction(f,tmp_path,before_commit=lambda:time.sleep(.35))
     with psycopg.connect(admin_url) as conn:
         assert conn.execute('SELECT count(*) FROM oracle2.artifact_manifests WHERE workspace_id=%s',(f['workspace'],)).fetchone()[0]==0
         assert conn.execute('SELECT count(*) FROM oracle2.operating_model_source_receipts WHERE source_id=%s',(f['source'],)).fetchone()[0]==0

@@ -6,6 +6,7 @@ from importlib.metadata import version,PackageNotFoundError
 from pathlib import Path
 from uuid import uuid4
 from xml.etree import ElementTree as ET
+from contextlib import ExitStack
 import psycopg
 from psycopg import sql
 
@@ -206,7 +207,7 @@ def cleanup_test_databases(admin,parts,owned):
 
 
 
-SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
+SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_worker_postgres_fixture.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
 
 
 
@@ -237,25 +238,33 @@ def main(argv=None):
     destination=ROOT/args.result;destination.parent.mkdir(parents=True,exist_ok=True)
     evidence=Path(tempfile.mkdtemp(prefix='workflow-evidence-',dir=destination.parent));evidence.chmod(0o700)
     report={'schema_version':1,'stage':args.stage,'mode':args.mode,'success':False,'synthetic':True,'business_accepted':False,'private_source_acceptance':'open','independent_semantic_acceptance':'open','actual_event_acceptance':'unavailable','analytical_runtime_qualified':False,'required_tests':[p.name for p in paths],'worker_evidence':str(evidence),'cleanup_errors':[]}
-    owned=[]
+    owned=[];targets=[];clusters=ExitStack()
     try:
         jobs=[]
         # Setup remains outside the existing 120-second TEST budget. Every group
         # gets its own proven fresh DB before any worker starts; EVENT has no
         # fixed-role mutations, shared advisory locks or graph operations.
+        sys.path.insert(0,str(ROOT))
+        from dev.oracle2.test_worker_postgres_fixture import worker_postgres
         for label,suites in groups:
+            worker_env,identity=clusters.enter_context(worker_postgres(dict(os.environ),evidence/(label+'-cluster'),label))
+            worker_admin=worker_env['ORACLE2_TEST_ADMIN_URL']
+            worker_parts=psycopg.conninfo.conninfo_to_dict(worker_admin)
+            report.setdefault('worker_clusters',[]).append(identity)
             name='oracle_operating_model_test_'+uuid4().hex
-            with psycopg.connect(admin,autocommit=True) as conn:
-                if conn.execute('SELECT current_database()').fetchone()[0]!=parts.get('dbname','postgres'):
+            with psycopg.connect(worker_admin,autocommit=True) as conn:
+                if conn.execute('SELECT current_database()').fetchone()[0]!=worker_parts.get('dbname','postgres'):
                     raise PermissionError('actual synthetic administrator target differs')
                 conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
-            owned.append(name);target=psycopg.conninfo.make_conninfo(**{**parts,'dbname':name})
+            owned.append(name);targets.append((worker_admin,worker_parts,name))
+            target=psycopg.conninfo.make_conninfo(**{**worker_parts,'dbname':name})
             with psycopg.connect(target) as conn:
                 if conn.execute('SELECT current_database()').fetchone()[0]!=name:
                     raise PermissionError('actual fresh synthetic target differs')
                 for migration in SYNTHETIC_MIGRATIONS:conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
-            command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--junitxml={evidence/(label+".xml")}']
-            jobs.append({'name':label,'command':command,'env':{**os.environ,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain')}})
+            command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--basetemp={evidence/(label+"-tmp")}',f'--junitxml={evidence/(label+".xml")}']
+            jobs.append({'name':label,'command':command,'env':{**os.environ,**worker_env,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain'),
+                'OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1','MKL_NUM_THREADS':'1','NUMEXPR_NUM_THREADS':'1'}})
         results,worker_cleanup=run_test_groups(jobs,evidence,deadline=time.monotonic()+120)
         report['cleanup_errors'].extend(worker_cleanup)
         report.update(aggregate_evidence(jobs,results,evidence))
@@ -269,7 +278,10 @@ def main(argv=None):
         report['success']=report['exit_code']==0 and not report['cleanup_errors']
     finally:
         report['owned_databases']=owned
-        report['cleanup_errors'].extend(cleanup_test_databases(admin,parts,owned))
+        for worker_admin,worker_parts,name in targets:
+            report['cleanup_errors'].extend(cleanup_test_databases(worker_admin,worker_parts,[name]))
+        try:clusters.close()
+        except Exception:report['cleanup_errors'].append({'reason':'owned worker cluster cleanup failed'})
         if report['cleanup_errors']:report['success']=False
         destination.write_text(json.dumps(report,indent=2)+'\n');destination.chmod(0o600)
     print(json.dumps({k:report.get(k) for k in ('stage','success','tests','skipped','business_accepted','analytical_runtime_qualified')}))
