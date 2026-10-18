@@ -2,43 +2,65 @@
 
 Session: MiMo chat ses_ffe5eb95f2b89ffe1WP21eebFP on edge-dev
 Date: 2026-10-18  Class: deployment  Action: deploy
-Head under review: this commit (plan + restart operator only)
 
 ## Targets (exact)
 
-| Outcome | Target | Notes |
-|---|---|---|
-| Restart | Coolify app `vhmcdkdk23dgvjvcvhyhcjzd` (oracle-public-invented-native-pr102, commit 4b6d680a) | Genuine restart; pre/post StartedAt from docker inspect |
-| Backup+restore | Same app volumes (ledger/candidate/confirmed/spool/blob) → NEW empty Coolify app | Separate operator; not authorized by this head |
-| Browser | Existing admitted browser path only | Separate operator; not authorized by this head |
+| Outcome | Target | Operator | Status |
+|---|---|---|---|
+| Restart | Coolify app `vhmcdkdk23dgvjvcvhyhcjzd` | `operator-restart-27.py` | PROVED 2026-10-18 |
+| Backup+restore | 5 data volumes of same app → new `-restore27` volumes | `operator-backup-restore-27.py` | this head |
+| Browser | native gateway mTLS; no browser FQDN | (read-only check) | recorded |
 
-This head (plan + `operator-restart-27.py`) authorizes **only the restart outcome**.
-Backup/restore and browser require their own reviewed operators.
+This head authorizes **restart (already proved) and backup+restore**.
+Browser is a read-only fact-finding outcome (no mutation).
 
 ## Inputs
 
-- Coolify API base `http://100.66.37.58:8000/api/v1` on Tailscale CGNAT.
-  Transport: Tailscale encrypted overlay; owner issued the read/write token
-  for this managed-platform route (Albert, 2026-10-14). Reads use the
-  read-only observer token; the single POST restart uses the read/write token.
-- SSH metadata: user `ai` @ `vps2` (BatchMode key auth), read-only `docker inspect`.
+- Coolify API `http://100.66.37.58:8000/api/v1` on Tailscale CGNAT (encrypted overlay).
+  Owner issued RW token for this managed-platform route (Albert, 2026-10-14).
+  Reads use RO observer token; the one POST restart used RW token.
+- SSH metadata: user `ai` @ `vps2` (BatchMode key auth), read-only inspect +
+  bounded volume backup/restore to NEW volumes only.
 - Vault: vibe_coding "Coolify API token - Oracle read-only observer" (GET),
   "Coolify API token - Oracle read/write" (POST restart only).
 
-## Gates (in order)
+## Gates
 
-1. `ai-task-gates start --class deployment` — recorded in this worktree.
-2. `ai-task-gates check --before deploy` — will be re-run with `--reviewer-approval`.
-3. Assigned AI reviewer exact-head APPROVE on this plan + restart operator.
-4. Execute restart operator with `--confirm-restart`. One outcome.
+1. `ai-task-gates start --class deployment` — recorded.
+2. `ai-task-gates check --before deploy --reviewer-approval <report>` — required before each mutation batch.
+3. Assigned AI reviewer exact-head APPROVE (Muse, implementer mimo) with local tests.
+4. Execute one bounded outcome per action.
 
-## Rollback
+## Backup/restore safety (this head)
 
-- Restart is container-recreate with the same image/config. Volumes are never
-  deleted. If post-restart state is worse than pre, preserve both receipts and
-  leave the app in its Coolify-managed state; do **not** stop the app (stop is
-  an outage, not a rollback). Recovery is Coolify's own start/stop cycle.
-- This head does not authorize backup/restore mutations.
+- Source volumes mounted `:ro` only. Never mutated.
+- Staging dir created atomically with mode 700 via `mkdir -m 700` after
+  exists/symlink refusal (`mk_staging`). Tars `chmod 600`.
+- Restore target volumes named `*-restore27`; refused if already exist
+  (no `docker volume rm`).
+- Verification is per-file sha256 manifest compare (source vs restored),
+  not just file counts. Hash format validated (`^[0-9a-f]{64}$`).
+- Helper image pinned to tag `alpine:3.20` and all outputs hash-checked.
+  (Full digest pin optional; manifest compare is the integrity control.)
+- Rollback: source untouched; failed restore targets left in place for
+  inspection or manually removed (named `-restore27` only).
+
+## Restart safety (already executed)
+
+- Pre/post StartedAt captured via SSH docker inspect.
+- All 18 roles restarted: StartedAt moved from 2026-10-13T13:53:xxZ to
+  2026-10-18T13:08:49-58Z. Deployment UUID `jyzwe2cezkcbsxuy394muibt`.
+- No authority renewal, no job replay.
+
+## Browser fact
+
+- All Oracle native Coolify apps have `fqdn: null` (no domain).
+- Historical gateway `oracle-native-acceptance.178.156.180.212.sslip.io`
+  resolves but HTTPS requires mTLS client certificate
+  (`tlsv13 alert certificate required`). HTTP returns 404.
+- No authenticated browser surface exists for the native hosted installation.
+  Historical PR96 browser login is the web application (Vercel/Postgres),
+  not this native gateway. Recorded as fact; not a mutation.
 
 ## Explicit non-goals
 
@@ -48,19 +70,3 @@ Backup/restore and browser require their own reviewed operators.
 - Do NOT weaken freshness guards.
 - Do NOT open leftover-proof issues.
 - Do NOT deploy SQL014, rotate secrets, resume company questions.
-
-## Receipts to capture (restart)
-
-- Pre/post StartedAt, RestartCount, container names/IDs for all oracle-native-vhmcdkdk roles.
-- Coolify API response code and body hash for the one POST.
-- StartedAt diff proof: at least one role must show a newer StartedAt, else NOT_PROVED.
-- Receipt chain SHA256.
-
-## Operator safety
-
-- `if __name__ == "__main__"` guard: import never mutates.
-- Without `--confirm-restart` the script is read-only (GET + SSH inspect).
-- RO token for all reads; RW token only for the one POST.
-- Identity assert: returned uuid must equal APP_UUID.
-- JSON parse failures become receipts, not tracebacks.
-- StartedAt comparison is mandatory; identical pre/post is NOT_PROVED.
