@@ -22,10 +22,12 @@ PURPOSE_V2_SUITES=('purpose_context_v2','parent_observer_v2','purpose_profiles_v
     'purpose_shared_budget','purpose_allocation_budget','semantic_registry_v3',
     'processing_extraction_runtime_v2','extraction_connection_authority','purpose_native_census_startup','purpose_journey','purpose_worker_startup','paid_sdk_embeddings_v3',
     'purpose_population_v3','purpose_coherent_native_journey')
-DOCUMENTARY += PURPOSE_V2_SUITES
-DOCUMENTARY += ('native_trigger_v1',)
+# Keep the light hosting/operator tail with documentary fixtures so every
+# heavy native suite owns one worker without exceeding the ten-worker cap.
 DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternate_operator','native_alternate_chain_operator','hosting_restore_platform')
 DOCUMENTARY += ('falkor_native_proof_acl',)
+DOCUMENTARY += PURPOSE_V2_SUITES
+DOCUMENTARY += ('native_trigger_v1',)
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
@@ -93,7 +95,7 @@ def required_suites(stage):
 # fresh database; all start under the SAME 120-second test deadline below.
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
-    'paid_sdk_embeddings_v3','purpose_coherent_native_journey','falkordb_coolify_plan')
+    'paid_sdk_embeddings_v3','purpose_coherent_native_journey','native_trigger_v1')
 
 
 def test_groups(stage):

@@ -101,7 +101,7 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
         assert len(groups)==(10 if stage in ('W10','W12','all') else 9 if stage=='documentary' else 1)
         assert all(values for _,values in groups)
         if stage!='W04':
-            for heavy in ('purpose_worker_startup','purpose_coherent_native_journey'):
+            for heavy in ('purpose_worker_startup','purpose_coherent_native_journey','native_trigger_v1'):
                 assert [values for _,values in groups if heavy in values]==[(heavy,)]
 
 

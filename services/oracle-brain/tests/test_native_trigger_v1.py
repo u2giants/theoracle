@@ -136,3 +136,13 @@ def test_actual_native_source_role_rejects_elevated_drift(native_sql):
  finally:
   with psycopg.connect(admin) as c:c.execute('ALTER ROLE oracle_synthetic_executor NOCREATEDB')
  binding.check_url(executor)
+
+
+def test_native_tls_adapter_fixed_ids_match_new_fixture_without_hosting_import(monkeypatch):
+ from oracle_brain.operating_model.sdk_projection import SDKProjection,NativeInventedTLSProjectionV1
+ captured={}
+ def capture(self,graph_url,**kwargs):captured.update(kwargs)
+ monkeypatch.setattr(SDKProjection,'__init__',capture)
+ NativeInventedTLSProjectionV1('rediss://oracle_native_proof_executor_v1:invented@oracle-graph.designflow.app:16391',connection_config=object())
+ assert (captured['workspace_id'],captured['artifact_id'],captured['artifact_version'],captured['generation'])==(SCENARIO.workspace,SCENARIO.artifact,1,SCENARIO.generation)
+ assert captured['read_only'] is True
