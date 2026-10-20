@@ -43,12 +43,12 @@ _PAST = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
 def _test_mac(purpose, *fields):
-    """Produce a purpose-tagged seal via the isolated signer (test host stand-in).
+    """Produce a purpose-tagged seal via the signer CLI (test host stand-in).
 
-    Stands in for the host/identity service and the isolated signer
-    child. The private key is loaded only by seal_signer.
+    Stands in for the host/identity service. The private key is loaded
+    only inside the signer child process, never by the test process.
     """
-    from oracle_brain.seal_signer import sign_seal
+    from seal_testkit import sign_seal
     return sign_seal(purpose, *fields)
 
 

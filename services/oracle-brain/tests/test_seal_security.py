@@ -1,13 +1,20 @@
 """Denied-case tests for the seal security boundary.
 
 Proves: the verify path holds no private key and no sign capability,
-no MAC/sign helper is importable or getattr-able from the seal module,
-and forged / wrong-key / tampered / truncated seals stay denied.
+no MAC/sign helper is importable or getattr-able from the verify module,
+the parent process environment carries no private key material, the
+signer entrypoint signs only as a process, and forged / wrong-key /
+tampered / truncated seals stay denied.
 """
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
+import json
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -95,6 +102,95 @@ def test_verify_path_does_not_import_seal_signer():
     assert 'importlib' not in source or 'seal_signer' not in source
 
 
+def test_parent_env_has_no_private_key_material():
+    """The parent process environment must not carry ORACLE2_SEAL_PRIVATE_KEY*.
+
+    The parent knows only the signer key-file path string
+    (ORACLE2_SEAL_SIGNER_KEY_FILE). Private key material never sits in
+    the parent environment under any name.
+    """
+    for name in os.environ:
+        assert not name.startswith('ORACLE2_SEAL_PRIVATE_KEY'), (
+            f'parent environment must not hold {name}')
+    assert 'ORACLE2_SEAL_PRIVATE_KEY' not in os.environ
+    assert 'ORACLE2_SEAL_PRIVATE_KEY_FILE' not in os.environ
+
+
+def test_seal_signer_import_yields_no_sign_capability():
+    """import oracle_brain.seal_signer must not yield a usable sign().
+
+    Signing code lives under the __main__ guard, so the import surface
+    exposes no sign, no key loader and no main entrypoint.
+    """
+    signer = importlib.import_module('oracle_brain.seal_signer')
+    for name in ('sign', 'sign_seal', 'sign_payload', 'main',
+                 '_load_private_key', 'load_private_key', '_sign',
+                 '_sign_impl', '_run'):
+        assert not hasattr(signer, name), (
+            f'seal_signer must not expose {name} on import')
+    source = inspect.getsource(signer)
+    assert 'if __name__' in source and "__main__" in source, (
+        'signing logic must live under the __main__ guard')
+    # The key loader must not be defined at module import time.
+    module_defs = {
+        node.name for node in ast.parse(source).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert 'sign' not in module_defs
+    assert '_load_private_key' not in module_defs
+    assert 'main' not in module_defs
+
+
+def test_signer_cli_entrypoint_signs():
+    """The signer CLI works when invoked as its entrypoint (one-shot handshake).
+
+    The child reads the key file and returns a signature that the
+    verify path accepts. The test process never reads the private key.
+    """
+    from oracle_brain.seal import seal_payload, verify
+
+    payload = seal_payload('seal-signer-cli-entrypoint', 'field-1')
+    key_path = os.environ.get('ORACLE2_SEAL_SIGNER_KEY_FILE', '')
+    assert key_path, 'signer key file path must be configured'
+    env = {'ORACLE2_SEAL_SIGNER_KEY_FILE': key_path}
+    for name in ('SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'COMSPEC',
+                 'TMP', 'TEMP', 'HOME', 'USERPROFILE'):
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    request = json.dumps({'payload_hex': payload.hex()})
+    child = subprocess.run(
+        [sys.executable, '-m', 'oracle_brain.seal_signer'],
+        input=request.encode('utf-8'),
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    assert child.returncode == 0, child.stdout.decode('utf-8', 'replace')
+    response = json.loads(child.stdout.decode('utf-8'))
+    signature = response.get('signature')
+    assert isinstance(signature, str) and signature
+    assert verify(payload, signature) is True
+
+
+def test_signer_child_env_is_scrubbed():
+    """The signer child never inherits the parent environment wholesale."""
+    seal = importlib.import_module('oracle_brain.seal')
+    env = seal._signer_child_env('/tmp/fake-key-path')
+    assert env['ORACLE2_SEAL_SIGNER_KEY_FILE'] == '/tmp/fake-key-path'
+    # No ORACLE2_SEAL_PRIVATE_KEY* may appear in the child env from the parent.
+    for name in env:
+        assert not name.startswith('ORACLE2_SEAL_PRIVATE_KEY'), (
+            f'child env must not inherit {name}')
+    # A parent-only secret must not be passed through.
+    os.environ['ORACLE2_SEAL_PARENT_LEAK_CANARY'] = 'leak'
+    try:
+        env2 = seal._signer_child_env('/tmp/fake-key-path')
+        assert 'ORACLE2_SEAL_PARENT_LEAK_CANARY' not in env2
+    finally:
+        os.environ.pop('ORACLE2_SEAL_PARENT_LEAK_CANARY', None)
+
+
 def test_forged_credential_mac_still_denied():
     """A seal under a wrong key never verifies at the credential boundary."""
     from oracle_brain.meetings.delivery import issue_sender_credential_proof
@@ -165,18 +261,19 @@ def test_forged_reader_fact_mac_still_denied():
 
 
 def test_verify_rejects_forged_wrong_key_tampered_and_truncated():
-    """Denied cases: forged, wrong key, tampered payload, truncated signature."""
-    import os
+    """Denied cases: forged, wrong key, tampered payload, truncated signature.
 
+    The good signature comes from the signer CLI — the test process
+    never reads the private key into memory.
+    """
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (
         Ed25519PrivateKey,
     )
     from oracle_brain.seal import seal_payload, verify, verify_mac
+    from seal_testkit import sign_payload
 
     payload = seal_payload('seal-security-denied-cases', 'field-1', 'field-2')
-    good = Ed25519PrivateKey.from_private_bytes(
-        bytes.fromhex(os.environ['ORACLE2_SEAL_PRIVATE_KEY'])
-    ).sign(payload).hex()
+    good = sign_payload(payload)
     assert verify(payload, good) is True
 
     # Forged signature (garbage bytes of the right length).

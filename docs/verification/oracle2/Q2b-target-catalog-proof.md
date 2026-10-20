@@ -55,9 +55,20 @@ UNKNOWN blocks target execution (`test_unknown_blocks_target_execution`).
 
 ## R8 reader seal
 
-`read_target_catalog` seals the six fact classes with a purpose-tagged HMAC
-(`q2b-reader-facts-v1`) using a runtime secret. `admit_target_catalog`
-denies caller-constructed fact dicts even when values match pins — only
-reader-produced sealed facts are admitted. Secret env var name:
-`ORACLE2_SEAL_SECRET` — value is UNKNOWN until host wiring installs the
-real secret (tests inject a random per-test secret; no secret is committed).
+`read_target_catalog` seals the six fact classes with a purpose-tagged
+Ed25519 signature (`q2b-reader-facts-v1`) issued by the isolated signer
+child process. `admit_target_catalog` denies caller-constructed fact
+dicts even when values match pins — only reader-produced sealed facts
+are admitted. The verify path (`oracle_brain.seal`) holds only the
+public key and cannot sign. Signing lives in `oracle_brain.seal_signer`,
+which signs only when launched as a process entrypoint
+(`python -m oracle_brain.seal_signer`) with a one-shot handshake. The
+parent process never holds private key material or
+`ORACLE2_SEAL_PRIVATE_KEY*` environment variables — only the key-file
+path (`ORACLE2_SEAL_SIGNER_KEY_FILE`). The signer child is spawned with
+an explicit scrubbed environment. No secret is committed.
+
+Remaining trust boundary (honest): the key file is readable by the same
+OS user that runs the signer process. Restricting file ACLs or running
+the signer under a separate OS user is a host-wiring concern outside
+this offline leaf and is not claimed here.

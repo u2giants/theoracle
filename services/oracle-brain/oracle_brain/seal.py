@@ -15,8 +15,11 @@ satisfies another.
 Key env vars (UNKNOWN until host wiring):
 
 - ``ORACLE2_SEAL_PUBLIC_KEY``: hex-encoded 32-byte Ed25519 public key.
-- ``ORACLE2_SEAL_PRIVATE_KEY`` / ``ORACLE2_SEAL_PRIVATE_KEY_FILE``:
-  private key for the isolated signer only (never read here).
+- ``ORACLE2_SEAL_SIGNER_KEY_FILE``: path string to the signer's private
+  key file. The parent never reads that file and never holds key
+  material — only this path, used to build the signer child's clean
+  environment. There is no ``ORACLE2_SEAL_PRIVATE_KEY*`` variable in
+  the parent environment.
 """
 from __future__ import annotations
 
@@ -32,9 +35,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 
 # Documented runtime provider name. Production/host wiring sets this
 # environment variable to the real public key; tests inject via the
-# fixture before first seal use. Private key env vars live only in
-# oracle_brain.seal_signer.
+# fixture before first seal use. The signer key file path is read only
+# to build the signer child's clean environment.
 SEAL_PUBLIC_KEY_ENV = 'ORACLE2_SEAL_PUBLIC_KEY'
+SEAL_SIGNER_KEY_FILE_ENV = 'ORACLE2_SEAL_SIGNER_KEY_FILE'
 
 __all__ = ('SEAL_PUBLIC_KEY_ENV', 'seal_payload', 'verify', 'verify_mac')
 
@@ -48,6 +52,22 @@ def seal_payload(purpose: str, *fields) -> bytes:
         iso = getattr(f, 'isoformat', None)
         parts.append(iso() if callable(iso) else str(f))
     return '|'.join(parts).encode('utf-8')
+
+
+def _signer_child_env(key_path: str) -> dict:
+    """Explicit clean environment for the signer child process.
+
+    Never inherits the parent environment. Carries only the key file
+    path and the minimal OS variables the interpreter needs to start.
+    No secret from the parent env is passed through.
+    """
+    env = {SEAL_SIGNER_KEY_FILE_ENV: key_path}
+    for name in ('SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'COMSPEC',
+                 'TMP', 'TEMP', 'HOME', 'USERPROFILE'):
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    return env
 
 
 def _install_seal_api():
@@ -78,16 +98,25 @@ def _install_seal_api():
     def _sign_via_helper(payload: bytes) -> str:
         """Mint through the isolated signer child. Sealed factories only.
 
-        Lives only inside this closure. The child loads the private key;
-        this parent process never does. Not returned, not a module
+        Lives only inside this closure. The child loads the private key
+        from its key file; this parent process never reads that file and
+        never holds key material. The child is spawned with an explicit
+        clean environment — never the parent environment — so no secret
+        in the parent env is inherited. Not returned, not a module
         attribute, not importable and not getattr-able from outside.
         """
         request = json.dumps({'payload_hex': bytes(payload).hex()})
+        key_path = os.environ.get(SEAL_SIGNER_KEY_FILE_ENV, '')
+        if not key_path:
+            raise PermissionError(
+                'seal signer key file not configured; set '
+                f'{SEAL_SIGNER_KEY_FILE_ENV}')
         child = subprocess.run(
             [sys.executable, '-m', 'oracle_brain.seal_signer'],
             input=request.encode('utf-8'),
             capture_output=True,
             check=False,
+            env=_signer_child_env(key_path),
         )
         if child.returncode != 0:
             raise PermissionError('seal signer helper failed')

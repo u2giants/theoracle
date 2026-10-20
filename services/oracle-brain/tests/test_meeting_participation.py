@@ -29,8 +29,8 @@ from oracle_brain.meetings.participation import (
 
 
 def _test_mac(purpose, *fields):
-    """Produce a purpose-tagged seal via the isolated signer (test host stand-in)."""
-    from oracle_brain.seal_signer import sign_seal
+    """Produce a purpose-tagged seal via the signer CLI (test host stand-in)."""
+    from seal_testkit import sign_seal
     return sign_seal(purpose, *fields)
 
 
