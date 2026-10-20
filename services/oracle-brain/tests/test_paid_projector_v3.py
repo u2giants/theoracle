@@ -160,6 +160,7 @@ def test_projector_target_guard_refuses_substitution_before_current_authority():
     settings=SimpleNamespace(bundle=SimpleNamespace(manifest=manifest,payload=payload),
         job=SimpleNamespace(actor_id=actor,workspace_id=workspace),
         config=SimpleNamespace(artifact_id=artifact,artifact_version=1),
+        still_current=lambda:calls.append('current'),
         current_window=lambda:calls.append('current'))
     guard=object.__new__(CurrentPaidProjectorGuardV3);guard.projector=settings
     for supplied_manifest,supplied_payload,principal in (

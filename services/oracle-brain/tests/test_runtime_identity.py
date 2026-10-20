@@ -8,8 +8,21 @@ from oracle_brain.graph.falkor import FalkorGraphStore
 from uuid import uuid4
 
 
+def _as_role(url: str, user: str, password: str) -> str:
+    """Rebuild a conninfo with substituted credentials.
+
+    The W10 runner rebuilds ORACLE2_TEST_ADMIN_URL via psycopg make_conninfo,
+    which emits keyword-value form rather than a postgresql:// URI. A literal
+    'user:password' replace silently no-ops there, leaving the admin identity.
+    """
+    params = psycopg.conninfo.conninfo_to_dict(url)
+    params["user"] = user
+    params["password"] = password
+    return psycopg.conninfo.make_conninfo(**params)
+
+
 def test_extractor_cannot_write_accepted_or_read_projector(admin_url, candidate_url, confirmed_url, monkeypatch):
-    extract_db = admin_url.replace("oracle2_admin:oracle2_local_admin_only", "oracle2_extract:oracle2_local_extract_only")
+    extract_db = _as_role(admin_url, "oracle2_extract", "oracle2_local_extract_only")
     with psycopg.connect(extract_db) as connection:
         with pytest.raises(psycopg.Error):
             connection.execute("INSERT INTO oracle2.accepted(workspace_id,assertion_id,revision,status,payload) VALUES (gen_random_uuid(),gen_random_uuid(),1,'active','{}')")

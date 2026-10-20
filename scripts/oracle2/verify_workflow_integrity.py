@@ -21,7 +21,34 @@ PURPOSE_V2_SUITES=('purpose_context_v2','parent_observer_v2','purpose_profiles_v
     'purpose_runtime_v2','purpose_source_authority','purpose_transport','purpose_transport_startup',
     'purpose_shared_budget','purpose_allocation_budget','semantic_registry_v3',
     'processing_extraction_runtime_v2','extraction_connection_authority','purpose_native_census_startup','purpose_journey','purpose_worker_startup','paid_sdk_embeddings_v3',
-    'purpose_population_v3','purpose_coherent_native_journey')
+    'purpose_population_v3','purpose_coherent_native_journey',
+    'paid_executor_v3','paid_projector_v3','paid_sdk_delivery_v3')
+# R7 registration — oracle-brain suites that previously never entered a
+# verify_workflow_integrity stage list (54 files). Family tuples follow the
+# PURPOSE_V2_SUITES convention; each family is folded into DOCUMENTARY so W10
+# covers the real surface under the unchanged 120-second deadline.
+CORE_INFRA_SUITES=('authority','bootstrap_pilot_authority','browser_diagnostic_custody',
+    'checkpoint_scope','contract_parity','dependency_bundle','function_catalogue_batch',
+    'outbox','preview_settings','provider_policy','provider_transport',
+    'review_concurrency','runtime_identity','worker_guard_parity',
+    'native_browser_metadata_role','readonly_delivery_fixture_dag')
+GRAPH_HOLISTIC_SUITES=('graph_adapter','graph_evidence_answer','graph_tls_options',
+    'holistic_graphrag','holistic_graphrag_integration','holistic_runtime','pilot_journey')
+ORIGINAL_PROCESSING_SUITES=('original_byte_storage','original_corpus_import','original_corpus_read',
+    'original_intake_v1','original_native_jobs_v1','original_pdf_image_views',
+    'original_population_sql','original_qualification_v1','original_reading')
+RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_multimodal_pricing_v1','raw_original_context_v1',
+    'raw_original_native_provider_v1','raw_original_observer_v1','raw_original_paid_response_v1',
+    'raw_original_request_v1','raw_original_settings_v1','raw_original_views_v1',
+    'raw_provider_reservation_hooks','raw_vision_policy_v1')
+REPLACEMENT_RESULT_SUITES=('replacement_executor_target_sql','replacement_public_view_v1',
+    'replacement_result_cleanup_v1','replacement_result_settings_v1','replacement_result_v1',
+    'replacement_source_authority','replacement_source_intake_sql','replacement_transport_v1')
+DOCUMENTARY += CORE_INFRA_SUITES
+DOCUMENTARY += GRAPH_HOLISTIC_SUITES
+DOCUMENTARY += ORIGINAL_PROCESSING_SUITES
+DOCUMENTARY += RAW_ORIGINAL_SUITES
+DOCUMENTARY += REPLACEMENT_RESULT_SUITES
 # Keep the light hosting/operator tail with documentary fixtures so every
 # heavy native suite owns one worker without exceeding the ten-worker cap.
 DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternate_operator','native_alternate_chain_operator','hosting_restore_platform')
@@ -33,7 +60,8 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
-    '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql')
+    '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
+    '014_replacement_source_custody.sql')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2
@@ -94,9 +122,12 @@ def required_suites(stage):
 
 # Measured heavy native suites each retain a whole worker. Every worker owns a
 # fresh database; all start under the SAME 120-second test deadline below.
+# R7: drop the purpose_coherent_native_journey / native_trigger_v1 singleton
+# groups so the original and raw-original families can own workers instead.
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
+    'original_byte_storage','raw_endpoint_inventory_v1',
     'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
-    'paid_sdk_embeddings_v3','purpose_coherent_native_journey','native_trigger_v1')
+    'paid_sdk_embeddings_v3')
 
 
 def test_groups(stage):
