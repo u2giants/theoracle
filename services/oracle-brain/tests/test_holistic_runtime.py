@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote
 from uuid import uuid4
 
 import psycopg
@@ -67,14 +67,23 @@ def _insert_run(admin_url, workspace, actor, source_id, draft_id, *, status="pen
 
 
 def _holistic_url(admin_url: str) -> str:
-    """Apply local least-privilege SQL only to a loopback test database."""
-    parsed = urlsplit(admin_url)
-    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+    """Apply local least-privilege SQL only to a loopback test database.
+
+    Use psycopg.conninfo to parse — urllib.parse.urlsplit cannot read the
+    keyword-value conninfo form that the W10 runner produces via make_conninfo,
+    so its .hostname is None and the loopback check spuriously skips.
+    """
+    params = psycopg.conninfo.conninfo_to_dict(admin_url)
+    host = params.get("host") or ""
+    if host not in {"localhost", "127.0.0.1", "::1"}:
         pytest.skip("least-privilege role test requires loopback Postgres")
-    return urlunsplit((parsed.scheme, "oracle2_holistic:oracle2_local_holistic_only@" +
-                       (parsed.hostname or "127.0.0.1") +
-                       ((f":{parsed.port}") if parsed.port else ""), parsed.path,
-                      parsed.query, parsed.fragment))
+    port = params.get("port") or "5432"
+    dbname = params.get("dbname") or "postgres"
+    extra = {k: v for k, v in params.items()
+             if k not in {"host", "port", "user", "password", "dbname"} and v is not None}
+    query = "&".join(f"{quote(k)}={quote(str(v))}" for k, v in sorted(extra.items()))
+    uri = f"postgresql://oracle2_holistic:oracle2_local_holistic_only@{host}:{port}/{quote(dbname)}"
+    return uri + ("?" + query if query else "")
 
 
 def _ensure_holistic_role(admin_url: str) -> str:

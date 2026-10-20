@@ -106,7 +106,7 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
             # no longer own singleton groups; original/raw families replaced them.
             for heavy in ('purpose_worker_startup',):
                 assert [values for _,values in groups if heavy in values]==[(heavy,)]
-            for start in ('original_byte_storage','raw_endpoint_inventory_v1'):
+            for start in ('original_corpus_import','raw_endpoint_inventory_v1'):
                 assert any(values and values[0]==start for _,values in groups)
 
 
