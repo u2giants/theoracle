@@ -270,3 +270,43 @@ def test_broken_issuer_link_in_multi_step_chain_is_denied(admin_url, monkeypatch
         )
     assert not has_authority(admin_url, workspace_id=workspace, actor_id=leaf,
                              scope="review")
+
+
+def test_confirm_through_review_parent_is_denied(admin_url, monkeypatch):
+    """A child cannot hold a scope its parent did not hold: confirm granted
+    under a review-only parent is denied even though the chain reaches root."""
+    workspace, owner, mid, leaf = uuid4(), uuid4(), uuid4(), uuid4()
+    owner_key = Ed25519PrivateKey.generate()
+    monkeypatch.setenv("ORACLE2_OWNER_PUBLIC_KEY", owner_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    ).hex())
+    root = uuid4()
+    message = f"oracle2-owner-appointment-v1:{workspace}:{owner}:{root}".encode()
+    appoint_owner(admin_url, workspace_id=workspace, owner_id=owner,
+                  appointed_by=uuid4(), appointment_id=root,
+                  owner_signature_hex=owner_key.sign(message).hex())
+    mid_grant = delegate(admin_url, workspace_id=workspace, grantor_id=owner,
+                         actor_id=mid, scope="review")
+    # Escalation: mid issues a confirm grant to leaf. Parent only holds review.
+    leaf_grant = uuid4()
+    with psycopg.connect(admin_url) as connection:
+        connection.execute(
+            """INSERT INTO oracle2.appointments
+               (appointment_id,workspace_id,actor_id,scope,granted_by,parent_id)
+               VALUES (%s,%s,%s,'confirm',%s,%s)""",
+            (leaf_grant, workspace, leaf, mid, mid_grant),
+        )
+    assert not has_authority(admin_url, workspace_id=workspace, actor_id=leaf,
+                             scope="confirm")
+    # Same chain shape is valid for review (child scope equals parent scope).
+    leaf_review = uuid4()
+    with psycopg.connect(admin_url) as connection:
+        connection.execute(
+            """INSERT INTO oracle2.appointments
+               (appointment_id,workspace_id,actor_id,scope,granted_by,parent_id)
+               VALUES (%s,%s,%s,'review',%s,%s)""",
+            (leaf_review, workspace, leaf, mid, mid_grant),
+        )
+    assert has_authority(admin_url, workspace_id=workspace, actor_id=leaf,
+                         scope="review")

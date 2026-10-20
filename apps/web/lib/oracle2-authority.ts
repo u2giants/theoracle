@@ -27,6 +27,8 @@ function sql() {
 // parent_id is paired with an issuer-link check (l.granted_by = p.actor_id).
 // A child whose granted_by does not match its claimed parent's actor_id is
 // rejected — an unrelated root cannot confer access through a forged parent_id.
+// Ancestor scope: every parent must itself hold the claimed scope or be root.
+// A confirm grant chained through a review-only parent is denied.
 const HAS_AUTHORITY_SQL = `
 WITH RECURSIVE lineage AS (
   SELECT a.appointment_id AS start_id,a.appointment_id,a.parent_id,
@@ -41,6 +43,7 @@ WITH RECURSIVE lineage AS (
   FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id
   WHERE l.depth<16 AND p.workspace_id=l.workspace_id
     AND l.granted_by=p.actor_id
+    AND p.scope IN ($3,'root')
 )
 SELECT EXISTS (
   SELECT 1 FROM lineage GROUP BY start_id
@@ -65,8 +68,10 @@ export type AppointmentRow = {
 /**
  * Pure mirror of HAS_AUTHORITY_SQL: proves the scope through an unbroken
  * issuer-linked chain that reaches a root. Each grant must show its parent
- * issued it (parent_id link AND granted_by = parent.actor_id). Unrelated
- * roots are rejected. Used by tests; the SQL is the production enforcement.
+ * issued it (parent_id link AND granted_by = parent.actor_id). Every ancestor
+ * must itself hold the claimed scope or be root — a child cannot hold a scope
+ * its parent did not hold. Unrelated roots and confirm-through-review are
+ * rejected. Used by tests; the SQL is the production enforcement.
  */
 export function lineageAuthorizes(
   appointments: AppointmentRow[],
@@ -84,7 +89,7 @@ export function lineageAuthorizes(
       (a.scope === scope || a.scope === 'root'),
   );
   for (const start of starts) {
-    // Walk up parent_id links; every step must prove issuer link.
+    // Walk up parent_id links; every step must prove issuer link and scope.
     const chain: AppointmentRow[] = [start];
     let current = start;
     let valid = true;
@@ -98,6 +103,11 @@ export function lineageAuthorizes(
       }
       // Issuer link: the parent's actor must have issued the child.
       if (current.granted_by !== parent.actor_id) {
+        valid = false;
+        break;
+      }
+      // Ancestor scope: a child cannot hold a scope its parent did not hold.
+      if (parent.scope !== scope && parent.scope !== 'root') {
         valid = false;
         break;
       }

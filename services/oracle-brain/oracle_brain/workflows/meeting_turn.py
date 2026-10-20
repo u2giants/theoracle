@@ -86,15 +86,20 @@ def evaluate_turn(settings: ParticipationSettings, turn: InboundTurn,
     if receipt.status == 'suppressed':
         return TurnOutcome('silence', 'none', receipt)
     if not membership.determined:
-        # Membership unknown never widens access: meeting-only evidence or decline.
-        if not answer_body.strip():
-            return TurnOutcome(
-                'decline', 'meeting_only',
-                _decline(settings, turn, receipt_id, recorded_at,
-                         reason='membership_undetermined'))
-        scope: EvidenceScope = 'meeting_only'
-    else:
-        scope = 'shared_access'
+        # Membership unknown never widens access and never produces an
+        # outbound intent — decline regardless of answer body.
+        return TurnOutcome(
+            'decline', 'meeting_only',
+            _decline(settings, turn, receipt_id, recorded_at,
+                     reason='membership_undetermined'))
+    # Membership determined: shared_access answers require the speaker to
+    # be in the proven shared_access set. Otherwise refuse.
+    if turn.speaker_id not in (membership.shared_access or frozenset()):
+        return TurnOutcome(
+            'decline', 'none',
+            _decline(settings, turn, receipt_id, recorded_at,
+                     reason='shared_access_unauthorized'))
+    scope: EvidenceScope = 'shared_access'
     if not answer_body.strip():
         return TurnOutcome(
             'decline', scope,

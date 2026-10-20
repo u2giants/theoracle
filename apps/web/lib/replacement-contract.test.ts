@@ -1384,6 +1384,139 @@ test('operatingAuthority: forged / unrelated-root authority chain is denied', ()
   );
 });
 
+  // --- R8 High: ancestor scope validation ------------------------------------
+
+  test('High r8: confirm granted under review-only parent is denied', () => {
+    const WS = '00000000-0000-4000-8000-0000000000f1';
+    const owner = '00000000-0000-4000-8000-0000000000a1';
+    const midActor = '00000000-0000-4000-8000-0000000000b2';
+    const attacker = '00000000-0000-4000-8000-0000000000e1';
+    const rootId = '00000000-0000-4000-8000-0000000000r1';
+    const root: AppointmentRow = {
+      appointment_id: rootId,
+      workspace_id: WS,
+      actor_id: owner,
+      scope: 'root',
+      granted_by: '00000000-0000-4000-8000-0000000000bb',
+      parent_id: null,
+      revoked_at: null,
+      expires_at: null,
+    };
+    // Mid holds review only (issued by root).
+    const mid: AppointmentRow = {
+      appointment_id: '00000000-0000-4000-8000-0000000000m1',
+      workspace_id: WS,
+      actor_id: midActor,
+      scope: 'review',
+      granted_by: owner,
+      parent_id: rootId,
+      revoked_at: null,
+      expires_at: null,
+    };
+    // Escalation attempt: mid issues confirm to attacker. The parent only
+    // holds review, so a child cannot hold confirm through it.
+    const escalated: AppointmentRow = {
+      appointment_id: '00000000-0000-4000-8000-0000000000c9',
+      workspace_id: WS,
+      actor_id: attacker,
+      scope: 'confirm',
+      granted_by: midActor,
+      parent_id: '00000000-0000-4000-8000-0000000000m1',
+      revoked_at: null,
+      expires_at: null,
+    };
+    assert.equal(
+      lineageAuthorizes([root, mid, escalated], attacker, 'confirm', WS),
+      false,
+      'confirm chained through a review-only parent must be denied',
+    );
+    // The same chain shape is valid for review: child scope equals parent scope.
+    const reviewLeaf: AppointmentRow = {
+      appointment_id: '00000000-0000-4000-8000-0000000000c8',
+      workspace_id: WS,
+      actor_id: attacker,
+      scope: 'review',
+      granted_by: midActor,
+      parent_id: '00000000-0000-4000-8000-0000000000m1',
+      revoked_at: null,
+      expires_at: null,
+    };
+    assert.equal(
+      lineageAuthorizes([root, mid, reviewLeaf], attacker, 'review', WS),
+      true,
+      'review chained through a review parent remains valid',
+    );
+    // Confirm through a confirm parent is valid (same scope held by parent).
+    const confirmMid: AppointmentRow = {
+      ...mid,
+      appointment_id: '00000000-0000-4000-8000-0000000000m2',
+      scope: 'confirm',
+    };
+    const confirmLeaf: AppointmentRow = {
+      ...escalated,
+      parent_id: '00000000-0000-4000-8000-0000000000m2',
+      granted_by: midActor,
+    };
+    assert.equal(
+      lineageAuthorizes([root, confirmMid, confirmLeaf], attacker, 'confirm', WS),
+      true,
+      'confirm chained through a confirm parent is allowed',
+    );
+  });
+
+  test('High r8: operatingAuthority confirm-through-review is denied', () => {
+    const WS = '00000000-0000-4000-8000-0000000000f1';
+    const owner = '00000000-0000-4000-8000-0000000000a1';
+    const midActor = '00000000-0000-4000-8000-0000000000b2';
+    const attacker = '00000000-0000-4000-8000-0000000000e1';
+    const rootId = '00000000-0000-4000-8000-0000000000r1';
+    const root: OperatingAppointmentRow = {
+      appointment_id: rootId,
+      workspace_id: WS,
+      actor_id: owner,
+      scope: 'root',
+      granted_by: '00000000-0000-4000-8000-0000000000bb',
+      parent_id: null,
+      revoked_at: null,
+      expires_at: null,
+    };
+    const mid: OperatingAppointmentRow = {
+      appointment_id: '00000000-0000-4000-8000-0000000000m1',
+      workspace_id: WS,
+      actor_id: midActor,
+      scope: 'review',
+      granted_by: owner,
+      parent_id: rootId,
+      revoked_at: null,
+      expires_at: null,
+    };
+    const escalated: OperatingAppointmentRow = {
+      appointment_id: '00000000-0000-4000-8000-0000000000c9',
+      workspace_id: WS,
+      actor_id: attacker,
+      scope: 'confirm',
+      granted_by: midActor,
+      parent_id: '00000000-0000-4000-8000-0000000000m1',
+      revoked_at: null,
+      expires_at: null,
+    };
+    assert.equal(
+      operatingLineageAuthorizes([root, mid, escalated], attacker, 'confirm', WS),
+      false,
+      'confirm chained through a review-only parent must be denied',
+    );
+    const reviewLeaf: OperatingAppointmentRow = {
+      ...escalated,
+      appointment_id: '00000000-0000-4000-8000-0000000000c8',
+      scope: 'review',
+    };
+    assert.equal(
+      operatingLineageAuthorizes([root, mid, reviewLeaf], attacker, 'review', WS),
+      true,
+      'review chained through a review parent remains valid',
+    );
+  });
+
 // --- R8 round-5 security denied-case tests --------------------------------
 
 test('Medium r5: session cookies set Secure and HttpOnly (pilot + replacement)', () => {

@@ -54,6 +54,7 @@ def has_authority(database_url: str, *, workspace_id: UUID, actor_id: UUID,
                  FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id
                  WHERE l.depth<16 AND p.workspace_id=l.workspace_id
                    AND l.granted_by=p.actor_id
+                   AND p.scope IN (%s,'root')
                )
                SELECT EXISTS (
                  SELECT 1 FROM lineage GROUP BY start_id
@@ -61,7 +62,7 @@ def has_authority(database_url: str, *, workspace_id: UUID, actor_id: UUID,
                                  (expires_at IS NULL OR expires_at>%s))
                     AND bool_or(scope='root' AND parent_id IS NULL)
                )""",
-            (workspace_id, actor_id, scope, at),
+            (workspace_id, actor_id, scope, scope, at),
         ).fetchone()
         return bool(row[0])
 
@@ -86,13 +87,14 @@ def delegate(database_url: str, *, workspace_id: UUID, grantor_id: UUID,
                  FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id
                  WHERE l.depth<16 AND p.workspace_id=l.workspace_id
                    AND l.granted_by=p.actor_id
+                   AND p.scope IN (%s,'root')
                )
                SELECT start_id FROM lineage GROUP BY start_id
                HAVING bool_and(revoked_at IS NULL AND
                                (expires_at IS NULL OR expires_at>now()))
                   AND bool_or(scope='root' AND parent_id IS NULL)
                ORDER BY start_id LIMIT 1""",
-            (workspace_id, grantor_id, scope),
+            (workspace_id, grantor_id, scope, scope),
         ).fetchone()
         if parent is None:
             raise PermissionError("grantor lacks an active authority lineage")

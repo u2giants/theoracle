@@ -12,6 +12,9 @@ from typing import Optional
 
 INTENT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
 RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
+# Only these sender roles may mark an intent sent. Recording an intent is
+# open to the ledger; sending is a separate authorized act.
+AUTHORIZED_SENDER_ROLES = frozenset({'delivery_sender', 'oracle_sender'})
 
 
 @dataclass(frozen=True)
@@ -77,8 +80,16 @@ class DeliveryLedger:
         return receipt
 
     def mark_sent(self, idempotency_key: str, *, receipt_id: str, channel: str,
-                  sent_at: str, provider_message_id: str) -> DeliveryReceipt:
-        """Attach a delivery receipt for a send a separate authorized actor performed."""
+                  sent_at: str, provider_message_id: str,
+                  sender_role: str = '') -> DeliveryReceipt:
+        """Attach a delivery receipt for a send a separate authorized actor performed.
+
+        Only an authorized sender role may mark sent; any other caller is
+        denied. Replay by an authorized sender is idempotent: a prior sent
+        receipt is returned unchanged.
+        """
+        if sender_role not in AUTHORIZED_SENDER_ROLES:
+            raise PermissionError('sender role not authorized to mark sent')
         if not all((channel, sent_at, provider_message_id)):
             raise ValueError('sent receipt requires channel, sent_at and provider_message_id')
         prior = self._by_key.get(idempotency_key)

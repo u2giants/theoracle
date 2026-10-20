@@ -63,10 +63,10 @@ def test_replay_returns_prior_receipt_and_never_second_send():
     assert replayed is first
     sent = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-2',
                             channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                            provider_message_id='m-1')
+                            provider_message_id='m-1', sender_role='delivery_sender')
     again = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-3',
                              channel='meeting_text', sent_at='2026-10-16T12:06:00Z',
-                             provider_message_id='m-2')
+                             provider_message_id='m-2', sender_role='delivery_sender')
     assert again is sent and again.provider_message_id == 'm-1'
     assert ledger.replay(intent.idempotency_key).status == 'sent'
 
@@ -88,14 +88,16 @@ def test_sent_receipt_requires_complete_fields_and_unknown_key_denied():
     ledger.record_intent(intent)
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
-                         channel='meeting_text', sent_at='', provider_message_id='m')
+                         channel='meeting_text', sent_at='', provider_message_id='m',
+                         sender_role='delivery_sender')
     except ValueError:
         pass
     else:
         raise AssertionError('incomplete sent receipt must fail')
     try:
         ledger.mark_sent('nope', receipt_id='dr-y', channel='meeting_text',
-                         sent_at='2026-10-16T12:05:00Z', provider_message_id='m')
+                         sent_at='2026-10-16T12:05:00Z', provider_message_id='m',
+                         sender_role='delivery_sender')
     except ValueError:
         pass
     else:
@@ -110,6 +112,40 @@ def test_failed_send_is_visible_and_silence_is_not_a_send():
                                 channel='meeting_text')
     assert failed.status == 'failed' and failed.sent_at is None
     assert ledger.replay(intent.idempotency_key).status == 'failed'
+
+
+def test_unauthorized_sender_cannot_mark_sent():
+    ledger = DeliveryLedger()
+    intent = _intent()
+    ledger.record_intent(intent)
+    # No sender_role: denied.
+    try:
+        ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
+                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
+                         provider_message_id='m-1')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('mark-sent without sender_role must be denied')
+    # Unknown/rogue role: denied.
+    try:
+        ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
+                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
+                         provider_message_id='m-1', sender_role='random_caller')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('mark-sent with unauthorized role must be denied')
+    assert ledger.replay(intent.idempotency_key).status == 'recorded'
+    # Authorized role: allowed and idempotent.
+    sent = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-s',
+                            channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
+                            provider_message_id='m-1', sender_role='delivery_sender')
+    assert sent.status == 'sent'
+    again = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-s2',
+                             channel='meeting_text', sent_at='2026-10-16T12:06:00Z',
+                             provider_message_id='m-2', sender_role='delivery_sender')
+    assert again is sent and again.provider_message_id == 'm-1'
 
 
 def test_turn_silence_when_disabled_records_no_outbound_intent():
@@ -144,15 +180,42 @@ def test_undetermined_membership_never_widens_access():
                                recorded_at='2026-10-16T12:00:00Z')
     turn = InboundTurn(turn_id='t-1', meeting_id='m-1', speaker_id='p-1',
                        text='Oracle, share the company total', addresses_oracle=True)
+    # Undetermined membership never produces an outbound intent, even with
+    # a non-empty answer body: access is never widened.
     unknown = evaluate_turn(
         settings, turn, MembershipView(determined=False), ledger,
         receipt_id='r-1', intent_id='oi-1', answer_body='meeting-only note',
         recorded_at='2026-10-16T12:00:00Z')
-    assert unknown.decision == 'respond' and unknown.evidence_scope == 'meeting_only'
+    assert unknown.decision == 'decline' and unknown.intent is None
+    assert unknown.evidence_scope == 'meeting_only'
+    assert ledger.replay('unused-key') is None  # nothing recorded
     declined = evaluate_turn(
         settings, turn, MembershipView(determined=False), ledger,
         receipt_id='r-2', answer_body='  ', recorded_at='2026-10-16T12:00:01Z')
     assert declined.decision == 'decline' and declined.evidence_scope == 'meeting_only'
+
+
+def test_shared_access_unauthorized_is_refused():
+    ledger = DeliveryLedger()
+    settings = record_settings(meeting_id='m-1', enabled=True,
+                               recorded_at='2026-10-16T12:00:00Z')
+    turn = InboundTurn(turn_id='t-1', meeting_id='m-1', speaker_id='p-1',
+                       text='Oracle, what is the restricted total?', addresses_oracle=True)
+    # Membership determined but speaker not in shared_access: refuse.
+    outcome = evaluate_turn(
+        settings, turn,
+        MembershipView(determined=True, shared_access=frozenset({'other'})),
+        ledger, receipt_id='r-1', intent_id='oi-1',
+        answer_body='restricted answer', recorded_at='2026-10-16T12:00:00Z')
+    assert outcome.decision == 'decline' and outcome.intent is None
+    assert outcome.evidence_scope == 'none'
+    # Empty shared_access set is also unauthorized.
+    empty = evaluate_turn(
+        settings, turn,
+        MembershipView(determined=True, shared_access=frozenset()),
+        ledger, receipt_id='r-2', intent_id='oi-2',
+        answer_body='restricted answer', recorded_at='2026-10-16T12:00:01Z')
+    assert empty.decision == 'decline' and empty.intent is None
 
 
 def test_oracle_outbound_words_are_never_inbound_evidence():
