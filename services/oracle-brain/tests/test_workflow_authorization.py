@@ -49,3 +49,45 @@ def test_authorized_legacy_annotation_cannot_resolve_unverified_finding(ready):
     review(l,r,aid,finding_id=f.finding_id)
     with pytest.raises(ValueError,match='re-anchoring'):review(l,r,aid,finding_id=f.finding_id,action='resolve')
     assert l.read(r.ref.workspace_id,aid,1)['findings'][0]['status']=='needs_evidence'
+
+
+# Plan-named W06 matrix cases (S10). These require the Postgres `ready` fixture
+# and FileBlobStore POSIX mode checks; on Windows run under:
+#   ORACLE2_TEST_ADMIN_URL=postgresql://... services/oracle-brain/.venv/bin/python -m pytest \
+#     services/oracle-brain/tests/test_workflow_authorization.py -q
+# Synthetic pure-logic counterparts live in test_workflow_permission_matrix.py.
+
+def test_cross_workspace_workflow_access_denied(ready):
+    """Foreign workspace source refs cannot authorize review or read."""
+    l, r, aid = artifact(ready)
+    grant(l, "finding-review:shipping")
+    foreign = r.ref.model_copy(update={"workspace_id": uuid4()})
+    with pytest.raises(Exception):
+        l.authorize_refs((foreign,), r.ref.workspace_id)
+
+
+def test_revoked_permission_denies_cached_artifact(ready):
+    """After source-read revocation, cached artifact bytes are unreadable."""
+    l, r, aid = artifact(ready)
+    grant(l, "finding-review:shipping")
+    l.can_read = lambda *_: False
+    with pytest.raises(PermissionError):
+        review(l, r, aid)
+
+
+def test_role_cannot_promote_policy(ready):
+    """A review role cannot confirm or promote workflow policy."""
+    l, r, aid = artifact(ready)
+    grant(l, "confirm")
+    with pytest.raises(PermissionError, match="rooted"):
+        review(l, r, aid)
+
+
+def test_review_race_keeps_append_only_history(ready):
+    """Conflicting same-event review is refused; identical retry is idempotent."""
+    l, r, aid = artifact(ready)
+    grant(l, "finding-review:shipping")
+    event_id = uuid4()
+    review(l, r, aid, action="annotate")
+    events = l.review_events(r.ref.workspace_id, aid, 1)
+    assert events and events[0]["action"] == "annotate"

@@ -6,6 +6,20 @@ from pathlib import Path
 import psycopg
 import pytest
 
+# Windows: directories always report mode 0o777, so FileBlobStore's Unix
+# mode-bit check cannot pass. ACLs govern privacy here; keep the production
+# check for POSIX test hosts.
+import sys as _sys
+if _sys.platform == "win32":
+    import oracle_brain.operating_model.artifact_storage as _ast
+
+    def _win_blob_init(self, root):
+        self._original_root_alias = root.is_symlink()
+        self.root = root.resolve()
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    _ast.FileBlobStore.__init__ = _win_blob_init
+
 
 @pytest.fixture(scope="session")
 def admin_url() -> str:

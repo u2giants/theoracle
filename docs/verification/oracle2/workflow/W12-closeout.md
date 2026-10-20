@@ -31,3 +31,31 @@ Assigned source-contract audit. Identified a real W10 named-stage/mode gap in th
 Assigned public CBC/PuLP source/build provenance research, not qualification decisions. Completed a retained protected memo resolving Windows64 four-byte differences as timestamps and identifying ARM historical recipe/source and CBC2.9.7 component archive. Root owns remaining ARM exact build/license closure, Windows32 binary/source association and AMPL build/runtime evidence. Helper is completed/idle, no separate branch/worktree/PR. No vendor distribution is admitted from that research alone.
 
 The existing cards retain `- [ ] live proof`; hosted private evaluation, account-wide budget coverage, separately admitted independent semantics, solver closure, actual-data acceptance and accepted comparison/cutover/retirement remain open. All company-generation/grading/message pauses remain in force. A new session starts from the linked handoff and current workflow/parent STATUS; rechecks current authority and ownership; completes every ready authorized obligation through W12 without expanding into the entire parent overhaul or stopping after one child.
+## Complete import/job/route/writer census — October 19, 2026
+
+Full census recorded in [W12-import-job-route-writer-census.json](W12-import-job-route-writer-census.json).
+This closes the W01-approval accepted limitation ("literal caller census is partial").
+
+**Legacy core modules** (replace targets): graph/graphrag.py, graph/retrieval.py,
+holistic_runtime.py, consultant/pilot.py, retrieval/pilot.py, workflows/pilot.py.
+
+**Imports of legacy core** (4 edges): consultant/pilot.py -> retrieval/pilot.py;
+graph/evidence_answer.py -> consultant/pilot.py; holistic_runtime.py -> graph/graphrag.py;
+workflows/pilot.py -> consultant/pilot.py + retrieval/pilot.py.
+
+**Trigger jobs touching legacy** (2): oracle2-holistic.ts, oracle2-project.ts.
+Operating-model job: oracle2-operating-model.ts (new core, not a legacy path).
+
+**Web routes using legacy auth** (12): all /api/consultant/* routes including
+questions, runs, session, source, sources, model, reviews, processes/events,
+native-acceptance (3 sub-routes). Boundary register listed only 2; this census
+completes the graph.
+
+**Legacy writers** (3): holistic_runtime.py writes oracle2.runs; authz.py and
+bootstrap_pilot_authority.py write oracle2.appointments. Operating-model writers
+(ledger.py, cutover.py) are new-core and not retirement targets.
+
+**New legacy writers**: none. **Fallback dispatches**: none. **Deletion authorized**: false.
+
+Retirement remains blocked on accepted W11 plus downstream S03-S16. No file was
+deleted; this is a read-only census.

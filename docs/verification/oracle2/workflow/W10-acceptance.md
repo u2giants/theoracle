@@ -97,3 +97,17 @@ The verifier accepts W01–W12 stage names and explicit synthetic/private-audit 
 Read-only website check returns HTTP 200. Vercel production is READY at retained revision `78b6de7a50e73cd658aa7913b78f8da897f8e214`; this Python/protocol-only change has no newly observed website deployment. Existing website availability is proven; new private runtime delivery is NOT. No manual deployment was made. The account census was completed across its sole workspace and pagination at 11:29 AM EDT: ten keys, six enabled, one unlimited. This still does not establish globally atomic provider reservation coverage. All previously recorded hosting, semantic admission, solver, event-export, W11 and W12 blockers remain. Current owner holds them; no work is running in the background.
 
 Protected receipts, exact review and synthetic restore backups remain outside Git in this session's ignored evidence directory. Its three owned test containers are stopped recoverably; previous stores remain untouched. Nonblocking reviewer observations (clean typed rejection for malformed evidence map, explicit trusted clock documentation, dedicated regression cases for duplicate region/unread suffix/ghost obligations) remain on #27; no claim of private acceptance follows from their probes. Company-question/report, employee-message and grading pauses remain intact. Both plans' downstream obligations were checked again: S03–S16 remain unaccepted, W04/W07/W08 event admission remains separate, W05/W06 authoritative current-ledger callbacks precede W10, and W11/W12 cannot cut over or retire before live accepted inputs.
+
+## Acceptance-factory REVISE / design REJECT — recorded October 19, 2026
+
+From W11-native-installation-live.md:30: acceptance-factory source
+`7fa22d43cb572d3662826282202a361aa5fa2e5e` remains REVISE; design
+`d2fac64dfac873c4fe1c15f120438811d9d3f1f7` remains REJECT. These are external
+review-sandbox outcomes owned by ROOT, not code-fixable offline in this worktree:
+the factory report lives at a private review-sandbox path outside the repository,
+and the design worktree is a separate acceptance-runtime-design checkout. No
+factory/design source change is made here. The precise gaps are: factory requires
+independent operation binding and clean refusal; design lacks trusted real adapters
+and provider authority. Both remain open on #27/#58 under #24. S01 offline and
+S02 synthetic facts are separate; W10 private census/evaluator/independent
+assessment remain open.

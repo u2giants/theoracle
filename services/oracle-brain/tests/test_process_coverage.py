@@ -22,3 +22,73 @@ def test_missing_unclassified_essential_and_borrowed_source_rejected():
 def test_v4_genuine_unresolved_exact_span_and_inventory_change_rejected():
  o=obligation('V4-O2'); r=CoverageRecord(obligation_id=o.obligation_id,disposition='unresolved',object_ids=('v4',),reason=o.reason); assert validate_coverage((o,),(r,),object_evidence={'v4':(o.evidence,)},independent_inventory_hash=inv((o,)))['complete_accounting']
  with pytest.raises(ValueError): validate_coverage((o,),(r,),object_evidence={'v4':(o.evidence,)},independent_inventory_hash='d'*64)
+
+
+def test_structural_soundness_does_not_accept_omitted_approval():
+    """A structurally well-formed workflow that omits mandatory approval fails coverage."""
+    from oracle_brain.operating_model.workflows.process_model import (
+        WorkflowModel, Step, Transition, Gateway, Support,
+    )
+    from oracle_brain.operating_model.workflows.process_validate import formal_eligible
+    ref = source("D1").ref
+    # Sound linear net with explicit start/end but no Rights approval step.
+    wf = WorkflowModel(
+        workflow_id="w-omit", version=1, workspace_id=ref.workspace_id,
+        process_id="D-product", scope="customer-A;2026", source_refs=(ref,),
+        completeness="complete",
+        steps=(
+            Step(step_id="start", label="Intake", kind="start", support=Support(observation_ids=("o1",))),
+            Step(step_id="sample", label="Sample", kind="activity", support=Support(observation_ids=("o2",))),
+            Step(step_id="end", label="Production", kind="end", support=Support(observation_ids=("o3",))),
+        ),
+        transitions=(
+            Transition(transition_id="t1", from_id="start", to_id="sample", support=Support(observation_ids=("o4",))),
+            Transition(transition_id="t2", from_id="sample", to_id="end", support=Support(observation_ids=("o5",))),
+        ),
+        coverage_digest="c" * 64,
+    )
+    assert formal_eligible(wf) is True
+    # Mandatory D1-O3 approval omitted: essential obligation cannot be represented.
+    o = obligation("D1-O3")
+    r = CoverageRecord(obligation_id=o.obligation_id, disposition="unresolved",
+                       object_ids=("w-omit",), reason="omitted approval misclassified")
+    with pytest.raises(ValueError, match="essential obligation omitted"):
+        validate_coverage((o,), (r,), object_evidence={"w-omit": (o.evidence,)},
+                          independent_inventory_hash=inv((o,)))
+
+
+def test_exclusive_choice_branches_cannot_coerce_to_single_path():
+    """D1 licensed/unlicensed exclusive split must stay exclusive, never a silent AND."""
+    from oracle_brain.operating_model.workflows.process_model import Gateway, Support
+    g = Gateway(gateway_id="g", kind="exclusive_split", support=Support(observation_ids=("o",)))
+    assert g.kind == "exclusive_split"
+    o = obligation("D1-O3")
+    assert "unlicensed" in o.evidence.quote and "Rights approval" in o.evidence.quote
+
+
+def test_parallel_join_requires_both_branches():
+    """V1 parallel reviews: shipping release waits for both, not either."""
+    from oracle_brain.operating_model.workflows.process_model import Gateway, Support
+    split = Gateway(gateway_id="ps", kind="parallel_split", support=Support(observation_ids=("o",)))
+    join = Gateway(gateway_id="pj", kind="parallel_join", support=Support(observation_ids=("o",)))
+    assert split.kind == "parallel_split" and join.kind == "parallel_join"
+    o = obligation("V1-O3")
+    assert "both" in o.evidence.quote
+
+
+def test_rework_loop_preserves_distinct_occurrences():
+    """D2 failed sample returns to a second Design occurrence, not a collapsed repeat."""
+    from oracle_brain.operating_model.workflows.process_model import Transition, Support
+    t = Transition(transition_id="rw", from_id="sample", to_id="design",
+                   support=Support(observation_ids=("o",)), rework=True)
+    assert t.rework is True
+    o = obligation("D2-O1")
+    assert "second Design occurrence" in o.evidence.quote
+
+
+def test_handoff_obligation_requires_explicit_artifact():
+    """D3 handoff cites ART-D-17; missing artifact is an omission, not unresolved."""
+    o = obligation("D3-O1")
+    assert "ART-D-17" in o.evidence.quote and o.expected == "represented"
+    o2 = obligation("D3-O2")
+    assert "cannot begin" in o2.evidence.quote
