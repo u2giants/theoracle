@@ -86,3 +86,10 @@ permission to open private files or claim archive/source qualification. Old
 71d4/45be freezes and their source-only proofs remain immutable in Git and
 coordinator custody; the moved contract/readers require fresh exact-head tests
 and review. No previous review or permission is inherited.
+
+## Public metadata closure
+
+Candidate wheel/sdist identities, CVXOPT component names, SciPy 27-component index,
+and CBC binary associations are filled from public supplier records in
+[W04-public-metadata-closure-2026-10-19.md](W04-public-metadata-closure-2026-10-19.md).
+Public metadata only; all qualification/delivery/product/runtime flags remain false.

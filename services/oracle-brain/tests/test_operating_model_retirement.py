@@ -44,3 +44,20 @@ def test_booleans_and_self_asserted_census_do_not_replace_independent_admission(
         verify_retirement(m,c,proposed_paths=('packages/old.py',),preserved_capabilities=e,
             accepted_release_hashes=frozenset({m.content_hash()}),admitted_census_hashes=frozenset({digest(c)}),
             admitted_equivalence_hashes=frozenset())
+
+
+def test_census_completeness_requires_import_job_route_writer_populations():
+    """W12 census must enumerate every import/job/route/writer population."""
+    import json
+    from pathlib import Path
+    census_path = Path(__file__).parents[3] / "docs/verification/oracle2/workflow/W12-import-job-route-writer-census.json"
+    census = json.loads(census_path.read_text(encoding="utf-8"))
+    for key in ("legacy_core_modules", "imports_of_legacy_core",
+                "trigger_jobs_touching_legacy", "web_routes_legacy_auth",
+                "legacy_writers", "new_legacy_writers", "fallback_dispatches"):
+        assert key in census, f"missing census population: {key}"
+    assert census["new_legacy_writers"] == []
+    assert census["fallback_dispatches"] == []
+    assert census["deletion_authorized"] is False
+    assert len(census["imports_of_legacy_core"]) >= 4
+    assert len(census["web_routes_legacy_auth"]) >= 12

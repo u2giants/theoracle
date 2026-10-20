@@ -1,2 +1,6 @@
 /.gitattributes text eol=lf
 packages/db/migrations/*.sql text eol=lf
+evals/oracle2/workflow/** text eol=lf
+docs/verification/oracle2/workflow/boundary-register.json text eol=lf
+docs/verification/oracle2/workflow/W01-baseline.md text eol=lf
+docs/verification/oracle2/workflow/W01-replacement-boundary.md text eol=lf

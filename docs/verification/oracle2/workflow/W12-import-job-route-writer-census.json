@@ -1,0 +1,82 @@
+{
+  "generated": "2026-10-19",
+  "scope": "import/job/route/writer census for W12 retirement; read-only, no deletion",
+  "legacy_core_modules": [
+    "services/oracle-brain/oracle_brain/graph/graphrag.py",
+    "services/oracle-brain/oracle_brain/graph/retrieval.py",
+    "services/oracle-brain/oracle_brain/holistic_runtime.py",
+    "services/oracle-brain/oracle_brain/consultant/pilot.py",
+    "services/oracle-brain/oracle_brain/retrieval/pilot.py",
+    "services/oracle-brain/oracle_brain/workflows/pilot.py"
+  ],
+  "imports_of_legacy_core": {
+    "services/oracle-brain/oracle_brain/consultant/pilot.py": [
+      "retrieval.pilot"
+    ],
+    "services/oracle-brain/oracle_brain/graph/evidence_answer.py": [
+      "consultant.pilot"
+    ],
+    "services/oracle-brain/oracle_brain/holistic_runtime.py": [
+      "graph.graphrag"
+    ],
+    "services/oracle-brain/oracle_brain/workflows/pilot.py": [
+      "consultant.pilot",
+      "retrieval.pilot"
+    ]
+  },
+  "trigger_jobs_touching_legacy": [
+    "apps/workers/src/trigger/oracle2-holistic.ts",
+    "apps/workers/src/trigger/oracle2-project.ts"
+  ],
+  "trigger_jobs_operating_model": [
+    "apps/workers/src/trigger/oracle2-operating-model.ts"
+  ],
+  "web_routes_legacy_auth": [
+    "apps/web/app/api/consultant/questions/route.ts",
+    "apps/web/app/api/consultant/runs/[id]/route.ts",
+    "apps/web/app/api/consultant/session/route.ts",
+    "apps/web/app/api/consultant/source/route.ts",
+    "apps/web/app/api/consultant/sources/route.ts",
+    "apps/web/app/api/consultant/model/route.ts",
+    "apps/web/app/api/consultant/reviews/[id]/route.ts",
+    "apps/web/app/api/consultant/processes/[id]/events/route.ts",
+    "apps/web/app/api/consultant/processes/[id]/route.ts",
+    "apps/web/app/api/consultant/native-acceptance/route.ts",
+    "apps/web/app/api/consultant/native-acceptance/session/route.ts",
+    "apps/web/app/api/consultant/native-acceptance/source/route.ts"
+  ],
+  "legacy_writers": {
+    "services/oracle-brain/oracle_brain/holistic_runtime.py": [
+      "oracle2.runs UPDATE status/answer"
+    ],
+    "services/oracle-brain/oracle_brain/authz.py": [
+      "oracle2.appointments INSERT"
+    ],
+    "services/oracle-brain/oracle_brain/bootstrap_pilot_authority.py": [
+      "oracle2.appointments INSERT"
+    ]
+  },
+  "operating_model_writers": {
+    "services/oracle-brain/oracle_brain/operating_model/ledger.py": [
+      "oracle2.artifact_manifests INSERT",
+      "oracle2.finding_events INSERT",
+      "oracle2.operating_model_change_log INSERT"
+    ],
+    "services/oracle-brain/oracle_brain/operating_model/cutover.py": [
+      "oracle2.operating_release_manifests INSERT",
+      "oracle2.operating_release_selectors UPSERT"
+    ]
+  },
+  "helper_allowlist": [
+    "oracle_brain.ingest.originals",
+    "oracle_brain.authz",
+    "oracle_brain.knowledge.authority",
+    "oracle_brain.provider_policy",
+    "oracle_brain.provider_transport",
+    "oracle_brain.storage",
+    "oracle_brain.outbox"
+  ],
+  "new_legacy_writers": [],
+  "fallback_dispatches": [],
+  "deletion_authorized": false
+}
