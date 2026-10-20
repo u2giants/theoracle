@@ -1,24 +1,3 @@
-"""Offline gate test retained from the building-block branch. Invented/synthetic only.
-
-Import guard: oracle_brain.operating_model.consultant.calculations is required; skip with reason when absent.
-"""
-from __future__ import annotations
-
-import importlib.util
-
-import pytest
-
-_REQUIRED = 'oracle_brain.operating_model.consultant.calculations'
-try:
-    _spec = importlib.util.find_spec(_REQUIRED)
-except ModuleNotFoundError:
-    _spec = None
-if _spec is None:
-    pytest.skip(
-        'S11 scenario math implementation absent on main (held PR #142 / branch s11-recommendation-feedback). Named offline gate test retained with the branch assertions; activates when consultant.calculations lands.',
-        allow_module_level=True,
-    )
-
 from decimal import Decimal
 import pytest
 from oracle_brain.operating_model.consultant.calculations import Measurement, Forecast
