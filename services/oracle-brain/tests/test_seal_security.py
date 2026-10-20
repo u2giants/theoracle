@@ -1,7 +1,7 @@
 """Denied-case tests for the seal security boundary.
 
-Proves: secret install is one-shot (second install denied), no public
-general-purpose MAC maker is importable, and forged proofs stay denied.
+Proves: no public secret installer exists, no MAC helper is importable or
+getattr-able from the seal module, and forged proofs stay denied.
 """
 from __future__ import annotations
 
@@ -10,37 +10,40 @@ import importlib
 import pytest
 
 
-def test_second_secret_install_denied():
-    """Once the seal has loaded a secret, a second install is refused."""
-    from oracle_brain.seal import install_seal_secret, verify_mac
-
-    # Trigger first use so the seal loads from env and latches _installed.
-    try:
-        verify_mac('test-purpose', '0' * 64, 'x')
-    except PermissionError:
-        pass  # MAC mismatch is expected; loading is what matters.
-
-    with pytest.raises(PermissionError, match='already installed'):
-        install_seal_secret(b'x' * 32)
-
-
-def test_public_make_mac_absent_or_denied():
-    """No public make_mac/sign/seal_mac is importable as a general signer."""
+def test_no_public_secret_installer():
+    """install_seal_secret must not exist on the public surface."""
     seal = importlib.import_module('oracle_brain.seal')
-    for name in ('seal_mac', 'make_mac', 'sign', 'create_mac', 'hmac_sign'):
+    assert not hasattr(seal, 'install_seal_secret'), (
+        'install_seal_secret must not be a module attribute')
+    with pytest.raises(ImportError):
+        exec('from oracle_brain.seal import install_seal_secret')
+
+
+def test_no_mac_helper_importable_or_getattr():
+    """No mint/MAC helper is importable or reachable by getattr.
+
+    Covers the historical name and every alias a forger might try.
+    """
+    seal = importlib.import_module('oracle_brain.seal')
+    for name in ('_make_mac', 'make_mac', 'seal_mac', 'sign', 'create_mac',
+                 'hmac_sign', '_mint_mac', 'mint_mac', 'mint', '_mint',
+                 'mac', 'compute_mac', 'hmac_sign', 'sign_mac'):
         assert not hasattr(seal, name), (
-            f'public MAC maker {name} must not be a module attribute')
+            f'MAC helper {name} must not be a module attribute')
+        with pytest.raises((ImportError, AttributeError)):
+            getattr(seal, name)
         with pytest.raises(ImportError):
             exec(f'from oracle_brain.seal import {name}')
 
 
 def test_internal_make_mac_not_exported():
-    """The internal helper is underscore-prefixed and not in __all__."""
+    """The internal helper is not in __all__ and not a module attribute."""
     seal = importlib.import_module('oracle_brain.seal')
     exported = getattr(seal, '__all__', None)
     if exported is not None:
         assert '_make_mac' not in exported
         assert 'seal_mac' not in exported
+    assert not hasattr(seal, '_make_mac')
 
 
 def test_forged_credential_mac_still_denied():

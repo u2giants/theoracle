@@ -21,8 +21,6 @@ from typing import Literal
 
 from pydantic import Field
 
-from oracle_brain.seal import _make_mac, verify_mac
-
 from .contracts import StrictRecord
 
 # The six fact classes required by plan_oracle_source_processing_qualification.md §9.1.
@@ -405,44 +403,6 @@ def _connection_ssl_in_use(connection):
     return value if value is not None else None
 
 
-def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
-    """Metadata-only catalog read. Refuses incomplete pins and any non-metadata SQL.
-
-    Reads only pg_proc owner/prosecdef/proconfig/ACL, pg_has_role reachability
-    and target identity (host/port/dbname/user + TLS). Never source data,
-    secrets or environment values. Emits UNKNOWN where the catalog holds
-    nothing; invents no fact.
-    """
-    if not isinstance(expected, Q2bExpectedPins):
-        raise PermissionError('complete Q2b expected descriptor/role scope required')
-    execute = getattr(connection, 'execute', None)
-    if execute is None:
-        raise PermissionError('Q2b catalog connection execute required')
-    params = _connection_params(connection)
-    ssl_in_use = _connection_ssl_in_use(connection)
-
-    for statement in READER_SQL_STATEMENTS:
-        require_metadata_only_sql(statement)
-
-    function_rows = execute(FUNCTION_CATALOG_SQL, (list(expected.function_signatures),)).fetchall()
-    role_row_raw = execute(ROLE_REACHABILITY_SQL, (expected.expected_owner_role,)).fetchone()
-    identity_row = execute(TARGET_IDENTITY_SQL).fetchone()
-
-    pg_proc_owner, security_definer, search_path, execute_grants = parse_function_catalog(function_rows)
-    role_memberships = parse_role_memberships(role_row_raw)
-    target_identity = parse_target_identity(identity_row, params=params, ssl_in_use=ssl_in_use)
-    receipt = build_receipt(
-        pg_proc_owner=pg_proc_owner,
-        security_definer=security_definer,
-        search_path=search_path,
-        execute_grants=execute_grants,
-        role_memberships=role_memberships,
-        target_identity=target_identity,
-    )
-    fact_mac = _make_mac(READER_FACT_PURPOSE, _facts_payload(receipt))
-    return receipt.model_copy(update={'fact_mac': fact_mac})
-
-
 def _fact_value(pairs, signature):
     for key, value in pairs:
         if key == signature:
@@ -512,15 +472,54 @@ def _require_all_pins(receipt: Q2bTargetCatalogReceipt,
         raise PermissionError('Q2b TLS not in use')
 
 
-def _install_sealed_admission_api():
-    """Sealed Q2b admission: closure-held registry keyed by object identity.
+def _install_sealed_catalog_api(*, mint, verify):
+    """Sealed Q2b catalog API: bound mint/verify plus identity registry.
 
-    Pydantic record equality is value-based, so a ``WeakSet`` would accept
-    an equal-valued copy. The registry maps ``id(receipt)`` to the receipt
-    and membership is an identity (``is``) check, so a constructor copy with
+    Receives the bound internal mint and verify callables from the seal
+    closure and closes over them. The registry maps ``id(receipt)`` to
+    the receipt and membership is an identity (``is``) check — Pydantic
+    record equality is value-based, so a constructor copy with
     ``admitted=True`` is never sealed and never passes the gate.
     """
     sealed: dict = {}
+
+    def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
+        """Metadata-only catalog read. Refuses incomplete pins and any non-metadata SQL.
+
+        Reads only pg_proc owner/prosecdef/proconfig/ACL, pg_has_role reachability
+        and target identity (host/port/dbname/user + TLS). Never source data,
+        secrets or environment values. Emits UNKNOWN where the catalog holds
+        nothing; invents no fact. Seals the six fact classes with a
+        purpose-tagged MAC issued through the bound internal mint.
+        """
+        if not isinstance(expected, Q2bExpectedPins):
+            raise PermissionError('complete Q2b expected descriptor/role scope required')
+        execute = getattr(connection, 'execute', None)
+        if execute is None:
+            raise PermissionError('Q2b catalog connection execute required')
+        params = _connection_params(connection)
+        ssl_in_use = _connection_ssl_in_use(connection)
+
+        for statement in READER_SQL_STATEMENTS:
+            require_metadata_only_sql(statement)
+
+        function_rows = execute(FUNCTION_CATALOG_SQL, (list(expected.function_signatures),)).fetchall()
+        role_row_raw = execute(ROLE_REACHABILITY_SQL, (expected.expected_owner_role,)).fetchone()
+        identity_row = execute(TARGET_IDENTITY_SQL).fetchone()
+
+        pg_proc_owner, security_definer, search_path, execute_grants = parse_function_catalog(function_rows)
+        role_memberships = parse_role_memberships(role_row_raw)
+        target_identity = parse_target_identity(identity_row, params=params, ssl_in_use=ssl_in_use)
+        receipt = build_receipt(
+            pg_proc_owner=pg_proc_owner,
+            security_definer=security_definer,
+            search_path=search_path,
+            execute_grants=execute_grants,
+            role_memberships=role_memberships,
+            target_identity=target_identity,
+        )
+        fact_mac = mint(READER_FACT_PURPOSE, _facts_payload(receipt))
+        return receipt.model_copy(update={'fact_mac': fact_mac})
 
     def admit_target_catalog(receipt: Q2bTargetCatalogReceipt,
                              expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
@@ -537,7 +536,7 @@ def _install_sealed_admission_api():
             raise PermissionError('Q2b target catalog receipt and complete pins required')
         if not receipt.fact_mac:
             raise PermissionError('Q2b reader-produced sealed facts required')
-        verify_mac(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
+        verify(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
         _require_all_pins(receipt, expected)
         admitted = receipt.model_copy(update={'admitted': True})
         sealed[id(admitted)] = admitted
@@ -559,10 +558,13 @@ def _install_sealed_admission_api():
             raise PermissionError('Q2b target catalog not admitted')
         if not receipt.fact_mac:
             raise PermissionError('Q2b reader-produced sealed facts required')
-        verify_mac(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
+        verify(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
         _require_all_pins(receipt, expected)
 
-    return admit_target_catalog, require_target_catalog
+    return read_target_catalog, admit_target_catalog, require_target_catalog
 
 
-admit_target_catalog, require_target_catalog = _install_sealed_admission_api()
+# Public catalog API is installed by oracle_brain.seal with bound mint/verify.
+# Importing the seal module runs its factory wire, which calls
+# _install_sealed_catalog_api and assigns the three public names here.
+import oracle_brain.seal  # noqa: E402,F401
