@@ -26,11 +26,24 @@ from oracle_brain.meetings.participation import (
     ENABLE_PROOF_PURPOSE, InterventionBudget, decide_addressed,
     can_intervene_proactively, record_proactive_intervention, record_settings,
 )
-from oracle_brain.seal import seal_mac
+
+
+def _test_mac(purpose, *fields):
+    """Compute a purpose-tagged HMAC with the session test secret."""
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import os as _os
+    secret = _os.environ['ORACLE2_SEAL_SECRET'].encode('utf-8')
+    parts = [purpose]
+    for f in fields:
+        iso = getattr(f, 'isoformat', None)
+        parts.append(iso() if callable(iso) else str(f))
+    message = '|'.join(parts).encode('utf-8')
+    return _hmac.new(secret, message, _hashlib.sha256).hexdigest()
 
 
 def _enable_mac(meeting_id):
-    return seal_mac(ENABLE_PROOF_PURPOSE, meeting_id)
+    return _test_mac(ENABLE_PROOF_PURPOSE, meeting_id)
 
 
 def _settings(**kw):

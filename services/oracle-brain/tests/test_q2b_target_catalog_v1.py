@@ -26,7 +26,20 @@ from oracle_brain.operating_model.q2b_target_catalog_v1 import (
     READER_FACT_PURPOSE,
     _facts_payload,
 )
-from oracle_brain.seal import seal_mac
+
+
+def _test_mac(purpose, *fields):
+    """Compute a purpose-tagged HMAC with the session test secret."""
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import os as _os
+    secret = _os.environ['ORACLE2_SEAL_SECRET'].encode('utf-8')
+    parts = [purpose]
+    for f in fields:
+        iso = getattr(f, 'isoformat', None)
+        parts.append(iso() if callable(iso) else str(f))
+    message = '|'.join(parts).encode('utf-8')
+    return _hmac.new(secret, message, _hashlib.sha256).hexdigest()
 
 
 def _reseal(receipt):
@@ -36,7 +49,7 @@ def _reseal(receipt):
     path, so they re-seal with the test secret to bypass the MAC gate.
     """
     return receipt.model_copy(update={
-        'fact_mac': seal_mac(READER_FACT_PURPOSE, _facts_payload(receipt)),
+        'fact_mac': _test_mac(READER_FACT_PURPOSE, _facts_payload(receipt)),
     })
 
 SIGNATURES = (

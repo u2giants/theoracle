@@ -33,7 +33,6 @@ from oracle_brain.meetings.delivery import (
 from oracle_brain.meetings.participation import (
     ENABLE_PROOF_PURPOSE, record_settings,
 )
-from oracle_brain.seal import seal_mac
 from oracle_brain.workflows.meeting_turn import (
     InboundTurn, MembershipView, evaluate_turn,
 )
@@ -43,14 +42,32 @@ _FUTURE = datetime(2030, 1, 1, tzinfo=timezone.utc)
 _PAST = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
+def _test_mac(purpose, *fields):
+    """Compute a purpose-tagged HMAC with the session test secret.
+
+    Stands in for the host/identity service. Reads the secret from
+    ORACLE2_SEAL_SECRET (set by the session fixture before first use).
+    """
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import os as _os
+    secret = _os.environ['ORACLE2_SEAL_SECRET'].encode('utf-8')
+    parts = [purpose]
+    for f in fields:
+        iso = getattr(f, 'isoformat', None)
+        parts.append(iso() if callable(iso) else str(f))
+    message = '|'.join(parts).encode('utf-8')
+    return _hmac.new(secret, message, _hashlib.sha256).hexdigest()
+
+
 def _credential_mac(principal_id, role, expires_at):
     """Host-identity-service MAC over (principal, role, expiry, purpose)."""
-    return seal_mac(SENDER_CREDENTIAL_PURPOSE, principal_id, role, expires_at)
+    return _test_mac(SENDER_CREDENTIAL_PURPOSE, principal_id, role, expires_at)
 
 
 def _enable_mac(meeting_id):
     """Host-authorized participation enable proof."""
-    return seal_mac(ENABLE_PROOF_PURPOSE, meeting_id)
+    return _test_mac(ENABLE_PROOF_PURPOSE, meeting_id)
 
 
 def _credential(*, role='delivery_sender', expires_at=None, principal_id='principal-1'):

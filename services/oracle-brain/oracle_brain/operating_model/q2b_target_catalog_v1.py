@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from oracle_brain.seal import seal_mac, verify_mac
+from oracle_brain.seal import _make_mac, verify_mac
 
 from .contracts import StrictRecord
 
@@ -439,7 +439,7 @@ def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatal
         role_memberships=role_memberships,
         target_identity=target_identity,
     )
-    fact_mac = seal_mac(READER_FACT_PURPOSE, _facts_payload(receipt))
+    fact_mac = _make_mac(READER_FACT_PURPOSE, _facts_payload(receipt))
     return receipt.model_copy(update={'fact_mac': fact_mac})
 
 

@@ -53,18 +53,18 @@ class _TestSeal:
         return hmac.new(wrong, message, hashlib.sha256).hexdigest()
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def seal_secret():
-    """Inject a random test secret into the runtime seal. Test-only path.
+    """Set ORACLE2_SEAL_SECRET before first seal use. Test-only path.
 
-    Generates a fresh 32-byte secret per test (never committed), installs
-    it into ``oracle_brain.seal``, and yields the raw bytes so tests can
-    compute host-style MACs via ``oracle_brain.seal.seal_mac``.
+    Generates a random secret string (never committed) and places it in
+    the environment so the seal loads it once at first use. Yields the
+    UTF-8 bytes so tests can compute host-style MACs via ``_TestSeal``.
     """
-    from oracle_brain.seal import install_seal_secret
-    secret = _secrets.token_bytes(32)
-    install_seal_secret(secret)
-    yield secret
+    secret_str = _secrets.token_urlsafe(32)
+    os.environ["ORACLE2_SEAL_SECRET"] = secret_str
+    yield secret_str.encode("utf-8")
+    os.environ.pop("ORACLE2_SEAL_SECRET", None)
 
 
 @pytest.fixture()
