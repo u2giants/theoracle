@@ -147,9 +147,9 @@ def _install_sealed_authority_api():
                                       mac: str) -> SenderCredentialProof:
         """Sealed authz/authority boundary: present credential material.
 
-        ``mac`` must be a host-identity-service HMAC over
-        (principal_id, role, expires_at, purpose) computed with the
-        runtime seal secret. Without a valid MAC the call is denied —
+        ``mac`` must be a host-identity-service Ed25519 seal over
+        (principal_id, role, expires_at, purpose) issued by the isolated
+        signer. Without a valid seal the call is denied —
         caller-chosen fields alone never mint a proof. Direct construction
         and ``object.__new__`` look-alikes are refused at verify time by
         registry membership. The proof secret lives only in this closure

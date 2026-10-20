@@ -48,6 +48,9 @@
 | `TEAMS_NOTIFICATION_PRIVATE_KEY` | PEM key the webhook uses to decrypt Graph transcript notifications | Vercel (webhook) | optional | yes for Teams ingestion |
 | `TEAMS_WEBHOOK_CLIENT_STATE` | Shared secret on every notification (webhook verifies, worker sets) | Vercel + Trigger.dev | optional | yes for Teams ingestion |
 | `TEAMS_NOTIFICATION_URL` | Public webhook URL the worker registers as the subscription target | Trigger.dev | optional | yes for Teams ingestion |
+| `ORACLE2_SEAL_PUBLIC_KEY` | Hex-encoded 32-byte Ed25519 public key for seal verification (oracle_brain.seal). **UNKNOWN until host wiring** — not yet set in any environment. | TBD (host) | optional | TBD |
+| `ORACLE2_SEAL_PRIVATE_KEY` | Hex-encoded 32-byte Ed25519 private key for the isolated seal signer only (oracle_brain.seal_signer). **UNKNOWN until host wiring** — never loaded by the verify path. | TBD (host / signer process) | optional | TBD |
+| `ORACLE2_SEAL_PRIVATE_KEY_FILE` | Path to a file holding the hex private key above (alternative to the env var). **UNKNOWN until host wiring.** | TBD (host) | optional | TBD |
 | `TEAMS_NOTIFICATION_PUBLIC_CERT` | Base64 DER public cert Graph encrypts notifications with | Trigger.dev | optional | yes for Teams ingestion |
 | `TEAMS_NOTIFICATION_CERT_ID` | Identifier for the cert above (`oracle-teams-adhoc-1`) | Trigger.dev | optional | yes for Teams ingestion |
 | `RECALL_API_KEY` | Recall.ai API key — creates Teams meeting bots and sends bot chat messages | Vercel + Trigger.dev | optional | yes for live Teams participation |

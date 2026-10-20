@@ -1,11 +1,13 @@
 """Denied-case tests for the seal security boundary.
 
-Proves: no public secret installer exists, no MAC helper is importable or
-getattr-able from the seal module, and forged proofs stay denied.
+Proves: the verify path holds no private key and no sign capability,
+no MAC/sign helper is importable or getattr-able from the seal module,
+and forged / wrong-key / tampered / truncated seals stay denied.
 """
 from __future__ import annotations
 
 import importlib
+import inspect
 
 import pytest
 
@@ -20,16 +22,18 @@ def test_no_public_secret_installer():
 
 
 def test_no_mac_helper_importable_or_getattr():
-    """No mint/MAC helper is importable or reachable by getattr.
+    """No mint/MAC/sign helper is importable or reachable by getattr.
 
     Covers the historical name and every alias a forger might try.
     """
     seal = importlib.import_module('oracle_brain.seal')
     for name in ('_make_mac', 'make_mac', 'seal_mac', 'sign', 'create_mac',
                  'hmac_sign', '_mint_mac', 'mint_mac', 'mint', '_mint',
-                 'mac', 'compute_mac', 'hmac_sign', 'sign_mac'):
+                 'mac', 'compute_mac', 'hmac_sign', 'sign_mac', 'sign_seal',
+                 'sign_payload', 'private_key', '_private_key',
+                 'load_private_key', '_load_private_key'):
         assert not hasattr(seal, name), (
-            f'MAC helper {name} must not be a module attribute')
+            f'MAC/sign helper {name} must not be a module attribute')
         with pytest.raises((ImportError, AttributeError)):
             getattr(seal, name)
         with pytest.raises(ImportError):
@@ -43,11 +47,56 @@ def test_internal_make_mac_not_exported():
     if exported is not None:
         assert '_make_mac' not in exported
         assert 'seal_mac' not in exported
+        assert 'sign' not in exported
     assert not hasattr(seal, '_make_mac')
 
 
+def test_verify_path_has_no_sign_or_private_key():
+    """The verify module/namespace has no sign capability and no private key.
+
+    This is the R8 boundary: same-process callers cannot extract a
+    signing capability from the verify path. Public-key verify cannot
+    forge even when every closure is inspected.
+    """
+    seal = importlib.import_module('oracle_brain.seal')
+    forbidden_names = {
+        'sign', 'sign_seal', 'sign_payload', 'mint', 'mint_mac', 'make_mac',
+        'private_key', 'private_bytes', 'SEAL_PRIVATE_KEY_ENV',
+        'SEAL_PRIVATE_KEY_FILE_ENV',
+    }
+    for name in forbidden_names:
+        assert not hasattr(seal, name), (
+            f'verify path must not expose {name}')
+
+    # No public attribute may be a private-key object or a signer callable.
+    for name, value in vars(seal).items():
+        if name.startswith('__'):
+            continue
+        assert 'private' not in name.lower(), (
+            f'verify path attribute {name} looks like private key material')
+
+    # Source of the verify module must not load a private key or sign.
+    source = inspect.getsource(seal)
+    assert 'from_private_bytes' not in source
+    assert 'Ed25519PrivateKey' not in source
+    assert '.sign(' not in source
+    assert 'os.environ.get(SEAL_PRIVATE_KEY' not in source
+    assert "os.environ.get('ORACLE2_SEAL_PRIVATE_KEY'" not in source
+    assert 'os.environ.get(SEAL_PRIVATE_KEY_ENV' not in source
+
+
+def test_verify_path_does_not_import_seal_signer():
+    """The verify module must not import the isolated signing helper."""
+    seal = importlib.import_module('oracle_brain.seal')
+    assert 'oracle_brain.seal_signer' not in getattr(seal, '__dict__', {})
+    source = inspect.getsource(seal)
+    assert 'import oracle_brain.seal_signer' not in source
+    assert 'from oracle_brain.seal_signer' not in source
+    assert 'importlib' not in source or 'seal_signer' not in source
+
+
 def test_forged_credential_mac_still_denied():
-    """A MAC under a wrong secret never verifies at the credential boundary."""
+    """A seal under a wrong key never verifies at the credential boundary."""
     from oracle_brain.meetings.delivery import issue_sender_credential_proof
     from datetime import datetime, timezone
 
@@ -59,7 +108,7 @@ def test_forged_credential_mac_still_denied():
 
 
 def test_forged_enable_mac_still_denied():
-    """A forged participation enable MAC is refused."""
+    """A forged participation enable seal is refused."""
     from oracle_brain.meetings.participation import record_settings
 
     with pytest.raises(PermissionError, match='seal MAC mismatch'):
@@ -113,3 +162,39 @@ def test_forged_reader_fact_mac_still_denied():
     )
     with pytest.raises(PermissionError):
         admit_target_catalog(caller_built, pins)
+
+
+def test_verify_rejects_forged_wrong_key_tampered_and_truncated():
+    """Denied cases: forged, wrong key, tampered payload, truncated signature."""
+    import os
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+    )
+    from oracle_brain.seal import seal_payload, verify, verify_mac
+
+    payload = seal_payload('seal-security-denied-cases', 'field-1', 'field-2')
+    good = Ed25519PrivateKey.from_private_bytes(
+        bytes.fromhex(os.environ['ORACLE2_SEAL_PRIVATE_KEY'])
+    ).sign(payload).hex()
+    assert verify(payload, good) is True
+
+    # Forged signature (garbage bytes of the right length).
+    forged = '0' * 128
+    assert verify(payload, forged) is False
+
+    # Wrong key: a real signature under a different keypair.
+    wrong_key = Ed25519PrivateKey.generate().sign(payload).hex()
+    assert verify(payload, wrong_key) is False
+
+    # Tampered payload.
+    assert verify(b'tampered|field-1|field-2', good) is False
+
+    # Truncated signature.
+    assert verify(payload, good[:64]) is False
+    assert verify(payload, good[:-2]) is False
+
+    with pytest.raises(PermissionError, match='seal MAC mismatch'):
+        verify_mac('seal-security-denied-cases', wrong_key, 'field-1', 'field-2')
+    with pytest.raises(PermissionError, match='seal MAC mismatch'):
+        verify_mac('seal-security-denied-cases', good, 'field-1', 'OTHER')

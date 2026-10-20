@@ -35,8 +35,8 @@ FACT_CLASSES = (
 
 UNKNOWN: Literal['UNKNOWN'] = 'UNKNOWN'
 
-# Purpose tag for the reader-seal HMAC over the six fact classes. A MAC
-# issued under a different purpose never satisfies admission.
+# Purpose tag for the reader-seal signature over the six fact classes.
+# A signature issued under a different purpose never satisfies admission.
 READER_FACT_PURPOSE = 'q2b-reader-facts-v1'
 
 # Exact proconfig expected on every reviewed helper. PostgreSQL stores the
@@ -525,12 +525,13 @@ def _install_sealed_catalog_api(*, mint, verify):
                              expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
         """Sealed admit: reader-seal MAC check, real pin checks, then seal.
 
-        The receipt must carry a reader-produced ``fact_mac`` — an HMAC
-        over the six fact classes issued by ``read_target_catalog`` using
-        the runtime seal secret. Caller-constructed fact dicts are denied
-        even when every value matches the pins: without the reader seal
-        they prove nothing about where the facts came from. Pin checks
-        follow. Only then is admission sealed by identity registry.
+        The receipt must carry a reader-produced ``fact_mac`` — an
+        Ed25519 seal over the six fact classes issued by
+        ``read_target_catalog`` via the isolated signer. Caller-constructed
+        fact dicts are denied even when every value matches the pins:
+        without the reader seal they prove nothing about where the facts
+        came from. Pin checks follow. Only then is admission sealed by
+        identity registry.
         """
         if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
             raise PermissionError('Q2b target catalog receipt and complete pins required')

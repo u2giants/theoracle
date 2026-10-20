@@ -43,21 +43,13 @@ _PAST = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
 def _test_mac(purpose, *fields):
-    """Compute a purpose-tagged HMAC with the session test secret.
+    """Produce a purpose-tagged seal via the isolated signer (test host stand-in).
 
-    Stands in for the host/identity service. Reads the secret from
-    ORACLE2_SEAL_SECRET (set by the session fixture before first use).
+    Stands in for the host/identity service and the isolated signer
+    child. The private key is loaded only by seal_signer.
     """
-    import hashlib as _hashlib
-    import hmac as _hmac
-    import os as _os
-    secret = _os.environ['ORACLE2_SEAL_SECRET'].encode('utf-8')
-    parts = [purpose]
-    for f in fields:
-        iso = getattr(f, 'isoformat', None)
-        parts.append(iso() if callable(iso) else str(f))
-    message = '|'.join(parts).encode('utf-8')
-    return _hmac.new(secret, message, _hashlib.sha256).hexdigest()
+    from oracle_brain.seal_signer import sign_seal
+    return sign_seal(purpose, *fields)
 
 
 def _credential_mac(principal_id, role, expires_at):
@@ -472,12 +464,14 @@ def test_forged_mac_denied_for_credential_proof():
 
 
 def test_wrong_secret_mac_denied_for_credential_proof():
-    """A MAC computed under a different seal secret is refused."""
-    import hmac as _hmac
-    import hashlib as _hashlib
-    wrong = _hmac.new(b'wrong-secret-not-the-test-secret-000',
-                      b'meeting-delivery-sender|p-1|delivery_sender',
-                      _hashlib.sha256).hexdigest()
+    """A signature computed under a different seal key is refused."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+    )
+    from oracle_brain.seal import seal_payload
+    wrong = Ed25519PrivateKey.generate().sign(
+        seal_payload('meeting-delivery-sender', 'p-1', 'delivery_sender')
+    ).hex()
     try:
         issue_sender_credential_proof(
             principal_id='p-1', role='delivery_sender', expires_at=_FUTURE,
@@ -485,7 +479,7 @@ def test_wrong_secret_mac_denied_for_credential_proof():
     except PermissionError:
         pass
     else:
-        raise AssertionError('wrong-secret MAC must be denied')
+        raise AssertionError('wrong-key signature must be denied')
 
 
 def test_caller_built_settings_enable_denied():

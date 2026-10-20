@@ -16,8 +16,9 @@ DEFAULT_MAX_INTERVENTIONS = 3
 DEFAULT_CHANNEL: Literal['meeting_text', 'meeting_chat'] = 'meeting_text'
 CHANNELS = frozenset({'meeting_text', 'meeting_chat'})
 RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed', 'suppressed'})
-# Purpose tag for the host-authorized enable HMAC. Enabling participation
-# for a meeting requires a MAC over (meeting_id) issued under this purpose.
+# Purpose tag for the host-authorized enable seal. Enabling participation
+# for a meeting requires an Ed25519 signature over (meeting_id) issued
+# under this purpose.
 ENABLE_PROOF_PURPOSE = 'participation-enable-v1'
 
 
@@ -87,7 +88,7 @@ def record_settings(*, meeting_id: str, enabled: bool = False,
     """Record host settings for a meeting. Enabling participation is explicit.
 
     When ``enabled`` is true, ``enable_proof_mac`` must be a
-    host-authorized HMAC over the meeting id under
+    host-authorized Ed25519 seal over the meeting id under
     ``ENABLE_PROOF_PURPOSE``. A bare settings object without that proof
     cannot enable participation.
     """

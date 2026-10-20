@@ -29,24 +29,16 @@ from oracle_brain.operating_model.q2b_target_catalog_v1 import (
 
 
 def _test_mac(purpose, *fields):
-    """Compute a purpose-tagged HMAC with the session test secret."""
-    import hashlib as _hashlib
-    import hmac as _hmac
-    import os as _os
-    secret = _os.environ['ORACLE2_SEAL_SECRET'].encode('utf-8')
-    parts = [purpose]
-    for f in fields:
-        iso = getattr(f, 'isoformat', None)
-        parts.append(iso() if callable(iso) else str(f))
-    message = '|'.join(parts).encode('utf-8')
-    return _hmac.new(secret, message, _hashlib.sha256).hexdigest()
+    """Produce a purpose-tagged seal via the isolated signer (test host stand-in)."""
+    from oracle_brain.seal_signer import sign_seal
+    return sign_seal(purpose, *fields)
 
 
 def _reseal(receipt):
     """Re-compute the reader-seal MAC after a deliberate fact mutation.
 
     Pin-check tests damage fact values but must still exercise the pin
-    path, so they re-seal with the test secret to bypass the MAC gate.
+    path, so they re-seal with the test keypair to bypass the seal gate.
     """
     return receipt.model_copy(update={
         'fact_mac': _test_mac(READER_FACT_PURPOSE, _facts_payload(receipt)),

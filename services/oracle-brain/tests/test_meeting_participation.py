@@ -29,17 +29,9 @@ from oracle_brain.meetings.participation import (
 
 
 def _test_mac(purpose, *fields):
-    """Compute a purpose-tagged HMAC with the session test secret."""
-    import hashlib as _hashlib
-    import hmac as _hmac
-    import os as _os
-    secret = _os.environ['ORACLE2_SEAL_SECRET'].encode('utf-8')
-    parts = [purpose]
-    for f in fields:
-        iso = getattr(f, 'isoformat', None)
-        parts.append(iso() if callable(iso) else str(f))
-    message = '|'.join(parts).encode('utf-8')
-    return _hmac.new(secret, message, _hashlib.sha256).hexdigest()
+    """Produce a purpose-tagged seal via the isolated signer (test host stand-in)."""
+    from oracle_brain.seal_signer import sign_seal
+    return sign_seal(purpose, *fields)
 
 
 def _enable_mac(meeting_id):
