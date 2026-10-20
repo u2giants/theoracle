@@ -338,8 +338,17 @@ class ReplacementFixtureStore {
     sourceIds: string[];
   }): JourneyRecord {
     for (const sourceId of input.sourceIds) {
-      if (!this.sources.has(sourceId)) {
+      const stored = this.sources.get(sourceId);
+      if (!stored) {
         throw new Error('unknown source');
+      }
+      // Source ownership: deny cross-user / cross-workspace source reference.
+      // Existence alone is never proof of access.
+      if (stored.actorId !== input.actorId) {
+        throw new Error('cross-user source reference denied');
+      }
+      if (stored.source.workspaceId !== input.workspaceId) {
+        throw new Error('cross-workspace source reference denied');
       }
     }
     const journeyId = randomUUID();
@@ -896,6 +905,14 @@ class ReplacementFixtureStore {
     for (const sourceId of record.sourceIds) {
       const stored = this.sources.get(sourceId);
       if (!stored) throw new Error('unknown source');
+      // Defense in depth: never expose another user's or another workspace's
+      // source metadata through a caller-owned journey.
+      if (stored.actorId !== record.actorId) {
+        throw new Error('cross-user source reference denied');
+      }
+      if (stored.source.workspaceId !== record.workspaceId) {
+        throw new Error('cross-workspace source reference denied');
+      }
       out.push(stored.source);
     }
     return out;
@@ -944,13 +961,14 @@ class ReplacementFixtureStore {
    * uploaded original hashes. The stale seeded model/graph-evidence result is
    * returned separately and must never be presented as current.
    */
-  nativePipelineIdentity(sourceId: string): {
+  nativePipelineIdentity(sourceId: string, callerActorId?: string): {
     currentContentHash: string;
     currentPipeline: 'native-fixture-v1';
     staleSeeded: StoredSource['staleSeeded'];
   } {
     const stored = this.sources.get(sourceId);
     if (!stored) throw new Error('unknown source');
+    if (callerActorId !== undefined) assertOwner(stored, callerActorId);
     return {
       currentContentHash: sha256Hex(`native-pipeline:${stored.source.originalSha256}`),
       currentPipeline: 'native-fixture-v1',

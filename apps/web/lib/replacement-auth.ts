@@ -8,8 +8,9 @@ import {
   authorizePilotRequest,
   pilotActor,
   pilotToken,
-  sessionHasScope,
 } from './oracle2-pilot-auth';
+import { hasAuthority } from './oracle2-authority';
+import { pilotWorkspaceId } from './oracle2-store';
 
 export const REPLACEMENT_COOKIE = 'oracle2_replacement_session';
 export const REPLACEMENT_WORKSPACE_ID = '00000000-0000-4000-8000-0000000000f1';
@@ -154,16 +155,58 @@ export function createReplacementSession(token: string): ReplacementAuthResult {
 }
 
 /**
- * Fail-closed request authorization for replacement v1 routes.
- * Dedicated replacement session first; otherwise the existing pilot session
- * pattern. Workspace+role bounds are re-checked on every request.
+ * Fail-closed workspace binding for pilot-fallback replacement access.
+ *
+ * Pilot permissions are never inherited across workspaces: authorization must
+ * be proven in the same workspace id that owns the replacement resource. When
+ * the pilot workspace and the replacement workspace differ, an explicit
+ * replacement-workspace grant is required. Fails closed when workspace ids do
+ * not match and no explicit replacement-workspace grant is proven.
+ *
+ * `hasConfirmInReplacement` / `hasReviewInReplacement` must already be checked
+ * against `replacementWorkspaceId` (never the pilot workspace).
  */
+export function bindPilotFallbackWorkspace(input: {
+  pilotWorkspaceId: string;
+  replacementWorkspaceId: string;
+  hasConfirmInReplacement: boolean;
+  hasReviewInReplacement: boolean;
+  access: ReplacementAccess;
+}): { ok: true } | { ok: false; error: string; status: number } {
+  const {
+    pilotWorkspaceId: pilotWs,
+    replacementWorkspaceId: replacementWs,
+    hasConfirmInReplacement,
+    hasReviewInReplacement,
+    access,
+  } = input;
+  const sameWorkspace = pilotWs === replacementWs;
+  const hasGrant = hasConfirmInReplacement || hasReviewInReplacement;
+
+  if (!hasGrant) {
+    return {
+      ok: false,
+      error: sameWorkspace
+        ? 'replacement scope missing or unknown'
+        : 'cross-workspace replacement grant required',
+      status: 403,
+    };
+  }
+  if (access === 'write' && !hasConfirmInReplacement) {
+    return { ok: false, error: 'write scope required', status: 403 };
+  }
+  return { ok: true };
+}
+
 /**
  * Fail-closed request authorization for replacement v1 routes.
  * Dedicated replacement session first; otherwise the existing pilot session
- * pattern. Pilot sessions must prove a store-backed scope: write requires the
- * privileged confirm scope; read accepts review or confirm. Scope is checked
- * at every request and fails closed when missing or unknown.
+ * pattern. Pilot sessions must prove a store-backed scope in the REPLACEMENT
+ * workspace (never the pilot workspace): write requires the privileged confirm
+ * scope; read accepts review or confirm. Scope is checked at every request and
+ * fails closed when missing or unknown. Cross-workspace pilot permissions are
+ * never inherited — an explicit replacement-workspace grant is required when
+ * workspace ids differ.
  */
 export async function authorizeReplacementRequest(
   headers: Headers,
@@ -178,13 +221,20 @@ export async function authorizeReplacementRequest(
     return { ok: false, error: pilot.error, status: pilot.status };
   }
   const actorId = pilot.actorId;
-  const hasConfirm = await sessionHasScope(actorId, 'confirm');
-  const hasReview = await sessionHasScope(actorId, 'review');
-  if (!hasConfirm && !hasReview) {
-    return { ok: false, error: 'replacement scope missing or unknown', status: 403 };
-  }
-  if (access === 'write' && !hasConfirm) {
-    return { ok: false, error: 'write scope required', status: 403 };
+  // Scope must be proven in the REPLACEMENT workspace — never inherited from
+  // the pilot workspace. This binds authorization to the workspace that owns
+  // the replacement resource.
+  const hasConfirm = await hasAuthority(actorId, 'confirm', REPLACEMENT_WORKSPACE_ID);
+  const hasReview = await hasAuthority(actorId, 'review', REPLACEMENT_WORKSPACE_ID);
+  const bound = bindPilotFallbackWorkspace({
+    pilotWorkspaceId: pilotWorkspaceId(),
+    replacementWorkspaceId: REPLACEMENT_WORKSPACE_ID,
+    hasConfirmInReplacement: hasConfirm,
+    hasReviewInReplacement: hasReview,
+    access,
+  });
+  if (!bound.ok) {
+    return bound;
   }
   const principal: ReplacementPrincipal = {
     actorId: pilot.actorId,

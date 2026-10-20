@@ -44,17 +44,23 @@ SELECT EXISTS (
 ) AS ok
 `;
 
-/** True only when the store-backed appointment lineage proves the scope. */
+/**
+ * True only when the store-backed appointment lineage proves the scope in the
+ * given workspace. Defaults to the pilot workspace; callers that authorize a
+ * different workspace resource must pass that workspace id explicitly so pilot
+ * permissions are never inherited across workspaces.
+ */
 export async function hasAuthority(
   actorId: string,
   scope: PilotScope,
+  workspaceIdOverride?: string,
 ): Promise<boolean> {
   if (!actorId) return false;
   if (!databaseUrl()) return false;
   const client = sql();
   try {
     const rows = await client.unsafe(HAS_AUTHORITY_SQL, [
-      workspaceId(),
+      workspaceIdOverride ?? workspaceId(),
       actorId,
       scope,
     ]);

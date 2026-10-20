@@ -21,6 +21,7 @@ import {
 import {
   replacementAuth,
   withinReplacementBounds,
+  bindPilotFallbackWorkspace,
   REPLACEMENT_ROLE,
   REPLACEMENT_WORKSPACE_ID,
   type ReplacementPrincipal,
@@ -665,4 +666,208 @@ test('High 2: cross-user source access denied', () => {
   assert.equal(sourcesA.length, 1);
   const sourcesB = store.listSources(OWNER_B);
   assert.equal(sourcesB.length, 0);
+});
+
+// --- R8 round-3 security denied-case tests --------------------------------
+
+test('High r3: pilot session for workspace A must NOT access replacement resources in workspace B', () => {
+  const pilotWorkspaceA = '00000000-0000-4000-8000-000000000002';
+
+  // Pilot permissions checked in workspace A must not grant replacement
+  // access in workspace B when no explicit replacement-workspace grant exists.
+  const deniedRead = bindPilotFallbackWorkspace({
+    pilotWorkspaceId: pilotWorkspaceA,
+    replacementWorkspaceId: REPLACEMENT_WORKSPACE_ID,
+    hasConfirmInReplacement: false,
+    hasReviewInReplacement: false,
+    access: 'read',
+  });
+  assert.equal(deniedRead.ok, false);
+  if (!deniedRead.ok) {
+    assert.equal(deniedRead.status, 403);
+    assert.match(deniedRead.error, /cross-workspace replacement grant required/);
+  }
+
+  const deniedWrite = bindPilotFallbackWorkspace({
+    pilotWorkspaceId: pilotWorkspaceA,
+    replacementWorkspaceId: REPLACEMENT_WORKSPACE_ID,
+    hasConfirmInReplacement: false,
+    hasReviewInReplacement: false,
+    access: 'write',
+  });
+  assert.equal(deniedWrite.ok, false);
+  if (!deniedWrite.ok) assert.equal(deniedWrite.status, 403);
+
+  // Even review-only pilot scope in workspace A cannot become a write grant
+  // in workspace B without an explicit replacement-workspace confirm grant.
+  const deniedInheritedWrite = bindPilotFallbackWorkspace({
+    pilotWorkspaceId: pilotWorkspaceA,
+    replacementWorkspaceId: REPLACEMENT_WORKSPACE_ID,
+    hasConfirmInReplacement: false,
+    hasReviewInReplacement: true,
+    access: 'write',
+  });
+  assert.equal(deniedInheritedWrite.ok, false);
+  if (!deniedInheritedWrite.ok) {
+    assert.equal(deniedInheritedWrite.status, 403);
+    assert.match(deniedInheritedWrite.error, /write scope required/);
+  }
+
+  // Explicit replacement-workspace grant allows access even across workspaces.
+  const allowed = bindPilotFallbackWorkspace({
+    pilotWorkspaceId: pilotWorkspaceA,
+    replacementWorkspaceId: REPLACEMENT_WORKSPACE_ID,
+    hasConfirmInReplacement: true,
+    hasReviewInReplacement: true,
+    access: 'write',
+  });
+  assert.equal(allowed.ok, true);
+
+  // Same-workspace fallback still fails closed when no scope is proven.
+  const sameWsDenied = bindPilotFallbackWorkspace({
+    pilotWorkspaceId: REPLACEMENT_WORKSPACE_ID,
+    replacementWorkspaceId: REPLACEMENT_WORKSPACE_ID,
+    hasConfirmInReplacement: false,
+    hasReviewInReplacement: false,
+    access: 'read',
+  });
+  assert.equal(sameWsDenied.ok, false);
+  if (!sameWsDenied.ok) {
+    assert.match(sameWsDenied.error, /replacement scope missing or unknown/);
+  }
+});
+
+test('High r3: cross-workspace principal is out of replacement bounds', () => {
+  const foreign: ReplacementPrincipal = {
+    actorId: '00000000-0000-4000-8000-0000000000a1',
+    workspaceId: '00000000-0000-4000-8000-000000000002',
+    role: REPLACEMENT_ROLE,
+  };
+  assert.equal(withinReplacementBounds(foreign), false);
+
+  const wrongRole: ReplacementPrincipal = {
+    actorId: '00000000-0000-4000-8000-0000000000a1',
+    workspaceId: REPLACEMENT_WORKSPACE_ID,
+    role: 'pilot_user',
+  };
+  assert.equal(withinReplacementBounds(wrongRole), false);
+});
+
+test('Medium r3: user A journey cannot surface user B source metadata even if the ID is known', () => {
+  const store = seedJourney();
+
+  // User B registers a source.
+  const storedB = store.registerSource({
+    workspaceId: WORKSPACE,
+    actorId: OWNER_B,
+    filename: 'b-confidential.txt',
+    contentType: 'text/plain',
+    bytes: Buffer.from('user B confidential original'),
+  });
+
+  // User A knows user B's source ID and tries to create a journey over it.
+  assert.throws(
+    () =>
+      store.createJourney({
+        workspaceId: WORKSPACE,
+        actorId: OWNER_A,
+        sourceIds: [storedB.source.sourceId],
+      }),
+    /cross-user source reference denied/,
+  );
+
+  // User B cannot smuggle user A's source into their own journey either.
+  const storedA = store.registerSource({
+    workspaceId: WORKSPACE,
+    actorId: OWNER_A,
+    filename: 'a.txt',
+    contentType: 'text/plain',
+    bytes: Buffer.from('user A original'),
+  });
+  assert.throws(
+    () =>
+      store.createJourney({
+        workspaceId: WORKSPACE,
+        actorId: OWNER_B,
+        sourceIds: [storedA.source.sourceId],
+      }),
+    /cross-user source reference denied/,
+  );
+
+  // Mixed populations that include a foreign source are denied.
+  const storedB2 = store.registerSource({
+    workspaceId: WORKSPACE,
+    actorId: OWNER_B,
+    filename: 'b2.txt',
+    contentType: 'text/plain',
+    bytes: Buffer.from('user B second original'),
+  });
+  assert.throws(
+    () =>
+      store.createJourney({
+        workspaceId: WORKSPACE,
+        actorId: OWNER_A,
+        sourceIds: [storedA.source.sourceId, storedB2.source.sourceId],
+      }),
+    /cross-user source reference denied/,
+  );
+});
+
+test('Medium r3: cross-workspace source reference is denied', () => {
+  const store = seedJourney();
+  const otherWorkspace = '00000000-0000-4000-8000-0000000000aa';
+
+  const storedOther = store.registerSource({
+    workspaceId: otherWorkspace,
+    actorId: OWNER_A,
+    filename: 'other-ws.txt',
+    contentType: 'text/plain',
+    bytes: Buffer.from('other workspace original'),
+  });
+
+  // Same actor, different workspace: still denied.
+  assert.throws(
+    () =>
+      store.createJourney({
+        workspaceId: WORKSPACE,
+        actorId: OWNER_A,
+        sourceIds: [storedOther.source.sourceId],
+      }),
+    /cross-workspace source reference denied/,
+  );
+});
+
+test('Medium r3: resolveSources refuses to surface foreign source metadata', () => {
+  const store = seedJourney();
+
+  const storedA = store.registerSource({
+    workspaceId: WORKSPACE,
+    actorId: OWNER_A,
+    filename: 'a.txt',
+    contentType: 'text/plain',
+    bytes: Buffer.from('user A original'),
+  });
+  const record = store.createJourney({
+    workspaceId: WORKSPACE,
+    actorId: OWNER_A,
+    sourceIds: [storedA.source.sourceId],
+  });
+
+  // Tamper the journey to reference a foreign source (simulates a bug or
+  // injection that bypassed createJourney). resolveSources must refuse.
+  const storedB = store.registerSource({
+    workspaceId: WORKSPACE,
+    actorId: OWNER_B,
+    filename: 'b.txt',
+    contentType: 'text/plain',
+    bytes: Buffer.from('user B original'),
+  });
+  const tampered = {
+    ...record,
+    sourceIds: [storedB.source.sourceId],
+  };
+  assert.throws(
+    () => store.resolveSources(tampered),
+    /cross-user source reference denied/,
+  );
 });
