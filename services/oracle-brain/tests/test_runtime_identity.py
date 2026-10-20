@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import quote
 
 import psycopg
 import pytest
@@ -9,16 +10,23 @@ from uuid import uuid4
 
 
 def _as_role(url: str, user: str, password: str) -> str:
-    """Rebuild a conninfo with substituted credentials.
+    """Rebuild a conninfo as a postgresql:// URI with substituted credentials.
 
-    The W10 runner rebuilds ORACLE2_TEST_ADMIN_URL via psycopg make_conninfo,
-    which emits keyword-value form rather than a postgresql:// URI. A literal
-    'user:password' replace silently no-ops there, leaving the admin identity.
+    Must return URI form: Settings.from_env() runs urlparse().hostname against
+    the value and rejects anything whose host is outside the isolated-network
+    allowlist.  psycopg.conninfo.make_conninfo emits keyword-value form whose
+    urlparse().hostname is None, which trips that guard.  A URI satisfies both
+    psycopg.connect and urlparse.
     """
     params = psycopg.conninfo.conninfo_to_dict(url)
-    params["user"] = user
-    params["password"] = password
-    return psycopg.conninfo.make_conninfo(**params)
+    host = params.get("host") or "localhost"
+    port = params.get("port") or "5432"
+    dbname = params.get("dbname") or "postgres"
+    extra = {k: v for k, v in params.items()
+             if k not in {"host", "port", "user", "password", "dbname"} and v is not None}
+    query = "&".join(f"{quote(k)}={quote(str(v))}" for k, v in sorted(extra.items()))
+    uri = f"postgresql://{quote(user)}:{quote(password)}@{host}:{port}/{quote(dbname)}"
+    return uri + ("?" + query if query else "")
 
 
 def test_extractor_cannot_write_accepted_or_read_projector(admin_url, candidate_url, confirmed_url, monkeypatch):
