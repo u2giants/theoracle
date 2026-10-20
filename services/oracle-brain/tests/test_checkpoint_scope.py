@@ -6,13 +6,24 @@ import psycopg
 from oracle_brain.storage import bind_checkpoint, postgres_checkpointer
 
 
+def _as_role(url: str, user: str, password: str) -> str:
+    """Rebuild a conninfo with substituted credentials.
+
+    The W10 runner rebuilds ORACLE2_TEST_ADMIN_URL via psycopg make_conninfo,
+    which emits keyword-value form (user=... password=...) rather than a
+    postgresql:// URI. A literal 'user:password' replace silently no-ops there,
+    leaving the admin identity in place. Parse and rebuild instead.
+    """
+    params = psycopg.conninfo.conninfo_to_dict(url)
+    params["user"] = user
+    params["password"] = password
+    return psycopg.conninfo.make_conninfo(**params)
+
+
 def test_checkpoint_scope_survives_new_connection(admin_url):
-    extract_url = admin_url.replace("oracle2_admin:oracle2_local_admin_only",
-                                    "oracle2_extract:oracle2_local_extract_only")
-    project_url = admin_url.replace("oracle2_admin:oracle2_local_admin_only",
-                                    "oracle2_project:oracle2_local_project_only")
-    checkpoint_url = admin_url.replace("oracle2_admin:oracle2_local_admin_only",
-                                       "oracle2_checkpoint:oracle2_local_checkpoint_only")
+    extract_url = _as_role(admin_url, "oracle2_extract", "oracle2_local_extract_only")
+    project_url = _as_role(admin_url, "oracle2_project", "oracle2_local_project_only")
+    checkpoint_url = _as_role(admin_url, "oracle2_checkpoint", "oracle2_local_checkpoint_only")
     for worker_url in (extract_url, project_url):
         for table in ("public.checkpoints", "public.checkpoint_blobs",
                       "public.checkpoint_writes", "oracle2.checkpoint_owners"):

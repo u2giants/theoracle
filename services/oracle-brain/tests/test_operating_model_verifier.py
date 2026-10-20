@@ -90,7 +90,8 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
         '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
         '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
-        '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql')
+        '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
+        '014_replacement_source_custody.sql')
 
 
 def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
@@ -101,8 +102,12 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
         assert len(groups)==(10 if stage in ('W10','W12','all') else 9 if stage=='documentary' else 1)
         assert all(values for _,values in groups)
         if stage!='W04':
-            for heavy in ('purpose_worker_startup','purpose_coherent_native_journey','native_trigger_v1'):
+            # R7 registration: purpose_coherent_native_journey / native_trigger_v1
+            # no longer own singleton groups; original/raw families replaced them.
+            for heavy in ('purpose_worker_startup',):
                 assert [values for _,values in groups if heavy in values]==[(heavy,)]
+            for start in ('original_byte_storage','raw_endpoint_inventory_v1'):
+                assert any(values and values[0]==start for _,values in groups)
 
 
 def test_all_workers_share_real_deadline_and_preserve_partial_output(tmp_path):
@@ -189,11 +194,12 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     from collections import Counter
     suites=verifier.required_suites('W10')
     expected={p.stem.removeprefix('test_') for p in Path(__file__).parent.glob('test_purpose_*.py')}
-    expected|={'parent_observer_v2','semantic_registry_v3','processing_extraction_runtime_v2','extraction_connection_authority','paid_sdk_embeddings_v3'}
+    expected|={p.stem.removeprefix('test_') for p in Path(__file__).parent.glob('test_paid_*.py')}
+    expected|={'parent_observer_v2','semantic_registry_v3','processing_extraction_runtime_v2','extraction_connection_authority'}
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
-    assert verifier.SYNTHETIC_MIGRATIONS[-1]=='013_processing_purpose_permissions.sql'
+    assert verifier.SYNTHETIC_MIGRATIONS[-1]=='014_replacement_source_custody.sql'
 
 
 @pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])
