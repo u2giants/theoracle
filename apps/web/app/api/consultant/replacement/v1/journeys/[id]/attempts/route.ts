@@ -3,14 +3,19 @@
 // GET lists attempts with spent/new status. Replay of a spent attempt is
 // rejected with 'attempt already spent; no replay'.
 import { NextResponse, type NextRequest } from 'next/server';
+import { authorizeReplacementRequest } from '@/lib/replacement-auth';
 import { replacementFixtureStore } from '@/lib/replacement-store';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const auth = await authorizeReplacementRequest(req.headers);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { id } = await context.params;
   const store = replacementFixtureStore();
   const record = store.getJourney(id);
@@ -24,6 +29,10 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const auth = await authorizeReplacementRequest(req.headers);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { id } = await context.params;
   try {
     const body = (await req.json()) as Record<string, unknown>;

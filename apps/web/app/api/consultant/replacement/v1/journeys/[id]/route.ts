@@ -2,14 +2,19 @@
 // Current journey metadata + validated public pack. Rechecks current state on
 // every poll/reload; metadata alone never yields ready.
 import { NextResponse, type NextRequest } from 'next/server';
+import { authorizeReplacementRequest } from '@/lib/replacement-auth';
 import { replacementFixtureStore } from '@/lib/replacement-store';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const auth = await authorizeReplacementRequest(req.headers);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { id } = await context.params;
   const store = replacementFixtureStore();
   const record = store.getJourney(id);

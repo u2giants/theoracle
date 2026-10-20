@@ -3,6 +3,7 @@
 // Synthetic fixture only. Unknown body fields fail closed. actor/workspace are
 // server-derived; caller identities in the body are ignored.
 import { NextResponse, type NextRequest } from 'next/server';
+import { authorizeReplacementRequest } from '@/lib/replacement-auth';
 import { replacementFixtureStore } from '@/lib/replacement-store';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,10 @@ const PERMITTED_MEDIA = new Set([
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await authorizeReplacementRequest(req.headers);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
     const store = replacementFixtureStore();
     const contentType = req.headers.get('content-type') ?? '';
     let bytes: Buffer;
@@ -81,8 +86,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'original byte bound' }, { status: 400 });
     }
 
-    // Workspace is server-owned fixture workspace; body identities ignored.
-    const workspaceId = '00000000-0000-4000-8000-0000000000f1';
+    // Workspace/actor are server-derived from the authorized principal.
+    const workspaceId = auth.principal.workspaceId;
     const stored = store.registerSource({
       workspaceId,
       filename,

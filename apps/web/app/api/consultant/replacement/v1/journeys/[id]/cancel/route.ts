@@ -2,6 +2,7 @@
 // Opaque control/cancel. Preserves spent liability, never replays, never
 // claims 'not sent' for an in-flight paid attempt.
 import { NextResponse, type NextRequest } from 'next/server';
+import { authorizeReplacementRequest } from '@/lib/replacement-auth';
 import { replacementFixtureStore } from '@/lib/replacement-store';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,10 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const auth = await authorizeReplacementRequest(req.headers);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { id } = await context.params;
   try {
     const body = (await req.json()) as Record<string, unknown>;

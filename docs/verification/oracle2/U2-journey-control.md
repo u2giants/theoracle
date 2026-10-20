@@ -69,7 +69,10 @@ sql/014_replacement_source_custody.sql gains four functions:
 - oracle2.compare_and_advance_replacement_journey(uuid,integer,jsonb,uuid):
   CAS-advances state under the expected journey_revision; writes a
   'correct' or 'confirm' event. Terminal states and cancel-requested are
-  refused here.
+  refused here. Current-to-target edges are validated against a legal
+  transition map (absent edges raise `illegal journey transition`); pending
+  cannot jump to delivered/confirmed, delivered is reachable only from
+  processing, and error/failed/UNKNOWN/cancelled stay terminal for advance.
 - oracle2.request_replacement_cancel(uuid,integer,text,uuid): CAS-cancels
   the journey, sets cancelled_at, writes a 'cancel' event, and returns
   the envelope with remote_stop_proof=false and retained-attempt flag.

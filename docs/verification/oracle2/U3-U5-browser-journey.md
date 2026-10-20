@@ -36,6 +36,11 @@ The legacy pilot path (`apps/web/lib/oracle2-store.ts` `correctDraft` /
 
 ## Contract rules enforced (TypeScript mirror of Python wire)
 
+- Every replacement v1 API route requires a fail-closed auth gate
+  (`apps/web/lib/replacement-auth.ts`): unauthenticated callers get 401,
+  out-of-scope workspace/role principals get 403, and actor/workspace are
+  server-derived from the authorized principal — never a hard-coded implicit
+  caller. Bounds mirror the replacement-contract workspace+role limit.
 - State 13 literals only (`uploading` … `evidence_missing`); unknown states fail
   closed — never coerced to `ready`.
 - Snapshot invariants mirror `ReplacementSnapshotV1`: map requires model; model

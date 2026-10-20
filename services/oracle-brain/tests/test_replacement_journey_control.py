@@ -374,3 +374,32 @@ def test_no_automatic_retry_after_spent_dispatch():
         context, journey.run_id, 2, reason='stop')
     assert result['paid_cost_retained'] is True
     assert result['remote_stop_proof'] is False
+
+
+def test_sql_advance_function_validates_legal_transitions():
+    """R8: SQL compare_and_advance must fail closed on illegal current->target.
+
+    Offline source-level guard: the migration must carry a legal-edge check
+    that denies absent edges (including pending->delivered gate skip) and
+    raises 'illegal journey transition'. No live database required.
+    """
+    from pathlib import Path
+
+    sql_path = (Path(__file__).resolve().parents[1] / 'sql'
+                / '014_replacement_source_custody.sql')
+    sql = sql_path.read_text(encoding='utf-8')
+    assert 'illegal journey transition' in sql
+    # Legal edges are enumerated from the current state, not a free target list.
+    assert "j.state='pending' AND target_state IN ('processing'" in sql
+    # Cannot jump to delivered (confirmed/answer-ready) without processing.
+    pending_edges = sql.split("j.state='pending' AND target_state IN (", 1)[1].split(')', 1)[0]
+    assert 'delivered' not in pending_edges
+    assert 'cancelled' not in pending_edges
+    assert 'UNKNOWN' not in pending_edges
+    # delivered is reachable only from processing.
+    assert "j.state='processing' AND target_state IN ('delivered'" in sql
+    # Correction path reaches revision_pending; cancel stays on its own entry point.
+    assert "j.state='delivered' AND target_state IN ('revision_pending'" in sql
+    assert 'cancel uses request_replacement_cancel' in sql
+    # Terminal states still refuse advance before the edge check.
+    assert 'terminal journey cannot advance' in sql

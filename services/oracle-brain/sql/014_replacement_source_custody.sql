@@ -1265,6 +1265,25 @@ BEGIN
  IF j.state IN ('cancelled','failed','UNKNOWN') THEN
   RAISE serialization_failure USING MESSAGE='terminal journey cannot advance';
  END IF;
+ -- Legal current->target edges only; absent edges fail closed. Mirrors
+ -- replacement_journey_v1._TRANSITIONS plus SQL-only 'delivered'/'error'.
+ -- 'delivered' (confirmed/answer-ready) is reachable only from 'processing';
+ -- correction reaches 'revision_pending'; cancel uses request_replacement_cancel.
+ IF NOT (
+  (j.state='pending' AND target_state IN ('processing','awaiting-external-authority',
+    'missing-evidence','revision_pending','failed','error'))
+  OR (j.state='processing' AND target_state IN ('delivered','awaiting-external-authority',
+    'missing-evidence','revision_pending','failed','error'))
+  OR (j.state='awaiting-external-authority' AND target_state IN ('processing',
+    'missing-evidence','revision_pending','failed','error'))
+  OR (j.state='missing-evidence' AND target_state IN ('processing',
+    'awaiting-external-authority','revision_pending','failed','error'))
+  OR (j.state='revision_pending' AND target_state IN ('processing',
+    'awaiting-external-authority','missing-evidence','failed','error'))
+  OR (j.state='delivered' AND target_state IN ('revision_pending','failed','error'))
+ ) THEN
+  RAISE serialization_failure USING MESSAGE='illegal journey transition '||j.state||'->'||target_state;
+ END IF;
  until:=least(a.expires_at,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
  IF until<=clock_timestamp() THEN
   RAISE insufficient_privilege USING MESSAGE='replacement journey authority expired before commit';

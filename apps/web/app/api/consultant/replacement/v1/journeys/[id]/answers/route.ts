@@ -2,6 +2,7 @@
 // Connected documentary answer for the confirmed exact scope only.
 // Unsupported intents abstain; suggestions stay labeled, never established fact.
 import { NextResponse, type NextRequest } from 'next/server';
+import { authorizeReplacementRequest } from '@/lib/replacement-auth';
 import { replacementFixtureStore } from '@/lib/replacement-store';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,10 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const auth = await authorizeReplacementRequest(req.headers);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { id } = await context.params;
   try {
     const body = (await req.json()) as Record<string, unknown>;

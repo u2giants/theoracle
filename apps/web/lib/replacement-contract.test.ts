@@ -18,6 +18,16 @@ import {
   replacementFixtureStore,
   sha256Hex,
 } from './replacement-store';
+import {
+  replacementAuth,
+  withinReplacementBounds,
+  REPLACEMENT_ROLE,
+  REPLACEMENT_WORKSPACE_ID,
+  type ReplacementPrincipal,
+} from './replacement-auth';
+import { GET as listJourneys } from '../app/api/consultant/replacement/v1/journeys/route';
+import { GET as getJourney } from '../app/api/consultant/replacement/v1/journeys/[id]/route';
+import type { NextRequest } from 'next/server';
 
 const WORKSPACE = '00000000-0000-4000-8000-0000000000f1';
 
@@ -417,4 +427,108 @@ test('answer requires current confirmation; unsupported state abstains', () => {
       }),
     /confirmation required/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// R8 security: fail-closed API auth (401 unauthenticated, 403 out-of-scope)
+// ---------------------------------------------------------------------------
+
+function authDeps(over: Partial<Parameters<typeof replacementAuth>[0]> = {}) {
+  let now = 1_000_000;
+  return {
+    token: () => 'invented-replacement-token',
+    actorId: () => '00000000-0000-4000-8000-0000000000a1',
+    workspaceId: () => REPLACEMENT_WORKSPACE_ID,
+    role: () => REPLACEMENT_ROLE,
+    clock: () => now,
+    ...over,
+    advance(ms: number) {
+      now += ms;
+    },
+  };
+}
+
+test('unauthenticated API requests are denied with 401', async () => {
+  const denied = await listJourneys(
+    new Request('https://example.test/api/consultant/replacement/v1/journeys') as unknown as NextRequest,
+  );
+  assert.equal(denied.status, 401);
+  const body = (await denied.json()) as { error: string };
+  assert.match(body.error, /session required|pilot session required/);
+
+  const deniedRead = await getJourney(
+    new Request('https://example.test/api/consultant/replacement/v1/journeys/x') as unknown as NextRequest,
+    { params: Promise.resolve({ id: 'x' }) },
+  );
+  assert.equal(deniedRead.status, 401);
+});
+
+test('wrong-scope principal is denied with 403 (workspace+role bounds)', () => {
+  const wrongRole = replacementAuth(
+    authDeps({ role: () => 'not_a_replacement_role' }) as Parameters<typeof replacementAuth>[0],
+  );
+  const created = wrongRole.create('invented-replacement-token');
+  assert.equal(created.ok, false);
+  if (!created.ok) assert.equal(created.status, 403);
+
+  const wrongWorkspace = replacementAuth(
+    authDeps({
+      workspaceId: () => '00000000-0000-4000-8000-0000000000f9',
+    }) as Parameters<typeof replacementAuth>[0],
+  );
+  const createdForeign = wrongWorkspace.create('invented-replacement-token');
+  assert.equal(createdForeign.ok, false);
+  if (!createdForeign.ok) assert.equal(createdForeign.status, 403);
+
+  const outOfBounds: ReplacementPrincipal = {
+    actorId: '00000000-0000-4000-8000-0000000000a1',
+    workspaceId: REPLACEMENT_WORKSPACE_ID,
+    role: 'someone_else',
+  };
+  assert.equal(withinReplacementBounds(outOfBounds), false);
+});
+
+test('replacement session authorize is fail-closed on missing/invalid identity', () => {
+  const gate = replacementAuth(authDeps() as Parameters<typeof replacementAuth>[0]);
+  assert.equal(gate.authorize(new Headers()).ok, false);
+  assert.equal(gate.authorize(new Headers({ cookie: 'oracle2_replacement_session=' })).ok, false);
+  const noToken = replacementAuth(
+    authDeps({ token: () => undefined }) as Parameters<typeof replacementAuth>[0],
+  );
+  assert.equal(noToken.create('invented-replacement-token').ok, false);
+  const wrongToken = replacementAuth(authDeps() as Parameters<typeof replacementAuth>[0]);
+  const rejected = wrongToken.create('not-the-token');
+  assert.equal(rejected.ok, false);
+  if (!rejected.ok) assert.equal(rejected.status, 401);
+
+  // A valid session is accepted and carries the server-derived principal.
+  const gate2 = replacementAuth(authDeps() as Parameters<typeof replacementAuth>[0]);
+  const issued = gate2.create('invented-replacement-token');
+  assert.equal(issued.ok, true);
+  if (issued.ok) {
+    assert.equal(issued.principal.role, REPLACEMENT_ROLE);
+    assert.equal(issued.principal.workspaceId, REPLACEMENT_WORKSPACE_ID);
+    const headers = new Headers({
+      cookie: `oracle2_replacement_session=${encodeURIComponent(issued.sessionId)}`,
+    });
+    const authed = gate2.authorize(headers);
+    assert.equal(authed.ok, true);
+    if (authed.ok) assert.equal(authed.principal.actorId, issued.principal.actorId);
+  }
+});
+
+test('illegal state transitions remain denied (no gate skip)', () => {
+  // pending cannot jump to confirmed/answer_ready or terminal cancelled.
+  assert.equal(nextReplacementState('uploading', 'confirm'), null);
+  assert.equal(nextReplacementState('uploading', 'answer'), null);
+  assert.equal(nextReplacementState('uploading', 'complete_cancel'), null);
+  assert.equal(nextReplacementState('processing', 'confirm'), null);
+  assert.equal(nextReplacementState('processing', 'answer'), null);
+  // correction is the only path into revision_pending from a draft.
+  assert.equal(nextReplacementState('draft_ready', 'correct'), 'revision_pending');
+  assert.equal(nextReplacementState('uploading', 'correct'), null);
+  // cancel goes through request_cancel then complete_cancel only.
+  assert.equal(nextReplacementState('uploading', 'request_cancel'), 'cancel_requested');
+  assert.equal(nextReplacementState('cancel_requested', 'complete_cancel'), 'cancelled');
+  assert.equal(nextReplacementState('cancel_requested', 'confirm'), null);
 });

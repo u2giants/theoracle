@@ -2,12 +2,17 @@
 // Create a replacement journey over an ordered complete source population.
 // Strict unknown-field refusal. actor/workspace derived server-side.
 import { NextResponse, type NextRequest } from 'next/server';
+import { authorizeReplacementRequest } from '@/lib/replacement-auth';
 import { replacementFixtureStore } from '@/lib/replacement-store';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await authorizeReplacementRequest(req.headers);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
     const body = (await req.json()) as Record<string, unknown>;
     const allowed = new Set(['sourceIds', 'idempotencyKey']);
     for (const key of Object.keys(body)) {
@@ -26,8 +31,8 @@ export async function POST(req: NextRequest) {
     }
     const store = replacementFixtureStore();
     const record = store.createJourney({
-      workspaceId: '00000000-0000-4000-8000-0000000000f1',
-      actorId: '00000000-0000-4000-8000-0000000000a1',
+      workspaceId: auth.principal.workspaceId,
+      actorId: auth.principal.actorId,
       sourceIds: sourceIds as string[],
     });
     return NextResponse.json(store.validatedSnapshot(record), { status: 201 });
@@ -37,7 +42,11 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await authorizeReplacementRequest(req.headers);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const store = replacementFixtureStore();
   return NextResponse.json({
     journeys: store.listJourneys().map((j) => store.validatedSnapshot(j)),

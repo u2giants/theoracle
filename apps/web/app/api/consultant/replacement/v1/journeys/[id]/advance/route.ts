@@ -3,6 +3,7 @@
 // Also handles land_draft / land_revision / confirm / answer via named action.
 // Unknown actions and stale expectedStateRevision fail closed.
 import { NextResponse, type NextRequest } from 'next/server';
+import { authorizeReplacementRequest } from '@/lib/replacement-auth';
 import { replacementFixtureStore } from '@/lib/replacement-store';
 import type { JourneyAction } from '@/lib/replacement-contract';
 
@@ -24,6 +25,10 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const auth = await authorizeReplacementRequest(req.headers);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { id } = await context.params;
   try {
     const body = (await req.json()) as Record<string, unknown>;
