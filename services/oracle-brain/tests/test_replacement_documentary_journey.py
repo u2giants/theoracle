@@ -424,10 +424,13 @@ def test_replacement_unknowns_not_promoted(journey_inputs):
 def test_replacement_graph_reload_bound(journey_inputs, monkeypatch):
     """SDK snapshot must match the sealed assembly exactly on reload."""
     ledger, provider, receipts, params, *_ = journey_inputs
+    # Capture the real load before patching; calling params['projection'].load
+    # after setattr would re-enter drifted() and recurse to death.
+    original_load = params['projection'].load
 
     async def drifted(ledger_, workspace, artifact_id, version):
-        payload = await params['projection'].load(ledger_, workspace, artifact_id, version)
-        return dict(payload, drifted=True)
+        payload = await original_load(ledger_, workspace, artifact_id, version)
+        return {**payload, 'drifted': True}
 
     monkeypatch.setattr(params['projection'], 'load', drifted)
     with pytest.raises(ValueError, match='SDK projection does not match sealed assembly'):
@@ -478,13 +481,48 @@ def test_replacement_partial_pack_caveated():
 
 def test_replacement_never_dispatches_external_provider(journey_inputs, monkeypatch):
     """Expired/unapproved exact provider scope never reaches an external endpoint."""
+    import ipaddress
     import socket
     ledger, provider, receipts, params, *_ = journey_inputs
-    # Block every outbound socket: the journey must complete on the injected provider alone.
-    def blocked(*_args, **_kwargs):
-        raise AssertionError('replacement journey must not open an external socket')
-    monkeypatch.setattr(socket, 'socket', blocked)
-    monkeypatch.setattr(socket, 'create_connection', blocked)
+
+    def _loopback(host):
+        if host in ('localhost', '', None):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        mapped = getattr(ip, 'ipv4_mapped', None)
+        return bool(ip.is_loopback or (mapped is not None and mapped.is_loopback))
+
+    def _target_ok(address):
+        # AF_UNIX / named pipes are local fixture traffic; tuple targets must be loopback.
+        if not isinstance(address, tuple) or not address:
+            return True
+        return _loopback(address[0])
+
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+    real_create_connection = socket.create_connection
+
+    def guarded_connect(self, address):
+        if not _target_ok(address):
+            raise AssertionError(f'external socket to {address[0]!r} is forbidden')
+        return real_connect(self, address)
+
+    def guarded_connect_ex(self, address):
+        if not _target_ok(address):
+            raise AssertionError(f'external socket to {address[0]!r} is forbidden')
+        return real_connect_ex(self, address)
+
+    def guarded_create_connection(address, *args, **kwargs):
+        if not _target_ok(address):
+            raise AssertionError(f'external socket to {address[0]!r} is forbidden')
+        return real_create_connection(address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, 'connect', guarded_connect)
+    monkeypatch.setattr(socket.socket, 'connect_ex', guarded_connect_ex)
+    monkeypatch.setattr(socket, 'create_connection', guarded_create_connection)
     result = run(journey_inputs)
     assert result.assembly_id
     assert {sid for sid, _ in provider.calls} == {r.ref.source_id for r in receipts}
