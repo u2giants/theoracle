@@ -17,7 +17,7 @@ export async function GET(
   }
   const { sourceId, revision } = await context.params;
   const store = replacementFixtureStore();
-  const stored = store.getSource(sourceId, auth.principal.actorId);
+  const stored = store.getSource(sourceId, auth.principal.actorId, auth.principal.workspaceId);
   if (!stored) {
     return NextResponse.json({ error: 'unknown source' }, { status: 404 });
   }

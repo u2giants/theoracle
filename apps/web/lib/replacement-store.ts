@@ -51,6 +51,8 @@ export interface StoredSource {
   staleSeeded: { label: string; modelId: string; contentHash: string } | null;
   /** Owner actor; cross-user access is denied. */
   actorId: string;
+  /** Owning workspace; cross-workspace access is denied. */
+  workspaceId: string;
 }
 
 export interface JourneyAttempt {
@@ -113,14 +115,29 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** Fail-closed owner check: only the creating actor may read or mutate. */
-function assertOwner(
-  record: { actorId: string },
+/**
+ * Fail-closed owner check: the caller must match BOTH actor AND workspace.
+ * Returns false for missing caller identity or any mismatch.
+ */
+function matchesOwner(
+  record: { actorId: string; workspaceId: string },
   callerActorId: string | undefined,
-): void {
-  if (!callerActorId || record.actorId !== callerActorId) {
-    throw new Error('cross-user access denied');
-  }
+  callerWorkspaceId: string | undefined,
+): boolean {
+  return (
+    callerActorId !== undefined &&
+    callerWorkspaceId !== undefined &&
+    record.actorId === callerActorId &&
+    record.workspaceId === callerWorkspaceId
+  );
+}
+
+/**
+ * Consistent not-found for missing or not-owned records (no existence leak).
+ * Throws the same error regardless of whether the id is unknown or foreign.
+ */
+function denyNotFound(kind: 'journey' | 'source'): never {
+  throw new Error(`unknown ${kind}`);
 }
 
 /** Tiny valid PNG (1x1 pixel) used as fixture page imagery. */
@@ -266,17 +283,20 @@ class ReplacementFixtureStore {
     this.journeys.clear();
   }
 
-  getSource(sourceId: string, callerActorId?: string): StoredSource | null {
+  getSource(sourceId: string, callerActorId?: string, callerWorkspaceId?: string): StoredSource | null {
     const stored = this.sources.get(sourceId);
     if (!stored) return null;
-    if (callerActorId !== undefined) assertOwner(stored, callerActorId);
+    if (callerActorId !== undefined) {
+      // Consistent not-found: missing and not-owned yield the same null.
+      if (!matchesOwner(stored, callerActorId, callerWorkspaceId)) return null;
+    }
     return stored;
   }
 
-  listSources(callerActorId?: string): StoredSource[] {
+  listSources(callerActorId?: string, callerWorkspaceId?: string): StoredSource[] {
     const all = [...this.sources.values()];
     if (callerActorId === undefined) return all;
-    return all.filter((s) => s.actorId === callerActorId);
+    return all.filter((s) => matchesOwner(s, callerActorId, callerWorkspaceId));
   }
 
   /**
@@ -327,6 +347,7 @@ class ReplacementFixtureStore {
       pages,
       staleSeeded: input.staleSeeded ?? null,
       actorId: input.actorId,
+      workspaceId: input.workspaceId,
     };
     this.sources.set(sourceId, stored);
     return stored;
@@ -339,16 +360,12 @@ class ReplacementFixtureStore {
   }): JourneyRecord {
     for (const sourceId of input.sourceIds) {
       const stored = this.sources.get(sourceId);
-      if (!stored) {
-        throw new Error('unknown source');
-      }
-      // Source ownership: deny cross-user / cross-workspace source reference.
-      // Existence alone is never proof of access.
-      if (stored.actorId !== input.actorId) {
-        throw new Error('cross-user source reference denied');
+      // Consistent not-found: missing and not-owned yield the same error.
+      if (!stored || stored.actorId !== input.actorId) {
+        denyNotFound('source');
       }
       if (stored.source.workspaceId !== input.workspaceId) {
-        throw new Error('cross-workspace source reference denied');
+        denyNotFound('source');
       }
     }
     const journeyId = randomUUID();
@@ -376,17 +393,20 @@ class ReplacementFixtureStore {
     return record;
   }
 
-  getJourney(journeyId: string, callerActorId?: string): JourneyRecord | null {
+  getJourney(journeyId: string, callerActorId?: string, callerWorkspaceId?: string): JourneyRecord | null {
     const record = this.journeys.get(journeyId);
     if (!record) return null;
-    if (callerActorId !== undefined) assertOwner(record, callerActorId);
+    if (callerActorId !== undefined) {
+      // Consistent not-found: missing and not-owned yield the same null.
+      if (!matchesOwner(record, callerActorId, callerWorkspaceId)) return null;
+    }
     return record;
   }
 
-  listJourneys(callerActorId?: string): JourneyRecord[] {
+  listJourneys(callerActorId?: string, callerWorkspaceId?: string): JourneyRecord[] {
     const all = [...this.journeys.values()];
     if (callerActorId === undefined) return all;
-    return all.filter((j) => j.actorId === callerActorId);
+    return all.filter((j) => matchesOwner(j, callerActorId, callerWorkspaceId));
   }
 
   /**
@@ -399,10 +419,11 @@ class ReplacementFixtureStore {
     action: JourneyAction;
     message?: string;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     assertKnownState(record.state);
     if (isTerminalReplacementState(record.state) && input.action !== 'complete_cancel') {
       throw new Error('journey is terminal; no replay');
@@ -441,6 +462,7 @@ class ReplacementFixtureStore {
     journeyId: string;
     expectedStateRevision: number;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.applyAction({
       journeyId: input.journeyId,
@@ -448,6 +470,7 @@ class ReplacementFixtureStore {
       action: 'land_draft',
       message: 'native fixture pipeline produced draft',
       callerActorId: input.callerActorId,
+      callerWorkspaceId: input.callerWorkspaceId,
     });
     const sources = this.resolveSources(record);
     const primary = sources[0];
@@ -489,10 +512,11 @@ class ReplacementFixtureStore {
     reason: string;
     idempotencyKey: string;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): { record: JourneyRecord; correction: CorrectionEvidence } {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (!record.model) throw new Error('no current model');
     if (record.state !== 'draft_ready' && record.state !== 'confirmed_for_scope' && record.state !== 'answer_ready') {
       throw new Error('correction requires a published draft');
@@ -565,6 +589,7 @@ class ReplacementFixtureStore {
       action: 'correct',
       message: 'correction recorded; new model revision pending',
       callerActorId: input.callerActorId,
+      callerWorkspaceId: input.callerWorkspaceId,
     });
     // Current map/answer/badge clear on this invalidation. The prior model
     // stays immutable history in correction evidence (baseVersion/baseContentHash)
@@ -589,10 +614,11 @@ class ReplacementFixtureStore {
     journeyId: string;
     expectedStateRevision: number;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     const latest = record.corrections[record.corrections.length - 1];
     if (!latest) throw new Error('no correction evidence');
     this.applyAction({
@@ -601,6 +627,7 @@ class ReplacementFixtureStore {
       action: 'land_revision',
       message: `new model revision ${latest.resultingModelVersion} landed from correction evidence`,
       callerActorId: input.callerActorId,
+      callerWorkspaceId: input.callerWorkspaceId,
     });
     const sources = this.resolveSources(record);
     const primary = sources[0];
@@ -638,10 +665,11 @@ class ReplacementFixtureStore {
     contentHash: string;
     idempotencyKey: string;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (!record.model || !record.mapView) throw new Error('no current model');
     if (
       input.version !== record.model.version ||
@@ -667,6 +695,7 @@ class ReplacementFixtureStore {
       action: 'confirm',
       message: 'confirmed for this scope/version',
       callerActorId: input.callerActorId,
+      callerWorkspaceId: input.callerWorkspaceId,
     });
     record.confirmation = {
       workflowId: input.workflowId,
@@ -688,10 +717,11 @@ class ReplacementFixtureStore {
     journeyId: string;
     expectedStateRevision: number;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (record.stateRevision !== input.expectedStateRevision) {
       throw new Error('stale state revision');
     }
@@ -718,10 +748,11 @@ class ReplacementFixtureStore {
     journeyId: string;
     expectedStateRevision: number;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (!record.confirmation?.current) throw new Error('confirmation required');
     const sources = this.resolveSources(record);
     const primary = sources[0];
@@ -732,6 +763,7 @@ class ReplacementFixtureStore {
       action: 'answer',
       message: 'connected documentary answer ready',
       callerActorId: input.callerActorId,
+      callerWorkspaceId: input.callerWorkspaceId,
     });
     record.answer = buildSyntheticAnswer(primary);
     record.updatedAt = nowIso();
@@ -749,10 +781,11 @@ class ReplacementFixtureStore {
     journeyId: string;
     expectedStateRevision: number;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (record.state === 'cancelled') {
       throw new Error('cancellation requested; in-flight attempt retained');
     }
@@ -762,6 +795,7 @@ class ReplacementFixtureStore {
       action: 'request_cancel',
       message: 'cancellation requested; in-flight attempt retained',
       callerActorId: input.callerActorId,
+      callerWorkspaceId: input.callerWorkspaceId,
     });
     for (const attempt of record.attempts) {
       if (attempt.status === 'spent') {
@@ -783,6 +817,7 @@ class ReplacementFixtureStore {
     journeyId: string;
     expectedStateRevision: number;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.applyAction({
       journeyId: input.journeyId,
@@ -790,6 +825,7 @@ class ReplacementFixtureStore {
       action: 'complete_cancel',
       message: 'cancelled; liability preserved for spent attempts; no replay',
       callerActorId: input.callerActorId,
+      callerWorkspaceId: input.callerWorkspaceId,
     });
     for (const attempt of record.attempts) {
       if (attempt.status === 'new') {
@@ -812,10 +848,10 @@ class ReplacementFixtureStore {
    * native1..N attempt visibility. Each call creates a NEW attempt. A spent
    * attempt can never be replayed or re-dispatched.
    */
-  dispatchAttempt(input: { journeyId: string; callerActorId?: string }): JourneyRecord {
+  dispatchAttempt(input: { journeyId: string; callerActorId?: string; callerWorkspaceId?: string }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (isTerminalReplacementState(record.state)) {
       throw new Error('journey is terminal; no replay');
     }
@@ -833,10 +869,10 @@ class ReplacementFixtureStore {
   }
 
   /** Mark the latest new attempt spent (paid wire retained). */
-  spendAttempt(input: { journeyId: string; attemptId: string; callerActorId?: string }): JourneyRecord {
+  spendAttempt(input: { journeyId: string; attemptId: string; callerActorId?: string; callerWorkspaceId?: string }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     const attempt = record.attempts.find((a) => a.attemptId === input.attemptId);
     if (!attempt) throw new Error('unknown attempt');
     if (attempt.status === 'spent') {
@@ -851,10 +887,10 @@ class ReplacementFixtureStore {
   }
 
   /** Replay a spent attempt must fail closed (no automatic retry). */
-  replayAttempt(input: { journeyId: string; attemptId: string; callerActorId?: string }): never {
+  replayAttempt(input: { journeyId: string; attemptId: string; callerActorId?: string; callerWorkspaceId?: string }): never {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     const attempt = record.attempts.find((a) => a.attemptId === input.attemptId);
     if (!attempt) throw new Error('unknown attempt');
     if (attempt.status === 'spent') {
@@ -873,10 +909,11 @@ class ReplacementFixtureStore {
     journeyId: string;
     expectedStateRevision: number;
     callerActorId?: string;
+    callerWorkspaceId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
-    assertOwner(record, input.callerActorId);
+    if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (record.stateRevision !== input.expectedStateRevision) {
       throw new Error('stale state revision');
     }
@@ -904,14 +941,12 @@ class ReplacementFixtureStore {
     const out: ReplacementSource[] = [];
     for (const sourceId of record.sourceIds) {
       const stored = this.sources.get(sourceId);
-      if (!stored) throw new Error('unknown source');
-      // Defense in depth: never expose another user's or another workspace's
-      // source metadata through a caller-owned journey.
-      if (stored.actorId !== record.actorId) {
-        throw new Error('cross-user source reference denied');
+      // Consistent not-found: missing and not-owned yield the same error.
+      if (!stored || stored.actorId !== record.actorId) {
+        denyNotFound('source');
       }
       if (stored.source.workspaceId !== record.workspaceId) {
-        throw new Error('cross-workspace source reference denied');
+        denyNotFound('source');
       }
       out.push(stored.source);
     }
@@ -961,14 +996,16 @@ class ReplacementFixtureStore {
    * uploaded original hashes. The stale seeded model/graph-evidence result is
    * returned separately and must never be presented as current.
    */
-  nativePipelineIdentity(sourceId: string, callerActorId?: string): {
+  nativePipelineIdentity(sourceId: string, callerActorId?: string, callerWorkspaceId?: string): {
     currentContentHash: string;
     currentPipeline: 'native-fixture-v1';
     staleSeeded: StoredSource['staleSeeded'];
   } {
     const stored = this.sources.get(sourceId);
-    if (!stored) throw new Error('unknown source');
-    if (callerActorId !== undefined) assertOwner(stored, callerActorId);
+    if (!stored) denyNotFound('source');
+    if (callerActorId !== undefined && !matchesOwner(stored, callerActorId, callerWorkspaceId)) {
+      denyNotFound('source');
+    }
     return {
       currentContentHash: sha256Hex(`native-pipeline:${stored.source.originalSha256}`),
       currentPipeline: 'native-fixture-v1',

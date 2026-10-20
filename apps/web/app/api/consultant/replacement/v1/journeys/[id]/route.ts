@@ -17,7 +17,7 @@ export async function GET(
   }
   const { id } = await context.params;
   const store = replacementFixtureStore();
-  const record = store.getJourney(id, auth.principal.actorId);
+  const record = store.getJourney(id, auth.principal.actorId, auth.principal.workspaceId);
   if (!record) {
     return NextResponse.json({ error: 'unknown journey' }, { status: 404 });
   }

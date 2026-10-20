@@ -57,6 +57,7 @@ export async function POST(
       reason: str(body.reason),
       idempotencyKey: str(body.idempotencyKey),
       callerActorId: auth.principal.actorId,
+      callerWorkspaceId: auth.principal.workspaceId,
     });
     return NextResponse.json(
       {

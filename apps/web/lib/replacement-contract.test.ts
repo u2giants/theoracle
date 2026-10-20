@@ -29,6 +29,7 @@ import {
 import { GET as listJourneys } from '../app/api/consultant/replacement/v1/journeys/route';
 import { GET as getJourney } from '../app/api/consultant/replacement/v1/journeys/[id]/route';
 import type { NextRequest } from 'next/server';
+import { lineageAuthorizes, type AppointmentRow } from './oracle2-authority';
 
 const WORKSPACE = '00000000-0000-4000-8000-0000000000f1';
 
@@ -67,13 +68,13 @@ function runToDraft(
   callerActorId: string = OWNER_A,
 ) {
   let rev = 1;
-  store.applyAction({ journeyId, expectedStateRevision: rev, action: 'advance_reading', callerActorId });
+  store.applyAction({ journeyId, expectedStateRevision: rev, action: 'advance_reading', callerActorId, callerWorkspaceId: WORKSPACE });
   rev += 1;
-  store.applyAction({ journeyId, expectedStateRevision: rev, action: 'advance_admission', callerActorId });
+  store.applyAction({ journeyId, expectedStateRevision: rev, action: 'advance_admission', callerActorId, callerWorkspaceId: WORKSPACE });
   rev += 1;
-  store.applyAction({ journeyId, expectedStateRevision: rev, action: 'advance_processing', callerActorId });
+  store.applyAction({ journeyId, expectedStateRevision: rev, action: 'advance_processing', callerActorId, callerWorkspaceId: WORKSPACE });
   rev += 1;
-  store.landDraft({ journeyId, expectedStateRevision: rev, callerActorId });
+  store.landDraft({ journeyId, expectedStateRevision: rev, callerActorId, callerWorkspaceId: WORKSPACE });
   return store.getJourney(journeyId)!;
 }
 
@@ -187,7 +188,8 @@ test('journey transitions are CAS-checked and fail closed on illegal actions', (
       store.applyAction({
         journeyId: record.journeyId,
         expectedStateRevision: 999,
-        action: 'advance_reading', callerActorId: OWNER_A
+        action: 'advance_reading', callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
       }),
     /stale state revision/,
   );
@@ -196,7 +198,8 @@ test('journey transitions are CAS-checked and fail closed on illegal actions', (
       store.applyAction({
         journeyId: record.journeyId,
         expectedStateRevision: 1,
-        action: 'confirm', callerActorId: OWNER_A
+        action: 'confirm', callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
       }),
     /illegal journey action/,
   );
@@ -222,7 +225,8 @@ test('correction creates a genuinely new revision and never edits the body', () 
     newFromId: 'step-2',
     newToId: 'step-3',
     reason: 'Record an explicit handoff owner after authorized review.',
-    idempotencyKey: 'corr-1', callerActorId: OWNER_A
+    idempotencyKey: 'corr-1', callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
   });
 
   // Immediately revision_pending; current model/map/answer/badge cleared.
@@ -243,7 +247,8 @@ test('correction creates a genuinely new revision and never edits the body', () 
   // Land the genuinely new revision: same artifact UUID, version+1.
   const landed = store.landRevision({
     journeyId: record.journeyId,
-    expectedStateRevision: result.record.stateRevision, callerActorId: OWNER_A
+    expectedStateRevision: result.record.stateRevision, callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
   });
   assert.equal(landed.state, 'draft_ready');
   assert.equal(landed.model!.version, baseVersion + 1);
@@ -263,7 +268,8 @@ test('correction creates a genuinely new revision and never edits the body', () 
     newFromId: 'step-1',
     newToId: 'step-3',
     reason: 'second correction',
-    idempotencyKey: 'corr-1', callerActorId: OWNER_A
+    idempotencyKey: 'corr-1', callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
   });
   assert.equal(replay.correction.correctionId, 'corr-1');
   assert.equal(replay.record.corrections.length, 1);
@@ -275,12 +281,13 @@ test('cancel preserves spent liability, shows cancelled, and forbids replay', ()
   const { record } = uploadAndCreate(store);
   const draft = runToDraft(store, record.journeyId);
 
-  store.dispatchAttempt({ journeyId: record.journeyId, callerActorId: OWNER_A });
-  store.spendAttempt({ journeyId: record.journeyId, attemptId: 'native1', callerActorId: OWNER_A });
+  store.dispatchAttempt({ journeyId: record.journeyId, callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE });
+  store.spendAttempt({ journeyId: record.journeyId, attemptId: 'native1', callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE });
 
   store.requestCancel({
     journeyId: record.journeyId,
-    expectedStateRevision: draft.stateRevision, callerActorId: OWNER_A
+    expectedStateRevision: draft.stateRevision, callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
   });
   let current = store.getJourney(record.journeyId)!;
   assert.equal(current.state, 'cancel_requested');
@@ -289,7 +296,8 @@ test('cancel preserves spent liability, shows cancelled, and forbids replay', ()
 
   store.completeCancel({
     journeyId: record.journeyId,
-    expectedStateRevision: current.stateRevision, callerActorId: OWNER_A
+    expectedStateRevision: current.stateRevision, callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
   });
   current = store.getJourney(record.journeyId)!;
   assert.equal(current.state, 'cancelled');
@@ -302,11 +310,11 @@ test('cancel preserves spent liability, shows cancelled, and forbids replay', ()
 
   // No replay of spent attempt; no further promotion on terminal state.
   assert.throws(
-    () => store.replayAttempt({ journeyId: record.journeyId, attemptId: 'native1', callerActorId: OWNER_A }),
+    () => store.replayAttempt({ journeyId: record.journeyId, attemptId: 'native1', callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE }),
     /no replay/,
   );
   assert.throws(
-    () => store.dispatchAttempt({ journeyId: record.journeyId, callerActorId: OWNER_A }),
+    () => store.dispatchAttempt({ journeyId: record.journeyId, callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE }),
     /terminal; no replay/,
   );
   assert.throws(
@@ -314,7 +322,8 @@ test('cancel preserves spent liability, shows cancelled, and forbids replay', ()
       store.applyAction({
         journeyId: record.journeyId,
         expectedStateRevision: current.stateRevision,
-        action: 'land_draft', callerActorId: OWNER_A
+        action: 'land_draft', callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
       }),
     /terminal; no replay/,
   );
@@ -325,9 +334,9 @@ test('native1..N attempt visibility: attempt 1 spent, attempt 2 new, never repla
   const { record } = uploadAndCreate(store);
   runToDraft(store, record.journeyId);
 
-  store.dispatchAttempt({ journeyId: record.journeyId, callerActorId: OWNER_A });
-  store.spendAttempt({ journeyId: record.journeyId, attemptId: 'native1', callerActorId: OWNER_A });
-  store.dispatchAttempt({ journeyId: record.journeyId, callerActorId: OWNER_A });
+  store.dispatchAttempt({ journeyId: record.journeyId, callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE });
+  store.spendAttempt({ journeyId: record.journeyId, attemptId: 'native1', callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE });
+  store.dispatchAttempt({ journeyId: record.journeyId, callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE });
 
   const current = store.getJourney(record.journeyId)!;
   assert.equal(current.attempts.length, 2);
@@ -339,7 +348,7 @@ test('native1..N attempt visibility: attempt 1 spent, attempt 2 new, never repla
   assert.match(current.attempts[1]!.note, /never a replay/);
   // Re-spending a spent attempt is refused.
   assert.throws(
-    () => store.spendAttempt({ journeyId: record.journeyId, attemptId: 'native1', callerActorId: OWNER_A }),
+    () => store.spendAttempt({ journeyId: record.journeyId, attemptId: 'native1', callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE }),
     /already spent; no replay/,
   );
 });
@@ -354,11 +363,13 @@ test('invalidation clears current map/answer/badge; metadata alone never yields 
     workflowId: 'wf-synthetic-intake',
     version: 1,
     contentHash: store.getJourney(record.journeyId)!.model!.contentHash,
-    idempotencyKey: 'conf-1', callerActorId: OWNER_A
+    idempotencyKey: 'conf-1', callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
   });
   store.produceAnswer({
     journeyId: record.journeyId,
-    expectedStateRevision: store.getJourney(record.journeyId)!.stateRevision, callerActorId: OWNER_A
+    expectedStateRevision: store.getJourney(record.journeyId)!.stateRevision, callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
   });
   const ready = store.getJourney(record.journeyId)!;
   assert.equal(ready.state, 'answer_ready');
@@ -368,7 +379,8 @@ test('invalidation clears current map/answer/badge; metadata alone never yields 
 
   store.invalidateCurrent({
     journeyId: record.journeyId,
-    expectedStateRevision: ready.stateRevision, callerActorId: OWNER_A
+    expectedStateRevision: ready.stateRevision, callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
   });
   const cleared = store.getJourney(record.journeyId)!;
   assert.equal(cleared.mapView, null);
@@ -417,7 +429,8 @@ test('confirmation of a stale version is refused (no carry-forward)', () => {
         workflowId: 'wf-synthetic-intake',
         version: 99,
         contentHash: 'e'.repeat(64),
-        idempotencyKey: 'conf-stale', callerActorId: OWNER_A
+        idempotencyKey: 'conf-stale', callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
       }),
     /differs from current map/,
   );
@@ -431,7 +444,8 @@ test('answer requires current confirmation; unsupported state abstains', () => {
     () =>
       store.produceAnswer({
         journeyId: record.journeyId,
-        expectedStateRevision: draft.stateRevision, callerActorId: OWNER_A
+        expectedStateRevision: draft.stateRevision, callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
       }),
     /confirmation required/,
   );
@@ -554,12 +568,12 @@ test('High 1: review-only session denied for write operations', async () => {
 
   // Review-only: cannot mutate.
   assert.throws(
-    () => store.applyAction({ journeyId: record.journeyId, expectedStateRevision: 1, action: 'advance_reading', callerActorId: reviewOnlyActor }),
-    /cross-user access denied/,
+    () => store.applyAction({ journeyId: record.journeyId, expectedStateRevision: 1, action: 'advance_reading', callerActorId: reviewOnlyActor, callerWorkspaceId: WORKSPACE }),
+    /unknown journey/,
   );
 
   // Write-scoped (owner): can mutate.
-  const advanced = store.applyAction({ journeyId: record.journeyId, expectedStateRevision: 1, action: 'advance_reading', callerActorId: OWNER_A });
+  const advanced = store.applyAction({ journeyId: record.journeyId, expectedStateRevision: 1, action: 'advance_reading', callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE });
   assert.equal(advanced.state, 'awaiting_original_reading');
 });
 
@@ -572,14 +586,14 @@ test('High 1: write scope required for mutations via access model', async () => 
 
   // User B cannot advance user A's journey.
   assert.throws(
-    () => store.applyAction({ journeyId: record.journeyId, expectedStateRevision: 1, action: 'advance_reading', callerActorId: OWNER_B }),
-    /cross-user access denied/,
+    () => store.applyAction({ journeyId: record.journeyId, expectedStateRevision: 1, action: 'advance_reading', callerActorId: OWNER_B, callerWorkspaceId: WORKSPACE }),
+    /unknown journey/,
   );
 
   // User B cannot cancel user A's journey.
   assert.throws(
-    () => store.requestCancel({ journeyId: record.journeyId, expectedStateRevision: 1, callerActorId: OWNER_B }),
-    /cross-user access denied/,
+    () => store.requestCancel({ journeyId: record.journeyId, expectedStateRevision: 1, callerActorId: OWNER_B, callerWorkspaceId: WORKSPACE }),
+    /unknown journey/,
   );
 
   // User B cannot confirm user A's journey.
@@ -592,8 +606,9 @@ test('High 1: write scope required for mutations via access model', async () => 
       contentHash: 'x',
       idempotencyKey: 'k1',
       callerActorId: OWNER_B,
+      callerWorkspaceId: WORKSPACE,
     }),
-    /cross-user access denied/,
+    /unknown journey/,
   );
 });
 
@@ -603,22 +618,19 @@ test('High 2: user A cannot read user B journey', () => {
   const { record: recordB } = uploadAndCreate(store, undefined, OWNER_B);
 
   // listJourneys filters to caller's journeys.
-  const journeysA = store.listJourneys(OWNER_A);
+  const journeysA = store.listJourneys(OWNER_A, WORKSPACE);
   assert.equal(journeysA.length, 1);
   assert.equal(journeysA[0]!.journeyId, recordA.journeyId);
 
-  const journeysB = store.listJourneys(OWNER_B);
+  const journeysB = store.listJourneys(OWNER_B, WORKSPACE);
   assert.equal(journeysB.length, 1);
   assert.equal(journeysB[0]!.journeyId, recordB.journeyId);
 
-  // getJourney with wrong owner fails.
-  assert.throws(
-    () => store.getJourney(recordA.journeyId, OWNER_B),
-    /cross-user access denied/,
-  );
+  // getJourney with wrong owner returns null (consistent not-found).
+  assert.equal(store.getJourney(recordA.journeyId, OWNER_B, WORKSPACE), null);
 
   // getJourney with correct owner works.
-  const got = store.getJourney(recordA.journeyId, OWNER_A);
+  const got = store.getJourney(recordA.journeyId, OWNER_A, WORKSPACE);
   assert.ok(got);
   assert.equal(got.journeyId, recordA.journeyId);
 });
@@ -629,20 +641,20 @@ test('High 2: user A cannot mutate user B journey', () => {
 
   // All mutation paths deny cross-user access.
   assert.throws(
-    () => store.applyAction({ journeyId: recordB.journeyId, expectedStateRevision: 1, action: 'advance_reading', callerActorId: OWNER_A }),
-    /cross-user access denied/,
+    () => store.applyAction({ journeyId: recordB.journeyId, expectedStateRevision: 1, action: 'advance_reading', callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE }),
+    /unknown journey/,
   );
   assert.throws(
-    () => store.landDraft({ journeyId: recordB.journeyId, expectedStateRevision: 1, callerActorId: OWNER_A }),
-    /cross-user access denied/,
+    () => store.landDraft({ journeyId: recordB.journeyId, expectedStateRevision: 1, callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE }),
+    /unknown journey/,
   );
   assert.throws(
-    () => store.dispatchAttempt({ journeyId: recordB.journeyId, callerActorId: OWNER_A }),
-    /cross-user access denied/,
+    () => store.dispatchAttempt({ journeyId: recordB.journeyId, callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE }),
+    /unknown journey/,
   );
   assert.throws(
-    () => store.invalidateCurrent({ journeyId: recordB.journeyId, expectedStateRevision: 1, callerActorId: OWNER_A }),
-    /cross-user access denied/,
+    () => store.invalidateCurrent({ journeyId: recordB.journeyId, expectedStateRevision: 1, callerActorId: OWNER_A, callerWorkspaceId: WORKSPACE }),
+    /unknown journey/,
   );
 });
 
@@ -650,21 +662,18 @@ test('High 2: cross-user source access denied', () => {
   const store = seedJourney();
   const { stored } = uploadAndCreate(store, undefined, OWNER_A);
 
-  // User B cannot read user A's source.
-  assert.throws(
-    () => store.getSource(stored.source.sourceId, OWNER_B),
-    /cross-user access denied/,
-  );
+  // User B cannot read user A's source (returns null — consistent not-found).
+  assert.equal(store.getSource(stored.source.sourceId, OWNER_B, WORKSPACE), null);
 
   // User A can read their own source.
-  const got = store.getSource(stored.source.sourceId, OWNER_A);
+  const got = store.getSource(stored.source.sourceId, OWNER_A, WORKSPACE);
   assert.ok(got);
   assert.equal(got.source.sourceId, stored.source.sourceId);
 
   // listSources filters by owner.
-  const sourcesA = store.listSources(OWNER_A);
+  const sourcesA = store.listSources(OWNER_A, WORKSPACE);
   assert.equal(sourcesA.length, 1);
-  const sourcesB = store.listSources(OWNER_B);
+  const sourcesB = store.listSources(OWNER_B, WORKSPACE);
   assert.equal(sourcesB.length, 0);
 });
 
@@ -773,7 +782,7 @@ test('Medium r3: user A journey cannot surface user B source metadata even if th
         actorId: OWNER_A,
         sourceIds: [storedB.source.sourceId],
       }),
-    /cross-user source reference denied/,
+    /unknown source/,
   );
 
   // User B cannot smuggle user A's source into their own journey either.
@@ -791,7 +800,7 @@ test('Medium r3: user A journey cannot surface user B source metadata even if th
         actorId: OWNER_B,
         sourceIds: [storedA.source.sourceId],
       }),
-    /cross-user source reference denied/,
+    /unknown source/,
   );
 
   // Mixed populations that include a foreign source are denied.
@@ -809,7 +818,7 @@ test('Medium r3: user A journey cannot surface user B source metadata even if th
         actorId: OWNER_A,
         sourceIds: [storedA.source.sourceId, storedB2.source.sourceId],
       }),
-    /cross-user source reference denied/,
+    /unknown source/,
   );
 });
 
@@ -833,7 +842,7 @@ test('Medium r3: cross-workspace source reference is denied', () => {
         actorId: OWNER_A,
         sourceIds: [storedOther.source.sourceId],
       }),
-    /cross-workspace source reference denied/,
+    /unknown source/,
   );
 });
 
@@ -868,6 +877,280 @@ test('Medium r3: resolveSources refuses to surface foreign source metadata', () 
   };
   assert.throws(
     () => store.resolveSources(tampered),
-    /cross-user source reference denied/,
+    /unknown source/,
+  );
+});
+
+// --- R8 round-4 security denied-case tests --------------------------------
+
+test('Medium r4: forged / unrelated-root authority chain is denied', () => {
+  const WS = '00000000-0000-4000-8000-0000000000f1';
+  const owner = '00000000-0000-4000-8000-0000000000a1';
+  const attacker = '00000000-0000-4000-8000-0000000000e1';
+  const rootId = '00000000-0000-4000-8000-0000000000r1';
+  const forgedId = '00000000-0000-4000-8000-0000000000c1';
+  const unrelatedRootId = '00000000-0000-4000-8000-0000000000r2';
+
+  // Legitimate root for the owner.
+  const root: AppointmentRow = {
+    appointment_id: rootId,
+    workspace_id: WS,
+    actor_id: owner,
+    scope: 'root',
+    granted_by: '00000000-0000-4000-8000-0000000000bb',
+    parent_id: null,
+    revoked_at: null,
+    expires_at: null,
+  };
+
+  // Forged grant: attacker points parent_id at the owner's root but the
+  // issuer link is wrong (granted_by is NOT the root's actor).
+  const forged: AppointmentRow = {
+    appointment_id: forgedId,
+    workspace_id: WS,
+    actor_id: attacker,
+    scope: 'confirm',
+    granted_by: '00000000-0000-4000-8000-0000000000ff',
+    parent_id: rootId,
+    revoked_at: null,
+    expires_at: null,
+  };
+
+  // An unrelated root must not confer access.
+  const unrelatedRoot: AppointmentRow = {
+    appointment_id: unrelatedRootId,
+    workspace_id: WS,
+    actor_id: '00000000-0000-4000-8000-0000000000x9',
+    scope: 'root',
+    granted_by: '00000000-0000-4000-8000-0000000000bb',
+    parent_id: null,
+    revoked_at: null,
+    expires_at: null,
+  };
+
+  // Forged grant pointing at an unrelated root.
+  const forgedUnrelated: AppointmentRow = {
+    appointment_id: '00000000-0000-4000-8000-0000000000c2',
+    workspace_id: WS,
+    actor_id: attacker,
+    scope: 'confirm',
+    granted_by: '00000000-0000-4000-8000-0000000000ff',
+    parent_id: unrelatedRootId,
+    revoked_at: null,
+    expires_at: null,
+  };
+
+  // Forged chain: parent_id points at a root but issuer link is broken.
+  assert.equal(
+    lineageAuthorizes([root, forged], attacker, 'confirm', WS),
+    false,
+    'forged chain with broken issuer link must be denied',
+  );
+
+  // Forged chain pointing at an unrelated root.
+  assert.equal(
+    lineageAuthorizes([unrelatedRoot, forgedUnrelated], attacker, 'confirm', WS),
+    false,
+    'chain through an unrelated root must be denied',
+  );
+
+  // A grant whose granted_by does not match the claimed parent is denied
+  // even when the parent root exists and is live.
+  const forgedNoRoot: AppointmentRow = {
+    appointment_id: '00000000-0000-4000-8000-0000000000c3',
+    workspace_id: WS,
+    actor_id: attacker,
+    scope: 'review',
+    granted_by: owner, // pretends the owner issued it
+    parent_id: rootId,
+    revoked_at: null,
+    expires_at: null,
+  };
+  // Wait — granted_by = owner and parent root has actor_id = owner, so the
+  // issuer link matches. This must be ALLOWED (it is a correct chain shape).
+  assert.equal(
+    lineageAuthorizes([root, forgedNoRoot], attacker, 'review', WS),
+    true,
+    'correct issuer-linked chain proves authority',
+  );
+
+  // The attacker alone (no root) has no authority.
+  assert.equal(lineageAuthorizes([forged], attacker, 'confirm', WS), false);
+
+  // Correct delegated chain: owner root -> mid grant -> leaf grant.
+  const mid: AppointmentRow = {
+    appointment_id: '00000000-0000-4000-8000-0000000000m1',
+    workspace_id: WS,
+    actor_id: '00000000-0000-4000-8000-0000000000b2',
+    scope: 'review',
+    granted_by: owner,
+    parent_id: rootId,
+    revoked_at: null,
+    expires_at: null,
+  };
+  const leaf: AppointmentRow = {
+    appointment_id: '00000000-0000-4000-8000-0000000000l1',
+    workspace_id: WS,
+    actor_id: attacker,
+    scope: 'review',
+    granted_by: mid.actor_id,
+    parent_id: mid.appointment_id,
+    revoked_at: null,
+    expires_at: null,
+  };
+  assert.equal(
+    lineageAuthorizes([root, mid, leaf], attacker, 'review', WS),
+    true,
+    'valid multi-step issuer-linked chain proves authority',
+  );
+
+  // Break the issuer link on the leaf: denied.
+  const badLeaf: AppointmentRow = { ...leaf, granted_by: owner };
+  assert.equal(
+    lineageAuthorizes([root, mid, badLeaf], attacker, 'review', WS),
+    false,
+    'broken issuer link in multi-step chain is denied',
+  );
+
+  // Revoked mid invalidates the leaf even with a correct issuer link.
+  const revokedMid: AppointmentRow = { ...mid, revoked_at: new Date().toISOString() };
+  assert.equal(
+    lineageAuthorizes([root, revokedMid, leaf], attacker, 'review', WS),
+    false,
+    'revoked parent invalidates child chain',
+  );
+});
+
+test('Medium r4: same actor cannot access records across workspaces', () => {
+  const store = seedJourney();
+  const WS_B = '00000000-0000-4000-8000-0000000000aa';
+
+  // Register a source and journey in WORKSPACE for OWNER_A.
+  const { stored, record } = uploadAndCreate(store);
+
+  // Same actor in a different workspace cannot read the source.
+  assert.equal(store.getSource(stored.source.sourceId, OWNER_A, WS_B), null);
+
+  // Same actor in a different workspace cannot read the journey.
+  assert.equal(store.getJourney(record.journeyId, OWNER_A, WS_B), null);
+
+  // listJourneys / listSources filter by workspace too.
+  assert.equal(store.listJourneys(OWNER_A, WS_B).length, 0);
+  assert.equal(store.listSources(OWNER_A, WS_B).length, 0);
+
+  // Same actor in the correct workspace CAN read.
+  assert.ok(store.getSource(stored.source.sourceId, OWNER_A, WORKSPACE));
+  assert.ok(store.getJourney(record.journeyId, OWNER_A, WORKSPACE));
+
+  // Same actor in a different workspace cannot mutate the journey.
+  assert.throws(
+    () => store.applyAction({
+      journeyId: record.journeyId,
+      expectedStateRevision: 1,
+      action: 'advance_reading',
+      callerActorId: OWNER_A,
+      callerWorkspaceId: WS_B,
+    }),
+    /unknown journey/,
+  );
+  assert.throws(
+    () => store.landDraft({
+      journeyId: record.journeyId,
+      expectedStateRevision: 1,
+      callerActorId: OWNER_A,
+      callerWorkspaceId: WS_B,
+    }),
+    /unknown journey/,
+  );
+  assert.throws(
+    () => store.dispatchAttempt({
+      journeyId: record.journeyId,
+      callerActorId: OWNER_A,
+      callerWorkspaceId: WS_B,
+    }),
+    /unknown journey/,
+  );
+
+  // A journey created in a different workspace is invisible to this workspace.
+  const storedOther = store.registerSource({
+    workspaceId: WS_B,
+    actorId: OWNER_A,
+    filename: 'other-ws.txt',
+    contentType: 'text/plain',
+    bytes: Buffer.from('other workspace original'),
+  });
+  const recordOther = store.createJourney({
+    workspaceId: WS_B,
+    actorId: OWNER_A,
+    sourceIds: [storedOther.source.sourceId],
+  });
+  // Same actor, wrong workspace: not visible.
+  assert.equal(store.getJourney(recordOther.journeyId, OWNER_A, WORKSPACE), null);
+  assert.ok(store.getJourney(recordOther.journeyId, OWNER_A, WS_B));
+});
+
+test('Low r4: foreign ID and unknown ID yield the same response (no existence leak)', () => {
+  const store = seedJourney();
+  const { record: recordA } = uploadAndCreate(store, undefined, OWNER_A);
+  const { record: recordB } = uploadAndCreate(store, undefined, OWNER_B);
+
+  // Unknown ID: getJourney returns null.
+  const unknown = store.getJourney('00000000-0000-4000-8000-0000000000zz', OWNER_A, WORKSPACE);
+  assert.equal(unknown, null);
+
+  // Foreign ID (exists but owned by someone else): also null — same response.
+  const foreign = store.getJourney(recordB.journeyId, OWNER_A, WORKSPACE);
+  assert.equal(foreign, null);
+
+  // Both are indistinguishable to the caller.
+  assert.equal(unknown, foreign);
+
+  // Same for sources.
+  const storedB = store.registerSource({
+    workspaceId: WORKSPACE,
+    actorId: OWNER_B,
+    filename: 'b.txt',
+    contentType: 'text/plain',
+    bytes: Buffer.from('user B original'),
+  });
+  assert.equal(
+    store.getSource('00000000-0000-4000-8000-0000000000zz', OWNER_A, WORKSPACE),
+    null,
+  );
+  assert.equal(
+    store.getSource(storedB.source.sourceId, OWNER_A, WORKSPACE),
+    null,
+  );
+
+  // Mutations: unknown and foreign journey produce the same error.
+  assert.throws(
+    () => store.applyAction({
+      journeyId: '00000000-0000-4000-8000-0000000000zz',
+      expectedStateRevision: 1,
+      action: 'advance_reading',
+      callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
+    }),
+    /unknown journey/,
+  );
+  assert.throws(
+    () => store.applyAction({
+      journeyId: recordB.journeyId,
+      expectedStateRevision: 1,
+      action: 'advance_reading',
+      callerActorId: OWNER_A,
+      callerWorkspaceId: WORKSPACE,
+    }),
+    /unknown journey/,
+  );
+
+  // Same for nativePipelineIdentity.
+  assert.throws(
+    () => store.nativePipelineIdentity('00000000-0000-4000-8000-0000000000zz', OWNER_A, WORKSPACE),
+    /unknown source/,
+  );
+  assert.throws(
+    () => store.nativePipelineIdentity(storedB.source.sourceId, OWNER_A, WORKSPACE),
+    /unknown source/,
   );
 });

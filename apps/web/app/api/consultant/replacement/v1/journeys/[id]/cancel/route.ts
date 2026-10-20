@@ -29,16 +29,16 @@ export async function POST(
       return NextResponse.json({ error: 'expectedStateRevision required' }, { status: 400 });
     }
     const store = replacementFixtureStore();
-    const record = store.getJourney(id, auth.principal.actorId);
+    const record = store.getJourney(id, auth.principal.actorId, auth.principal.workspaceId);
     if (!record) {
       return NextResponse.json({ error: 'unknown journey' }, { status: 404 });
     }
     if (record.state === 'cancel_requested') {
-      store.completeCancel({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
+      store.completeCancel({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId, callerWorkspaceId: auth.principal.workspaceId });
     } else {
-      store.requestCancel({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
+      store.requestCancel({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId, callerWorkspaceId: auth.principal.workspaceId });
     }
-    const updated = store.getJourney(id, auth.principal.actorId);
+    const updated = store.getJourney(id, auth.principal.actorId, auth.principal.workspaceId);
     if (!updated) throw new Error('journey disappeared');
     return NextResponse.json({
       ...store.validatedSnapshot(updated),

@@ -47,25 +47,26 @@ export async function POST(
       return NextResponse.json({ error: 'expectedStateRevision required' }, { status: 400 });
     }
     const store = replacementFixtureStore();
-    const record = store.getJourney(id, auth.principal.actorId);
+    const record = store.getJourney(id, auth.principal.actorId, auth.principal.workspaceId);
     if (!record) {
       return NextResponse.json({ error: 'unknown journey' }, { status: 404 });
     }
     if (action === 'land_draft') {
-      store.landDraft({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
+      store.landDraft({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId, callerWorkspaceId: auth.principal.workspaceId });
     } else if (action === 'land_revision') {
-      store.landRevision({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
+      store.landRevision({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId, callerWorkspaceId: auth.principal.workspaceId });
     } else if (action === 'invalidate') {
-      store.invalidateCurrent({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
+      store.invalidateCurrent({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId, callerWorkspaceId: auth.principal.workspaceId });
     } else {
       store.applyAction({
         journeyId: id,
         expectedStateRevision,
         action: action as JourneyAction,
         callerActorId: auth.principal.actorId,
+      callerWorkspaceId: auth.principal.workspaceId,
       });
     }
-    const updated = store.getJourney(id, auth.principal.actorId);
+    const updated = store.getJourney(id, auth.principal.actorId, auth.principal.workspaceId);
     if (!updated) throw new Error('journey disappeared');
     return NextResponse.json(store.validatedSnapshot(updated));
   } catch (error) {

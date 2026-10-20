@@ -47,6 +47,7 @@ export async function POST(
       contentHash: str(body.contentHash),
       idempotencyKey: str(body.idempotencyKey),
       callerActorId: auth.principal.actorId,
+      callerWorkspaceId: auth.principal.workspaceId,
     });
     return NextResponse.json(store.validatedSnapshot(record));
   } catch (error) {
@@ -82,6 +83,7 @@ export async function DELETE(
       journeyId: id,
       expectedStateRevision: expected,
       callerActorId: auth.principal.actorId,
+      callerWorkspaceId: auth.principal.workspaceId,
     });
     return NextResponse.json(store.validatedSnapshot(record));
   } catch (error) {

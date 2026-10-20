@@ -49,6 +49,6 @@ export async function GET(req: NextRequest) {
   }
   const store = replacementFixtureStore();
   return NextResponse.json({
-    journeys: store.listJourneys(auth.principal.actorId).map((j) => store.validatedSnapshot(j)),
+    journeys: store.listJourneys(auth.principal.actorId, auth.principal.workspaceId).map((j) => store.validatedSnapshot(j)),
   });
 }
