@@ -7,6 +7,7 @@ prior receipt and must not produce a second provider call.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Optional
 from weakref import WeakSet
@@ -18,6 +19,9 @@ RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
 # authorized act. A role name is never believed on its own — the caller must
 # present a sealed SenderAuthority capability.
 AUTHORIZED_SENDER_ROLES = frozenset({'delivery_sender', 'oracle_sender'})
+# Purpose pin on sender credentials, matching the appointment/admission
+# records used by processing authority proofs and original intake.
+SENDER_CREDENTIAL_PURPOSE = 'meeting-delivery-sender'
 
 class SenderAuthority:
     """Capability proving the holder is an authorized delivery sender.
@@ -32,15 +36,65 @@ class SenderAuthority:
         raise PermissionError('sender authority cannot be forged')
 
 
-def _install_sealed_authority_api():
-    """Create the mint path with closure-local secret and registry.
+class SenderPrincipal:
+    """Verified principal credential for an authenticated delivery sender.
 
-    The mint secret and minted-instance registry are locals of this factory,
-    captured only inside the returned callables. Neither is a module
+    Instances exist only via ``verify_sender_principal``. Direct construction
+    is refused, and a look-alike built with ``object.__new__`` is denied at
+    the use site because it is not in the sealed verified-principal registry.
+    """
+    __slots__ = ('_principal_id', '_role', '_expires_at', '__weakref__')
+
+    def __init__(self, *args, **kwargs) -> None:
+        raise PermissionError('sender principal cannot be forged')
+
+    @property
+    def principal_id(self) -> str:
+        return self._principal_id
+
+    @property
+    def role(self) -> str:
+        return self._role
+
+    @property
+    def expires_at(self) -> datetime:
+        return self._expires_at
+
+
+@dataclass(frozen=True)
+class SenderCredentialProof:
+    """Credential material presented by the authz/authority layer.
+
+    Same admission shape as processing authority proofs and original-intake
+    appointments: principal identity, expected role, and a finite validity
+    window. Holding this record is not authority; it is input to
+    ``verify_sender_principal`` only.
+    """
+    principal_id: str
+    role: str
+    expires_at: datetime
+    purpose: str = SENDER_CREDENTIAL_PURPOSE
+
+    def __post_init__(self) -> None:
+        if not self.principal_id or not self.role:
+            raise ValueError('sender credential identity and role required')
+        if (not isinstance(self.expires_at, datetime)
+                or self.expires_at.tzinfo is None
+                or self.expires_at.utcoffset() is None):
+            raise ValueError('sender credential expiry must be timezone-aware')
+
+
+def _install_sealed_authority_api():
+    """Create the mint path with closure-local secrets and registries.
+
+    The mint secret, principal secret and both registries are locals of this
+    factory, captured only inside the returned callables. None is a module
     attribute, so no import or getattr can reach a mint credential.
     """
     mint_secret = object()
     minted: WeakSet = WeakSet()
+    principal_secret = object()
+    verified: WeakSet = WeakSet()
 
     def _mint(role: str, secret: object) -> SenderAuthority:
         if secret is not mint_secret:
@@ -50,15 +104,54 @@ def _install_sealed_authority_api():
         minted.add(authority)
         return authority
 
-    def issue_sender_authority(role: str) -> SenderAuthority:
-        """Sealed authorizer: mint a sender capability for an authenticated principal.
+    def _mint_principal(proof: SenderCredentialProof,
+                        secret: object) -> SenderPrincipal:
+        if secret is not principal_secret:
+            raise PermissionError('sender principal cannot be forged')
+        principal = object.__new__(SenderPrincipal)
+        principal._principal_id = proof.principal_id
+        principal._role = proof.role
+        principal._expires_at = proof.expires_at
+        verified.add(principal)
+        return principal
 
-        Call only after the principal's credential has been proven. The mint
-        secret lives only in this closure and is never a parameter; a bare
-        role claim is never accepted.
+    def verify_sender_principal(proof) -> SenderPrincipal:
+        """Authz boundary: verify credential material, mint a sealed principal.
+
+        ``proof`` must be a real ``SenderCredentialProof`` (appointment-shaped
+        identity + role + validity window). A bare role string, a look-alike,
+        or a credential for another purpose is refused. Expiry is enforced
+        again at capability mint time.
         """
+        if not isinstance(proof, SenderCredentialProof):
+            raise PermissionError('sender credential proof required')
+        if proof.purpose != SENDER_CREDENTIAL_PURPOSE:
+            raise PermissionError('sender credential purpose mismatch')
+        if proof.role not in AUTHORIZED_SENDER_ROLES:
+            raise PermissionError('sender role not authorized')
+        return _mint_principal(proof, principal_secret)
+
+    def issue_sender_authority(role: str, principal=None,
+                               *, now: Optional[datetime] = None) -> SenderAuthority:
+        """Sealed authorizer: mint a sender capability for a verified principal.
+
+        Requires a sealed ``SenderPrincipal`` whose role matches and whose
+        validity window is still open. Missing credentials, bare role strings,
+        forged principals, expired principals, and role mismatches are all
+        refused. The mint secret lives only in this closure and is never a
+        parameter.
+        """
+        if not isinstance(principal, SenderPrincipal) or principal not in verified:
+            raise PermissionError('verified sender principal required')
         if role not in AUTHORIZED_SENDER_ROLES:
             raise PermissionError('sender role not authorized')
+        if principal.role != role:
+            raise PermissionError('sender principal role mismatch')
+        at = now or datetime.now(timezone.utc)
+        if at.tzinfo is None or at.utcoffset() is None:
+            raise ValueError('mint time must be timezone-aware')
+        if principal.expires_at <= at:
+            raise PermissionError('sender principal expired')
         return _mint(role, mint_secret)
 
     def require_proven_sender(sender) -> SenderAuthority:
@@ -70,10 +163,11 @@ def _install_sealed_authority_api():
             raise PermissionError('sender authority required to mark delivery')
         return sender
 
-    return issue_sender_authority, require_proven_sender
+    return verify_sender_principal, issue_sender_authority, require_proven_sender
 
 
-issue_sender_authority, _require_proven_sender = _install_sealed_authority_api()
+verify_sender_principal, issue_sender_authority, _require_proven_sender = (
+    _install_sealed_authority_api())
 
 
 def _deny_role_claim(sender_role: str) -> None:

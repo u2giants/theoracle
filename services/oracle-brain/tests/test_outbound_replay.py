@@ -20,21 +20,37 @@ if _spec is None:
     )
 
 """Outbound never auto-sends; provider idempotency makes replay safe. No meeting joined."""
+from datetime import datetime, timezone
+
 import pytest
 
 from oracle_brain.meetings.delivery import (
-    DeliveryLedger, SenderAuthority, create_intent, issue_sender_authority,
-    provider_idempotency_key,
+    DeliveryLedger, SenderAuthority, SenderCredentialProof, SenderPrincipal,
+    create_intent, issue_sender_authority, provider_idempotency_key,
+    verify_sender_principal,
 )
 from oracle_brain.meetings.participation import record_settings
 from oracle_brain.workflows.meeting_turn import (
     InboundTurn, MembershipView, evaluate_turn,
 )
 
+# Far-future expiry for legitimate fixture credentials.
+_FUTURE = datetime(2030, 1, 1, tzinfo=timezone.utc)
+_PAST = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
-def _sender():
+
+def _credential(*, role='delivery_sender', expires_at=None, principal_id='principal-1'):
+    """Real verified principal fixture from the authz credential boundary."""
+    proof = SenderCredentialProof(
+        principal_id=principal_id, role=role,
+        expires_at=expires_at if expires_at is not None else _FUTURE)
+    return verify_sender_principal(proof)
+
+
+def _sender(role='delivery_sender', principal=None):
     """Stand in for the authenticated delivery boundary allowed to mint."""
-    return issue_sender_authority('delivery_sender')
+    return issue_sender_authority(
+        role, principal if principal is not None else _credential(role=role))
 
 
 def _intent(**kw):
@@ -225,12 +241,12 @@ def test_unauthorized_mark_failed_denied():
 
 
 def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
-    """No importable mint credential; object.__new__ look-alikes are denied."""
+    """No importable mint credential; look-alikes and unverified claims are denied."""
     import oracle_brain.meetings.delivery as delivery_mod
 
     # A mint secret must not be reachable as any module attribute.
     for name in ('_MINT_TOKEN', 'MINT_TOKEN', '_mint_token', 'mint_token',
-                 '_MINTED', 'minted'):
+                 '_MINTED', 'minted', '_VERIFIED', 'verified'):
         try:
             getattr(delivery_mod, name)
         except AttributeError:
@@ -252,6 +268,71 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
         pass
     else:
         raise AssertionError('issue_sender_authority must not accept a mint token')
+    # Bare role string, with or without a role-as-credential: denied.
+    try:
+        issue_sender_authority('delivery_sender')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('bare role string mint must be denied')
+    try:
+        issue_sender_authority('delivery_sender', 'delivery_sender')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('role string is not a verified credential')
+    # Forged/absent credential material at the authz boundary: denied.
+    for bad in (None, 'delivery_sender', {'role': 'delivery_sender'},
+                object.__new__(SenderPrincipal)):
+        try:
+            verify_sender_principal(bad)
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError('forged sender credential proof must be denied')
+    try:
+        verify_sender_principal(SenderCredentialProof(
+            principal_id='p-1', role='not_a_sender', expires_at=_FUTURE))
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('unauthorized role credential must be denied')
+    # Forged principal (direct construction is sealed): denied.
+    try:
+        SenderPrincipal()
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('SenderPrincipal direct construction must be denied')
+    forged_principal = object.__new__(SenderPrincipal)
+    forged_principal._principal_id = 'principal-1'
+    forged_principal._role = 'delivery_sender'
+    forged_principal._expires_at = _FUTURE
+    try:
+        issue_sender_authority('delivery_sender', forged_principal)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('forged sender principal must not mint authority')
+    # Expired verified credential: denied at mint.
+    try:
+        issue_sender_authority(
+            'delivery_sender', _credential(expires_at=_PAST))
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('expired sender principal must not mint authority')
+    # Credential for a different role cannot mint this role.
+    try:
+        issue_sender_authority(
+            'oracle_sender', _credential(role='delivery_sender'))
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('sender principal role mismatch must be denied')
+    # Legitimate verified credential fixture still mints.
+    proven = _sender()
+    assert isinstance(proven, SenderAuthority)
 
     ledger = DeliveryLedger()
     intent = _intent()
