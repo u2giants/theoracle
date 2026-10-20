@@ -5,9 +5,19 @@ from uuid import uuid4
 import pytest
 from PIL import Image,ImageDraw
 from oracle_brain.ingest.originals import _views
-from oracle_brain.hosting.raw_original_views_v1 import (render_raw_pdf_views_v1,raw_pdf_view_policy_hash_v1,
-    raw_pdf_multimodal_messages_v1,verify_raw_pdf_multimodal_messages_v1)
 from oracle_brain.operating_model.original_qualification_v1 import RawOriginalRefV1
+
+# oracle_brain.hosting pulls in Unix-only fcntl via custody; skip on Windows.
+try:
+    from oracle_brain.hosting.raw_original_views_v1 import (render_raw_pdf_views_v1,raw_pdf_view_policy_hash_v1,
+        raw_pdf_multimodal_messages_v1,verify_raw_pdf_multimodal_messages_v1)
+    HOSTING_IMPORT_ERROR = None
+except Exception as exc:  # pragma: no cover - platform import guard
+    HOSTING_IMPORT_ERROR = exc
+
+requires_hosting = pytest.mark.skipif(
+    HOSTING_IMPORT_ERROR is not None,
+    reason=f"Windows-blocked: oracle_brain.hosting requires fcntl ({HOSTING_IMPORT_ERROR})")
 
 def pdf_fixture(*,oversized=False):
     import pypdfium2 as pdfium
@@ -23,6 +33,7 @@ def pdf_fixture(*,oversized=False):
         filename='invented-workflow.pdf',custody_locator_seal_sha256='a'*64)
     return raw,ref
 
+@requires_hosting
 def test_actual_pdf_all_views_and_genuine_image_parts_match_legacy_default_bytes():
     data,ref=pdf_fixture();rendered=render_raw_pdf_views_v1(data,ref,expected_view_policy_hash=raw_pdf_view_policy_hash_v1())
     legacy,native=_views(data,'application/pdf')
@@ -37,6 +48,7 @@ def test_actual_pdf_all_views_and_genuine_image_parts_match_legacy_default_bytes
     assert verify_raw_pdf_multimodal_messages_v1(rendered,'Fixed invented reading task',messages)==messages
 
 @pytest.mark.parametrize('damage',['last-view','remote-url','text-base64','png','detail','role'])
+@requires_hosting
 def test_closed_complete_image_parts_reject_omission_or_substitution(damage):
     data,ref=pdf_fixture();rendered=render_raw_pdf_views_v1(data,ref,expected_view_policy_hash=raw_pdf_view_policy_hash_v1())
     messages=raw_pdf_multimodal_messages_v1(rendered,'Fixed task');bad=copy.deepcopy(messages)
@@ -48,6 +60,7 @@ def test_closed_complete_image_parts_reject_omission_or_substitution(damage):
     else:bad[0]['role']='tool'
     with pytest.raises(PermissionError,match='complete PNG'):verify_raw_pdf_multimodal_messages_v1(rendered,'Fixed task',bad)
 
+@requires_hosting
 def test_new_raw_pdf_refuses_actual_oversized_embedded_artwork_without_legacy_change():
     data,ref=pdf_fixture(oversized=True)
     # Existing opt-out path remains its historical behavior; new fixed raw path
@@ -57,6 +70,7 @@ def test_new_raw_pdf_refuses_actual_oversized_embedded_artwork_without_legacy_ch
     with pytest.raises(ValueError,match='native PDF artwork exceeds unchanged 4000px'):
         render_raw_pdf_views_v1(data,ref,expected_view_policy_hash=raw_pdf_view_policy_hash_v1())
 
+@requires_hosting
 def test_raw_original_hash_and_policy_must_match_before_render(monkeypatch):
     data,ref=pdf_fixture()
     def forbidden(*args,**kwargs):raise AssertionError('render before byte/policy binding')

@@ -1017,3 +1017,103 @@ REVOKE ALL ON FUNCTION oracle2.withdraw_original_revision_v1(uuid,integer,jsonb,
  oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
  oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer;
 GRANT EXECUTE ON FUNCTION oracle2.withdraw_original_revision_v1(uuid,integer,jsonb,uuid) TO oracle2_replacement_requester;
+
+-- Independently authorized late finalize: INSERT ONCE converts a qualified raw
+-- reading into its first SourceRef. No SourceRef exists before this row. A
+-- second finalize of the same (workspace,source,revision) is denied. Reader and
+-- reviewer commits must already exist, name one revision, and be issued by
+-- distinct principals/models/phases.
+CREATE OR REPLACE FUNCTION oracle2.finalize_original_reading_qualification_v1(
+ reading_commit_hash text,review_commit_hash text,reading_text text)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE reading oracle2.original_phase_response_commits%ROWTYPE;
+ review oracle2.original_phase_response_commits%ROWTYPE;
+ original oracle2.source_original_revisions%ROWTYPE;
+ identity jsonb;qualified oracle2.source_reading_qualifications%ROWTYPE;
+ reading_hash text;parser_id text;until_at timestamptz;
+BEGIN
+ IF reading_commit_hash IS NULL OR review_commit_hash IS NULL
+ OR reading_commit_hash !~ '^[0-9a-f]{64}$' OR review_commit_hash !~ '^[0-9a-f]{64}$' THEN
+  RAISE invalid_parameter_value USING MESSAGE='exact reading and review commit seals required';
+ END IF;
+ SELECT * INTO reading FROM oracle2.original_phase_response_commits
+  WHERE commit_sha256=reading_commit_hash AND purpose='source-original-reading' FOR SHARE;
+ SELECT * INTO review FROM oracle2.original_phase_response_commits
+  WHERE commit_sha256=review_commit_hash AND purpose='source-original-review' FOR SHARE;
+ IF reading.commit_sha256 IS NULL OR review.commit_sha256 IS NULL THEN
+  RAISE insufficient_privilege USING MESSAGE='complete reading and review response commits required';
+ END IF;
+ IF (reading.workspace_id,reading.source_id,reading.revision) IS DISTINCT FROM
+    (review.workspace_id,review.source_id,review.revision) THEN
+  RAISE insufficient_privilege USING MESSAGE='reading and review commits must name one original revision';
+ END IF;
+ IF reading.principal_id=review.principal_id OR reading.session_role=review.session_role THEN
+  RAISE insufficient_privilege USING MESSAGE='late distinct reviewer required';
+ END IF;
+ IF review.body->>'reading_commit_hash' IS DISTINCT FROM reading_commit_hash THEN
+  RAISE insufficient_privilege USING MESSAGE='genuine independent historical original reading commit required';
+ END IF;
+ IF reading.body->>'reading_sha256' IS DISTINCT FROM review.body->>'reading_sha256'
+ OR reading.body->>'parser_id' IS DISTINCT FROM review.body->>'parser_id'
+ OR reading.body->>'view_manifest_hash' IS DISTINCT FROM review.body->>'view_manifest_hash'
+ OR reading.body->>'locator_map_hash' IS DISTINCT FROM review.body->>'locator_map_hash'
+ OR reading.original_sha256 IS DISTINCT FROM review.original_sha256 THEN
+  RAISE insufficient_privilege USING MESSAGE='reading and review custody seals must agree';
+ END IF;
+ SELECT * INTO original FROM oracle2.source_original_revisions
+  WHERE workspace_id=reading.workspace_id AND source_id=reading.source_id AND revision=reading.revision FOR SHARE;
+ IF original.source_id IS NULL OR original.original_sha256 IS DISTINCT FROM reading.original_sha256 THEN
+  RAISE insufficient_privilege USING MESSAGE='exact immutable original revision required';
+ END IF;
+ identity:=oracle2._original_revision_access(reading.source_id,reading.revision,'oracle2_source_original_reviewer');
+ IF (identity->>'workspace_id')::uuid IS DISTINCT FROM reading.workspace_id
+ OR (identity->>'principal_id')::uuid IS DISTINCT FROM review.principal_id THEN
+  RAISE insufficient_privilege USING MESSAGE='current independent late reviewer authority required';
+ END IF;
+ reading_hash:=reading.body->>'reading_sha256';
+ parser_id:=reading.body->>'parser_id';
+ IF parser_id IS NULL OR length(parser_id) NOT BETWEEN 1 AND 255 THEN
+  RAISE invalid_parameter_value USING MESSAGE='exact qualified parser identity required';
+ END IF;
+ SELECT * INTO qualified FROM oracle2.source_reading_qualifications
+  WHERE workspace_id=reading.workspace_id AND source_id=reading.source_id AND revision=reading.revision FOR UPDATE;
+ IF qualified.source_id IS NOT NULL THEN
+  RAISE unique_violation USING MESSAGE='source reading qualification already finalized';
+ END IF;
+ INSERT INTO oracle2.source_reading_qualifications(workspace_id,source_id,revision,original_sha256,
+  reading_sha256,parser_id,view_manifest_sha256,locator_map_sha256,
+  reader_native_commit_sha256,reviewer_native_commit_sha256,reader_principal_id,reviewer_principal_id)
+ VALUES(reading.workspace_id,reading.source_id,reading.revision,reading.original_sha256,
+  reading_hash,parser_id,(reading.body->>'view_manifest_hash')::text,(reading.body->>'locator_map_hash')::text,
+  reading_commit_hash,review_commit_hash,reading.principal_id,review.principal_id);
+ -- Materialize the immutable source receipt so replacement_source_head_v1 can
+ -- build the first SourceRef. Conflicting existing receipts are denied.
+ IF reading_text IS NOT NULL AND length(reading_text)>0 THEN
+  IF encode(sha256(convert_to(reading_text,'UTF8')),'hex') IS DISTINCT FROM reading_hash THEN
+   RAISE invalid_parameter_value USING MESSAGE='qualified reading text differs from commit seal';
+  END IF;
+  INSERT INTO oracle2.operating_model_source_receipts(workspace_id,source_id,revision,
+   original_hash,reading_hash,parser_id,receipt)
+  VALUES(reading.workspace_id,reading.source_id,reading.revision,reading.original_sha256,
+   reading_hash,parser_id,jsonb_build_object('schema_version',1,
+    'ref',jsonb_build_object('schema_version',1,'workspace_id',reading.workspace_id,
+     'source_id',reading.source_id,'revision',reading.revision,
+     'original_sha256',reading.original_sha256,'reading_sha256',reading_hash,'parser_id',parser_id),
+    'reading',reading_text,'display_revision','r'||reading.revision::text,'aliases','[]'::jsonb))
+  ON CONFLICT(workspace_id,source_id,revision) DO NOTHING;
+ END IF;
+ until_at:=(identity->>'valid_until')::timestamptz;
+ IF until_at<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='original response authority expired before commit';
+ END IF;
+ RETURN jsonb_build_object('schema_version',1,'workspaceId',reading.workspace_id,
+  'sourceId',reading.source_id,'revision',reading.revision,
+  'originalSha256',reading.original_sha256,'readingSha256',reading_hash,'parserId',parser_id,
+  'readerPrincipalId',reading.principal_id,'reviewerPrincipalId',review.principal_id,
+  'readerCommit',reading_commit_hash,'reviewerCommit',review_commit_hash,
+  'qualified',true,'checked_at',clock_timestamp(),'valid_until',until_at);
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+ RAISE invalid_parameter_value USING MESSAGE='strict original qualification required';
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.finalize_original_reading_qualification_v1(text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION oracle2.finalize_original_reading_qualification_v1(text,text,text) TO oracle2_source_original_reviewer;

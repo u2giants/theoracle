@@ -40,14 +40,16 @@ GRAPH_HOLISTIC_SUITES=('graph_adapter','graph_evidence_answer','graph_tls_option
 # A required suite cannot skip — re-add the entry once that module lands on main.
 ORIGINAL_PROCESSING_SUITES=('original_corpus_import','original_corpus_read',
     'original_intake_v1','original_native_jobs_v1','original_pdf_image_views',
-    'original_population_sql','original_qualification_v1','original_reading')
+    'original_population_sql','original_qualification_v1','original_qualification_runtime','original_reading',
+    'replacement_original_lifecycle')
 RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_multimodal_pricing_v1','raw_original_context_v1',
     'raw_original_native_provider_v1','raw_original_observer_v1','raw_original_paid_response_v1',
     'raw_original_request_v1','raw_original_settings_v1','raw_original_views_v1',
     'raw_provider_reservation_hooks','raw_vision_policy_v1')
 REPLACEMENT_RESULT_SUITES=('replacement_executor_target_sql','replacement_public_view_v1',
     'replacement_result_cleanup_v1','replacement_result_settings_v1','replacement_result_v1',
-    'replacement_source_authority','replacement_source_intake_sql','replacement_transport_v1')
+    'replacement_result_tls_sdk_close_v1','replacement_source_authority','replacement_source_intake_sql',
+    'replacement_transport_v1','replacement_adversarial_journey_v1','replacement_answer')
 DOCUMENTARY += CORE_INFRA_SUITES
 DOCUMENTARY += GRAPH_HOLISTIC_SUITES
 DOCUMENTARY += ORIGINAL_PROCESSING_SUITES

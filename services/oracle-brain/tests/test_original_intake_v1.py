@@ -7,7 +7,18 @@ import hashlib,os,json
 import pytest
 from oracle_brain.operating_model.artifact_storage import FileBlobStore,OriginalObjectRefV1,ReservationOriginalObjectRefV1
 from oracle_brain.operating_model.contracts import canonical_bytes
-from oracle_brain.hosting.original_intake_v1 import OriginalIntakeConfigV1,OriginalIntakeAppointmentV1,OriginalIntakeRequestV1,IntakeReservationV1,load_original_intake_settings_v1,reservation_original_ref_v1
+
+# oracle_brain.hosting pulls in Unix-only fcntl via custody; skip on Windows.
+try:
+    from oracle_brain.hosting.original_intake_v1 import OriginalIntakeConfigV1,OriginalIntakeAppointmentV1,OriginalIntakeRequestV1,IntakeReservationV1,load_original_intake_settings_v1,reservation_original_ref_v1
+    HOSTING_IMPORT_ERROR = None
+except Exception as exc:  # pragma: no cover - platform import guard
+    HOSTING_IMPORT_ERROR = exc
+
+requires_hosting = pytest.mark.skipif(
+    HOSTING_IMPORT_ERROR is not None,
+    reason=f"Windows-blocked: oracle_brain.hosting requires fcntl ({HOSTING_IMPORT_ERROR})")
+pytestmark = requires_hosting
 
 def settings(tmp_path):
     root=tmp_path/'already-provisioned';root.mkdir(mode=0o700);info=root.stat();now=datetime.now(timezone.utc);expires=now+timedelta(minutes=1)
