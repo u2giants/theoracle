@@ -273,10 +273,16 @@ export function clearReplacementSessionCookie(): string {
  * Same-origin gate for state-changing (write) requests.
  *
  * Accepts a request only when the browser proves same-origin via `Origin`
- * (host must match the Host header) and/or `Sec-Fetch-Site: same-origin|none`.
- * `same-site` is NOT accepted: a sibling subdomain under the same registrable
- * domain is same-site but not same-origin, and is exactly the CSRF vector
- * SameSite=Lax does not stop. Missing both headers fails closed on writes.
+ * (complete origin — scheme, host, and port — must match the request's trusted
+ * origin) and/or `Sec-Fetch-Site: same-origin|none`. `same-site` is NOT
+ * accepted: a sibling subdomain under the same registrable domain is same-site
+ * but not same-origin, and is exactly the CSRF vector SameSite=Lax does not
+ * stop. Missing both headers fails closed on writes.
+ *
+ * The trusted scheme comes from `x-forwarded-proto` when it is exactly `http`
+ * or `https` (any other value, including comma lists, fails closed). When that
+ * header is absent the trusted scheme is `https` — production posture — so an
+ * `http://` Origin is rejected for an `https://` request and vice versa.
  */
 export function isSameOriginWrite(headers: Headers): boolean {
   const host = (headers.get('host') ?? '').toLowerCase();
@@ -290,7 +296,14 @@ export function isSameOriginWrite(headers: Headers): boolean {
   if (origin) {
     if (!host || origin === 'null') return false;
     try {
-      return new URL(origin).host.toLowerCase() === host;
+      const originUrl = new URL(origin);
+      if (originUrl.host.toLowerCase() !== host) return false;
+      const forwardedProto = (headers.get('x-forwarded-proto') ?? '').trim().toLowerCase();
+      if (forwardedProto && forwardedProto !== 'http' && forwardedProto !== 'https') {
+        return false;
+      }
+      const trustedProtocol = `${forwardedProto || 'https'}:`;
+      return originUrl.protocol === trustedProtocol;
     } catch {
       return false;
     }

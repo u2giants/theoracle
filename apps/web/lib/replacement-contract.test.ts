@@ -1438,6 +1438,85 @@ test('Medium r5: cross-origin and missing-Origin writes are denied (CSRF / Origi
   );
 });
 
+test('Medium r8: scheme mismatches are denied (http Origin for https request and vice versa)', () => {
+  // http Origin rejected for https request (trusted scheme defaults to https).
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'http://app.example.test',
+      }),
+    ),
+    false,
+    'http Origin must be denied for https request',
+  );
+
+  // http Origin rejected when the request is explicitly https.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'http://app.example.test',
+        'x-forwarded-proto': 'https',
+      }),
+    ),
+    false,
+    'http Origin must be denied when x-forwarded-proto is https',
+  );
+
+  // Vice versa: https Origin rejected for http request.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'https://app.example.test',
+        'x-forwarded-proto': 'http',
+      }),
+    ),
+    false,
+    'https Origin must be denied for http request',
+  );
+
+  // Matching scheme is accepted — http Origin for an http request.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'http://app.example.test',
+        'x-forwarded-proto': 'http',
+      }),
+    ),
+    true,
+    'http Origin must be accepted for http request',
+  );
+
+  // Matching scheme is accepted — https Origin for an https request.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'https://app.example.test',
+        'x-forwarded-proto': 'https',
+      }),
+    ),
+    true,
+    'https Origin must be accepted for https request',
+  );
+
+  // Spoofed / multi-value x-forwarded-proto fails closed.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'https://app.example.test',
+        'x-forwarded-proto': 'https, https',
+      }),
+    ),
+    false,
+    'comma-list x-forwarded-proto must fail closed',
+  );
+});
+
 test('Medium r5: upload write is rejected cross-origin and allowed same-origin', async () => {
   // Cross-origin cookie-authenticated upload POST is rejected before any store work.
   const crossOrigin = await postSource(
