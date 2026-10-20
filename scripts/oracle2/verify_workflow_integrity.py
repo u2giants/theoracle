@@ -34,7 +34,11 @@ CORE_INFRA_SUITES=('authority','bootstrap_pilot_authority','browser_diagnostic_c
     'native_browser_metadata_role','readonly_delivery_fixture_dag')
 GRAPH_HOLISTIC_SUITES=('graph_adapter','graph_evidence_answer','graph_tls_options',
     'holistic_graphrag','holistic_graphrag_integration','holistic_runtime','pilot_journey')
-ORIGINAL_PROCESSING_SUITES=('original_byte_storage','original_corpus_import','original_corpus_read',
+# original_byte_storage is intentionally NOT in this required list: it imports
+# test_binary_documents (docx/xlsx/pptx helpers) which exists only on unmerged
+# commit 238bd63 ("Prepare bounded native binary document provenance views").
+# A required suite cannot skip — re-add the entry once that module lands on main.
+ORIGINAL_PROCESSING_SUITES=('original_corpus_import','original_corpus_read',
     'original_intake_v1','original_native_jobs_v1','original_pdf_image_views',
     'original_population_sql','original_qualification_v1','original_reading')
 RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_multimodal_pricing_v1','raw_original_context_v1',
@@ -125,7 +129,7 @@ def required_suites(stage):
 # R7: drop the purpose_coherent_native_journey / native_trigger_v1 singleton
 # groups so the original and raw-original families can own workers instead.
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
-    'original_byte_storage','raw_endpoint_inventory_v1',
+    'original_corpus_import','raw_endpoint_inventory_v1',
     'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
     'paid_sdk_embeddings_v3')
 
