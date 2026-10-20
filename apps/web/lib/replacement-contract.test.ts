@@ -22,12 +22,21 @@ import {
   replacementAuth,
   withinReplacementBounds,
   bindPilotFallbackWorkspace,
+  isSameOriginWrite,
+  authorizeReplacementRequest,
+  replacementSessionCookie,
+  clearReplacementSessionCookie,
   REPLACEMENT_ROLE,
   REPLACEMENT_WORKSPACE_ID,
   type ReplacementPrincipal,
 } from './replacement-auth';
+import {
+  sessionCookie,
+  clearSessionCookie,
+} from './oracle2-pilot-auth';
 import { GET as listJourneys } from '../app/api/consultant/replacement/v1/journeys/route';
 import { GET as getJourney } from '../app/api/consultant/replacement/v1/journeys/[id]/route';
+import { POST as postSource } from '../app/api/consultant/replacement/v1/sources/route';
 import type { NextRequest } from 'next/server';
 import { lineageAuthorizes, type AppointmentRow } from './oracle2-authority';
 import { operatingLineageAuthorizes, type OperatingAppointmentRow } from './operating-model-store';
@@ -1267,4 +1276,254 @@ test('operatingAuthority: forged / unrelated-root authority chain is denied', ()
     false,
     'broken issuer link in multi-step chain is denied',
   );
+});
+
+// --- R8 round-5 security denied-case tests --------------------------------
+
+test('Medium r5: session cookies set Secure and HttpOnly (pilot + replacement)', () => {
+  const pilot = sessionCookie('sid-pilot');
+  assert.match(pilot, /HttpOnly/, 'pilot session cookie must be HttpOnly');
+  assert.match(pilot, /Secure/, 'pilot session cookie must be Secure');
+  assert.match(pilot, /SameSite=Lax/, 'pilot session cookie keeps SameSite=Lax');
+
+  const pilotClear = clearSessionCookie();
+  assert.match(pilotClear, /HttpOnly/);
+  assert.match(pilotClear, /Secure/, 'cleared pilot cookie must match Secure attribute');
+
+  const replacement = replacementSessionCookie('sid-replacement');
+  assert.match(replacement, /HttpOnly/, 'replacement session cookie must be HttpOnly');
+  assert.match(replacement, /Secure/, 'replacement session cookie must be Secure');
+  assert.match(replacement, /SameSite=Lax/);
+
+  const replacementClear = clearReplacementSessionCookie();
+  assert.match(replacementClear, /HttpOnly/);
+  assert.match(replacementClear, /Secure/);
+});
+
+test('Medium r5: local HTTP cookie exception is opt-in and never applies in production', () => {
+  const prevFlag = process.env.ORACLE2_INSECURE_LOCAL_COOKIES;
+  // NODE_ENV is typed read-only; mutate through the env record in this test only.
+  const env = process.env as Record<string, string | undefined>;
+  const prevEnv = env.NODE_ENV;
+  try {
+    // Default (flag unset): Secure is on regardless of NODE_ENV.
+    delete env.ORACLE2_INSECURE_LOCAL_COOKIES;
+    env.NODE_ENV = 'production';
+    assert.match(sessionCookie('s'), /Secure/);
+    assert.match(replacementSessionCookie('s'), /Secure/);
+
+    // Explicit flag + non-production: the only case that may omit Secure.
+    env.ORACLE2_INSECURE_LOCAL_COOKIES = '1';
+    env.NODE_ENV = 'development';
+    assert.doesNotMatch(sessionCookie('s'), /Secure/);
+    assert.doesNotMatch(replacementSessionCookie('s'), /Secure/);
+
+    // Explicit flag must NOT weaken production posture.
+    env.NODE_ENV = 'production';
+    assert.match(sessionCookie('s'), /Secure/);
+    assert.match(replacementSessionCookie('s'), /Secure/);
+
+    // Flag value other than '1' is ignored (Secure stays on).
+    env.ORACLE2_INSECURE_LOCAL_COOKIES = '0';
+    env.NODE_ENV = 'development';
+    assert.match(sessionCookie('s'), /Secure/);
+    assert.match(replacementSessionCookie('s'), /Secure/);
+  } finally {
+    if (prevFlag === undefined) delete env.ORACLE2_INSECURE_LOCAL_COOKIES;
+    else env.ORACLE2_INSECURE_LOCAL_COOKIES = prevFlag;
+    if (prevEnv === undefined) delete env.NODE_ENV;
+    else env.NODE_ENV = prevEnv;
+  }
+});
+
+test('Medium r5: cross-origin and missing-Origin writes are denied (CSRF / Origin gate)', () => {
+  // Same-origin write is allowed (cookie-authenticated simple POST from our UI).
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'https://app.example.test',
+      }),
+    ),
+    true,
+    'same-origin Origin must be accepted',
+  );
+
+  // Cross-origin: attacker-controlled sibling domain (same-site, different origin).
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'https://evil.example.test',
+      }),
+    ),
+    false,
+    'sibling-domain Origin must be denied (SameSite=Lax does not cover this)',
+  );
+
+  // Fully cross-site Origin.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'https://attacker.example',
+      }),
+    ),
+    false,
+    'cross-site Origin must be denied',
+  );
+
+  // Opaque / null origin (sandboxed iframe, data: navigation).
+  assert.equal(
+    isSameOriginWrite(new Headers({ host: 'app.example.test', origin: 'null' })),
+    false,
+    'Origin: null must be denied',
+  );
+
+  // Missing both Origin and Sec-Fetch-Site fails closed on writes.
+  assert.equal(
+    isSameOriginWrite(new Headers({ host: 'app.example.test' })),
+    false,
+    'write without Origin/Sec-Fetch-Site must fail closed',
+  );
+
+  // Sec-Fetch-Site same-site (sibling subdomain) is NOT same-origin.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        'sec-fetch-site': 'same-site',
+      }),
+    ),
+    false,
+    'Sec-Fetch-Site: same-site must be denied',
+  );
+
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        'sec-fetch-site': 'cross-site',
+      }),
+    ),
+    false,
+    'Sec-Fetch-Site: cross-site must be denied',
+  );
+
+  // Sec-Fetch-Site same-origin/none are acceptable proofs of intent.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({ host: 'app.example.test', 'sec-fetch-site': 'same-origin' }),
+    ),
+    true,
+    'Sec-Fetch-Site: same-origin must be accepted',
+  );
+  assert.equal(
+    isSameOriginWrite(new Headers({ host: 'app.example.test', 'sec-fetch-site': 'none' })),
+    true,
+    'Sec-Fetch-Site: none (user-initiated) must be accepted',
+  );
+
+  // Origin mismatch is denied even when Sec-Fetch-Site looks benign.
+  assert.equal(
+    isSameOriginWrite(
+      new Headers({
+        host: 'app.example.test',
+        origin: 'https://evil.example.test',
+        'sec-fetch-site': 'same-origin',
+      }),
+    ),
+    false,
+    'conflicting cross-origin Origin must be denied',
+  );
+});
+
+test('Medium r5: upload write is rejected cross-origin and allowed same-origin', async () => {
+  // Cross-origin cookie-authenticated upload POST is rejected before any store work.
+  const crossOrigin = await postSource(
+    new Request('https://app.example.test/api/consultant/replacement/v1/sources', {
+      method: 'POST',
+      headers: {
+        host: 'app.example.test',
+        origin: 'https://evil.example.test',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        filename: 'x.txt',
+        contentType: 'text/plain',
+        bytesBase64: Buffer.from('attack').toString('base64'),
+      }),
+    }) as unknown as NextRequest,
+  );
+  assert.equal(crossOrigin.status, 403);
+  const crossBody = (await crossOrigin.json()) as { error: string };
+  assert.match(crossBody.error, /cross-origin write denied/);
+
+  // Missing Origin/Sec-Fetch-Site also fails closed on the upload route.
+  const noOrigin = await postSource(
+    new Request('https://app.example.test/api/consultant/replacement/v1/sources', {
+      method: 'POST',
+      headers: {
+        host: 'app.example.test',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        filename: 'x.txt',
+        contentType: 'text/plain',
+        bytesBase64: Buffer.from('attack').toString('base64'),
+      }),
+    }) as unknown as NextRequest,
+  );
+  assert.equal(noOrigin.status, 403);
+
+  // Same-origin upload passes the CSRF gate (then hits auth 401 without a session,
+  // proving the origin check is not a blanket reject).
+  const sameOrigin = await postSource(
+    new Request('https://app.example.test/api/consultant/replacement/v1/sources', {
+      method: 'POST',
+      headers: {
+        host: 'app.example.test',
+        origin: 'https://app.example.test',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        filename: 'x.txt',
+        contentType: 'text/plain',
+        bytesBase64: Buffer.from('ok').toString('base64'),
+      }),
+    }) as unknown as NextRequest,
+  );
+  assert.equal(sameOrigin.status, 401);
+  const sameBody = (await sameOrigin.json()) as { error: string };
+  assert.match(sameBody.error, /session required|pilot session required/);
+});
+
+test('Medium r5: authorizeReplacementRequest denies cross-origin writes before session lookup', async () => {
+  const denied = await authorizeReplacementRequest(
+    new Headers({
+      host: 'app.example.test',
+      origin: 'https://evil.example.test',
+      cookie: 'oracle2_replacement_session=whatever',
+    }),
+    'write',
+  );
+  assert.equal(denied.ok, false);
+  if (!denied.ok) {
+    assert.equal(denied.status, 403);
+    assert.match(denied.error, /cross-origin write denied/);
+  }
+
+  // Read access is unaffected by the write origin gate (GET is not state-changing).
+  const read = await authorizeReplacementRequest(
+    new Headers({
+      host: 'app.example.test',
+      cookie: 'oracle2_replacement_session=whatever',
+    }),
+    'read',
+  );
+  assert.equal(read.ok, false);
+  if (!read.ok) {
+    assert.notEqual(read.status, 403);
+    assert.doesNotMatch(read.error, /cross-origin write denied/);
+  }
 });

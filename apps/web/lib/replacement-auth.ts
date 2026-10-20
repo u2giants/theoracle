@@ -8,6 +8,7 @@ import {
   authorizePilotRequest,
   pilotActor,
   pilotToken,
+  sessionCookieAttributes,
 } from './oracle2-pilot-auth';
 import { hasAuthority } from './oracle2-authority';
 import { pilotWorkspaceId } from './oracle2-store';
@@ -212,6 +213,11 @@ export async function authorizeReplacementRequest(
   headers: Headers,
   access: ReplacementAccess = 'write',
 ): Promise<ReplacementAuthResult> {
+  // CSRF: cookie-authenticated writes must prove same-origin. Enforced before
+  // any session lookup so cross-origin requests are rejected uniformly.
+  if (access === 'write' && !isSameOriginWrite(headers)) {
+    return { ok: false, error: 'cross-origin write denied', status: 403 };
+  }
   const dedicated = owned.authorize(headers);
   if (dedicated.ok) return dedicated;
   if (dedicated.status !== 401) return dedicated;
@@ -251,10 +257,44 @@ export function destroyReplacementSession(sessionId: string): void {
   owned.destroy(sessionId);
 }
 
+export function replacementCookieAttributes(): string {
+  return sessionCookieAttributes();
+}
+
 export function replacementSessionCookie(sessionId: string): string {
-  return `${REPLACEMENT_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax`;
+  return `${REPLACEMENT_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; ${replacementCookieAttributes()}`;
 }
 
 export function clearReplacementSessionCookie(): string {
-  return `${REPLACEMENT_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  return `${REPLACEMENT_COOKIE}=; Path=/; ${replacementCookieAttributes()}; Max-Age=0`;
+}
+
+/**
+ * Same-origin gate for state-changing (write) requests.
+ *
+ * Accepts a request only when the browser proves same-origin via `Origin`
+ * (host must match the Host header) and/or `Sec-Fetch-Site: same-origin|none`.
+ * `same-site` is NOT accepted: a sibling subdomain under the same registrable
+ * domain is same-site but not same-origin, and is exactly the CSRF vector
+ * SameSite=Lax does not stop. Missing both headers fails closed on writes.
+ */
+export function isSameOriginWrite(headers: Headers): boolean {
+  const host = (headers.get('host') ?? '').toLowerCase();
+  const origin = headers.get('origin');
+  const secFetchSite = (headers.get('sec-fetch-site') ?? '').toLowerCase();
+
+  const siteOk =
+    secFetchSite === '' || secFetchSite === 'same-origin' || secFetchSite === 'none';
+  if (!siteOk) return false;
+
+  if (origin) {
+    if (!host || origin === 'null') return false;
+    try {
+      return new URL(origin).host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  }
+  // No Origin header: only a same-origin/none Sec-Fetch-Site proves intent.
+  return secFetchSite === 'same-origin' || secFetchSite === 'none';
 }
