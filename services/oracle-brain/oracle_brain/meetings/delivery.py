@@ -9,12 +9,65 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Optional
+from weakref import WeakSet
 
 INTENT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
 RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
-# Only these sender roles may mark an intent sent. Recording an intent is
-# open to the ledger; sending is a separate authorized act.
+# Only these sender roles may mark an intent sent or failed. Recording an
+# intent is open to the ledger; attaching a delivery receipt is a separate
+# authorized act. A role name is never believed on its own — the caller must
+# present a sealed SenderAuthority capability.
 AUTHORIZED_SENDER_ROLES = frozenset({'delivery_sender', 'oracle_sender'})
+
+# Constructor-private mint token: the proof held by the authenticated delivery
+# boundary. Ordinary callers never see it, so they cannot mint an authority.
+_MINT_TOKEN = object()
+# Instances minted under that token. Membership is the use-site proof, so a
+# look-alike built with object.__new__ (even with copied attributes) is denied.
+_MINTED: WeakSet = WeakSet()
+
+
+class SenderAuthority:
+    """Capability proving the holder is an authorized delivery sender.
+
+    Construction is sealed by the constructor-private mint token; only
+    ``issue_sender_authority`` (which holds that token) mints instances. A
+    claimed role string or a forged instance is not an authority.
+    """
+    __slots__ = ('_role', '__weakref__')
+
+    def __init__(self, role: str = '', mint_token: object = None) -> None:
+        if mint_token is not _MINT_TOKEN:
+            raise PermissionError('sender authority cannot be forged')
+        if role not in AUTHORIZED_SENDER_ROLES:
+            raise PermissionError('sender role not authorized')
+        self._role = role
+        _MINTED.add(self)
+
+
+def issue_sender_authority(role: str, *, mint_token: object = None) -> SenderAuthority:
+    """Sealed authorizer: mint a sender capability for an authenticated principal.
+
+    Call only after the principal's credential has been proven. The mint token
+    is constructor-private proof; a bare role claim is never accepted.
+    """
+    return SenderAuthority(role, mint_token=mint_token)
+
+
+def _require_proven_sender(sender) -> SenderAuthority:
+    """Deny unless the caller presents a minted SenderAuthority.
+
+    Unproven claims — None, a role string, a forged instance — are refused.
+    """
+    if not isinstance(sender, SenderAuthority) or sender not in _MINTED:
+        raise PermissionError('sender authority required to mark delivery')
+    return sender
+
+
+def _deny_role_claim(sender_role: str) -> None:
+    """A caller-supplied role claim is never proof of who sent."""
+    if sender_role:
+        raise PermissionError('sender role claim is not proof; present a sender authority')
 
 
 @dataclass(frozen=True)
@@ -81,15 +134,15 @@ class DeliveryLedger:
 
     def mark_sent(self, idempotency_key: str, *, receipt_id: str, channel: str,
                   sent_at: str, provider_message_id: str,
-                  sender_role: str = '') -> DeliveryReceipt:
+                  sender=None, sender_role: str = '') -> DeliveryReceipt:
         """Attach a delivery receipt for a send a separate authorized actor performed.
 
-        Only an authorized sender role may mark sent; any other caller is
-        denied. Replay by an authorized sender is idempotent: a prior sent
-        receipt is returned unchanged.
+        Only the holder of a sealed SenderAuthority may mark sent. A claimed
+        ``sender_role`` is never proof and is denied. Replay by an authorized
+        sender is idempotent: a prior sent receipt is returned unchanged.
         """
-        if sender_role not in AUTHORIZED_SENDER_ROLES:
-            raise PermissionError('sender role not authorized to mark sent')
+        _deny_role_claim(sender_role)
+        _require_proven_sender(sender)
         if not all((channel, sent_at, provider_message_id)):
             raise ValueError('sent receipt requires channel, sent_at and provider_message_id')
         prior = self._by_key.get(idempotency_key)
@@ -103,7 +156,11 @@ class DeliveryLedger:
         self._by_key[idempotency_key] = receipt
         return receipt
 
-    def mark_failed(self, idempotency_key: str, *, receipt_id: str, channel: str) -> DeliveryReceipt:
+    def mark_failed(self, idempotency_key: str, *, receipt_id: str, channel: str,
+                    sender=None, sender_role: str = '') -> DeliveryReceipt:
+        """Attach a failure receipt. Same authorized-sender boundary as mark_sent."""
+        _deny_role_claim(sender_role)
+        _require_proven_sender(sender)
         if not channel:
             raise ValueError('failed receipt requires channel')
         prior = self._by_key.get(idempotency_key)

@@ -23,12 +23,18 @@ if _spec is None:
 import pytest
 
 from oracle_brain.meetings.delivery import (
-    DeliveryLedger, create_intent, provider_idempotency_key,
+    DeliveryLedger, SenderAuthority, create_intent, issue_sender_authority,
+    provider_idempotency_key, _MINT_TOKEN,
 )
 from oracle_brain.meetings.participation import record_settings
 from oracle_brain.workflows.meeting_turn import (
     InboundTurn, MembershipView, evaluate_turn,
 )
+
+
+def _sender():
+    """Stand in for the authenticated delivery boundary that holds the mint token."""
+    return issue_sender_authority('delivery_sender', mint_token=_MINT_TOKEN)
 
 
 def _intent(**kw):
@@ -63,10 +69,10 @@ def test_replay_returns_prior_receipt_and_never_second_send():
     assert replayed is first
     sent = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-2',
                             channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                            provider_message_id='m-1', sender_role='delivery_sender')
+                            provider_message_id='m-1', sender=_sender())
     again = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-3',
                              channel='meeting_text', sent_at='2026-10-16T12:06:00Z',
-                             provider_message_id='m-2', sender_role='delivery_sender')
+                             provider_message_id='m-2', sender=_sender())
     assert again is sent and again.provider_message_id == 'm-1'
     assert ledger.replay(intent.idempotency_key).status == 'sent'
 
@@ -89,7 +95,7 @@ def test_sent_receipt_requires_complete_fields_and_unknown_key_denied():
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
                          channel='meeting_text', sent_at='', provider_message_id='m',
-                         sender_role='delivery_sender')
+                         sender=_sender())
     except ValueError:
         pass
     else:
@@ -97,7 +103,7 @@ def test_sent_receipt_requires_complete_fields_and_unknown_key_denied():
     try:
         ledger.mark_sent('nope', receipt_id='dr-y', channel='meeting_text',
                          sent_at='2026-10-16T12:05:00Z', provider_message_id='m',
-                         sender_role='delivery_sender')
+                         sender=_sender())
     except ValueError:
         pass
     else:
@@ -109,16 +115,16 @@ def test_failed_send_is_visible_and_silence_is_not_a_send():
     intent = _intent()
     ledger.record_intent(intent)
     failed = ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
-                                channel='meeting_text')
+                                channel='meeting_text', sender=_sender())
     assert failed.status == 'failed' and failed.sent_at is None
     assert ledger.replay(intent.idempotency_key).status == 'failed'
 
 
-def test_unauthorized_sender_cannot_mark_sent():
+def test_forged_sender_role_denied_for_mark_sent():
     ledger = DeliveryLedger()
     intent = _intent()
     ledger.record_intent(intent)
-    # No sender_role: denied.
+    # No sender capability: denied.
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
                          channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
@@ -126,8 +132,26 @@ def test_unauthorized_sender_cannot_mark_sent():
     except PermissionError:
         pass
     else:
-        raise AssertionError('mark-sent without sender_role must be denied')
-    # Unknown/rogue role: denied.
+        raise AssertionError('mark-sent without sender authority must be denied')
+    # Forged sender_role claim of an authorized role name: denied.
+    try:
+        ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
+                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
+                         provider_message_id='m-1', sender_role='delivery_sender')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('mark-sent with forged sender_role must be denied')
+    # Forged sender string claiming a role: denied.
+    try:
+        ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
+                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
+                         provider_message_id='m-1', sender='delivery_sender')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('mark-sent with forged sender role string must be denied')
+    # Unknown/rogue role name: denied.
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
                          channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
@@ -136,16 +160,68 @@ def test_unauthorized_sender_cannot_mark_sent():
         pass
     else:
         raise AssertionError('mark-sent with unauthorized role must be denied')
+    # Forged capability instance (constructed without the mint token): denied.
+    try:
+        SenderAuthority('delivery_sender')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('SenderAuthority without mint token must be denied')
+    forged = object.__new__(SenderAuthority)
+    forged._role = 'delivery_sender'
+    try:
+        ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
+                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
+                         provider_message_id='m-1', sender=forged)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('mark-sent with forged SenderAuthority must be denied')
     assert ledger.replay(intent.idempotency_key).status == 'recorded'
-    # Authorized role: allowed and idempotent.
+    # Minted capability: allowed and idempotent.
     sent = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-s',
                             channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                            provider_message_id='m-1', sender_role='delivery_sender')
+                            provider_message_id='m-1', sender=_sender())
     assert sent.status == 'sent'
     again = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-s2',
                              channel='meeting_text', sent_at='2026-10-16T12:06:00Z',
-                             provider_message_id='m-2', sender_role='delivery_sender')
+                             provider_message_id='m-2', sender=_sender())
     assert again is sent and again.provider_message_id == 'm-1'
+
+
+def test_unauthorized_mark_failed_denied():
+    ledger = DeliveryLedger()
+    intent = _intent()
+    ledger.record_intent(intent)
+    # No sender capability: denied.
+    try:
+        ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
+                           channel='meeting_text')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('mark-failed without sender authority must be denied')
+    # Forged sender_role claim of an authorized role name: denied.
+    try:
+        ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
+                           channel='meeting_text', sender_role='delivery_sender')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('mark-failed with forged sender_role must be denied')
+    # Forged sender string claiming a role: denied.
+    try:
+        ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
+                           channel='meeting_text', sender='oracle_sender')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('mark-failed with forged sender role string must be denied')
+    assert ledger.replay(intent.idempotency_key).status == 'recorded'
+    # Minted capability: allowed.
+    failed = ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f2',
+                                channel='meeting_text', sender=_sender())
+    assert failed.status == 'failed'
 
 
 def test_turn_silence_when_disabled_records_no_outbound_intent():
