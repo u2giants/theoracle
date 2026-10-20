@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from .temporal import Fact
+if TYPE_CHECKING:
+    from .temporal import Fact
 
 
 @dataclass
