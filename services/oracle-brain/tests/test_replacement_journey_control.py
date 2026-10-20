@@ -34,7 +34,7 @@ def _context(**over):
     data = dict(
         principal_id=uuid4(), workspace_id=uuid4(),
         session_role='invented_requester', runtime_hash='a' * 64,
-        registry_hash='b' * 64, checked_at=now,
+        registry_hash='b' * 64, scopes=(), checked_at=now,
         valid_until=now + timedelta(minutes=5))
     data.update(over)
     return JourneyActorContextV1(**data)
@@ -198,7 +198,7 @@ def test_idempotent_reserve_returns_same_journey():
 
 def test_all_states_are_reachable_from_the_declared_machine():
     expected = {
-        'pending', 'processing', 'awaiting-external-authority',
+        'pending', 'processing', 'delivered', 'awaiting-external-authority',
         'missing-evidence', 'revision_pending', 'cancel-requested',
         'cancelled', 'failed', 'UNKNOWN',
     }
@@ -298,6 +298,66 @@ def test_illegal_transition_is_denied():
     with pytest.raises(JourneyConflict, match='request_replacement_cancel'):
         plane.compare_and_advance_replacement_journey(
             context, journey.run_id, 1, 'cancel-requested')
+
+
+def _promotion_binding(*, delivered_event_id=None, **evidence_over):
+    evidence = dict(
+        reader_commit='1' * 64,
+        reviewer_commit='2' * 64)
+    evidence.update(evidence_over)
+    binding = {'evidence': evidence}
+    if delivered_event_id is not None:
+        binding['delivered_event_id'] = delivered_event_id
+    return binding
+
+
+def test_intake_only_is_denied_promotion_to_delivered():
+    """R8 High: intake-only cannot mark a journey delivered."""
+    plane = JourneyControlPlaneV1()
+    context = _context(scopes=('intake',))
+    journey = plane.reserve_replacement_journey(context, _request())
+    plane.compare_and_advance_replacement_journey(
+        context, journey.run_id, 1, 'processing')
+    with pytest.raises(JourneyDenied, match='confirmation authority required'):
+        plane.compare_and_advance_replacement_journey(
+            context, journey.run_id, 2, 'delivered',
+            binding=_promotion_binding())
+    current = plane.current_replacement_journey_metadata(context, journey.run_id)
+    assert current.state == 'processing'
+
+
+def test_confirm_scope_with_evidence_allows_promotion_to_delivered():
+    plane = JourneyControlPlaneV1()
+    context = _context(scopes=('intake', 'process-confirm'))
+    journey = plane.reserve_replacement_journey(context, _request())
+    plane.compare_and_advance_replacement_journey(
+        context, journey.run_id, 1, 'processing')
+    current = plane.compare_and_advance_replacement_journey(
+        context, journey.run_id, 2, 'delivered',
+        binding=_promotion_binding(delivered_event_id=str(uuid4())))
+    assert current.state == 'delivered'
+    assert current.delivered_event_id is not None
+    assert current.journey_revision == 3
+
+
+def test_promotion_without_evidence_is_denied():
+    plane = JourneyControlPlaneV1()
+    context = _context(scopes=('intake', 'process-confirm'))
+    journey = plane.reserve_replacement_journey(context, _request())
+    plane.compare_and_advance_replacement_journey(
+        context, journey.run_id, 1, 'processing')
+    with pytest.raises(JourneyDenied, match='qualification and review commits'):
+        plane.compare_and_advance_replacement_journey(
+            context, journey.run_id, 2, 'delivered')
+    with pytest.raises(JourneyDenied, match='qualification and review commits'):
+        plane.compare_and_advance_replacement_journey(
+            context, journey.run_id, 2, 'delivered', binding={})
+    with pytest.raises(JourneyDenied, match='qualification and review commits'):
+        plane.compare_and_advance_replacement_journey(
+            context, journey.run_id, 2, 'delivered',
+            binding=_promotion_binding(reader_commit='not-a-hash'))
+    current = plane.current_replacement_journey_metadata(context, journey.run_id)
+    assert current.state == 'processing'
 
 
 def test_idempotency_conflict_on_different_request_is_denied():
@@ -403,3 +463,8 @@ def test_sql_advance_function_validates_legal_transitions():
     assert 'cancel uses request_replacement_cancel' in sql
     # Terminal states still refuse advance before the edge check.
     assert 'terminal journey cannot advance' in sql
+    # Promotion to delivered requires confirmation authority and evidence binding.
+    assert 'confirmation authority required for delivered promotion' in sql
+    assert 'qualification and review commits required for delivered promotion' in sql
+    assert "'process-confirm'" in sql
+    assert 'source_reading_qualifications' in sql

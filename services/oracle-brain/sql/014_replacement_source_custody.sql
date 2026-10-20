@@ -1240,7 +1240,7 @@ CREATE OR REPLACE FUNCTION oracle2.compare_and_advance_replacement_journey(
  RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
 DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;
  j oracle2.processing_journey_runs_v1%ROWTYPE;current oracle2.processing_journey_runs_v1%ROWTYPE;
- target_state text;until timestamptz;event_hash text;payload jsonb;
+ target_state text;until timestamptz;confirm_until timestamptz;event_hash text;payload jsonb;
 BEGIN
  a:=oracle2._replacement_request_context();
  IF expected_revision IS NULL OR expected_revision<1 OR idempotency IS NULL
@@ -1284,7 +1284,31 @@ BEGIN
  ) THEN
   RAISE serialization_failure USING MESSAGE='illegal journey transition '||j.state||'->'||target_state;
  END IF;
+ -- Promotion to 'delivered' (confirmed/answer-ready) is never intake-only.
+ -- It requires confirmation authority and bound qualification/review commits.
+ IF target_state='delivered' THEN
+  BEGIN
+   confirm_until:=oracle2._replacement_scope(a.workspace_id,a.principal_id,'process-confirm');
+  EXCEPTION WHEN insufficient_privilege THEN
+   RAISE insufficient_privilege USING MESSAGE='confirmation authority required for delivered promotion';
+  END;
+  IF jsonb_typeof(j.original_population) IS DISTINCT FROM 'array'
+  OR jsonb_array_length(j.original_population)<1
+  OR EXISTS(SELECT 1 FROM jsonb_array_elements(j.original_population) item
+   WHERE item->>'source_id' IS NULL OR item->>'revision' IS NULL
+    OR NOT EXISTS(SELECT 1 FROM oracle2.source_reading_qualifications q
+     WHERE q.workspace_id=j.workspace_id
+      AND q.source_id=(item->>'source_id')::uuid
+      AND q.revision=(item->>'revision')::integer
+      AND q.reader_native_commit_sha256 ~ '^[0-9a-f]{64}$'
+      AND q.reviewer_native_commit_sha256 ~ '^[0-9a-f]{64}$')) THEN
+   RAISE insufficient_privilege USING MESSAGE='qualification and review commits required for delivered promotion';
+  END IF;
+ END IF;
  until:=least(a.expires_at,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
+ IF target_state='delivered' THEN
+  until:=least(until,confirm_until);
+ END IF;
  IF until<=clock_timestamp() THEN
   RAISE insufficient_privilege USING MESSAGE='replacement journey authority expired before commit';
  END IF;

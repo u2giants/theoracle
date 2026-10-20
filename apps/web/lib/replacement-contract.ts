@@ -50,6 +50,20 @@ function isRevision(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 9007199254740991;
 }
 
+/**
+ * Promotion to confirmed/answer-ready requires bound qualification/review
+ * commits on every source. Intake-only callers and commit-less sources never
+ * promote (mirrors SQL/Python delivered gates).
+ */
+export function promotionEvidenceBound(
+  sources: readonly { readerCommit?: string; reviewerCommit?: string }[],
+): boolean {
+  return (
+    sources.length > 0 &&
+    sources.every((s) => isHash(s.readerCommit) && isHash(s.reviewerCommit))
+  );
+}
+
 export interface ReplacementSource {
   workspaceId: string;
   sourceId: string;
@@ -57,6 +71,10 @@ export interface ReplacementSource {
   originalSha256: string;
   readingSha256: string;
   parserId: string;
+  /** Qualification commit seal; required to promote to confirmed/answer-ready. */
+  readerCommit?: string;
+  /** Review commit seal; required to promote to confirmed/answer-ready. */
+  reviewerCommit?: string;
 }
 
 export interface EvidenceSourceRef {
@@ -270,7 +288,9 @@ export function validateReplacementSnapshot(
       !isRevision(src.revision) ||
       !isHash(src.originalSha256) ||
       !isHash(src.readingSha256) ||
-      !isName(src.parserId)
+      !isName(src.parserId) ||
+      (src.readerCommit !== undefined && !isHash(src.readerCommit)) ||
+      (src.reviewerCommit !== undefined && !isHash(src.reviewerCommit))
     ) {
       return { ok: false, error: 'invalid source' };
     }
@@ -281,10 +301,19 @@ export function validateReplacementSnapshot(
       originalSha256: src.originalSha256,
       readingSha256: src.readingSha256,
       parserId: src.parserId,
+      readerCommit: src.readerCommit,
+      reviewerCommit: src.reviewerCommit,
     });
   }
   if (new Set(sources.map((s) => s.sourceId)).size !== sources.length) {
     return { ok: false, error: 'duplicate source' };
+  }
+
+  if (
+    (state === 'confirmed_for_scope' || state === 'answer_ready') &&
+    !promotionEvidenceBound(sources)
+  ) {
+    return { ok: false, error: 'qualification and review commits required for promotion' };
   }
 
   const model = raw.model as ReplacementModel | null | undefined;

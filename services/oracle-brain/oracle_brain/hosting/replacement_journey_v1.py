@@ -20,7 +20,7 @@ from oracle_brain.operating_model.contracts import StrictRecord, canonical_bytes
 HASH = r'^[a-f0-9]{64}$'
 
 JourneyControlState = Literal[
-    'pending', 'processing', 'awaiting-external-authority',
+    'pending', 'processing', 'delivered', 'awaiting-external-authority',
     'missing-evidence', 'revision_pending', 'cancel-requested',
     'cancelled', 'failed', 'UNKNOWN',
 ]
@@ -33,8 +33,10 @@ _TRANSITIONS: dict[str, frozenset[str]] = {
         'processing', 'awaiting-external-authority', 'missing-evidence',
         'revision_pending', 'cancel-requested', 'failed'}),
     'processing': frozenset({
-        'awaiting-external-authority', 'missing-evidence', 'revision_pending',
-        'cancel-requested', 'failed'}),
+        'delivered', 'awaiting-external-authority', 'missing-evidence',
+        'revision_pending', 'cancel-requested', 'failed'}),
+    'delivered': frozenset({
+        'revision_pending', 'cancel-requested', 'failed'}),
     'awaiting-external-authority': frozenset({
         'processing', 'missing-evidence', 'revision_pending',
         'cancel-requested', 'failed'}),
@@ -49,6 +51,10 @@ _TRANSITIONS: dict[str, frozenset[str]] = {
     'failed': frozenset(),
     'UNKNOWN': frozenset(),
 }
+
+# Promotion targets that are confirmed/answer-ready. Never intake-only.
+_PROMOTION_TARGETS = frozenset({'delivered'})
+_CONFIRMATION_SCOPE = 'process-confirm'
 
 
 class JourneyConflict(ValueError):
@@ -66,6 +72,8 @@ class JourneyActorContextV1(StrictRecord):
     session_role: str = Field(pattern=r'^[a-z][a-z0-9_]{0,62}$')
     runtime_hash: str = Field(pattern=HASH)
     registry_hash: str = Field(pattern=HASH)
+    # Appointment scopes proven at admission. Intake-only cannot promote.
+    scopes: tuple[str, ...] = ()
     checked_at: AwareDatetime
     valid_until: AwareDatetime
 
@@ -294,6 +302,24 @@ class JourneyControlPlaneV1:
             raise JourneyConflict('terminal journey cannot advance')
         if new_state == 'cancel-requested':
             raise JourneyConflict('cancel uses request_replacement_cancel')
+        if new_state in _PROMOTION_TARGETS:
+            # Delivered (confirmed/answer-ready) is never intake-only and
+            # never fires without bound qualification/review commits.
+            if _CONFIRMATION_SCOPE not in context.scopes:
+                raise JourneyDenied(
+                    'confirmation authority required for delivered promotion')
+            evidence = None if binding is None else binding.get('evidence')
+            if not isinstance(evidence, dict):
+                raise JourneyDenied(
+                    'qualification and review commits required for delivered promotion')
+            reader = evidence.get('reader_commit')
+            reviewer = evidence.get('reviewer_commit')
+            import re as _re
+            if (not isinstance(reader, str) or not isinstance(reviewer, str)
+                    or not _re.fullmatch(HASH, reader)
+                    or not _re.fullmatch(HASH, reviewer)):
+                raise JourneyDenied(
+                    'qualification and review commits required for delivered promotion')
         if binding is not None and idempotency_key is not None:
             key = (context.workspace_id, idempotency_key)
             prior = self._idempotency.get(key)

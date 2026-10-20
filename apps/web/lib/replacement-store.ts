@@ -14,6 +14,7 @@ import {
   canApplyJourneyAction,
   isTerminalReplacementState,
   nextReplacementState,
+  promotionEvidenceBound,
   validateReplacementSnapshot,
   type JourneyAction,
   type ReplacementAnswer,
@@ -326,6 +327,8 @@ class ReplacementFixtureStore {
       originalSha256,
       readingSha256,
       parserId: 'fixture-reader-v1',
+      readerCommit: sha256Hex(`reader-commit:${originalSha256}`),
+      reviewerCommit: sha256Hex(`reviewer-commit:${originalSha256}`),
     };
     const pageBytes = fixturePagePng(originalSha256, 1);
     const pages: FixturePagePart[] = [
@@ -671,6 +674,10 @@ class ReplacementFixtureStore {
     if (!record) throw new Error('unknown journey');
     if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (!record.model || !record.mapView) throw new Error('no current model');
+    // Promotion to confirmed/answer-ready never fires without evidence binding.
+    if (!promotionEvidenceBound(this.resolveSources(record))) {
+      throw new Error('qualification and review commits required for promotion');
+    }
     if (
       input.version !== record.model.version ||
       input.contentHash !== record.model.contentHash ||
@@ -754,6 +761,10 @@ class ReplacementFixtureStore {
     if (!record) throw new Error('unknown journey');
     if (!matchesOwner(record, input.callerActorId, input.callerWorkspaceId)) denyNotFound('journey');
     if (!record.confirmation?.current) throw new Error('confirmation required');
+    // answer_ready is a promotion target: evidence binding stays required.
+    if (!promotionEvidenceBound(this.resolveSources(record))) {
+      throw new Error('qualification and review commits required for promotion');
+    }
     const sources = this.resolveSources(record);
     const primary = sources[0];
     if (!primary) throw new Error('journey has no source');

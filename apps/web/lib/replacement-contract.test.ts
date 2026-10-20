@@ -9,6 +9,7 @@ import {
   canApplyJourneyAction,
   isReplacementState,
   nextReplacementState,
+  promotionEvidenceBound,
   validateReplacementSnapshot,
   type ReplacementSnapshot,
 } from './replacement-contract';
@@ -182,6 +183,111 @@ test('fail-closed snapshot rules: model/map/answer/confirmation coupling', () =>
       },
     }).ok,
     false,
+  );
+});
+
+test('R8 High: promotion to confirmed/answer-ready requires qualification and review commits', () => {
+  const bareSource = {
+    workspaceId: WORKSPACE,
+    sourceId: '00000000-0000-4000-8000-000000000011',
+    revision: 1,
+    originalSha256: 'a'.repeat(64),
+    readingSha256: 'b'.repeat(64),
+    parserId: 'fixture-reader-v1',
+    readerCommit: undefined as string | undefined,
+    reviewerCommit: undefined as string | undefined,
+  };
+  const boundSource = {
+    ...bareSource,
+    readerCommit: '1'.repeat(64),
+    reviewerCommit: '2'.repeat(64),
+  };
+  const model = {
+    modelId: '00000000-0000-4000-8000-000000000021',
+    version: 1,
+    contentHash: 'c'.repeat(64),
+    ackEventId: '00000000-0000-4000-8000-000000000031',
+  };
+  const mapView = buildSyntheticMapView(boundSource);
+  const answer = buildSyntheticAnswer(boundSource);
+  const confirmation = {
+    workflowId: mapView.workflow.workflow_id,
+    version: 1,
+    contentHash: model.contentHash,
+    current: true,
+  };
+  const base = {
+    journeyId: '00000000-0000-4000-8000-000000000001',
+    journeyRevision: 1,
+    model,
+    message: '',
+    mapView,
+  };
+
+  // Evidence gate alone.
+  assert.equal(promotionEvidenceBound([boundSource]), true);
+  assert.equal(promotionEvidenceBound([bareSource]), false);
+  assert.equal(promotionEvidenceBound([]), false);
+
+  // Promotion without evidence is denied even with confirmation + answer.
+  assert.equal(
+    validateReplacementSnapshot({
+      ...base,
+      state: 'confirmed_for_scope',
+      sources: [bareSource],
+      confirmation,
+      answer: null,
+    }).ok,
+    false,
+  );
+  assert.equal(
+    validateReplacementSnapshot({
+      ...base,
+      state: 'answer_ready',
+      sources: [bareSource],
+      confirmation,
+      answer,
+    }).ok,
+    false,
+  );
+
+  // Confirm-scope + evidence binding is allowed.
+  const confirmed = validateReplacementSnapshot({
+    ...base,
+    state: 'confirmed_for_scope',
+    sources: [boundSource],
+    confirmation,
+    answer: null,
+  });
+  assert.equal(confirmed.ok, true, confirmed.ok ? '' : confirmed.error);
+  const ready = validateReplacementSnapshot({
+    ...base,
+    state: 'answer_ready',
+    sources: [boundSource],
+    confirmation,
+    answer,
+  });
+  assert.equal(ready.ok, true, ready.ok ? '' : ready.error);
+
+  // Store refuses promotion when the source lacks commits.
+  const store = seedJourney();
+  const { stored, record } = uploadAndCreate(store);
+  const draft = runToDraft(store, record.journeyId);
+  (stored.source as { readerCommit?: string }).readerCommit = undefined;
+  (stored.source as { reviewerCommit?: string }).reviewerCommit = undefined;
+  assert.throws(
+    () =>
+      store.confirmScope({
+        journeyId: record.journeyId,
+        expectedStateRevision: draft.stateRevision,
+        workflowId: 'wf-synthetic-intake',
+        version: draft.model!.version,
+        contentHash: draft.model!.contentHash,
+        idempotencyKey: 'conf-no-evidence',
+        callerActorId: OWNER_A,
+        callerWorkspaceId: WORKSPACE,
+      }),
+    /qualification and review commits required for promotion/,
   );
 });
 
