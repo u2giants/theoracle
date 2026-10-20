@@ -1,24 +1,3 @@
-"""Offline gate test retained from the building-block branch. Invented/synthetic only.
-
-Import guard: oracle_brain.ingest.meeting is required; skip with reason when absent.
-"""
-from __future__ import annotations
-
-import importlib.util
-
-import pytest
-
-_REQUIRED = 'oracle_brain.ingest.meeting'
-try:
-    _spec = importlib.util.find_spec(_REQUIRED)
-except ModuleNotFoundError:
-    _spec = None
-if _spec is None:
-    pytest.skip(
-        "S07 meeting dedup implementation absent on main (held PR #143 / branch claude/s07-invited-meeting). Named offline gate test retained with the branch's real assertions; activates when ingest.meeting lands.",
-        allow_module_level=True,
-    )
-
 import pytest
 from oracle_brain.ingest.meeting import Transcript, Turn, reconcile, reported_candidates
 from oracle_brain.ingest.speakers import Speaker
