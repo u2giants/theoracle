@@ -21,7 +21,7 @@ PURPOSE_V2_SUITES=('purpose_context_v2','parent_observer_v2','purpose_profiles_v
     'purpose_runtime_v2','purpose_source_authority','purpose_transport','purpose_transport_startup',
     'purpose_shared_budget','purpose_allocation_budget','semantic_registry_v3',
     'processing_extraction_runtime_v2','extraction_connection_authority','purpose_native_census_startup','purpose_journey','purpose_worker_startup','paid_sdk_embeddings_v3',
-    'purpose_population_v3','purpose_coherent_native_journey',
+    'purpose_population_v3','purpose_coherent_native_journey','purpose_coherent_offline_components',
     'paid_executor_v3','paid_projector_v3','paid_sdk_delivery_v3')
 # R7 registration — oracle-brain suites that previously never entered a
 # verify_workflow_integrity stage list (54 files). Family tuples follow the

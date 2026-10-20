@@ -176,7 +176,11 @@ def documentary_answer_public_v1(answer,source_refs:tuple)->Answer|None:
         text=finding.get('text')
         if type(text) is not str or not text:raise ValueError('invalid retained finding text')
         if text not in lines and text not in answer.caveats:lines.append('Retained finding: '+text)
-    if answer.caveats:lines.extend(['Caveats',*answer.caveats])
+    from oracle_brain.operating_model.answer import SUGGESTION_PREFIX
+    suggestions=tuple(c for c in answer.caveats if type(c) is str and c.startswith(SUGGESTION_PREFIX))
+    caveats=tuple(c for c in answer.caveats if type(c) is str and not c.startswith(SUGGESTION_PREFIX))
+    if suggestions:lines.extend(['Suggested improvements (not established fact)',*suggestions])
+    if caveats:lines.extend(['Caveats',*caveats])
     citations=[]
     for citation in answer.citations:
         ref=citation.ref

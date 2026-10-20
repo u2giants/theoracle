@@ -224,6 +224,16 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
             assert summary_compiler.read_with_manifest(job.workspace_id,qualified[0].artifact_id,1)==qualified
             stage('profile_qualified_read_without_historical_wire')
             assert_missing_raw_full_compilation(summary_compiler,absent)
+        # Restricted answer: abstain or label suggestion; no graph acceptance claim.
+        from purpose_journey_fixture_restricted import restricted_answer_from_conflicted_model
+        from purpose_journey_fixture_models import model_json as _fixture_model_json
+        restricted_model=_fixture_model_json(handoff.extractions,source_refs=job.source_refs,
+            model_id=qualified[0].artifact_id,version=1)
+        answer,public,suggestions=restricted_answer_from_conflicted_model(restricted_model)
+        assert answer.state in ('answered','abstained')
+        if public is not None:
+            text=public.text.lower()
+            assert 'graph acceptance' not in text and 'not established fact' in text or not suggestions
         stage('partial_summary_profile_only_no_graph_acceptance')
         return
     with unmounted_historical_extraction_wires(extraction,tmp_path/'unmounted-extraction-wire-backups') as absent:
