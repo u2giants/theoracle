@@ -30,6 +30,7 @@ S03_TESTS = [
     "test_original_pdf_image_views.py",
     "test_graph_evidence_answer.py",
     "test_replacement_original_lifecycle.py", "test_original_qualification_runtime.py",
+    "test_replacement_journey_control.py", "test_replacement_job_authority.py",
 ]
 # S04 — complete source ingestion, revisions and withdrawal
 # (plan_oracle_consultant_overhaul.md §S04 gate list).

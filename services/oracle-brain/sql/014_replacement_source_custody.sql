@@ -1117,3 +1117,246 @@ EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
 END $body$;
 REVOKE ALL ON FUNCTION oracle2.finalize_original_reading_qualification_v1(text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION oracle2.finalize_original_reading_qualification_v1(text,text,text) TO oracle2_source_original_reviewer;
+
+-- U2 journey control: opaque request identity, CAS compare-and-advance,
+-- cancel that preserves paid liability, and idempotent reserve. SQL derives
+-- actor from the independently admitted web caller; request bodies never
+-- carry actor/workspace/provider fields. Consumed nonces are retained.
+-- Widening the state constraint is additive: existing states remain valid.
+DO $state$
+BEGIN
+ IF EXISTS(SELECT 1 FROM pg_constraint WHERE conname='processing_journey_runs_v1_state_check'
+  AND conrelid='oracle2.processing_journey_runs_v1'::regclass) THEN
+  ALTER TABLE oracle2.processing_journey_runs_v1 DROP CONSTRAINT processing_journey_runs_v1_state_check;
+ END IF;
+ ALTER TABLE oracle2.processing_journey_runs_v1 ADD CONSTRAINT processing_journey_runs_v1_state_check
+  CHECK(state IN ('pending','processing','delivered','revision_pending','cancelled','error',
+   'awaiting-external-authority','missing-evidence','cancel-requested','failed','UNKNOWN'));
+END $state$;
+
+CREATE OR REPLACE FUNCTION oracle2.reserve_replacement_journey(request jsonb,idempotency uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;
+ prior_event oracle2.replacement_journey_events%ROWTYPE;
+ source uuid;run uuid;request_hash text;until timestamptz;caller_deadline timestamptz;
+ selectors jsonb;population_hash text;item jsonb;
+BEGIN
+ a:=oracle2._replacement_request_context();
+ IF idempotency IS NULL OR jsonb_typeof(request) IS DISTINCT FROM 'object'
+ OR NOT request ?& ARRAY['source_selectors','population_sha256','caller_deadline']
+ OR request-ARRAY['source_selectors','population_sha256','caller_deadline']<>'{}'::jsonb
+ OR jsonb_typeof(request->'source_selectors') IS DISTINCT FROM 'array'
+ OR jsonb_array_length(request->'source_selectors')<1 OR jsonb_array_length(request->'source_selectors')>100
+ OR jsonb_typeof(request->'population_sha256') IS DISTINCT FROM 'string'
+ OR request->>'population_sha256' !~ '^[0-9a-f]{64}$'
+ OR jsonb_typeof(request->'caller_deadline') IS DISTINCT FROM 'string'
+ OR request->>'caller_deadline' !~ '(Z|[+-][0-9]{2}:[0-9]{2})$' THEN
+  RAISE invalid_parameter_value USING MESSAGE='strict replacement journey request required';
+ END IF;
+ caller_deadline:=(request->>'caller_deadline')::timestamptz;
+ IF NOT isfinite(caller_deadline) OR caller_deadline<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='replacement caller deadline expired';
+ END IF;
+ until:=least(a.expires_at,caller_deadline,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
+ request_hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(request),'UTF8')),'hex');
+ -- Idempotency: same key + same request returns the existing journey.
+ SELECT * INTO prior_event FROM oracle2.replacement_journey_events e
+  WHERE e.workspace_id=a.workspace_id AND e.actor_id=a.principal_id AND e.idempotency_key=idempotency FOR SHARE;
+ IF prior_event.event_id IS NOT NULL THEN
+  IF prior_event.payload->>'request_sha256' IS DISTINCT FROM request_hash THEN
+   RAISE unique_violation USING MESSAGE='replacement journey idempotency conflict';
+  END IF;
+  RETURN jsonb_build_object('schema_version',1,'run_id',prior_event.run_id,
+   'journey_revision',prior_event.journey_revision,'state','pending',
+   'context',oracle2._replacement_private_context(a,until));
+ END IF;
+ -- Each selector must name an existing source in this workspace.
+ FOR item IN SELECT * FROM jsonb_array_elements(request->'source_selectors') LOOP
+  IF jsonb_typeof(item) IS DISTINCT FROM 'object' OR NOT item ?& ARRAY['source_id','revision']
+   OR item-ARRAY['source_id','revision']<>'{}'::jsonb
+   OR jsonb_typeof(item->'source_id') IS DISTINCT FROM 'string'
+   OR jsonb_typeof(item->'revision') IS DISTINCT FROM 'number' THEN
+   RAISE invalid_parameter_value USING MESSAGE='strict replacement journey source selector required';
+  END IF;
+  source:=(item->>'source_id')::uuid;
+  PERFORM oracle2._replacement_scope(a.workspace_id,a.principal_id,'source-read:'||source::text);
+ END LOOP;
+ source:=((request->'source_selectors'->0->>'source_id'))::uuid;
+ selectors:=request->'source_selectors';
+ population_hash:=request->>'population_sha256';
+ run:=gen_random_uuid();
+ IF until<=clock_timestamp() OR NOT isfinite(until) THEN
+  RAISE insufficient_privilege USING MESSAGE='replacement journey expired';
+ END IF;
+ INSERT INTO oracle2.runs(run_id,workspace_id,actor_id,source_id,question,status)
+  VALUES(run,a.workspace_id,a.principal_id,source,'replacement-journey','pending');
+ INSERT INTO oracle2.processing_journey_runs_v1(run_id,workspace_id,actor_id,journey_revision,
+  population_sha256,original_population,state,answer_hold)
+  VALUES(run,a.workspace_id,a.principal_id,1,population_hash,selectors,'pending',true);
+ INSERT INTO oracle2.replacement_journey_events(event_id,run_id,workspace_id,journey_revision,
+  actor_id,action,payload_sha256,payload,idempotency_key)
+  VALUES(gen_random_uuid(),run,a.workspace_id,1,a.principal_id,'create',
+   encode(sha256(convert_to(oracle2._replacement_metadata_json(jsonb_build_object('request_sha256',request_hash,'state','pending')),'UTF8')),'hex'),
+   jsonb_build_object('request_sha256',request_hash,'state','pending','population_sha256',population_hash),idempotency);
+ a:=oracle2._replacement_request_context();
+ until:=least(until,a.expires_at);
+ IF until<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='replacement journey authority expired before commit';
+ END IF;
+ RETURN jsonb_build_object('schema_version',1,'run_id',run,'journey_revision',1,'state','pending',
+  'population_sha256',population_hash,'context',oracle2._replacement_private_context(a,until));
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range OR invalid_datetime_format OR datetime_field_overflow THEN
+ RAISE invalid_parameter_value USING MESSAGE='strict replacement journey request required';
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.reserve_replacement_journey(jsonb,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION oracle2.reserve_replacement_journey(jsonb,uuid) TO oracle2_replacement_requester;
+
+CREATE OR REPLACE FUNCTION oracle2.current_replacement_journey_metadata(wanted_run uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;
+ j oracle2.processing_journey_runs_v1%ROWTYPE;until timestamptz;
+BEGIN
+ a:=oracle2._replacement_request_context();
+ SELECT * INTO j FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run FOR SHARE;
+ IF j.run_id IS NULL OR j.workspace_id IS DISTINCT FROM a.workspace_id OR j.actor_id IS DISTINCT FROM a.principal_id THEN
+  RAISE insufficient_privilege USING MESSAGE='current replacement journey identity denied';
+ END IF;
+ until:=least(a.expires_at,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
+ IF until<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='replacement journey authority expired';
+ END IF;
+ RETURN jsonb_build_object('schema_version',1,'run_id',j.run_id,
+  'journey_revision',j.journey_revision,'state',j.state,
+  'population_sha256',j.population_sha256,
+  'cancel_requested',j.cancelled_at IS NOT NULL,
+  'paid_cost_retained',j.state IN ('cancelled','error'),
+  'context',oracle2._replacement_private_context(a,until));
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.current_replacement_journey_metadata(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION oracle2.current_replacement_journey_metadata(uuid) TO oracle2_replacement_requester;
+
+CREATE OR REPLACE FUNCTION oracle2.compare_and_advance_replacement_journey(
+ wanted_run uuid,expected_revision integer,binding jsonb,idempotency uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;
+ j oracle2.processing_journey_runs_v1%ROWTYPE;current oracle2.processing_journey_runs_v1%ROWTYPE;
+ target_state text;until timestamptz;event_hash text;payload jsonb;
+BEGIN
+ a:=oracle2._replacement_request_context();
+ IF expected_revision IS NULL OR expected_revision<1 OR idempotency IS NULL
+ OR jsonb_typeof(binding) IS DISTINCT FROM 'object'
+ OR NOT binding ?& ARRAY['target_state']
+ OR jsonb_typeof(binding->'target_state') IS DISTINCT FROM 'string'
+ OR binding->>'target_state' NOT IN ('pending','processing','delivered','revision_pending',
+  'awaiting-external-authority','missing-evidence','cancel-requested','failed','UNKNOWN','error') THEN
+  RAISE invalid_parameter_value USING MESSAGE='strict replacement journey advance required';
+ END IF;
+ target_state:=binding->>'target_state';
+ IF target_state='cancel-requested' THEN
+  RAISE invalid_parameter_value USING MESSAGE='cancel uses request_replacement_cancel';
+ END IF;
+ SELECT * INTO j FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run FOR UPDATE;
+ IF j.run_id IS NULL OR j.workspace_id IS DISTINCT FROM a.workspace_id OR j.actor_id IS DISTINCT FROM a.principal_id THEN
+  RAISE insufficient_privilege USING MESSAGE='current replacement journey identity denied';
+ END IF;
+ IF j.journey_revision<>expected_revision THEN
+  RAISE serialization_failure USING MESSAGE='replacement journey CAS conflict';
+ END IF;
+ IF j.state IN ('cancelled','failed','UNKNOWN') THEN
+  RAISE serialization_failure USING MESSAGE='terminal journey cannot advance';
+ END IF;
+ until:=least(a.expires_at,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
+ IF until<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='replacement journey authority expired before commit';
+ END IF;
+ UPDATE oracle2.processing_journey_runs_v1
+  SET state=target_state,journey_revision=journey_revision+1
+  WHERE run_id=wanted_run AND journey_revision=expected_revision;
+ IF NOT FOUND THEN
+  RAISE serialization_failure USING MESSAGE='replacement journey CAS conflict';
+ END IF;
+ payload:=jsonb_build_object('target_state',target_state,'previous_state',j.state,
+  'expected_revision',expected_revision);
+ event_hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(payload),'UTF8')),'hex');
+ INSERT INTO oracle2.replacement_journey_events(event_id,run_id,workspace_id,journey_revision,
+  actor_id,action,payload_sha256,payload,idempotency_key)
+  VALUES(gen_random_uuid(),wanted_run,a.workspace_id,expected_revision+1,a.principal_id,
+   CASE target_state WHEN 'revision_pending' THEN 'correct' ELSE 'confirm' END,
+   event_hash,payload,idempotency);
+ SELECT * INTO current FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run;
+ a:=oracle2._replacement_request_context();
+ until:=least(until,a.expires_at);
+ RETURN jsonb_build_object('schema_version',1,'run_id',current.run_id,
+  'journey_revision',current.journey_revision,'state',current.state,
+  'context',oracle2._replacement_private_context(a,until));
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+ RAISE invalid_parameter_value USING MESSAGE='strict replacement journey advance required';
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.compare_and_advance_replacement_journey(uuid,integer,jsonb,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION oracle2.compare_and_advance_replacement_journey(uuid,integer,jsonb,uuid) TO oracle2_replacement_requester;
+
+CREATE OR REPLACE FUNCTION oracle2.request_replacement_cancel(
+ wanted_run uuid,expected_revision integer,reason text,idempotency uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;
+ j oracle2.processing_journey_runs_v1%ROWTYPE;current oracle2.processing_journey_runs_v1%ROWTYPE;
+ until timestamptz;payload jsonb;event_hash text;retained boolean;
+BEGIN
+ a:=oracle2._replacement_request_context();
+ IF expected_revision IS NULL OR expected_revision<1 OR idempotency IS NULL
+ OR reason IS NULL OR length(reason) NOT BETWEEN 1 AND 1600 THEN
+  RAISE invalid_parameter_value USING MESSAGE='strict replacement journey cancel required';
+ END IF;
+ SELECT * INTO j FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run FOR UPDATE;
+ IF j.run_id IS NULL OR j.workspace_id IS DISTINCT FROM a.workspace_id OR j.actor_id IS DISTINCT FROM a.principal_id THEN
+  RAISE insufficient_privilege USING MESSAGE='current replacement journey identity denied';
+ END IF;
+ IF j.journey_revision<>expected_revision THEN
+  RAISE serialization_failure USING MESSAGE='replacement journey CAS conflict';
+ END IF;
+ IF j.state='cancelled' THEN
+  RAISE unique_violation USING MESSAGE='replacement journey already cancelled';
+ END IF;
+ IF j.state='cancel-requested' THEN
+  RAISE unique_violation USING MESSAGE='replacement journey already cancel-requested';
+ END IF;
+ IF j.state IN ('failed','UNKNOWN') THEN
+  RAISE serialization_failure USING MESSAGE='terminal journey cannot cancel';
+ END IF;
+ until:=least(a.expires_at,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
+ IF until<=clock_timestamp() THEN
+  RAISE insufficient_privilege USING MESSAGE='replacement journey authority expired before commit';
+ END IF;
+ -- Cancel preserves paid liability. In-flight attempts are retained:
+ -- this is never remote-stop proof and never a refund or replay.
+ retained:=EXISTS(SELECT 1 FROM oracle2.replacement_journey_events e
+  WHERE e.run_id=wanted_run AND e.action IN ('correct','confirm') AND e.journey_revision<=expected_revision);
+ UPDATE oracle2.processing_journey_runs_v1
+  SET state='cancelled',cancelled_at=clock_timestamp(),journey_revision=journey_revision+1,
+   answer_hold=true
+  WHERE run_id=wanted_run AND journey_revision=expected_revision;
+ IF NOT FOUND THEN
+  RAISE serialization_failure USING MESSAGE='replacement journey CAS conflict';
+ END IF;
+ payload:=jsonb_build_object('reason',reason,'cancelled',true,
+  'in_flight_attempt_retained',retained,'remote_stop_proof',false);
+ event_hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(payload),'UTF8')),'hex');
+ INSERT INTO oracle2.replacement_journey_events(event_id,run_id,workspace_id,journey_revision,
+  actor_id,action,payload_sha256,payload,idempotency_key)
+  VALUES(gen_random_uuid(),wanted_run,a.workspace_id,expected_revision+1,a.principal_id,'cancel',
+   event_hash,payload,idempotency);
+ SELECT * INTO current FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run;
+ a:=oracle2._replacement_request_context();
+ until:=least(until,a.expires_at);
+ RETURN jsonb_build_object('schema_version',1,'run_id',current.run_id,
+  'journey_revision',current.journey_revision,'state',current.state,
+  'cancel_requested',true,'paid_cost_retained',true,
+  'in_flight_attempt_retained',retained,'remote_stop_proof',false,
+  'message',CASE WHEN retained THEN 'cancellation requested; in-flight attempt retained'
+   ELSE 'cancellation completed; no in-flight attempt' END,
+  'context',oracle2._replacement_private_context(a,until));
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+ RAISE invalid_parameter_value USING MESSAGE='strict replacement journey cancel required';
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.request_replacement_cancel(uuid,integer,text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION oracle2.request_replacement_cancel(uuid,integer,text,uuid) TO oracle2_replacement_requester;

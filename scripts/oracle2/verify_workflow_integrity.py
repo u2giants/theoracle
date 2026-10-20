@@ -49,7 +49,8 @@ RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_multimodal_pricing_v1','ra
 REPLACEMENT_RESULT_SUITES=('replacement_executor_target_sql','replacement_public_view_v1',
     'replacement_result_cleanup_v1','replacement_result_settings_v1','replacement_result_v1',
     'replacement_result_tls_sdk_close_v1','replacement_source_authority','replacement_source_intake_sql',
-    'replacement_transport_v1','replacement_adversarial_journey_v1','replacement_answer')
+    'replacement_transport_v1','replacement_adversarial_journey_v1','replacement_answer',
+    'replacement_journey_control','replacement_job_authority')
 DOCUMENTARY += CORE_INFRA_SUITES
 DOCUMENTARY += GRAPH_HOLISTIC_SUITES
 DOCUMENTARY += ORIGINAL_PROCESSING_SUITES
