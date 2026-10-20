@@ -11,13 +11,13 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ sourceId: string; revision: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'read');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const { sourceId, revision } = await context.params;
   const store = replacementFixtureStore();
-  const stored = store.getSource(sourceId);
+  const stored = store.getSource(sourceId, auth.principal.actorId);
   if (!stored) {
     return NextResponse.json({ error: 'unknown source' }, { status: 404 });
   }

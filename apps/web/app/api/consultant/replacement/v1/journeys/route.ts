@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await authorizeReplacementRequest(req.headers);
+    const auth = await authorizeReplacementRequest(req.headers, 'write');
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
@@ -43,12 +43,12 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'read');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const store = replacementFixtureStore();
   return NextResponse.json({
-    journeys: store.listJourneys().map((j) => store.validatedSnapshot(j)),
+    journeys: store.listJourneys(auth.principal.actorId).map((j) => store.validatedSnapshot(j)),
   });
 }

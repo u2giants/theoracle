@@ -11,13 +11,13 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'read');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const { id } = await context.params;
   const store = replacementFixtureStore();
-  const record = store.getJourney(id);
+  const record = store.getJourney(id, auth.principal.actorId);
   if (!record) {
     return NextResponse.json({ error: 'unknown journey' }, { status: 404 });
   }

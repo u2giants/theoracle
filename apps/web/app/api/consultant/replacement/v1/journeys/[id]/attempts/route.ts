@@ -12,13 +12,13 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'read');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const { id } = await context.params;
   const store = replacementFixtureStore();
-  const record = store.getJourney(id);
+  const record = store.getJourney(id, auth.principal.actorId);
   if (!record) {
     return NextResponse.json({ error: 'unknown journey' }, { status: 404 });
   }
@@ -29,7 +29,7 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'write');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -45,23 +45,23 @@ export async function POST(
     const store = replacementFixtureStore();
     const op = body.op;
     if (op === 'dispatch') {
-      store.dispatchAttempt({ journeyId: id });
+      store.dispatchAttempt({ journeyId: id, callerActorId: auth.principal.actorId });
     } else if (op === 'spend') {
       const attemptId = body.attemptId;
       if (typeof attemptId !== 'string' || !attemptId) {
         return NextResponse.json({ error: 'attemptId required' }, { status: 400 });
       }
-      store.spendAttempt({ journeyId: id, attemptId });
+      store.spendAttempt({ journeyId: id, attemptId, callerActorId: auth.principal.actorId });
     } else if (op === 'replay') {
       const attemptId = body.attemptId;
       if (typeof attemptId !== 'string' || !attemptId) {
         return NextResponse.json({ error: 'attemptId required' }, { status: 400 });
       }
-      store.replayAttempt({ journeyId: id, attemptId });
+      store.replayAttempt({ journeyId: id, attemptId, callerActorId: auth.principal.actorId });
     } else {
       return NextResponse.json({ error: 'unknown op' }, { status: 400 });
     }
-    const record = store.getJourney(id);
+    const record = store.getJourney(id, auth.principal.actorId);
     if (!record) throw new Error('journey disappeared');
     return NextResponse.json({ attempts: record.attempts });
   } catch (error) {

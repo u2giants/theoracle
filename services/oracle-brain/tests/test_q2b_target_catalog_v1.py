@@ -261,6 +261,17 @@ def test_damage_owner_in_reachable_roles_denied():
         require_target_catalog(receipt, pins())
 
 
+def test_damage_unexpected_reachable_role_denied():
+    role_row = (
+        SESSION, SESSION,
+        {'rolname': OWNER, 'member': False, 'set': False, 'usage': False},
+        [SESSION, GROUP, 'invented_extra_role'],
+    )
+    receipt = admitted_receipt(good_connection(role_row=role_row), pins())
+    with pytest.raises(PermissionError, match='unexpected reachable role'):
+        require_target_catalog(receipt, pins())
+
+
 def test_damage_tls_not_in_use_denied():
     plain = good_connection(
         ssl_in_use=False,

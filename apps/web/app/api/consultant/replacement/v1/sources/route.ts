@@ -17,7 +17,7 @@ const PERMITTED_MEDIA = new Set([
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await authorizeReplacementRequest(req.headers);
+    const auth = await authorizeReplacementRequest(req.headers, 'write');
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
@@ -90,6 +90,7 @@ export async function POST(req: NextRequest) {
     const workspaceId = auth.principal.workspaceId;
     const stored = store.registerSource({
       workspaceId,
+      actorId: auth.principal.actorId,
       filename,
       contentType: mediaType,
       bytes,

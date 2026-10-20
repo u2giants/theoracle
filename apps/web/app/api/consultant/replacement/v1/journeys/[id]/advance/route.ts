@@ -25,7 +25,7 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'write');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -47,24 +47,25 @@ export async function POST(
       return NextResponse.json({ error: 'expectedStateRevision required' }, { status: 400 });
     }
     const store = replacementFixtureStore();
-    const record = store.getJourney(id);
+    const record = store.getJourney(id, auth.principal.actorId);
     if (!record) {
       return NextResponse.json({ error: 'unknown journey' }, { status: 404 });
     }
     if (action === 'land_draft') {
-      store.landDraft({ journeyId: id, expectedStateRevision });
+      store.landDraft({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
     } else if (action === 'land_revision') {
-      store.landRevision({ journeyId: id, expectedStateRevision });
+      store.landRevision({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
     } else if (action === 'invalidate') {
-      store.invalidateCurrent({ journeyId: id, expectedStateRevision });
+      store.invalidateCurrent({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
     } else {
       store.applyAction({
         journeyId: id,
         expectedStateRevision,
         action: action as JourneyAction,
+        callerActorId: auth.principal.actorId,
       });
     }
-    const updated = store.getJourney(id);
+    const updated = store.getJourney(id, auth.principal.actorId);
     if (!updated) throw new Error('journey disappeared');
     return NextResponse.json(store.validatedSnapshot(updated));
   } catch (error) {

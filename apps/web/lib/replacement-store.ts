@@ -49,6 +49,8 @@ export interface StoredSource {
   pages: FixturePagePart[];
   /** Stale seeded model/graph-evidence result kept for hostile-case proof. */
   staleSeeded: { label: string; modelId: string; contentHash: string } | null;
+  /** Owner actor; cross-user access is denied. */
+  actorId: string;
 }
 
 export interface JourneyAttempt {
@@ -109,6 +111,16 @@ export interface JourneyRecord {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/** Fail-closed owner check: only the creating actor may read or mutate. */
+function assertOwner(
+  record: { actorId: string },
+  callerActorId: string | undefined,
+): void {
+  if (!callerActorId || record.actorId !== callerActorId) {
+    throw new Error('cross-user access denied');
+  }
 }
 
 /** Tiny valid PNG (1x1 pixel) used as fixture page imagery. */
@@ -254,12 +266,17 @@ class ReplacementFixtureStore {
     this.journeys.clear();
   }
 
-  getSource(sourceId: string): StoredSource | null {
-    return this.sources.get(sourceId) ?? null;
+  getSource(sourceId: string, callerActorId?: string): StoredSource | null {
+    const stored = this.sources.get(sourceId);
+    if (!stored) return null;
+    if (callerActorId !== undefined) assertOwner(stored, callerActorId);
+    return stored;
   }
 
-  listSources(): StoredSource[] {
-    return [...this.sources.values()];
+  listSources(callerActorId?: string): StoredSource[] {
+    const all = [...this.sources.values()];
+    if (callerActorId === undefined) return all;
+    return all.filter((s) => s.actorId === callerActorId);
   }
 
   /**
@@ -270,6 +287,7 @@ class ReplacementFixtureStore {
    */
   registerSource(input: {
     workspaceId: string;
+    actorId: string;
     filename: string;
     contentType: string;
     bytes: Buffer;
@@ -308,6 +326,7 @@ class ReplacementFixtureStore {
       originalBytes: input.bytes,
       pages,
       staleSeeded: input.staleSeeded ?? null,
+      actorId: input.actorId,
     };
     this.sources.set(sourceId, stored);
     return stored;
@@ -348,12 +367,17 @@ class ReplacementFixtureStore {
     return record;
   }
 
-  getJourney(journeyId: string): JourneyRecord | null {
-    return this.journeys.get(journeyId) ?? null;
+  getJourney(journeyId: string, callerActorId?: string): JourneyRecord | null {
+    const record = this.journeys.get(journeyId);
+    if (!record) return null;
+    if (callerActorId !== undefined) assertOwner(record, callerActorId);
+    return record;
   }
 
-  listJourneys(): JourneyRecord[] {
-    return [...this.journeys.values()];
+  listJourneys(callerActorId?: string): JourneyRecord[] {
+    const all = [...this.journeys.values()];
+    if (callerActorId === undefined) return all;
+    return all.filter((j) => j.actorId === callerActorId);
   }
 
   /**
@@ -365,9 +389,11 @@ class ReplacementFixtureStore {
     expectedStateRevision: number;
     action: JourneyAction;
     message?: string;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     assertKnownState(record.state);
     if (isTerminalReplacementState(record.state) && input.action !== 'complete_cancel') {
       throw new Error('journey is terminal; no replay');
@@ -405,12 +431,14 @@ class ReplacementFixtureStore {
   landDraft(input: {
     journeyId: string;
     expectedStateRevision: number;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.applyAction({
       journeyId: input.journeyId,
       expectedStateRevision: input.expectedStateRevision,
       action: 'land_draft',
       message: 'native fixture pipeline produced draft',
+      callerActorId: input.callerActorId,
     });
     const sources = this.resolveSources(record);
     const primary = sources[0];
@@ -451,9 +479,11 @@ class ReplacementFixtureStore {
     newToId: string;
     reason: string;
     idempotencyKey: string;
+    callerActorId?: string;
   }): { record: JourneyRecord; correction: CorrectionEvidence } {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     if (!record.model) throw new Error('no current model');
     if (record.state !== 'draft_ready' && record.state !== 'confirmed_for_scope' && record.state !== 'answer_ready') {
       throw new Error('correction requires a published draft');
@@ -525,6 +555,7 @@ class ReplacementFixtureStore {
       expectedStateRevision: record.stateRevision,
       action: 'correct',
       message: 'correction recorded; new model revision pending',
+      callerActorId: input.callerActorId,
     });
     // Current map/answer/badge clear on this invalidation. The prior model
     // stays immutable history in correction evidence (baseVersion/baseContentHash)
@@ -548,9 +579,11 @@ class ReplacementFixtureStore {
   landRevision(input: {
     journeyId: string;
     expectedStateRevision: number;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     const latest = record.corrections[record.corrections.length - 1];
     if (!latest) throw new Error('no correction evidence');
     this.applyAction({
@@ -558,6 +591,7 @@ class ReplacementFixtureStore {
       expectedStateRevision: input.expectedStateRevision,
       action: 'land_revision',
       message: `new model revision ${latest.resultingModelVersion} landed from correction evidence`,
+      callerActorId: input.callerActorId,
     });
     const sources = this.resolveSources(record);
     const primary = sources[0];
@@ -594,9 +628,11 @@ class ReplacementFixtureStore {
     version: number;
     contentHash: string;
     idempotencyKey: string;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     if (!record.model || !record.mapView) throw new Error('no current model');
     if (
       input.version !== record.model.version ||
@@ -621,6 +657,7 @@ class ReplacementFixtureStore {
       expectedStateRevision: input.expectedStateRevision,
       action: 'confirm',
       message: 'confirmed for this scope/version',
+      callerActorId: input.callerActorId,
     });
     record.confirmation = {
       workflowId: input.workflowId,
@@ -641,9 +678,11 @@ class ReplacementFixtureStore {
   withdrawConfirmation(input: {
     journeyId: string;
     expectedStateRevision: number;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     if (record.stateRevision !== input.expectedStateRevision) {
       throw new Error('stale state revision');
     }
@@ -669,9 +708,11 @@ class ReplacementFixtureStore {
   produceAnswer(input: {
     journeyId: string;
     expectedStateRevision: number;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     if (!record.confirmation?.current) throw new Error('confirmation required');
     const sources = this.resolveSources(record);
     const primary = sources[0];
@@ -681,6 +722,7 @@ class ReplacementFixtureStore {
       expectedStateRevision: input.expectedStateRevision,
       action: 'answer',
       message: 'connected documentary answer ready',
+      callerActorId: input.callerActorId,
     });
     record.answer = buildSyntheticAnswer(primary);
     record.updatedAt = nowIso();
@@ -697,9 +739,11 @@ class ReplacementFixtureStore {
   requestCancel(input: {
     journeyId: string;
     expectedStateRevision: number;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     if (record.state === 'cancelled') {
       throw new Error('cancellation requested; in-flight attempt retained');
     }
@@ -708,6 +752,7 @@ class ReplacementFixtureStore {
       expectedStateRevision: input.expectedStateRevision,
       action: 'request_cancel',
       message: 'cancellation requested; in-flight attempt retained',
+      callerActorId: input.callerActorId,
     });
     for (const attempt of record.attempts) {
       if (attempt.status === 'spent') {
@@ -728,12 +773,14 @@ class ReplacementFixtureStore {
   completeCancel(input: {
     journeyId: string;
     expectedStateRevision: number;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.applyAction({
       journeyId: input.journeyId,
       expectedStateRevision: input.expectedStateRevision,
       action: 'complete_cancel',
       message: 'cancelled; liability preserved for spent attempts; no replay',
+      callerActorId: input.callerActorId,
     });
     for (const attempt of record.attempts) {
       if (attempt.status === 'new') {
@@ -756,9 +803,10 @@ class ReplacementFixtureStore {
    * native1..N attempt visibility. Each call creates a NEW attempt. A spent
    * attempt can never be replayed or re-dispatched.
    */
-  dispatchAttempt(input: { journeyId: string }): JourneyRecord {
+  dispatchAttempt(input: { journeyId: string; callerActorId?: string }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     if (isTerminalReplacementState(record.state)) {
       throw new Error('journey is terminal; no replay');
     }
@@ -776,9 +824,10 @@ class ReplacementFixtureStore {
   }
 
   /** Mark the latest new attempt spent (paid wire retained). */
-  spendAttempt(input: { journeyId: string; attemptId: string }): JourneyRecord {
+  spendAttempt(input: { journeyId: string; attemptId: string; callerActorId?: string }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     const attempt = record.attempts.find((a) => a.attemptId === input.attemptId);
     if (!attempt) throw new Error('unknown attempt');
     if (attempt.status === 'spent') {
@@ -793,9 +842,10 @@ class ReplacementFixtureStore {
   }
 
   /** Replay a spent attempt must fail closed (no automatic retry). */
-  replayAttempt(input: { journeyId: string; attemptId: string }): never {
+  replayAttempt(input: { journeyId: string; attemptId: string; callerActorId?: string }): never {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     const attempt = record.attempts.find((a) => a.attemptId === input.attemptId);
     if (!attempt) throw new Error('unknown attempt');
     if (attempt.status === 'spent') {
@@ -813,9 +863,11 @@ class ReplacementFixtureStore {
   invalidateCurrent(input: {
     journeyId: string;
     expectedStateRevision: number;
+    callerActorId?: string;
   }): JourneyRecord {
     const record = this.journeys.get(input.journeyId);
     if (!record) throw new Error('unknown journey');
+    assertOwner(record, input.callerActorId);
     if (record.stateRevision !== input.expectedStateRevision) {
       throw new Error('stale state revision');
     }

@@ -11,7 +11,7 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'write');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -56,6 +56,7 @@ export async function POST(
       newToId: str(body.newToId),
       reason: str(body.reason),
       idempotencyKey: str(body.idempotencyKey),
+      callerActorId: auth.principal.actorId,
     });
     return NextResponse.json(
       {

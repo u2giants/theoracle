@@ -8,6 +8,7 @@ import {
   authorizePilotRequest,
   pilotActor,
   pilotToken,
+  sessionHasScope,
 } from './oracle2-pilot-auth';
 
 export const REPLACEMENT_COOKIE = 'oracle2_replacement_session';
@@ -28,6 +29,9 @@ export type ReplacementPrincipal = {
 export type ReplacementAuthResult =
   | { ok: true; principal: ReplacementPrincipal; sessionId: string }
   | { ok: false; error: string; status: number };
+
+/** Read is list/detail; write is upload/confirm/cancel/advance and siblings. */
+export type ReplacementAccess = 'read' | 'write';
 
 type Session = {
   sessionId: string;
@@ -154,8 +158,16 @@ export function createReplacementSession(token: string): ReplacementAuthResult {
  * Dedicated replacement session first; otherwise the existing pilot session
  * pattern. Workspace+role bounds are re-checked on every request.
  */
+/**
+ * Fail-closed request authorization for replacement v1 routes.
+ * Dedicated replacement session first; otherwise the existing pilot session
+ * pattern. Pilot sessions must prove a store-backed scope: write requires the
+ * privileged confirm scope; read accepts review or confirm. Scope is checked
+ * at every request and fails closed when missing or unknown.
+ */
 export async function authorizeReplacementRequest(
   headers: Headers,
+  access: ReplacementAccess = 'write',
 ): Promise<ReplacementAuthResult> {
   const dedicated = owned.authorize(headers);
   if (dedicated.ok) return dedicated;
@@ -164,6 +176,15 @@ export async function authorizeReplacementRequest(
   const pilot = await authorizePilotRequest(headers);
   if (!pilot.ok) {
     return { ok: false, error: pilot.error, status: pilot.status };
+  }
+  const actorId = pilot.actorId;
+  const hasConfirm = await sessionHasScope(actorId, 'confirm');
+  const hasReview = await sessionHasScope(actorId, 'review');
+  if (!hasConfirm && !hasReview) {
+    return { ok: false, error: 'replacement scope missing or unknown', status: 403 };
+  }
+  if (access === 'write' && !hasConfirm) {
+    return { ok: false, error: 'write scope required', status: 403 };
   }
   const principal: ReplacementPrincipal = {
     actorId: pilot.actorId,

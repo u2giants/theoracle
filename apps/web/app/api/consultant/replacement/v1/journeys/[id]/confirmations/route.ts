@@ -11,7 +11,7 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'write');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -46,6 +46,7 @@ export async function POST(
       version: num(body.version),
       contentHash: str(body.contentHash),
       idempotencyKey: str(body.idempotencyKey),
+      callerActorId: auth.principal.actorId,
     });
     return NextResponse.json(store.validatedSnapshot(record));
   } catch (error) {
@@ -59,7 +60,7 @@ export async function DELETE(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'write');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -80,6 +81,7 @@ export async function DELETE(
     const record = store.withdrawConfirmation({
       journeyId: id,
       expectedStateRevision: expected,
+      callerActorId: auth.principal.actorId,
     });
     return NextResponse.json(store.validatedSnapshot(record));
   } catch (error) {

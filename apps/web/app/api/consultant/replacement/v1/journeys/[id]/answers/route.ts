@@ -20,7 +20,7 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'write');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -42,7 +42,7 @@ export async function POST(
       return NextResponse.json({ error: 'expectedJourneyRevision required' }, { status: 400 });
     }
     const store = replacementFixtureStore();
-    const record = store.getJourney(id);
+    const record = store.getJourney(id, auth.principal.actorId);
     if (!record) {
       return NextResponse.json({ error: 'unknown journey' }, { status: 404 });
     }
@@ -52,8 +52,8 @@ export async function POST(
         { status: 409 },
       );
     }
-    store.produceAnswer({ journeyId: id, expectedStateRevision: expected });
-    const updated = store.getJourney(id);
+    store.produceAnswer({ journeyId: id, expectedStateRevision: expected, callerActorId: auth.principal.actorId });
+    const updated = store.getJourney(id, auth.principal.actorId);
     if (!updated) throw new Error('journey disappeared');
     return NextResponse.json(store.validatedSnapshot(updated));
   } catch (error) {

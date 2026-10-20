@@ -478,8 +478,10 @@ def require_target_catalog(receipt: Q2bTargetCatalogReceipt, expected: Q2bExpect
     if isinstance(memberships.reachable_roles, tuple):
         if expected.expected_owner_role in memberships.reachable_roles:
             raise PermissionError('Q2b owner reachable via membership')
-        if not set(expected.role_scope).issuperset({expected.expected_owner_role}):
-            raise PermissionError('Q2b role scope incomplete')
+        discovered = set(memberships.reachable_roles)
+        allowed = set(expected.role_scope)
+        if not discovered.issubset(allowed):
+            raise PermissionError('Q2b unexpected reachable role')
 
     identity = receipt.target_identity
     if (identity.host != expected.expected_host

@@ -11,7 +11,7 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authorizeReplacementRequest(req.headers);
+  const auth = await authorizeReplacementRequest(req.headers, 'write');
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -29,16 +29,16 @@ export async function POST(
       return NextResponse.json({ error: 'expectedStateRevision required' }, { status: 400 });
     }
     const store = replacementFixtureStore();
-    const record = store.getJourney(id);
+    const record = store.getJourney(id, auth.principal.actorId);
     if (!record) {
       return NextResponse.json({ error: 'unknown journey' }, { status: 404 });
     }
     if (record.state === 'cancel_requested') {
-      store.completeCancel({ journeyId: id, expectedStateRevision });
+      store.completeCancel({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
     } else {
-      store.requestCancel({ journeyId: id, expectedStateRevision });
+      store.requestCancel({ journeyId: id, expectedStateRevision, callerActorId: auth.principal.actorId });
     }
-    const updated = store.getJourney(id);
+    const updated = store.getJourney(id, auth.principal.actorId);
     if (!updated) throw new Error('journey disappeared');
     return NextResponse.json({
       ...store.validatedSnapshot(updated),
