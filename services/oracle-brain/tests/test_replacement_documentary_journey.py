@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -22,7 +23,11 @@ from oracle_brain.operating_model.coverage import Obligation, CoverageRecord
 from oracle_brain.operating_model.retrieval import QueryPlan
 from oracle_brain.operating_model.summaries import serve_summary
 from oracle_brain.operating_model.answer import answer_from_summary
-from test_operating_model_sdk import make_projection
+from oracle_brain.operating_model.source_receipts import validate_evidence
+from oracle_brain.operating_model.retrieval import build_pack
+from oracle_brain.operating_model.extraction import validate_response, persist_response
+from oracle_brain.operating_model.pipeline import assembly_inputs, assembly_candidate_payload
+from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest, authorize, dispatch
 
 
 class InventedProvider:
@@ -123,6 +128,7 @@ def journey_inputs(admin_url, tmp_path):
     graph_url = os.environ.get('ORACLE2_OPERATING_TEST_GRAPH_URL')
     if not graph_url:
         pytest.fail('owned isolated actual SDK graph required')
+    from test_operating_model_sdk import make_projection
     projection = make_projection(graph_url, workspace, assembly, uuid4())
     provider = InventedProvider()
     params = dict(expected_source_refs=tuple(r.ref for r in receipts), assemble=assemble_invented,
@@ -236,3 +242,300 @@ def test_sdk_failure_never_falls_back_to_original_quotes(journey_inputs, monkeyp
         assert connection.execute(
             'SELECT count(*) FROM oracle2.artifact_manifests WHERE workspace_id=%s AND artifact_id=%s',
             (receipts[0].ref.workspace_id, params['summary_id'])).fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# §9 named adversarial tests (plan_oracle_replacement_documentary_journey.md)
+# Hostile input × required behavior. Pure validators run without stores;
+# journey-integration cases use the existing journey_inputs fixture.
+# ---------------------------------------------------------------------------
+
+
+def test_replacement_refuses_changed_population(journey_inputs):
+    """Duplicate/mixed-workspace or omitted original is refused before any dispatch."""
+    ledger, provider, receipts, params, reopen, current, permissions = journey_inputs
+    # Duplicate source id inside the receipt population.
+    with pytest.raises(ValueError, match='exact distinct multi-original source population'):
+        run(journey_inputs, expected_source_refs=params['expected_source_refs'] + (receipts[0].ref,))
+    # Mixed workspace: second receipt forged into another workspace.
+    foreign = receipts[1].model_copy(update={
+        'ref': receipts[1].ref.model_copy(update={'workspace_id': uuid4()})})
+    with pytest.raises(ValueError, match='exact distinct multi-original source population'):
+        run(journey_inputs, expected_source_refs=(receipts[0].ref, foreign.ref))
+    # Omitted original: expected refs shorter than receipts.
+    with pytest.raises(ValueError, match='exact distinct multi-original source population'):
+        run(journey_inputs, expected_source_refs=params['expected_source_refs'][:1])
+    assert provider.calls == []
+
+
+def test_replacement_rejects_forged_evidence():
+    """Hash or exact-span mismatch is denied before the observation is created."""
+    from oracle_brain.operating_model.source_receipts import SourceReceipt, SourceRef, EvidenceRef
+    text = 'Design sends ART to Supplier.'
+    ref = SourceRef(workspace_id=uuid4(), source_id=uuid4(), revision=1,
+                    original_sha256='a' * 64,
+                    reading_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                    parser_id='p' * 64)
+    receipt = SourceReceipt(ref=ref, reading=text, display_revision='r1')
+    good = EvidenceRef(ref=ref, start=0, end=len(text), quote=text)
+    assert validate_evidence(receipt, good) is good
+    # Forged quote that does not match the reading span.
+    forged = EvidenceRef(ref=ref, start=0, end=len(text), quote='INVENTED QUOTE')
+    with pytest.raises(ValueError, match='evidence quote does not match'):
+        validate_evidence(receipt, forged)
+    # Span outside the reading.
+    outside = EvidenceRef(ref=ref, start=0, end=len(text) + 10, quote=text + 'x' * 10)
+    with pytest.raises(ValueError, match='outside the reading'):
+        validate_evidence(receipt, outside)
+    # Evidence bound to a different source revision.
+    other = ref.model_copy(update={'revision': 2})
+    wrong_revision = EvidenceRef(ref=other, start=0, end=len(text), quote=text)
+    with pytest.raises(ValueError, match='different source revision'):
+        validate_evidence(receipt, wrong_revision)
+
+
+def test_replacement_preserves_failed_generation():
+    """Invalid JSON / incomplete extraction is retained as a failed receipt, not dropped."""
+    class StubLedger:
+        reviewed_inventories = {}
+        def __init__(self):
+            self.persisted = []
+        def persist(self, **kwargs):
+            self.persisted.append(kwargs)
+            return kwargs
+    text = 'Invented source text for failed generation.'
+    ref = SourceRef(workspace_id=uuid4(), source_id=uuid4(), revision=1,
+                    original_sha256='b' * 64,
+                    reading_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                    parser_id='p' * 64)
+    receipt = SourceReceipt(ref=ref, reading=text, display_revision='r1')
+    ledger = StubLedger()
+    # Invalid JSON body is preserved as failed_extraction.
+    with pytest.raises(ValueError, match='invalid extraction preserved in failed receipt'):
+        persist_response(ledger, receipt, '{not json', artifact_id=uuid4(), version=1,
+                         permission_digest='a' * 64, compiler_digest='b' * 64)
+    assert len(ledger.persisted) == 1 and ledger.persisted[0]['kind'] == 'failed_extraction'
+    assert ledger.persisted[0]['failed'] is True
+    # Structurally valid but incomplete extraction is also preserved as failed.
+    incomplete = json.dumps({
+        'schema_version': 1, 'source_id': str(ref.source_id), 'source_revision': 1,
+        'complete': False, 'unresolved_items': ['still working'],
+        'observations': [], 'findings': [],
+    })
+    with pytest.raises(ValueError, match='invalid extraction preserved in failed receipt'):
+        persist_response(ledger, receipt, incomplete, artifact_id=uuid4(), version=1,
+                         permission_digest='a' * 64, compiler_digest='b' * 64)
+    assert len(ledger.persisted) == 2
+    assert all(p['kind'] == 'failed_extraction' and p['failed'] for p in ledger.persisted)
+
+
+def test_replacement_refuses_incomplete_assembly():
+    """Omitted essential obligation / invented cross-document edge is rejected."""
+    workspace = uuid4()
+    text = 'Design sends ART to Supplier.'
+    ref = SourceRef(workspace_id=workspace, source_id=uuid4(), revision=1,
+                    original_sha256='c' * 64,
+                    reading_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                    parser_id='p' * 64)
+    receipt = SourceReceipt(ref=ref, reading=text, display_revision='r1')
+    evidence = EvidenceRef(ref=ref, start=0, end=len(text), quote=text)
+    observation = Observation(
+        observation_id='o1', ref=ref, occurrence_key='k1', kind='handoff',
+        scope='invented', value=text, evidence=(evidence,))
+    payloads = [{'source_refs': [ref.model_dump(mode='json')],
+                 'observations': [observation.model_dump(mode='json')],
+                 'findings': []}]
+    refs, observations, findings = assembly_inputs(payloads)
+    # Invented cross-document edge: process whose support observation is absent.
+    raw = json.dumps({
+        'model_id': str(uuid4()), 'version': 1, 'workspace_id': str(workspace),
+        'source_refs': [ref.model_dump(mode='json')],
+        'declared_population': 'invented',
+        'processes': [{'process_id': 'p1', 'label': 'P1', 'scope': 'invented',
+                       'source_ids': [str(ref.source_id)],
+                       'observation_ids': ['absent-observation'],
+                       'completeness': 'partial'}],
+        'objects': [], 'interfaces': [],
+        'assembly_decisions': [], 'workflows': [], 'finding_ids': [],
+        'completeness': 'partial',
+    })
+    with pytest.raises(ValueError, match='unsupported or cross-scope assembly support|assembly must account'):
+        assembly_candidate_payload(raw, workspace_id=workspace, refs=refs,
+                                   observations=observations, findings=findings)
+
+
+def test_replacement_stale_source_denied(journey_inputs):
+    """A source revision changed after extraction invalidates the persisted answer."""
+    _, _, receipts, _, reopen, current, permissions = journey_inputs
+    result = run(journey_inputs)
+    workspace = receipts[0].ref.workspace_id
+    original = current[receipts[0].ref.source_id]
+    # Stale revision: the receipt the journey used is no longer current.
+    current[original.ref.source_id] = original.model_copy(update={
+        'ref': original.ref.model_copy(update={'revision': 2}),
+        'display_revision': 'r2'})
+    with pytest.raises((PermissionError, ValueError)):
+        serve_summary(reopen(), workspace, result.summary_id, 1)
+    current[original.ref.source_id] = original
+
+
+def test_replacement_revoked_access_denied(journey_inputs):
+    """A revoked source read grant denies serving before any recompute."""
+    _, _, receipts, _, reopen, current, permissions = journey_inputs
+    result = run(journey_inputs)
+    workspace = receipts[0].ref.workspace_id
+    permissions[receipts[1].ref.source_id] = False
+    with pytest.raises(PermissionError):
+        serve_summary(reopen(), workspace, result.summary_id, 1)
+    permissions[receipts[1].ref.source_id] = True
+
+
+def test_replacement_review_scope_denied(journey_inputs):
+    """A forged or out-of-scope review actor cannot authorize the population."""
+    ledger, provider, receipts, params, reopen, current, permissions = journey_inputs
+    # The journey principal is bound at Ledger construction; a foreign principal
+    # that lacks can_read on the population is denied before any generation.
+    foreign_ledger = Ledger(ledger.url, ledger.blobs, principal=uuid4(),
+                            can_read=lambda *_: False,
+                            current_source=lambda _w, sid: current[sid])
+    with pytest.raises(PermissionError):
+        foreign_ledger.authorize_refs(tuple(r.ref for r in receipts),
+                                      receipts[0].ref.workspace_id)
+    assert provider.calls == []
+
+
+def test_replacement_unknowns_not_promoted(journey_inputs):
+    """Conflicting timing / absent fact stay findings; they never become policy."""
+    ledger, provider, receipts, params, *_ = journey_inputs
+    result = run(journey_inputs)
+    answer = result.answer
+    # Unknown/conflict text is carried as caveats, not as established records.
+    assert any('unknown' in c.lower() or 'conflict' in c.lower() for c in answer.caveats)
+    # No accepted drafts / company policy may be seeded by the journey.
+    with psycopg.connect(ledger.url) as connection:
+        assert connection.execute(
+            'SELECT count(*) FROM oracle2.drafts WHERE workspace_id=%s',
+            (receipts[0].ref.workspace_id,)).fetchone()[0] == 0
+    # Findings are reported, not resolved by model output.
+    for finding in answer.findings:
+        assert finding.get('status') != 'resolved_by_authorized_review'
+
+
+def test_replacement_graph_reload_bound(journey_inputs, monkeypatch):
+    """SDK snapshot must match the sealed assembly exactly on reload."""
+    ledger, provider, receipts, params, *_ = journey_inputs
+    # Capture the real load before patching; calling params['projection'].load
+    # after setattr would re-enter drifted() and recurse to death.
+    original_load = params['projection'].load
+
+    async def drifted(ledger_, workspace, artifact_id, version):
+        payload = await original_load(ledger_, workspace, artifact_id, version)
+        return {**payload, 'drifted': True}
+
+    monkeypatch.setattr(params['projection'], 'load', drifted)
+    with pytest.raises(ValueError, match='SDK projection does not match sealed assembly'):
+        run(journey_inputs)
+
+
+def test_replacement_partial_pack_caveated():
+    """A partial/continuation pack is never presented as the whole population."""
+    workspace = uuid4()
+    text = 'Partial invented source.'
+    ref = SourceRef(workspace_id=workspace, source_id=uuid4(), revision=1,
+                    original_sha256='d' * 64,
+                    reading_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                    parser_id='p' * 64)
+    evidence = {'ref': ref.model_dump(mode='json'), 'start': 0, 'end': len(text), 'quote': text}
+    payload = {
+        'source_refs': [ref.model_dump(mode='json')],
+        'observations': [{'observation_id': 'o1', 'ref': ref.model_dump(mode='json'),
+                          'occurrence_key': 'k', 'kind': 'step', 'scope': 's',
+                          'value': text, 'evidence': [evidence]}],
+        'findings': [],
+        'operating_models': [{
+            'model_id': str(uuid4()), 'version': 1, 'workspace_id': str(workspace),
+            'source_refs': [ref.model_dump(mode='json')],
+            'declared_population': 'exactly two invented originals',
+            'processes': [
+                {'process_id': 'p1', 'label': 'P1', 'scope': 's',
+                 'source_ids': [str(ref.source_id)], 'observation_ids': ['o1'],
+                 'completeness': 'partial'},
+                {'process_id': 'p2', 'label': 'P2', 'scope': 's',
+                 'source_ids': [str(ref.source_id)], 'observation_ids': ['o1'],
+                 'completeness': 'partial'},
+                {'process_id': 'p3', 'label': 'P3', 'scope': 's',
+                 'source_ids': [str(ref.source_id)], 'observation_ids': ['o1'],
+                 'completeness': 'partial'}],
+            'objects': [], 'interfaces': [], 'assembly_decisions': [], 'workflows': [],
+            'finding_ids': [], 'completeness': 'partial',
+        }],
+        'workflows': [],
+    }
+    plan = QueryPlan(view='company_overview', process_ids=(), question='invented overview',
+                     max_bytes=131072, page=0, page_size=1)
+    pack = build_pack(payload, plan)
+    assert pack['continuation'] is not None
+    assert pack['declared_population_fully_paged'] is False
+    assert pack['coverage_state'] == 'partial'
+
+
+def test_replacement_never_dispatches_external_provider(journey_inputs, monkeypatch):
+    """Expired/unapproved exact provider scope never reaches an external endpoint."""
+    import ipaddress
+    import socket
+    ledger, provider, receipts, params, *_ = journey_inputs
+
+    def _loopback(host):
+        if host in ('localhost', '', None):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        mapped = getattr(ip, 'ipv4_mapped', None)
+        return bool(ip.is_loopback or (mapped is not None and mapped.is_loopback))
+
+    def _target_ok(address):
+        # AF_UNIX / named pipes are local fixture traffic; tuple targets must be loopback.
+        if not isinstance(address, tuple) or not address:
+            return True
+        return _loopback(address[0])
+
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+    real_create_connection = socket.create_connection
+
+    def guarded_connect(self, address):
+        if not _target_ok(address):
+            raise AssertionError(f'external socket to {address[0]!r} is forbidden')
+        return real_connect(self, address)
+
+    def guarded_connect_ex(self, address):
+        if not _target_ok(address):
+            raise AssertionError(f'external socket to {address[0]!r} is forbidden')
+        return real_connect_ex(self, address)
+
+    def guarded_create_connection(address, *args, **kwargs):
+        if not _target_ok(address):
+            raise AssertionError(f'external socket to {address[0]!r} is forbidden')
+        return real_create_connection(address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, 'connect', guarded_connect)
+    monkeypatch.setattr(socket.socket, 'connect_ex', guarded_connect_ex)
+    monkeypatch.setattr(socket, 'create_connection', guarded_create_connection)
+    result = run(journey_inputs)
+    assert result.assembly_id
+    assert {sid for sid, _ in provider.calls} == {r.ref.source_id for r in receipts}
+    # Unapproved exact provider scope is denied before any sender runs.
+    request = ProcessingRequest(provider='external', account='prod', endpoint='https://real.example',
+                                data_classes=frozenset({'company'}), purpose='replacement',
+                                terms_hash='a' * 64)
+    sent = []
+    with pytest.raises(PermissionError):
+        dispatch(request, [], lambda: sent.append(1))
+    assert sent == []
+    # Expired approval for an otherwise exact scope is likewise denied.
+    approval = ProcessingApproval(**request.model_dump(), register_ref='test',
+                                  expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+    with pytest.raises(PermissionError):
+        authorize(request, [approval])
