@@ -1,23 +1,18 @@
 """Offline component gaps for the coherent journey: restricted answer, ACK, restart.
 
-These are the Windows-runnable proofs for the three coherent-fixture stubs.
-Full protected TLS projector delivery / ACK / restart over FalkorDB stays in
-test_purpose_coherent_native_journey.py and requires real TLS binary + DB fixtures.
-
-Linux full-stack command (falkor + postgres + openssl):
-  python -m pytest services/oracle-brain/tests/test_purpose_coherent_native_journey.py -v
+Required suite: every test here always runs and never skips. Full protected TLS
+projector delivery / ACK / restart over FalkorDB is proved in the separate required
+suite test_purpose_coherent_native_journey.py (deliver_actual_paid_graph +
+verify_protected_executor). No gated or skip-only test may live in this file.
 """
 import hashlib
 import hmac
 import json
-import sys
+import tempfile
 from pathlib import Path
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-
-WIN32 = sys.platform == 'win32'
 
 
 def _fixture_model():
@@ -98,8 +93,8 @@ def test_ack_hmac_rejects_substituted_receipt_and_accepts_exact():
 
 def test_projector_restart_keeps_exact_attempt_nonce_without_replay():
     """Exact generation attempt survives process restart; a spent attempt is never re-begun."""
-    tmp = pytest.importorskip('tempfile').mkdtemp()
-    root = Path(tmp) / 'attempts'
+    tmp = Path(tempfile.mkdtemp())
+    root = tmp / 'attempts'
     root.mkdir()
     row = dict(attempt_id=str(uuid4()), generation=str(uuid4()), job_hash='a' * 64,
         state='STARTED', started_at='2026-10-19T00:00:00+00:00')
@@ -113,17 +108,3 @@ def test_projector_restart_keeps_exact_attempt_nonce_without_replay():
         # A spent STARTED attempt must not accept a different attempt_id.
         if restarted['attempt_id'] != str(uuid4()):
             raise PermissionError('graph generation already attempted; observe known ACK or retain UNKNOWN')
-
-
-@pytest.mark.skipif(WIN32, reason='Windows lacks fcntl (paid_projector_v3/purpose_journey_v2) '
-    'and graphrag_sdk (paid_sdk_delivery_v3); run on Linux: '
-    'python -m pytest services/oracle-brain/tests/test_purpose_coherent_native_journey.py -v')
-def test_protected_tls_projector_delivery_and_ack_restart_full_chain():
-    """Linux-only placeholder naming the full-stack proof location.
-
-    The complete protected TLS projector delivery + ACK/restart chain lives in
-    test_purpose_coherent_native_journey.py (deliver_actual_paid_graph +
-    verify_protected_executor) and needs FalkorDB, PostgreSQL, openssl and fcntl.
-    """
-    pytest.skip('full coherent journey requires ORACLE2_TEST_ADMIN_URL, '
-        'ORACLE2_OPERATING_TEST_GRAPH_URL, COMPOSE_PROJECT_NAME falkor container and openssl')
