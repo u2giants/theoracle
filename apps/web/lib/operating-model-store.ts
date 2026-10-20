@@ -8,11 +8,76 @@ export function operatingClient() {
   return pilotPostgres(url);
 }
 export const operatingAuthority = `WITH RECURSIVE lineage AS (
- SELECT a.appointment_id AS start_id,a.appointment_id,a.parent_id,a.revoked_at,a.expires_at,a.scope,a.workspace_id,1 AS depth
+ SELECT a.appointment_id AS start_id,a.appointment_id,a.parent_id,a.revoked_at,a.expires_at,a.scope,a.actor_id,a.granted_by,a.workspace_id,1 AS depth
  FROM oracle2.appointments a WHERE a.workspace_id=$1 AND a.actor_id=$2 AND a.scope IN ($3,'root')
- UNION ALL SELECT l.start_id,p.appointment_id,p.parent_id,p.revoked_at,p.expires_at,p.scope,p.workspace_id,l.depth+1
- FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id WHERE l.depth<16 AND p.workspace_id=l.workspace_id
+ UNION ALL SELECT l.start_id,p.appointment_id,p.parent_id,p.revoked_at,p.expires_at,p.scope,p.actor_id,p.granted_by,p.workspace_id,l.depth+1
+ FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id WHERE l.depth<16 AND p.workspace_id=l.workspace_id AND l.granted_by=p.actor_id
 ) SELECT EXISTS(SELECT 1 FROM lineage GROUP BY start_id HAVING bool_and(revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())) AND bool_or(scope='root' AND parent_id IS NULL)) AS ok`;
+
+/** Row shape consumed by the pure operatingAuthority mirror. */
+export type OperatingAppointmentRow = {
+  appointment_id: string;
+  workspace_id: string;
+  actor_id: string;
+  scope: string;
+  granted_by: string;
+  parent_id: string | null;
+  revoked_at: string | null;
+  expires_at: string | null;
+};
+
+/**
+ * Pure mirror of the operatingAuthority SQL: proves scope through an
+ * unbroken issuer-linked chain (granted_by = parent.actor_id) that reaches
+ * a root anchor. Unrelated roots and forged issuer links are rejected.
+ */
+export function operatingLineageAuthorizes(
+  appointments: OperatingAppointmentRow[],
+  actorId: string,
+  scope: string,
+  workspaceId: string,
+  now: Date = new Date(),
+): boolean {
+  const byId = new Map(appointments.map((a) => [a.appointment_id, a]));
+  const starts = appointments.filter(
+    (a) =>
+      a.workspace_id === workspaceId &&
+      a.actor_id === actorId &&
+      (a.scope === scope || a.scope === 'root'),
+  );
+  for (const start of starts) {
+    const chain: OperatingAppointmentRow[] = [start];
+    let current = start;
+    let valid = true;
+    const seen = new Set<string>([start.appointment_id]);
+    for (let depth = 1; depth < 16; depth++) {
+      if (current.parent_id === null) break;
+      const parent = byId.get(current.parent_id);
+      if (!parent || parent.workspace_id !== current.workspace_id) {
+        valid = false;
+        break;
+      }
+      if (current.granted_by !== parent.actor_id) {
+        valid = false;
+        break;
+      }
+      if (seen.has(parent.appointment_id)) {
+        valid = false;
+        break;
+      }
+      seen.add(parent.appointment_id);
+      chain.push(parent);
+      current = parent;
+    }
+    if (!valid) continue;
+    const allLive = chain.every(
+      (a) => a.revoked_at === null && (a.expires_at === null || new Date(a.expires_at) > now),
+    );
+    if (!allLive) continue;
+    if (chain.some((a) => a.scope === 'root' && a.parent_id === null)) return true;
+  }
+  return false;
+}
 
 export async function createView(actorId: string, processId?: string, page=0, connected=false) {
   const sql = operatingClient(); const workspace = pilotWorkspaceId(); const runId = randomUUID();

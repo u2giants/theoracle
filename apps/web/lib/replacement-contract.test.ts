@@ -30,6 +30,7 @@ import { GET as listJourneys } from '../app/api/consultant/replacement/v1/journe
 import { GET as getJourney } from '../app/api/consultant/replacement/v1/journeys/[id]/route';
 import type { NextRequest } from 'next/server';
 import { lineageAuthorizes, type AppointmentRow } from './oracle2-authority';
+import { operatingLineageAuthorizes, type OperatingAppointmentRow } from './operating-model-store';
 
 const WORKSPACE = '00000000-0000-4000-8000-0000000000f1';
 
@@ -1152,5 +1153,118 @@ test('Low r4: foreign ID and unknown ID yield the same response (no existence le
   assert.throws(
     () => store.nativePipelineIdentity(storedB.source.sourceId, OWNER_A, WORKSPACE),
     /unknown source/,
+  );
+});
+
+// --- R8 pre-emptive: operatingAuthority issuer-link denied cases ----------
+
+test('operatingAuthority: forged / unrelated-root authority chain is denied', () => {
+  const WS = '00000000-0000-4000-8000-0000000000f1';
+  const owner = '00000000-0000-4000-8000-0000000000a1';
+  const attacker = '00000000-0000-4000-8000-0000000000e1';
+  const rootId = '00000000-0000-4000-8000-0000000000r1';
+  const forgedId = '00000000-0000-4000-8000-0000000000c1';
+  const unrelatedRootId = '00000000-0000-4000-8000-0000000000r2';
+
+  const root: OperatingAppointmentRow = {
+    appointment_id: rootId,
+    workspace_id: WS,
+    actor_id: owner,
+    scope: 'root',
+    granted_by: '00000000-0000-4000-8000-0000000000bb',
+    parent_id: null,
+    revoked_at: null,
+    expires_at: null,
+  };
+
+  const forged: OperatingAppointmentRow = {
+    appointment_id: forgedId,
+    workspace_id: WS,
+    actor_id: attacker,
+    scope: 'confirm',
+    granted_by: '00000000-0000-4000-8000-0000000000ff',
+    parent_id: rootId,
+    revoked_at: null,
+    expires_at: null,
+  };
+
+  assert.equal(
+    operatingLineageAuthorizes([root, forged], attacker, 'confirm', WS),
+    false,
+    'forged chain with broken issuer link must be denied',
+  );
+
+  const unrelatedRoot: OperatingAppointmentRow = {
+    appointment_id: unrelatedRootId,
+    workspace_id: WS,
+    actor_id: '00000000-0000-4000-8000-0000000000x9',
+    scope: 'root',
+    granted_by: '00000000-0000-4000-8000-0000000000bb',
+    parent_id: null,
+    revoked_at: null,
+    expires_at: null,
+  };
+  const forgedUnrelated: OperatingAppointmentRow = {
+    appointment_id: '00000000-0000-4000-8000-0000000000c2',
+    workspace_id: WS,
+    actor_id: attacker,
+    scope: 'confirm',
+    granted_by: '00000000-0000-4000-8000-0000000000ff',
+    parent_id: unrelatedRootId,
+    revoked_at: null,
+    expires_at: null,
+  };
+  assert.equal(
+    operatingLineageAuthorizes([unrelatedRoot, forgedUnrelated], attacker, 'confirm', WS),
+    false,
+    'chain through an unrelated root must be denied',
+  );
+
+  const correctGrant: OperatingAppointmentRow = {
+    appointment_id: '00000000-0000-4000-8000-0000000000c3',
+    workspace_id: WS,
+    actor_id: attacker,
+    scope: 'review',
+    granted_by: owner,
+    parent_id: rootId,
+    revoked_at: null,
+    expires_at: null,
+  };
+  assert.equal(
+    operatingLineageAuthorizes([root, correctGrant], attacker, 'review', WS),
+    true,
+    'correct issuer-linked chain proves authority',
+  );
+
+  const mid: OperatingAppointmentRow = {
+    appointment_id: '00000000-0000-4000-8000-0000000000m1',
+    workspace_id: WS,
+    actor_id: '00000000-0000-4000-8000-0000000000b2',
+    scope: 'review',
+    granted_by: owner,
+    parent_id: rootId,
+    revoked_at: null,
+    expires_at: null,
+  };
+  const leaf: OperatingAppointmentRow = {
+    appointment_id: '00000000-0000-4000-8000-0000000000l1',
+    workspace_id: WS,
+    actor_id: attacker,
+    scope: 'review',
+    granted_by: mid.actor_id,
+    parent_id: mid.appointment_id,
+    revoked_at: null,
+    expires_at: null,
+  };
+  assert.equal(
+    operatingLineageAuthorizes([root, mid, leaf], attacker, 'review', WS),
+    true,
+    'valid multi-step issuer-linked chain proves authority',
+  );
+  const badLeaf: OperatingAppointmentRow = { ...leaf, granted_by: owner };
+  assert.equal(
+    operatingLineageAuthorizes([root, mid, badLeaf], attacker, 'review', WS),
+    false,
+    'broken issuer link in multi-step chain is denied',
   );
 });
