@@ -26,10 +26,14 @@ import pytest
 
 from oracle_brain.meetings.delivery import (
     DeliveryLedger, SenderAuthority, SenderCredentialProof, SenderPrincipal,
-    create_intent, issue_sender_authority, issue_sender_credential_proof,
-    provider_idempotency_key, verify_sender_principal,
+    SENDER_CREDENTIAL_PURPOSE, create_intent, issue_sender_authority,
+    issue_sender_credential_proof, provider_idempotency_key,
+    verify_sender_principal,
 )
-from oracle_brain.meetings.participation import record_settings
+from oracle_brain.meetings.participation import (
+    ENABLE_PROOF_PURPOSE, record_settings,
+)
+from oracle_brain.seal import seal_mac
 from oracle_brain.workflows.meeting_turn import (
     InboundTurn, MembershipView, evaluate_turn,
 )
@@ -39,11 +43,22 @@ _FUTURE = datetime(2030, 1, 1, tzinfo=timezone.utc)
 _PAST = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
+def _credential_mac(principal_id, role, expires_at):
+    """Host-identity-service MAC over (principal, role, expiry, purpose)."""
+    return seal_mac(SENDER_CREDENTIAL_PURPOSE, principal_id, role, expires_at)
+
+
+def _enable_mac(meeting_id):
+    """Host-authorized participation enable proof."""
+    return seal_mac(ENABLE_PROOF_PURPOSE, meeting_id)
+
+
 def _credential(*, role='delivery_sender', expires_at=None, principal_id='principal-1'):
     """Real verified principal fixture from the authz credential boundary."""
+    exp = expires_at if expires_at is not None else _FUTURE
     proof = issue_sender_credential_proof(
-        principal_id=principal_id, role=role,
-        expires_at=expires_at if expires_at is not None else _FUTURE)
+        principal_id=principal_id, role=role, expires_at=exp,
+        mac=_credential_mac(principal_id, role, exp))
     return verify_sender_principal(proof)
 
 
@@ -317,7 +332,8 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
         raise AssertionError('forged sender credential proof look-alike must be denied')
     # Unauthorized role in a sealed proof: denied at verify.
     bad_role_proof = issue_sender_credential_proof(
-        principal_id='p-1', role='not_a_sender', expires_at=_FUTURE)
+        principal_id='p-1', role='not_a_sender', expires_at=_FUTURE,
+        mac=_credential_mac('p-1', 'not_a_sender', _FUTURE))
     try:
         verify_sender_principal(bad_role_proof)
     except PermissionError:
@@ -343,7 +359,8 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
         raise AssertionError('forged sender principal must not mint authority')
     # Expired sealed credential: denied at verify (real expiry check).
     expired_proof = issue_sender_credential_proof(
-        principal_id='p-expired', role='delivery_sender', expires_at=_PAST)
+        principal_id='p-expired', role='delivery_sender', expires_at=_PAST,
+        mac=_credential_mac('p-expired', 'delivery_sender', _PAST))
     try:
         verify_sender_principal(expired_proof)
     except PermissionError:
@@ -352,7 +369,8 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
         raise AssertionError('expired sender credential must be denied at verify')
     # Credential valid at verify but expired at mint: denied at mint.
     stale_proof = issue_sender_credential_proof(
-        principal_id='p-stale', role='delivery_sender', expires_at=_FUTURE)
+        principal_id='p-stale', role='delivery_sender', expires_at=_FUTURE,
+        mac=_credential_mac('p-stale', 'delivery_sender', _FUTURE))
     stale_principal = verify_sender_principal(stale_proof)
     try:
         issue_sender_authority(
@@ -399,6 +417,84 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
     assert ledger.replay(intent.idempotency_key).status == 'recorded'
 
 
+def test_forged_mac_denied_for_credential_proof():
+    """A credential proof without a valid host MAC is refused."""
+    # Garbage MAC: denied.
+    try:
+        issue_sender_credential_proof(
+            principal_id='p-1', role='delivery_sender', expires_at=_FUTURE,
+            mac='0' * 64)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('forged MAC must be denied')
+    # Empty MAC: denied.
+    try:
+        issue_sender_credential_proof(
+            principal_id='p-1', role='delivery_sender', expires_at=_FUTURE,
+            mac='')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('empty MAC must be denied')
+    # MAC for different fields: denied.
+    wrong_fields_mac = _credential_mac('p-2', 'delivery_sender', _FUTURE)
+    try:
+        issue_sender_credential_proof(
+            principal_id='p-1', role='delivery_sender', expires_at=_FUTURE,
+            mac=wrong_fields_mac)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('MAC for different fields must be denied')
+    # Allowed: real test-secret MAC over the exact fields.
+    proof = issue_sender_credential_proof(
+        principal_id='p-1', role='delivery_sender', expires_at=_FUTURE,
+        mac=_credential_mac('p-1', 'delivery_sender', _FUTURE))
+    assert verify_sender_principal(proof).role == 'delivery_sender'
+
+
+def test_wrong_secret_mac_denied_for_credential_proof():
+    """A MAC computed under a different seal secret is refused."""
+    import hmac as _hmac
+    import hashlib as _hashlib
+    wrong = _hmac.new(b'wrong-secret-not-the-test-secret-000',
+                      b'meeting-delivery-sender|p-1|delivery_sender',
+                      _hashlib.sha256).hexdigest()
+    try:
+        issue_sender_credential_proof(
+            principal_id='p-1', role='delivery_sender', expires_at=_FUTURE,
+            mac=wrong)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('wrong-secret MAC must be denied')
+
+
+def test_caller_built_settings_enable_denied():
+    """Enabling participation without a host-authorized MAC is refused."""
+    from oracle_brain.meetings.participation import record_settings as rs
+    try:
+        rs(meeting_id='m-1', enabled=True,
+           recorded_at='2026-10-16T12:00:00Z')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('caller-built enabled settings must be denied')
+    try:
+        rs(meeting_id='m-1', enabled=True,
+           recorded_at='2026-10-16T12:00:00Z', enable_proof_mac='0' * 64)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('forged enable MAC must be denied')
+    # Allowed: real test-secret enable MAC.
+    settings = rs(meeting_id='m-1', enabled=True,
+                  recorded_at='2026-10-16T12:00:00Z',
+                  enable_proof_mac=_enable_mac('m-1'))
+    assert settings.enabled is True
+
+
 def test_turn_silence_when_disabled_records_no_outbound_intent():
     ledger = DeliveryLedger()
     settings = record_settings(meeting_id='m-1', recorded_at='2026-10-16T12:00:00Z')
@@ -413,7 +509,8 @@ def test_turn_silence_when_disabled_records_no_outbound_intent():
 def test_turn_respond_records_intent_but_never_sends():
     ledger = DeliveryLedger()
     settings = record_settings(meeting_id='m-1', enabled=True,
-                               recorded_at='2026-10-16T12:00:00Z')
+                               recorded_at='2026-10-16T12:00:00Z',
+                               enable_proof_mac=_enable_mac('m-1'))
     turn = InboundTurn(turn_id='t-1', meeting_id='m-1', speaker_id='p-1',
                        text='Oracle, what is the policy?', addresses_oracle=True)
     outcome = evaluate_turn(
@@ -428,7 +525,8 @@ def test_turn_respond_records_intent_but_never_sends():
 def test_undetermined_membership_never_widens_access():
     ledger = DeliveryLedger()
     settings = record_settings(meeting_id='m-1', enabled=True,
-                               recorded_at='2026-10-16T12:00:00Z')
+                               recorded_at='2026-10-16T12:00:00Z',
+                               enable_proof_mac=_enable_mac('m-1'))
     turn = InboundTurn(turn_id='t-1', meeting_id='m-1', speaker_id='p-1',
                        text='Oracle, share the company total', addresses_oracle=True)
     # Undetermined membership never produces an outbound intent, even with
@@ -449,7 +547,8 @@ def test_undetermined_membership_never_widens_access():
 def test_shared_access_unauthorized_is_refused():
     ledger = DeliveryLedger()
     settings = record_settings(meeting_id='m-1', enabled=True,
-                               recorded_at='2026-10-16T12:00:00Z')
+                               recorded_at='2026-10-16T12:00:00Z',
+                               enable_proof_mac=_enable_mac('m-1'))
     turn = InboundTurn(turn_id='t-1', meeting_id='m-1', speaker_id='p-1',
                        text='Oracle, what is the restricted total?', addresses_oracle=True)
     # Membership determined but speaker not in shared_access: refuse.
@@ -482,7 +581,8 @@ def test_oracle_outbound_words_are_never_inbound_evidence():
 def test_cross_meeting_turn_rejected_and_capture_survives_failed_answer():
     ledger = DeliveryLedger()
     settings = record_settings(meeting_id='m-1', enabled=True,
-                               recorded_at='2026-10-16T12:00:00Z')
+                               recorded_at='2026-10-16T12:00:00Z',
+                               enable_proof_mac=_enable_mac('m-1'))
     other = InboundTurn(turn_id='t-1', meeting_id='m-2', speaker_id='p-1',
                         text='hello', addresses_oracle=True)
     try:

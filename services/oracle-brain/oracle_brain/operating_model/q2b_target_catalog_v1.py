@@ -15,10 +15,13 @@ search_path is fixed here and cannot be weakened by a caller-supplied pin.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import re
 from typing import Literal
 
 from pydantic import Field
+
+from oracle_brain.seal import seal_mac, verify_mac
 
 from .contracts import StrictRecord
 
@@ -33,6 +36,10 @@ FACT_CLASSES = (
 )
 
 UNKNOWN: Literal['UNKNOWN'] = 'UNKNOWN'
+
+# Purpose tag for the reader-seal HMAC over the six fact classes. A MAC
+# issued under a different purpose never satisfies admission.
+READER_FACT_PURPOSE = 'q2b-reader-facts-v1'
 
 # Exact proconfig expected on every reviewed helper. PostgreSQL stores the
 # normalised form with a space after the comma; callers cannot substitute it.
@@ -251,6 +258,7 @@ class Q2bTargetCatalogReceipt(StrictRecord):
     role_memberships: Q2bRoleMembershipsFact | Literal['UNKNOWN'] = UNKNOWN
     target_identity: Q2bTargetIdentityFact | Literal['UNKNOWN'] = UNKNOWN
     admitted: bool = False
+    fact_mac: str = ''
 
     def fact_classes(self) -> tuple[str, ...]:
         return FACT_CLASSES
@@ -369,6 +377,16 @@ def build_receipt(
     )
 
 
+def _facts_payload(receipt: Q2bTargetCatalogReceipt) -> str:
+    """Canonical JSON of the six fact classes for MAC binding.
+
+    Excludes ``admitted`` and ``fact_mac`` so the seal covers exactly the
+    observed facts and nothing caller-writable about admission state.
+    """
+    data = receipt.model_dump(mode='json', exclude={'admitted', 'fact_mac'})
+    return json.dumps(data, sort_keys=True, separators=(',', ':'))
+
+
 def _connection_params(connection) -> dict:
     info = getattr(connection, 'info', None)
     getter = getattr(info, 'get_parameters', None)
@@ -413,7 +431,7 @@ def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatal
     pg_proc_owner, security_definer, search_path, execute_grants = parse_function_catalog(function_rows)
     role_memberships = parse_role_memberships(role_row_raw)
     target_identity = parse_target_identity(identity_row, params=params, ssl_in_use=ssl_in_use)
-    return build_receipt(
+    receipt = build_receipt(
         pg_proc_owner=pg_proc_owner,
         security_definer=security_definer,
         search_path=search_path,
@@ -421,6 +439,8 @@ def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatal
         role_memberships=role_memberships,
         target_identity=target_identity,
     )
+    fact_mac = seal_mac(READER_FACT_PURPOSE, _facts_payload(receipt))
+    return receipt.model_copy(update={'fact_mac': fact_mac})
 
 
 def _fact_value(pairs, signature):
@@ -504,16 +524,20 @@ def _install_sealed_admission_api():
 
     def admit_target_catalog(receipt: Q2bTargetCatalogReceipt,
                              expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
-        """Sealed admit: real pin checks, then seal admission.
+        """Sealed admit: reader-seal MAC check, real pin checks, then seal.
 
-        Runs every reviewed-pin check. Only when they all pass does this
-        return a sealed admitted receipt. The seal is identity registry
-        membership, not the ``admitted`` boolean — a model copy with
-        ``admitted=True`` is never sealed and never passes
-        ``require_target_catalog``.
+        The receipt must carry a reader-produced ``fact_mac`` — an HMAC
+        over the six fact classes issued by ``read_target_catalog`` using
+        the runtime seal secret. Caller-constructed fact dicts are denied
+        even when every value matches the pins: without the reader seal
+        they prove nothing about where the facts came from. Pin checks
+        follow. Only then is admission sealed by identity registry.
         """
         if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
             raise PermissionError('Q2b target catalog receipt and complete pins required')
+        if not receipt.fact_mac:
+            raise PermissionError('Q2b reader-produced sealed facts required')
+        verify_mac(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
         _require_all_pins(receipt, expected)
         admitted = receipt.model_copy(update={'admitted': True})
         sealed[id(admitted)] = admitted
@@ -525,13 +549,17 @@ def _install_sealed_admission_api():
 
         Identity registry membership is the admission proof. The
         ``admitted`` boolean alone is never believed — a constructor copy
-        with ``admitted=True`` is denied. Pin checks are redone so damage
-        between admission and use never grants access.
+        with ``admitted=True`` is denied. The reader-seal MAC is rechecked
+        so damage to the fact fields between admission and use never
+        grants access. Pin checks are redone for the same reason.
         """
         if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
             raise PermissionError('Q2b target catalog receipt and complete pins required')
         if receipt.admitted is not True or sealed.get(id(receipt)) is not receipt:
             raise PermissionError('Q2b target catalog not admitted')
+        if not receipt.fact_mac:
+            raise PermissionError('Q2b reader-produced sealed facts required')
+        verify_mac(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
         _require_all_pins(receipt, expected)
 
     return admit_target_catalog, require_target_catalog

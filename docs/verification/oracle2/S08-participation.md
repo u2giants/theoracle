@@ -22,7 +22,13 @@ Pure/deterministic only — no provider, no network, no DB.
 Ported from origin/claude/s08-meeting-participation. verify_phase.py S08 --mode
 offline requires ORACLE2_TEST_ADMIN_URL / ORACLE2_TEST_CONFIRMED_URL (isolated
 Postgres/FalkorDB); those were absent so the phase script could not run. Pure
-pytest run covers both named files (16 tests for S08: 5 + 11).
+pytest run covers both named files.
+
+R8 HMAC seal: credential proofs and participation enable require a
+host-issued HMAC verified against a runtime secret. Secret env var name:
+`ORACLE2_SEAL_SECRET` — value is UNKNOWN until host wiring installs the
+real secret (tests inject a random per-test secret via the conftest
+fixture; no secret is committed).
 
 ## Live acceptance
 

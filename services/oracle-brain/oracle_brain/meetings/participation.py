@@ -9,11 +9,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Optional
 
+from oracle_brain.seal import verify_mac
+
 DEFAULT_COOLDOWN_SECONDS = 120
 DEFAULT_MAX_INTERVENTIONS = 3
 DEFAULT_CHANNEL: Literal['meeting_text', 'meeting_chat'] = 'meeting_text'
 CHANNELS = frozenset({'meeting_text', 'meeting_chat'})
 RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed', 'suppressed'})
+# Purpose tag for the host-authorized enable HMAC. Enabling participation
+# for a meeting requires a MAC over (meeting_id) issued under this purpose.
+ENABLE_PROOF_PURPOSE = 'participation-enable-v1'
 
 
 @dataclass(frozen=True)
@@ -77,8 +82,21 @@ def record_settings(*, meeting_id: str, enabled: bool = False,
                     channel: str = DEFAULT_CHANNEL, proactive_enabled: bool = False,
                     cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS,
                     max_interventions: int = DEFAULT_MAX_INTERVENTIONS,
-                    recorded_at: str = '') -> ParticipationSettings:
-    """Record host settings for a meeting. Enabling participation is explicit."""
+                    recorded_at: str = '',
+                    enable_proof_mac: str = '') -> ParticipationSettings:
+    """Record host settings for a meeting. Enabling participation is explicit.
+
+    When ``enabled`` is true, ``enable_proof_mac`` must be a
+    host-authorized HMAC over the meeting id under
+    ``ENABLE_PROOF_PURPOSE``. A bare settings object without that proof
+    cannot enable participation.
+    """
+    if enabled:
+        if not recorded_at:
+            raise ValueError('enabling participation requires recorded_at')
+        if not enable_proof_mac:
+            raise PermissionError('host-authorized enable proof required to enable participation')
+        verify_mac(ENABLE_PROOF_PURPOSE, enable_proof_mac, meeting_id)
     return ParticipationSettings(
         meeting_id=meeting_id, enabled=enabled, channel=channel,
         proactive_enabled=proactive_enabled, cooldown_seconds=cooldown_seconds,

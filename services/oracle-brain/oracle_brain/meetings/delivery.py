@@ -12,6 +12,8 @@ from hashlib import sha256
 from typing import Optional
 from weakref import WeakSet
 
+from oracle_brain.seal import verify_mac
+
 INTENT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
 RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
 # Only these sender roles may mark an intent sent or failed. Recording an
@@ -141,13 +143,17 @@ def _install_sealed_authority_api():
         return principal
 
     def issue_sender_credential_proof(*, principal_id: str, role: str,
-                                      expires_at: datetime) -> SenderCredentialProof:
+                                      expires_at: datetime,
+                                      mac: str) -> SenderCredentialProof:
         """Sealed authz/authority boundary: present credential material.
 
-        This is the only way to mint a trusted ``SenderCredentialProof``.
-        Direct construction and ``object.__new__`` look-alikes are refused
-        at verify time by registry membership. The proof secret lives only
-        in this closure and is never a parameter.
+        ``mac`` must be a host-identity-service HMAC over
+        (principal_id, role, expires_at, purpose) computed with the
+        runtime seal secret. Without a valid MAC the call is denied —
+        caller-chosen fields alone never mint a proof. Direct construction
+        and ``object.__new__`` look-alikes are refused at verify time by
+        registry membership. The proof secret lives only in this closure
+        and is never a parameter.
         """
         if not principal_id or not role:
             raise ValueError('sender credential identity and role required')
@@ -155,6 +161,8 @@ def _install_sealed_authority_api():
                 or expires_at.tzinfo is None
                 or expires_at.utcoffset() is None):
             raise ValueError('sender credential expiry must be timezone-aware')
+        verify_mac(SENDER_CREDENTIAL_PURPOSE, mac,
+                   principal_id, role, expires_at)
         return _mint_proof(principal_id, role, expires_at, proof_secret)
 
     def verify_sender_principal(proof) -> SenderPrincipal:

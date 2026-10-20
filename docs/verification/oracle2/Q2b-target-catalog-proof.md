@@ -52,3 +52,12 @@ UNKNOWN blocks target execution (`test_unknown_blocks_target_execution`).
 - Actual TLS/session identity: UNKNOWN
 - Q2b: OPEN. This stub does not satisfy Q2b and does not authorize installation or any live target action.
 - No substitute owner/admin path is created. UNKNOWN must not cause one.
+
+## R8 reader seal
+
+`read_target_catalog` seals the six fact classes with a purpose-tagged HMAC
+(`q2b-reader-facts-v1`) using a runtime secret. `admit_target_catalog`
+denies caller-constructed fact dicts even when values match pins — only
+reader-produced sealed facts are admitted. Secret env var name:
+`ORACLE2_SEAL_SECRET` — value is UNKNOWN until host wiring installs the
+real secret (tests inject a random per-test secret; no secret is committed).

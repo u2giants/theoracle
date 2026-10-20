@@ -23,14 +23,21 @@ if _spec is None:
 import pytest
 
 from oracle_brain.meetings.participation import (
-    InterventionBudget, decide_addressed, can_intervene_proactively,
-    record_proactive_intervention, record_settings,
+    ENABLE_PROOF_PURPOSE, InterventionBudget, decide_addressed,
+    can_intervene_proactively, record_proactive_intervention, record_settings,
 )
+from oracle_brain.seal import seal_mac
+
+
+def _enable_mac(meeting_id):
+    return seal_mac(ENABLE_PROOF_PURPOSE, meeting_id)
 
 
 def _settings(**kw):
     base = dict(meeting_id='m-1', enabled=True, recorded_at='2026-10-16T12:00:00Z')
     base.update(kw)
+    if base.get('enabled') and 'enable_proof_mac' not in base:
+        base['enable_proof_mac'] = _enable_mac(base['meeting_id'])
     return record_settings(**base)
 
 

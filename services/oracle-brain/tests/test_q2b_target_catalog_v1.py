@@ -23,7 +23,21 @@ from oracle_brain.operating_model.q2b_target_catalog_v1 import (
     read_target_catalog,
     require_metadata_only_sql,
     require_target_catalog,
+    READER_FACT_PURPOSE,
+    _facts_payload,
 )
+from oracle_brain.seal import seal_mac
+
+
+def _reseal(receipt):
+    """Re-compute the reader-seal MAC after a deliberate fact mutation.
+
+    Pin-check tests damage fact values but must still exercise the pin
+    path, so they re-seal with the test secret to bypass the MAC gate.
+    """
+    return receipt.model_copy(update={
+        'fact_mac': seal_mac(READER_FACT_PURPOSE, _facts_payload(receipt)),
+    })
 
 SIGNATURES = (
     'oracle2.invented_helper_alpha(integer)',
@@ -213,6 +227,45 @@ def test_copied_receipt_with_admitted_true_is_denied():
         require_target_catalog(flipped, pins())
 
 
+def test_caller_built_facts_without_reader_seal_denied():
+    """Facts not produced by the catalog reader are refused even when they match pins."""
+    # Directly constructed receipt (no reader seal): denied.
+    owners = ((SIGNATURES[0], OWNER), (SIGNATURES[1], OWNER))
+    definers = ((SIGNATURES[0], True), (SIGNATURES[1], True))
+    paths = ((SIGNATURES[0], EXPECTED_PROCONFIG), (SIGNATURES[1], EXPECTED_PROCONFIG))
+    grants = (
+        (SIGNATURES[0], (Q2bExecuteGrant(grantee=SESSION, is_grantable=False),)),
+        (SIGNATURES[1], (Q2bExecuteGrant(grantee=SESSION, is_grantable=False),)),
+    )
+    from oracle_brain.operating_model.q2b_target_catalog_v1 import (
+        Q2bProcOwnerFact, Q2bSecurityDefinerFact, Q2bSearchPathFact,
+        Q2bExecuteGrantsFact, Q2bRoleMembershipsFact, Q2bTargetIdentityFact,
+    )
+    caller_built = Q2bTargetCatalogReceipt(
+        pg_proc_owner=Q2bProcOwnerFact(values=owners),
+        security_definer=Q2bSecurityDefinerFact(values=definers),
+        search_path=Q2bSearchPathFact(values=paths),
+        execute_grants=Q2bExecuteGrantsFact(values=grants),
+        role_memberships=Q2bRoleMembershipsFact(
+            session_user=SESSION, current_user=SESSION,
+            owner_reachable_member=False, owner_reachable_set=False,
+            owner_reachable_usage=False, reachable_roles=(SESSION, GROUP)),
+        target_identity=Q2bTargetIdentityFact(
+            host=HOST, port=PORT, dbname=DBNAME, user=USER,
+            ssl_in_use=True, sslmode='verify-full'),
+    )
+    assert caller_built.fact_mac == ''
+    with pytest.raises(PermissionError, match='reader-produced sealed facts'):
+        admit_target_catalog(caller_built, pins())
+    # Even a caller-built receipt with a forged fact_mac is denied.
+    forged_mac = caller_built.model_copy(update={'fact_mac': '0' * 64})
+    with pytest.raises(PermissionError, match='MAC mismatch'):
+        admit_target_catalog(forged_mac, pins())
+    # Allowed: reader-produced sealed facts with matching pins.
+    admitted = admit_target_catalog(read_target_catalog(good_connection(), pins()), pins())
+    assert admitted.admitted is True
+
+
 def test_require_redoes_pin_checks_on_sealed_receipt():
     """A sealed receipt with a changed pin expectation is still denied."""
     receipt = admit_target_catalog(read_target_catalog(good_connection(), pins()), pins())
@@ -318,18 +371,18 @@ def test_damage_target_identity_mismatch_denied():
 
 def test_damage_session_role_differs_denied():
     receipt = read_target_catalog(good_connection(), pins())
-    broken = receipt.model_copy(update={
+    broken = _reseal(receipt.model_copy(update={
         'role_memberships': receipt.role_memberships.model_copy(update={'session_user': 'other_role'}),
-    })
+    }))
     with pytest.raises(PermissionError, match='session role differs'):
         admit_target_catalog(broken, pins())
 
 
 def test_damage_owner_assumed_via_set_role_denied():
     receipt = read_target_catalog(good_connection(), pins())
-    broken = receipt.model_copy(update={
+    broken = _reseal(receipt.model_copy(update={
         'role_memberships': receipt.role_memberships.model_copy(update={'current_user': OWNER}),
-    })
+    }))
     with pytest.raises(PermissionError, match='SET ROLE'):
         admit_target_catalog(broken, pins())
 
