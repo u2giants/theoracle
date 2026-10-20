@@ -24,7 +24,7 @@ import pytest
 
 from oracle_brain.meetings.delivery import (
     DeliveryLedger, SenderAuthority, create_intent, issue_sender_authority,
-    provider_idempotency_key, _MINT_TOKEN,
+    provider_idempotency_key,
 )
 from oracle_brain.meetings.participation import record_settings
 from oracle_brain.workflows.meeting_turn import (
@@ -33,8 +33,8 @@ from oracle_brain.workflows.meeting_turn import (
 
 
 def _sender():
-    """Stand in for the authenticated delivery boundary that holds the mint token."""
-    return issue_sender_authority('delivery_sender', mint_token=_MINT_TOKEN)
+    """Stand in for the authenticated delivery boundary allowed to mint."""
+    return issue_sender_authority('delivery_sender')
 
 
 def _intent(**kw):
@@ -160,13 +160,13 @@ def test_forged_sender_role_denied_for_mark_sent():
         pass
     else:
         raise AssertionError('mark-sent with unauthorized role must be denied')
-    # Forged capability instance (constructed without the mint token): denied.
+    # Forged capability instance (direct construction is sealed): denied.
     try:
         SenderAuthority('delivery_sender')
     except PermissionError:
         pass
     else:
-        raise AssertionError('SenderAuthority without mint token must be denied')
+        raise AssertionError('SenderAuthority direct construction must be denied')
     forged = object.__new__(SenderAuthority)
     forged._role = 'delivery_sender'
     try:
@@ -222,6 +222,60 @@ def test_unauthorized_mark_failed_denied():
     failed = ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f2',
                                 channel='meeting_text', sender=_sender())
     assert failed.status == 'failed'
+
+
+def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
+    """No importable mint credential; object.__new__ look-alikes are denied."""
+    import oracle_brain.meetings.delivery as delivery_mod
+
+    # A mint secret must not be reachable as any module attribute.
+    for name in ('_MINT_TOKEN', 'MINT_TOKEN', '_mint_token', 'mint_token',
+                 '_MINTED', 'minted'):
+        try:
+            getattr(delivery_mod, name)
+        except AttributeError:
+            pass
+        else:
+            raise AssertionError(
+                f'mint credential/registry must not be module attribute {name}')
+    # Direct import of a mint token must fail.
+    try:
+        from oracle_brain.meetings.delivery import _MINT_TOKEN  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        raise AssertionError('importing a mint token must fail')
+    # The authorizer takes no mint-token argument at all.
+    try:
+        issue_sender_authority('delivery_sender', mint_token=object())
+    except TypeError:
+        pass
+    else:
+        raise AssertionError('issue_sender_authority must not accept a mint token')
+
+    ledger = DeliveryLedger()
+    intent = _intent()
+    ledger.record_intent(intent)
+    forged = object.__new__(SenderAuthority)
+    forged._role = 'delivery_sender'
+    # Look-alike cannot mark sent.
+    try:
+        ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
+                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
+                         provider_message_id='m-1', sender=forged)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('look-alike must not mark sent')
+    # Look-alike cannot mark failed.
+    try:
+        ledger.mark_failed(intent.idempotency_key, receipt_id='dr-x',
+                           channel='meeting_text', sender=forged)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('look-alike must not mark failed')
+    assert ledger.replay(intent.idempotency_key).status == 'recorded'
 
 
 def test_turn_silence_when_disabled_records_no_outbound_intent():

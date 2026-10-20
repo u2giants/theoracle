@@ -19,49 +19,61 @@ RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
 # present a sealed SenderAuthority capability.
 AUTHORIZED_SENDER_ROLES = frozenset({'delivery_sender', 'oracle_sender'})
 
-# Constructor-private mint token: the proof held by the authenticated delivery
-# boundary. Ordinary callers never see it, so they cannot mint an authority.
-_MINT_TOKEN = object()
-# Instances minted under that token. Membership is the use-site proof, so a
-# look-alike built with object.__new__ (even with copied attributes) is denied.
-_MINTED: WeakSet = WeakSet()
-
-
 class SenderAuthority:
     """Capability proving the holder is an authorized delivery sender.
 
-    Construction is sealed by the constructor-private mint token; only
-    ``issue_sender_authority`` (which holds that token) mints instances. A
-    claimed role string or a forged instance is not an authority.
+    Instances exist only via ``issue_sender_authority``. Direct construction
+    is refused, and a look-alike built with ``object.__new__`` is denied at
+    the use site because it is not in the sealed mint registry.
     """
     __slots__ = ('_role', '__weakref__')
 
-    def __init__(self, role: str = '', mint_token: object = None) -> None:
-        if mint_token is not _MINT_TOKEN:
+    def __init__(self, *args, **kwargs) -> None:
+        raise PermissionError('sender authority cannot be forged')
+
+
+def _install_sealed_authority_api():
+    """Create the mint path with closure-local secret and registry.
+
+    The mint secret and minted-instance registry are locals of this factory,
+    captured only inside the returned callables. Neither is a module
+    attribute, so no import or getattr can reach a mint credential.
+    """
+    mint_secret = object()
+    minted: WeakSet = WeakSet()
+
+    def _mint(role: str, secret: object) -> SenderAuthority:
+        if secret is not mint_secret:
             raise PermissionError('sender authority cannot be forged')
+        authority = object.__new__(SenderAuthority)
+        authority._role = role
+        minted.add(authority)
+        return authority
+
+    def issue_sender_authority(role: str) -> SenderAuthority:
+        """Sealed authorizer: mint a sender capability for an authenticated principal.
+
+        Call only after the principal's credential has been proven. The mint
+        secret lives only in this closure and is never a parameter; a bare
+        role claim is never accepted.
+        """
         if role not in AUTHORIZED_SENDER_ROLES:
             raise PermissionError('sender role not authorized')
-        self._role = role
-        _MINTED.add(self)
+        return _mint(role, mint_secret)
+
+    def require_proven_sender(sender) -> SenderAuthority:
+        """Deny unless the caller presents a minted SenderAuthority.
+
+        Unproven claims — None, a role string, a forged instance — are refused.
+        """
+        if not isinstance(sender, SenderAuthority) or sender not in minted:
+            raise PermissionError('sender authority required to mark delivery')
+        return sender
+
+    return issue_sender_authority, require_proven_sender
 
 
-def issue_sender_authority(role: str, *, mint_token: object = None) -> SenderAuthority:
-    """Sealed authorizer: mint a sender capability for an authenticated principal.
-
-    Call only after the principal's credential has been proven. The mint token
-    is constructor-private proof; a bare role claim is never accepted.
-    """
-    return SenderAuthority(role, mint_token=mint_token)
-
-
-def _require_proven_sender(sender) -> SenderAuthority:
-    """Deny unless the caller presents a minted SenderAuthority.
-
-    Unproven claims — None, a role string, a forged instance — are refused.
-    """
-    if not isinstance(sender, SenderAuthority) or sender not in _MINTED:
-        raise PermissionError('sender authority required to mark delivery')
-    return sender
+issue_sender_authority, _require_proven_sender = _install_sealed_authority_api()
 
 
 def _deny_role_claim(sender_role: str) -> None:
