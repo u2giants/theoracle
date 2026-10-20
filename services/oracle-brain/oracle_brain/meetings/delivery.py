@@ -61,40 +61,65 @@ class SenderPrincipal:
         return self._expires_at
 
 
-@dataclass(frozen=True)
 class SenderCredentialProof:
     """Credential material presented by the authz/authority layer.
 
     Same admission shape as processing authority proofs and original-intake
     appointments: principal identity, expected role, and a finite validity
-    window. Holding this record is not authority; it is input to
-    ``verify_sender_principal`` only.
+    window. Instances exist only via ``issue_sender_credential_proof``.
+    Direct construction is refused, and a look-alike built with
+    ``object.__new__`` is denied at verify time because it is not in the
+    sealed proof registry. Holding this record is not authority; it is input
+    to ``verify_sender_principal`` only.
     """
-    principal_id: str
-    role: str
-    expires_at: datetime
-    purpose: str = SENDER_CREDENTIAL_PURPOSE
+    __slots__ = ('_principal_id', '_role', '_expires_at', '_purpose', '__weakref__')
 
-    def __post_init__(self) -> None:
-        if not self.principal_id or not self.role:
-            raise ValueError('sender credential identity and role required')
-        if (not isinstance(self.expires_at, datetime)
-                or self.expires_at.tzinfo is None
-                or self.expires_at.utcoffset() is None):
-            raise ValueError('sender credential expiry must be timezone-aware')
+    def __init__(self, *args, **kwargs) -> None:
+        raise PermissionError('sender credential proof cannot be forged')
+
+    @property
+    def principal_id(self) -> str:
+        return self._principal_id
+
+    @property
+    def role(self) -> str:
+        return self._role
+
+    @property
+    def expires_at(self) -> datetime:
+        return self._expires_at
+
+    @property
+    def purpose(self) -> str:
+        return self._purpose
 
 
 def _install_sealed_authority_api():
     """Create the mint path with closure-local secrets and registries.
 
-    The mint secret, principal secret and both registries are locals of this
-    factory, captured only inside the returned callables. None is a module
-    attribute, so no import or getattr can reach a mint credential.
+    The proof secret, mint secret, principal secret and all three registries
+    are locals of this factory, captured only inside the returned callables.
+    None is a module attribute, so no import or getattr can reach a mint
+    credential.
     """
+    proof_secret = object()
+    proofs: WeakSet = WeakSet()
     mint_secret = object()
     minted: WeakSet = WeakSet()
     principal_secret = object()
     verified: WeakSet = WeakSet()
+
+    def _mint_proof(principal_id: str, role: str, expires_at: datetime,
+                    secret: object) -> SenderCredentialProof:
+        if secret is not proof_secret:
+            raise PermissionError('sender credential proof cannot be forged')
+        proof = object.__new__(SenderCredentialProof)
+        proof._principal_id = principal_id
+        proof._role = role
+        proof._expires_at = expires_at
+        proof._purpose = SENDER_CREDENTIAL_PURPOSE
+        proofs.add(proof)
+        return proof
 
     def _mint(role: str, secret: object) -> SenderAuthority:
         if secret is not mint_secret:
@@ -115,20 +140,41 @@ def _install_sealed_authority_api():
         verified.add(principal)
         return principal
 
+    def issue_sender_credential_proof(*, principal_id: str, role: str,
+                                      expires_at: datetime) -> SenderCredentialProof:
+        """Sealed authz/authority boundary: present credential material.
+
+        This is the only way to mint a trusted ``SenderCredentialProof``.
+        Direct construction and ``object.__new__`` look-alikes are refused
+        at verify time by registry membership. The proof secret lives only
+        in this closure and is never a parameter.
+        """
+        if not principal_id or not role:
+            raise ValueError('sender credential identity and role required')
+        if (not isinstance(expires_at, datetime)
+                or expires_at.tzinfo is None
+                or expires_at.utcoffset() is None):
+            raise ValueError('sender credential expiry must be timezone-aware')
+        return _mint_proof(principal_id, role, expires_at, proof_secret)
+
     def verify_sender_principal(proof) -> SenderPrincipal:
         """Authz boundary: verify credential material, mint a sealed principal.
 
-        ``proof`` must be a real ``SenderCredentialProof`` (appointment-shaped
-        identity + role + validity window). A bare role string, a look-alike,
-        or a credential for another purpose is refused. Expiry is enforced
-        again at capability mint time.
+        ``proof`` must be a real sealed ``SenderCredentialProof`` minted by
+        ``issue_sender_credential_proof``. Registry membership is checked —
+        a freely constructed stand-in or ``object.__new__`` look-alike is
+        refused. Real checks (purpose, authorized role, unexpired window)
+        follow; a field echo is never proof.
         """
-        if not isinstance(proof, SenderCredentialProof):
+        if not isinstance(proof, SenderCredentialProof) or proof not in proofs:
             raise PermissionError('sender credential proof required')
         if proof.purpose != SENDER_CREDENTIAL_PURPOSE:
             raise PermissionError('sender credential purpose mismatch')
         if proof.role not in AUTHORIZED_SENDER_ROLES:
             raise PermissionError('sender role not authorized')
+        at = datetime.now(timezone.utc)
+        if proof.expires_at <= at:
+            raise PermissionError('sender credential expired')
         return _mint_principal(proof, principal_secret)
 
     def issue_sender_authority(role: str, principal=None,
@@ -163,10 +209,11 @@ def _install_sealed_authority_api():
             raise PermissionError('sender authority required to mark delivery')
         return sender
 
-    return verify_sender_principal, issue_sender_authority, require_proven_sender
+    return (issue_sender_credential_proof, verify_sender_principal,
+            issue_sender_authority, require_proven_sender)
 
 
-verify_sender_principal, issue_sender_authority, _require_proven_sender = (
+issue_sender_credential_proof, verify_sender_principal, issue_sender_authority, _require_proven_sender = (
     _install_sealed_authority_api())
 
 

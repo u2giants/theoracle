@@ -15,6 +15,7 @@ from oracle_brain.operating_model.q2b_target_catalog_v1 import (
     Q2bExecuteGrant,
     Q2bExpectedPins,
     Q2bTargetCatalogReceipt,
+    admit_target_catalog,
     build_receipt,
     parse_function_catalog,
     parse_role_memberships,
@@ -126,15 +127,6 @@ def good_connection(**overrides):
     return FakeConnection(**options)
 
 
-def admitted_receipt(connection=None, expected=None, **fact_overrides):
-    connection = connection if connection is not None else good_connection()
-    expected = expected if expected is not None else pins()
-    receipt = read_target_catalog(connection, expected)
-    if fact_overrides:
-        receipt = receipt.model_copy(update=fact_overrides)
-    return receipt.model_copy(update={'admitted': True})
-
-
 # --- reader emits the exact fact classes -----------------------------------
 
 def test_reader_emits_exactly_the_six_fact_classes():
@@ -198,39 +190,66 @@ def test_receipt_admitted_false_until_separate_admission():
     assert receipt.admitted is False
     with pytest.raises(PermissionError, match='not admitted'):
         require_target_catalog(receipt, pins())
-    require_target_catalog(receipt.model_copy(update={'admitted': True}), pins())
+    # Sealed admission after real pin checks.
+    admitted = admit_target_catalog(receipt, pins())
+    require_target_catalog(admitted, pins())
+    # Copied receipt with admitted=True is not sealed and must not pass.
+    forged = admitted.model_copy(update={'admitted': True})
+    with pytest.raises(PermissionError, match='not admitted'):
+        require_target_catalog(forged, pins())
+
+
+def test_copied_receipt_with_admitted_true_is_denied():
+    """Constructor copies with admitted=True must not pass the gate."""
+    receipt = read_target_catalog(good_connection(), pins())
+    forged = receipt.model_copy(update={'admitted': True})
+    assert forged.admitted is True
+    with pytest.raises(PermissionError, match='not admitted'):
+        require_target_catalog(forged, pins())
+    # Same for an unsealed read whose admitted flag is flipped.
+    unsealed = read_target_catalog(good_connection(), pins())
+    flipped = unsealed.model_copy(update={'admitted': True})
+    with pytest.raises(PermissionError, match='not admitted'):
+        require_target_catalog(flipped, pins())
+
+
+def test_require_redoes_pin_checks_on_sealed_receipt():
+    """A sealed receipt with a changed pin expectation is still denied."""
+    receipt = admit_target_catalog(read_target_catalog(good_connection(), pins()), pins())
+    with pytest.raises(PermissionError, match='target identity differs'):
+        require_target_catalog(receipt, pins(expected_host='other.example.test'))
 
 
 # --- damage cases are denied -----------------------------------------------
 
 def test_damage_wrong_owner_denied():
-    receipt = admitted_receipt(good_connection(function_rows=function_rows(damage='owner')), pins())
+    receipt = read_target_catalog(good_connection(function_rows=function_rows(damage='owner')), pins())
     with pytest.raises(PermissionError, match='pg_proc owner differs'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_missing_security_definer_denied():
-    receipt = admitted_receipt(good_connection(function_rows=function_rows(damage='invoker')), pins())
+    receipt = read_target_catalog(good_connection(function_rows=function_rows(damage='invoker')), pins())
     with pytest.raises(PermissionError, match='SECURITY DEFINER'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_wrong_search_path_denied():
-    receipt = admitted_receipt(good_connection(function_rows=function_rows(damage='search-path')), pins())
+    receipt = read_target_catalog(good_connection(function_rows=function_rows(damage='search-path')), pins())
     with pytest.raises(PermissionError, match='search_path differs'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_public_execute_grantable_denied():
-    receipt = admitted_receipt(good_connection(function_rows=function_rows(damage='public')), pins())
+    receipt = read_target_catalog(good_connection(function_rows=function_rows(damage='public')), pins())
     with pytest.raises(PermissionError, match='EXECUTE grants differ'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_grantable_execute_denied():
-    receipt = admitted_receipt(good_connection(function_rows=function_rows(damage='grantable')), pins())
+    receipt = read_target_catalog(good_connection(function_rows=function_rows(damage='grantable')), pins())
     with pytest.raises(PermissionError, match='EXECUTE grants differ'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_owner_reachable_via_membership_denied():
@@ -245,9 +264,9 @@ def test_damage_owner_reachable_via_membership_denied():
             {'rolname': OWNER, 'member': flag == 'member', 'set': flag == 'set', 'usage': flag == 'usage'},
             role_row[3],
         )
-        receipt = admitted_receipt(good_connection(role_row=role_row), pins())
+        receipt = read_target_catalog(good_connection(role_row=role_row), pins())
         with pytest.raises(PermissionError, match='owner reachable via membership'):
-            require_target_catalog(receipt, pins())
+            admit_target_catalog(receipt, pins())
 
 
 def test_damage_owner_in_reachable_roles_denied():
@@ -256,9 +275,9 @@ def test_damage_owner_in_reachable_roles_denied():
         {'rolname': OWNER, 'member': False, 'set': False, 'usage': False},
         [SESSION, GROUP, OWNER],
     )
-    receipt = admitted_receipt(good_connection(role_row=role_row), pins())
+    receipt = read_target_catalog(good_connection(role_row=role_row), pins())
     with pytest.raises(PermissionError, match='owner reachable via membership'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_unexpected_reachable_role_denied():
@@ -267,9 +286,9 @@ def test_damage_unexpected_reachable_role_denied():
         {'rolname': OWNER, 'member': False, 'set': False, 'usage': False},
         [SESSION, GROUP, 'invented_extra_role'],
     )
-    receipt = admitted_receipt(good_connection(role_row=role_row), pins())
+    receipt = read_target_catalog(good_connection(role_row=role_row), pins())
     with pytest.raises(PermissionError, match='unexpected reachable role'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_tls_not_in_use_denied():
@@ -277,52 +296,50 @@ def test_damage_tls_not_in_use_denied():
         ssl_in_use=False,
         params={'host': HOST, 'port': str(PORT), 'dbname': DBNAME, 'user': USER, 'sslmode': 'prefer'},
     )
-    receipt = admitted_receipt(plain, pins())
+    receipt = read_target_catalog(plain, pins())
     with pytest.raises(PermissionError, match='TLS not in use'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_sslmode_not_verify_full_denied():
     relaxed = good_connection(
         params={'host': HOST, 'port': str(PORT), 'dbname': DBNAME, 'user': USER, 'sslmode': 'require'},
     )
-    receipt = admitted_receipt(relaxed, pins())
+    receipt = read_target_catalog(relaxed, pins())
     with pytest.raises(PermissionError, match='TLS not in use'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 def test_damage_target_identity_mismatch_denied():
-    receipt = admitted_receipt(good_connection(), pins(expected_host='other.example.test'))
+    receipt = read_target_catalog(good_connection(), pins(expected_host='other.example.test'))
     with pytest.raises(PermissionError, match='target identity differs'):
-        require_target_catalog(receipt, pins(expected_host='other.example.test'))
+        admit_target_catalog(receipt, pins(expected_host='other.example.test'))
 
 
 def test_damage_session_role_differs_denied():
-    receipt = admitted_receipt(good_connection(), pins())
+    receipt = read_target_catalog(good_connection(), pins())
     broken = receipt.model_copy(update={
         'role_memberships': receipt.role_memberships.model_copy(update={'session_user': 'other_role'}),
-        'admitted': True,
     })
     with pytest.raises(PermissionError, match='session role differs'):
-        require_target_catalog(broken, pins())
+        admit_target_catalog(broken, pins())
 
 
 def test_damage_owner_assumed_via_set_role_denied():
-    receipt = admitted_receipt(good_connection(), pins())
+    receipt = read_target_catalog(good_connection(), pins())
     broken = receipt.model_copy(update={
         'role_memberships': receipt.role_memberships.model_copy(update={'current_user': OWNER}),
-        'admitted': True,
     })
     with pytest.raises(PermissionError, match='SET ROLE'):
-        require_target_catalog(broken, pins())
+        admit_target_catalog(broken, pins())
 
 
 def test_unknown_blocks_target_execution():
     connection = good_connection(function_rows=function_rows(damage='missing'))
-    receipt = read_target_catalog(connection, pins()).model_copy(update={'admitted': True})
+    receipt = read_target_catalog(connection, pins())
     assert 'pg_proc_owner' in receipt.unknown_classes()
     with pytest.raises(PermissionError, match='UNKNOWN blocks target execution'):
-        require_target_catalog(receipt, pins())
+        admit_target_catalog(receipt, pins())
 
 
 # --- missing pins fail-closed ----------------------------------------------

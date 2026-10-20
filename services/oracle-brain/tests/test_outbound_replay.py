@@ -26,8 +26,8 @@ import pytest
 
 from oracle_brain.meetings.delivery import (
     DeliveryLedger, SenderAuthority, SenderCredentialProof, SenderPrincipal,
-    create_intent, issue_sender_authority, provider_idempotency_key,
-    verify_sender_principal,
+    create_intent, issue_sender_authority, issue_sender_credential_proof,
+    provider_idempotency_key, verify_sender_principal,
 )
 from oracle_brain.meetings.participation import record_settings
 from oracle_brain.workflows.meeting_turn import (
@@ -41,7 +41,7 @@ _PAST = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 def _credential(*, role='delivery_sender', expires_at=None, principal_id='principal-1'):
     """Real verified principal fixture from the authz credential boundary."""
-    proof = SenderCredentialProof(
+    proof = issue_sender_credential_proof(
         principal_id=principal_id, role=role,
         expires_at=expires_at if expires_at is not None else _FUTURE)
     return verify_sender_principal(proof)
@@ -246,7 +246,8 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
 
     # A mint secret must not be reachable as any module attribute.
     for name in ('_MINT_TOKEN', 'MINT_TOKEN', '_mint_token', 'mint_token',
-                 '_MINTED', 'minted', '_VERIFIED', 'verified'):
+                 '_MINTED', 'minted', '_VERIFIED', 'verified',
+                 '_PROOF_TOKEN', 'proof_token', '_PROOFS', 'proofs'):
         try:
             getattr(delivery_mod, name)
         except AttributeError:
@@ -290,9 +291,35 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
             pass
         else:
             raise AssertionError('forged sender credential proof must be denied')
+    # Forged proof construction is sealed: denied.
+    for attempt in (
+        lambda: SenderCredentialProof(
+            principal_id='p-1', role='delivery_sender', expires_at=_FUTURE),
+        lambda: SenderCredentialProof(),
+    ):
+        try:
+            attempt()
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError('SenderCredentialProof direct construction must be denied')
+    # object.__new__ look-alike is not in the sealed proof registry: denied.
+    forged_proof = object.__new__(SenderCredentialProof)
+    forged_proof._principal_id = 'p-1'
+    forged_proof._role = 'delivery_sender'
+    forged_proof._expires_at = _FUTURE
+    forged_proof._purpose = 'meeting-delivery-sender'
     try:
-        verify_sender_principal(SenderCredentialProof(
-            principal_id='p-1', role='not_a_sender', expires_at=_FUTURE))
+        verify_sender_principal(forged_proof)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('forged sender credential proof look-alike must be denied')
+    # Unauthorized role in a sealed proof: denied at verify.
+    bad_role_proof = issue_sender_credential_proof(
+        principal_id='p-1', role='not_a_sender', expires_at=_FUTURE)
+    try:
+        verify_sender_principal(bad_role_proof)
     except PermissionError:
         pass
     else:
@@ -314,10 +341,23 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
         pass
     else:
         raise AssertionError('forged sender principal must not mint authority')
-    # Expired verified credential: denied at mint.
+    # Expired sealed credential: denied at verify (real expiry check).
+    expired_proof = issue_sender_credential_proof(
+        principal_id='p-expired', role='delivery_sender', expires_at=_PAST)
+    try:
+        verify_sender_principal(expired_proof)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('expired sender credential must be denied at verify')
+    # Credential valid at verify but expired at mint: denied at mint.
+    stale_proof = issue_sender_credential_proof(
+        principal_id='p-stale', role='delivery_sender', expires_at=_FUTURE)
+    stale_principal = verify_sender_principal(stale_proof)
     try:
         issue_sender_authority(
-            'delivery_sender', _credential(expires_at=_PAST))
+            'delivery_sender', stale_principal,
+            now=datetime(2031, 1, 1, tzinfo=timezone.utc))
     except PermissionError:
         pass
     else:

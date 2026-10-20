@@ -1,4 +1,4 @@
-"""Q2b offline metadata-only catalog-proof tooling. No target is admitted here.
+"""Q2b offline metadata-only catalog-proof tooling.
 
 A separately admitted metadata-only catalog read must prove actual pg_proc
 owner, SECURITY DEFINER flag, search_path, EXECUTE grants, role memberships and
@@ -7,9 +7,10 @@ target execution and must not cause a substitute owner or admin path.
 
 This module is pure SQL text plus parse/validate. It never reads source data,
 secrets or environment values, never issues grants or roles, and never claims
-Q2b. Receipts it emits keep ``admitted`` false until a separate admission
-exists. The expected search_path is fixed here and cannot be weakened by a
-caller-supplied pin.
+Q2b. Receipts it emits keep ``admitted`` false until ``admit_target_catalog``
+seals admission after real pin checks. The seal is identity registry
+membership — the ``admitted`` boolean alone never grants access. The expected
+search_path is fixed here and cannot be weakened by a caller-supplied pin.
 """
 from __future__ import annotations
 
@@ -237,8 +238,10 @@ def _fact_has_unknown(value) -> bool:
 class Q2bTargetCatalogReceipt(StrictRecord):
     """Six fact classes, UNKNOWN allowed, nothing invented.
 
-    ``admitted`` stays false from this tooling. A separate admission is a
-    different artifact; this receipt alone never authorises target execution.
+    ``admitted`` stays false from this tooling. A separate sealed admission
+    (``admit_target_catalog``) is a different artifact; the ``admitted``
+    boolean alone never authorises target execution — registry identity
+    does. This receipt alone never authorises target execution.
     """
     purpose: Literal['q2b-target-catalog-proof-v1'] = 'q2b-target-catalog-proof-v1'
     pg_proc_owner: Q2bProcOwnerFact | Literal['UNKNOWN'] = UNKNOWN
@@ -352,10 +355,9 @@ def build_receipt(
     execute_grants,
     role_memberships,
     target_identity,
-    admitted: bool = False,
 ) -> Q2bTargetCatalogReceipt:
-    """Assemble the six fact classes. ``admitted`` is false unless a separate
-    admission exists; this tooling never supplies one."""
+    """Assemble the six fact classes. ``admitted`` is always false here; a
+    separate sealed admission is required and this tooling never supplies one."""
     return Q2bTargetCatalogReceipt(
         pg_proc_owner=pg_proc_owner,
         security_definer=security_definer,
@@ -363,7 +365,7 @@ def build_receipt(
         execute_grants=execute_grants,
         role_memberships=role_memberships,
         target_identity=target_identity,
-        admitted=admitted,
+        admitted=False,
     )
 
 
@@ -418,7 +420,6 @@ def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatal
         execute_grants=execute_grants,
         role_memberships=role_memberships,
         target_identity=target_identity,
-        admitted=False,
     )
 
 
@@ -429,17 +430,13 @@ def _fact_value(pairs, signature):
     return UNKNOWN
 
 
-def require_target_catalog(receipt: Q2bTargetCatalogReceipt, expected: Q2bExpectedPins) -> None:
+def _require_all_pins(receipt: Q2bTargetCatalogReceipt,
+                      expected: Q2bExpectedPins) -> None:
     """Deny unless every fact class is observed and matches the reviewed pins.
 
     UNKNOWN blocks target execution. A mismatch never falls back to a
-    substitute owner or admin path. ``admitted`` must already be true from a
-    separate admission; this function does not create one.
+    substitute owner or admin path.
     """
-    if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
-        raise PermissionError('Q2b target catalog receipt and complete pins required')
-    if receipt.admitted is not True:
-        raise PermissionError('Q2b target catalog not admitted')
     unknown = receipt.unknown_classes()
     if unknown:
         raise PermissionError('Q2b target catalog UNKNOWN blocks target execution')
@@ -493,3 +490,51 @@ def require_target_catalog(receipt: Q2bTargetCatalogReceipt, expected: Q2bExpect
         raise PermissionError('Q2b TLS not in use')
     if expected.expected_sslmode != 'verify-full':
         raise PermissionError('Q2b TLS not in use')
+
+
+def _install_sealed_admission_api():
+    """Sealed Q2b admission: closure-held registry keyed by object identity.
+
+    Pydantic record equality is value-based, so a ``WeakSet`` would accept
+    an equal-valued copy. The registry maps ``id(receipt)`` to the receipt
+    and membership is an identity (``is``) check, so a constructor copy with
+    ``admitted=True`` is never sealed and never passes the gate.
+    """
+    sealed: dict = {}
+
+    def admit_target_catalog(receipt: Q2bTargetCatalogReceipt,
+                             expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
+        """Sealed admit: real pin checks, then seal admission.
+
+        Runs every reviewed-pin check. Only when they all pass does this
+        return a sealed admitted receipt. The seal is identity registry
+        membership, not the ``admitted`` boolean — a model copy with
+        ``admitted=True`` is never sealed and never passes
+        ``require_target_catalog``.
+        """
+        if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
+            raise PermissionError('Q2b target catalog receipt and complete pins required')
+        _require_all_pins(receipt, expected)
+        admitted = receipt.model_copy(update={'admitted': True})
+        sealed[id(admitted)] = admitted
+        return admitted
+
+    def require_target_catalog(receipt: Q2bTargetCatalogReceipt,
+                               expected: Q2bExpectedPins) -> None:
+        """Use-site gate: sealed admission plus real pin checks.
+
+        Identity registry membership is the admission proof. The
+        ``admitted`` boolean alone is never believed — a constructor copy
+        with ``admitted=True`` is denied. Pin checks are redone so damage
+        between admission and use never grants access.
+        """
+        if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
+            raise PermissionError('Q2b target catalog receipt and complete pins required')
+        if receipt.admitted is not True or sealed.get(id(receipt)) is not receipt:
+            raise PermissionError('Q2b target catalog not admitted')
+        _require_all_pins(receipt, expected)
+
+    return admit_target_catalog, require_target_catalog
+
+
+admit_target_catalog, require_target_catalog = _install_sealed_admission_api()
