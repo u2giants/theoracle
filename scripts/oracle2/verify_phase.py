@@ -88,14 +88,19 @@ S11_TESTS = [
     "test_experiment_outcomes.py",
 ]
 # S12 — the plan gate names Playwright specs (workspace/accessibility/exports)
-# and `verify_phase.py S12 --mode offline`, but lists NO Python test files.
-# Offline registration is therefore empty and fail-closed: the gate refuses
-# until the S12 Python suite is named and committed.
-S12_TESTS: list[str] = []
+# and `verify_phase.py S12 --mode offline`. The Python side is the offline
+# completeness gate; Playwright pages are still unbuilt and their specs skip
+# with the named blocker (see apps/web/tests/oracle2/workspace.spec.ts).
+S12_TESTS = [
+    "test_s12_completeness_gate.py",
+]
 # S13 — operational recovery reruns S04 source-lifecycle (restored-backup
-# tombstone enforcement) plus an isolated staging exercise in S13-recovery.md.
+# tombstone enforcement) plus recovery primitives and ops offline checks.
+# The isolated staging exercise stays in S13-recovery.md (not a Python test).
 S13_TESTS = [
     "test_source_lifecycle.py",
+    "test_recovery_primitives.py",
+    "test_operations_offline.py",
 ]
 # S14 — migrate and compare historical knowledge (pattern from
 # origin/claude/s14-historical-migration; pure fixture contracts).
