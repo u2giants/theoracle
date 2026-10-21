@@ -182,6 +182,7 @@ class RawOriginalProviderSettingsV1:
             and type(self.resolver.binding) is OriginalSourceBindingV1
             and type(self.observer.admission) is RawOriginalObserverAdmissionV1
             and type(self.observer.transport) is RawOriginalObserverClientV1
+            and type(self.observer.transport.binding) is PurposeTLSBindingV2
             and type(self.observer.replay) is DurableNonceSequenceV2,
             'actual current protected raw settings required')
         _require(_worker_json(self.config_path,self.config_sha256,RawOriginalProviderConfigV1)==c
@@ -189,6 +190,35 @@ class RawOriginalProviderSettingsV1:
             and _worker_json(c.context.path,c.context.sha256,RawOriginalPhaseContextV1)==self.context
             and _worker_json(c.vision_policy.path,c.vision_policy.sha256,RawVisionTokenPolicyV1)==self.vision_policy,
             'raw startup metadata changed')
+        # _FixedTLSClientV2 caches its SSLContext at startup. Recheck BOTH
+        # protected material and actual loaded target pins before every boundary.
+        raw_url=_worker_file(c.database_url.path,c.database_url.sha256,limit=8192)
+        _worker_file(c.database_ca.path,c.database_ca.sha256)
+        from psycopg.conninfo import conninfo_to_dict
+        try:
+            url=raw_url.decode().strip();params=conninfo_to_dict(url);port=int(params.get('port') or 5432)
+        except Exception:
+            raise PermissionError('protected original SQL target changed') from None
+        _require(type(self.resolver.url) is str and self.resolver.url==url
+            and params.get('host')==c.database_hostname and port==c.database_port
+            and params.get('dbname')==c.database_name and params.get('user')==c.expected_session_role
+            and params.get('sslmode')=='verify-full' and params.get('sslrootcert')==c.database_ca.path,
+            'actual own original SQL URL/CA/target differs')
+        admission=_worker_json(c.observer_admission.path,c.observer_admission.sha256,RawOriginalObserverAdmissionV1)
+        _require(admission==self.observer.admission
+            and digest(admission.model_dump(mode='json'))==self.observer.admission_hash==c.observer_admission.sha256,
+            'protected observer admission changed')
+        t=c.observer_tls
+        for material in (t.ca,t.certificate,t.key):
+            _worker_file(material.path,material.sha256)
+        actual=self.observer.transport.binding
+        _require((actual.hostname,actual.port,actual.server_uri,actual.client_uri,
+            actual.ca_file,actual.certificate_file,actual.key_file,actual.timeout)==
+            (t.hostname,t.port,t.server_uri,t.client_uri,Path(t.ca.path),Path(t.certificate.path),Path(t.key.path),5),
+            'actual loaded original observer TLS target differs')
+        # Validate exact field types and current certificate URI too; do not
+        # replace the cached context or silently accept newly rotated material.
+        PurposeTLSBindingV2(**actual.__dict__)
         a=self.appointment;x=self.context;b=self.resolver.binding
         _require(a.config_sha256==self.config_sha256 and a.context_sha256==c.context.sha256
             and a.issuer_actor==c.issuer_actor and a.reviewer_actor==c.reviewer_actor

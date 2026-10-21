@@ -223,18 +223,37 @@ def configured_window_settings(consumer,tmp_path,monkeypatch):
         'vision_token_policy_hash':ph})
     xp=tmp_path/'observed-context.json';xh=write(xp,x)
     op=tmp_path/'observed-admission.json';oh=write(op,a)
+    # Copy only invented fixture TLS material so each mutation test owns its
+    # exact files and cannot alter the module-scoped certificate fixture.
+    original_tls=consumer.transport.binding
+    def material(name,data):
+        path=tmp_path/name;path.write_bytes(data);path.chmod(0o600)
+        return m.RawPrivateFileV1(path=str(path),sha256=hashlib.sha256(data).hexdigest())
+    ca=material('observed-tls-ca.pem',original_tls.ca_file.read_bytes())
+    cert=material('observed-tls-client.pem',original_tls.certificate_file.read_bytes())
+    key=material('observed-tls-client.key',original_tls.key_file.read_bytes())
+    tls=m.RawObserverTLSV1(hostname=original_tls.hostname,port=original_tls.port,
+        server_uri=original_tls.server_uri,client_uri=original_tls.client_uri,ca=ca,certificate=cert,key=key)
+    binding=m.PurposeTLSBindingV2(tls.hostname,tls.port,tls.server_uri,tls.client_uri,
+        Path(ca.path),Path(cert.path),Path(key.path),timeout=5)
+    consumer.transport=m.RawOriginalObserverClientV1(binding)
+    dbca=material('observed-db-ca.pem',b'invented-database-CA-no-connection')
+    from psycopg.conninfo import make_conninfo
+    own_url=make_conninfo(host='invented.invalid',port=5432,dbname='invented',user=x.expected_session_role,
+        password='invented-db-only',sslmode='verify-full',sslrootcert=dbca.path)
+    db=material('observed-db-url',own_url.encode())
     c=config();c=type(c).model_validate(c.model_dump(mode='python')|{'actor_id':a.principal_id,
         'population':a.population,'expected_session_role':x.expected_session_role,
         'original_allocation_hash':x.original_allocation_hash,'original_horizon':x.original_horizon,
         'expires_at':phase,'context':m.RawPrivateFileV1(path=str(xp),sha256=xh),
         'vision_policy':m.RawPrivateFileV1(path=str(pp),sha256=ph),
         'observer_admission':m.RawPrivateFileV1(path=str(op),sha256=oh),
-        'observer_tls':c.observer_tls.model_copy(update={'client_uri':a.client_uri,'server_uri':a.observer_uri})})
+        'observer_tls':tls,'database_url':db,'database_ca':dbca})
     cp=tmp_path/'observed-config.json';ch=write(cp,c);app=appointment(c,ch)
     ap=tmp_path/'observed-appointment.json';ah=write(ap,app)
     binding=m.OriginalSourceBindingV1(c.population,c.actor_id,c.phase_purpose,c.expected_owner_role,
         c.expected_session_role,c.original_allocation_hash,c.original_horizon,c.expires_at)
-    resolver=object.__new__(m.OriginalSourceResolverV1);resolver.binding=binding;reads=[]
+    resolver=object.__new__(m.OriginalSourceResolverV1);resolver.binding=binding;resolver.url=own_url;reads=[]
     def getter(population_id,**kwargs):
         assert population_id==c.population.population_id and kwargs=={}
         result=snapshot_for(c);reads.append(result);return result
@@ -277,6 +296,52 @@ def test_pinned_context_changed_during_actual_tls_never_returns_window(observed_
     consumer,state,_=observed_exchange;settings,reads=configured_window_settings(consumer,tmp_path,monkeypatch)
     def changed():
         path=Path(settings.config.context.path);path.write_bytes(path.read_bytes()+b'\n')
+    state['network_hook']=changed
+    with pytest.raises(PermissionError):
+        (settings.observed_window if observed else settings.current_window)()
+    assert len(reads)==2 and len(state['requests'])==1 and consumer.replay._read()['sequence']==13
+
+
+@pytest.mark.parametrize('field',['database_url','database_ca','observer_admission','observer_ca','observer_cert','observer_key'])
+def test_each_changed_protected_file_refuses_both_current_paths_before_sql_tls(observed_exchange,tmp_path,monkeypatch,field):
+    consumer,state,_=observed_exchange;settings,reads=configured_window_settings(consumer,tmp_path,monkeypatch)
+    settings._current_settings_pins()  # The actual loaded fixture pins start valid.
+    c=settings.config
+    file={'database_url':c.database_url,'database_ca':c.database_ca,'observer_admission':c.observer_admission,
+        'observer_ca':c.observer_tls.ca,'observer_cert':c.observer_tls.certificate,'observer_key':c.observer_tls.key}[field]
+    path=Path(file.path);path.write_bytes(path.read_bytes()+b'\n')
+    for method in (settings.current_window,settings.observed_window):
+        with pytest.raises(PermissionError):method()
+    assert reads==[] and state['requests']==[]
+
+
+@pytest.mark.parametrize('field',['hostname','port','server_uri','client_uri','ca_file','certificate_file','key_file','timeout','resolver_url'])
+def test_changed_loaded_transport_or_sql_url_refuses_both_paths_before_io(observed_exchange,tmp_path,monkeypatch,field):
+    consumer,state,_=observed_exchange;settings,reads=configured_window_settings(consumer,tmp_path,monkeypatch)
+    settings._current_settings_pins()
+    if field=='resolver_url':settings.resolver.url+=' application_name=foreign'
+    else:
+        binding=consumer.transport.binding
+        value=('foreign.invalid' if field=='hostname' else binding.port+1 if field=='port' else
+            'spiffe://oracle/foreign' if field in {'server_uri','client_uri'} else
+            Path(binding.ca_file.parent/'unconfigured-material') if field.endswith('_file') else 4)
+        # Simulate post-startup object drift without issuing a new binding.
+        object.__setattr__(binding,field,value)
+    for method in (settings.current_window,settings.observed_window):
+        with pytest.raises(PermissionError):method()
+    assert reads==[] and state['requests']==[]
+
+
+@pytest.mark.parametrize('field',['database_url','database_ca','observer_admission','observer_ca','observer_cert','observer_key','loaded_binding'])
+@pytest.mark.parametrize('observed',[False,True])
+def test_protected_material_or_binding_drift_during_tls_never_returns_evidence(observed_exchange,tmp_path,monkeypatch,field,observed):
+    consumer,state,_=observed_exchange;settings,reads=configured_window_settings(consumer,tmp_path,monkeypatch)
+    c=settings.config
+    def changed():
+        if field=='loaded_binding':object.__setattr__(consumer.transport.binding,'timeout',4);return
+        file={'database_url':c.database_url,'database_ca':c.database_ca,'observer_admission':c.observer_admission,
+            'observer_ca':c.observer_tls.ca,'observer_cert':c.observer_tls.certificate,'observer_key':c.observer_tls.key}[field]
+        path=Path(file.path);path.write_bytes(path.read_bytes()+b'\n')
     state['network_hook']=changed
     with pytest.raises(PermissionError):
         (settings.observed_window if observed else settings.current_window)()
