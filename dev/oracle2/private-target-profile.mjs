@@ -15,7 +15,14 @@ if (registry.schema_version !== 1 || Object.keys(registry.targets ?? {}).sort().
 const TARGETS = Object.freeze({ ...registry.targets });
 const HASH = /^[a-f0-9]{64}$/;
 const fail = () => { throw new Error('Private target metadata unavailable'); };
-export const defaultTargetProfile = () => join(homedir(), '.config', 'oracle', 'targets.json');
+export const defaultTargetProfile = () => {
+  if (Object.hasOwn(process.env, 'ORACLE_TARGET_PROFILE_PATH')) {
+    const path = process.env.ORACLE_TARGET_PROFILE_PATH;
+    if (!path || !isAbsolute(path)) fail();
+    return path;
+  }
+  return join(homedir(), '.config', 'oracle', 'targets.json');
+};
 export const targetPins = () => Object.freeze({ ...TARGETS });
 export function isPinnedTarget(key, value) {
   return Object.hasOwn(TARGETS, key) && typeof value === 'string'

@@ -5,10 +5,11 @@ Failure preserves the new database for recovery; no DROP/cleanup or retry path.
 """
 import argparse,hashlib,json,os,re,sys
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,unquote
 import psycopg
 from psycopg import sql
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'services/oracle-brain'))
+from oracle_brain.private_targets import database_tenant,TARGET_PINS
 from oracle_brain.hosting.synthetic_seed import compile_seed
 from oracle_brain.hosting.synthetic_fixture import NATIVE_TRIGGER_SCENARIO,fixed_scenario
 
@@ -38,7 +39,7 @@ def main():
  ca=Path(a.database_ca_file);cert=x509.load_pem_x509_certificate(ca.read_bytes())
  require(cert.fingerprint(hashes.SHA256()).hex()=='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa','trusted Supabase issuer CA required')
  raw=os.environ['ORACLE_NATIVE_ADMIN_URL'];u=urlsplit(raw)
- require(u.hostname=='aws-0-us-east-1.pooler.supabase.com' and u.port==5432 and u.username=='postgres.wfdrklofsczspazshaib' and u.path=='/postgres','exact S03 administrative target required')
+ require(u.scheme in ('postgresql','postgres') and bool(u.password) and not u.query and not u.fragment and u.hostname=='aws-0-us-east-1.pooler.supabase.com' and u.port==5432 and bool(database_tenant(u.username,'postgres')) and u.path=='/postgres','exact S03 administrative target required')
  kw={'sslmode':'verify-full','sslrootcert':str(ca),'connect_timeout':10}
  with psycopg.connect(raw,autocommit=True,**kw) as c:
   require(c.pgconn.ssl_in_use and c.execute('SELECT current_database(),current_user').fetchone()==('postgres','postgres'),'authenticated actual S03 administrative identity required')
@@ -47,7 +48,7 @@ def main():
   require(not c.execute('SELECT rolname FROM pg_roles WHERE rolname=ANY(%s)',(list(ROLES),)).fetchall(),'native role collision; no existing role alteration permitted')
   migration_root=Path(__file__).resolve().parents[3]/'services/oracle-brain/sql'
   scripts=[(migration_root/n).read_bytes() for n in MIGRATIONS]
-  summary={'target_project':'wfdrklofsczspazshaib','new_database':DATABASE,'job_id':receipt['job_id'],'new_roles':list(ROLES),
+  summary={'target_project_sha256':TARGET_PINS['native_supabase_project'],'new_database':DATABASE,'job_id':receipt['job_id'],'new_roles':list(ROLES),
       'seed_sha256':receipt['seed_sha256'],'migration_sha256':{n:hashlib.sha256(b).hexdigest() for n,b in zip(MIGRATIONS,scripts)},'mode':'apply' if a.apply else 'dry-run'}
   if not a.apply:print(json.dumps(summary));return
   require(a.action_review_file and a.action_review_sha256 and re.fullmatch('[a-f0-9]{64}',a.action_review_sha256),'exact independent action review required')

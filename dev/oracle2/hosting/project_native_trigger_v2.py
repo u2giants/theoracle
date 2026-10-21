@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit,urlunsplit,quote
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'services/oracle-brain'))
 from oracle_brain.hosting.native_trigger_v2 import decode_bundle,database_url,tls_config,SCENARIO,require,NativeSourceRoleBindingV2,native_python_digest
+from oracle_brain.private_targets import database_tenant
 from oracle_brain.hosting.synthetic_fixture import fixture,NATIVE_TRIGGER_V2_SCENARIO
 from oracle_brain.operating_model.contracts import digest
 from oracle_brain.operating_model.native_proof_v2_identity import IDENTITY
@@ -69,7 +70,9 @@ def main():
  require(receipt['source_head']==head and body['runtime_hash']==native_python_digest(),'actual frozen projector source differs')
  require(time.time()<body['expires_at']-150,'original projection permission has insufficient time')
  passwords=json.loads(protected(d/'passwords.json'))
- files['database_url']=('postgresql://'+IDENTITY['projector']+'.wfdrklofsczspazshaib:'+passwords['projector']+'@aws-0-us-east-1.pooler.supabase.com:5432/'+IDENTITY['database']).encode()
+ database_url(files['database_url'],d/'database_ca')
+ tenant=database_tenant(urlsplit(files['database_url'].decode().strip()).username,IDENTITY['executor'])
+ files['database_url']=('postgresql://'+IDENTITY['projector']+'.'+tenant+':'+passwords['projector']+'@aws-0-us-east-1.pooler.supabase.com:5432/'+IDENTITY['database']).encode()
  files['graph_url']=('rediss://'+IDENTITY['graph_projector']+':'+quote(os.environ['ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD'],safe='')+'@oracle-graph.designflow.app:16391').encode()
  write(d,'projection-intent.json',canonical({'job_id':IDENTITY['run'],'action_review_sha256':a.action_review_sha256}))
  try:

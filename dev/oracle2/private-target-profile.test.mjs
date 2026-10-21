@@ -138,3 +138,18 @@ test('MCP relay forwards termination to its owned child',async()=>{
  child.kill('SIGTERM');await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{child.kill('SIGKILL');reject(Error('relay did not stop'));},3000);child.once('close',code=>{clearTimeout(timer);code===0?resolve():reject(Error('relay exit failed'));});});
  assert.match(output,/child-stopped/);
 });
+
+test('explicit private profile selector rejects empty or relative paths',()=>{
+ const previous=process.env.ORACLE_TARGET_PROFILE_PATH;
+ try {for(const value of ['', 'relative.json']){process.env.ORACLE_TARGET_PROFILE_PATH=value;assert.throws(()=>readPrivateTarget('native_supabase_project'));}}
+ finally {if(previous===undefined)delete process.env.ORACLE_TARGET_PROFILE_PATH;else process.env.ORACLE_TARGET_PROFILE_PATH=previous;}
+});
+
+test('explicit protected profile selector preserves every pinned target',()=>{
+ const selected=join(scratch,'selected-targets.json');
+ const targets=Object.fromEntries(Object.keys(targetPins()).map(key=>[key,readPrivateTarget(key)]));
+ writeFileSync(selected,JSON.stringify({schema_version:1,targets}),{mode:0o600});
+ const previous=process.env.ORACLE_TARGET_PROFILE_PATH;
+ try {process.env.ORACLE_TARGET_PROFILE_PATH=selected;for(const key of Object.keys(targets))assert.equal(readPrivateTarget(key),targets[key]);}
+ finally {if(previous===undefined)delete process.env.ORACLE_TARGET_PROFILE_PATH;else process.env.ORACLE_TARGET_PROFILE_PATH=previous;}
+});

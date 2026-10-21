@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit,urlunsplit,quote
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'services/oracle-brain'))
 from oracle_brain.hosting.native_trigger_v1 import decode_bundle,database_url,tls_config,SCENARIO,require,NativeSourceRoleBindingV1
+from oracle_brain.private_targets import database_tenant
 from oracle_brain.hosting.synthetic_fixture import fixture,NATIVE_TRIGGER_SCENARIO
 from oracle_brain.operating_model.contracts import digest
 
@@ -56,7 +57,9 @@ def main():
  p=argparse.ArgumentParser();p.add_argument('--directory',required=True);a=p.parse_args();d=Path(a.directory)
  body,files=decode_bundle((d/'worker-bundle.json').read_bytes(),json.loads((d/'permission-receipt.json').read_text())['worker_bundle_sha256'])
  passwords=json.loads((d/'passwords.json').read_text())
- files['database_url']=('postgresql://oracle_synthetic_projector.wfdrklofsczspazshaib:'+passwords['projector']+'@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v1').encode()
+ database_url(files['database_url'],d/'database_ca')
+ tenant=database_tenant(urlsplit(files['database_url'].decode().strip()).username,'oracle_synthetic_executor')
+ files['database_url']=('postgresql://oracle_synthetic_projector.'+tenant+':'+passwords['projector']+'@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v1').encode()
  files['graph_url']=('rediss://oracle_native_proof_projector_v1:'+quote(os.environ['ORACLE_NATIVE_GRAPH_PROJECTOR_PASSWORD'],safe='')+'@oracle-graph.designflow.app:16391').encode()
  try:
   with tempfile.TemporaryDirectory(prefix='oracle-native-projection-') as root:result=asyncio.run(asyncio.wait_for(project(body,files,Path(root)),timeout=115))

@@ -1,4 +1,5 @@
 """Fixed v2 source/role/protocol tests. All databases are disposable local fixtures."""
+from oracle_brain.private_targets import read_private_target
 import base64,hashlib,json,os
 from dataclasses import asdict
 from datetime import datetime,timedelta,timezone
@@ -53,7 +54,7 @@ def test_v2_payload_denies_old_and_extra(old):
  validate_payload({'jobId':I['run'],'workspaceId':I['workspace']})
 
 def test_v2_database_and_graph_targets_fixed():
- url=('postgresql://'+I['executor']+'.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.com:5432/'+I['database']).encode()
+ url=('postgresql://'+I['executor']+('.'+read_private_target('native_supabase_project')+':invented@aws-0-us-east-1.pooler.supabase.com:5432/')+I['database']).encode()
  assert 'sslmode=verify-full' in database_url(url,Path('/private/ca'))
  for bad in (url.replace(I['database'].encode(),b'oracle_native_proof_v1'),url.replace(I['executor'].encode(),b'oracle_synthetic_executor'),url+b'?sslmode=disable'):
   with pytest.raises(PermissionError):database_url(bad,Path('/private/ca'))
