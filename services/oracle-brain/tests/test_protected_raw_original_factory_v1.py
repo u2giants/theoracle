@@ -394,3 +394,48 @@ def test_final_authority_loss_after_durable_paid_commit_returns_unknown_without_
     assert state['paid']==len(state['finishes'])==1
     with pytest.raises(PermissionError):factory.execute()
     assert state['paid']==1
+
+
+@pytest.mark.parametrize('suffix', ['.raw-models.wire', '.raw-endpoints.wire', '.raw-billing.json', '.raw-comparison.json', '.raw-before-sql.json', '.raw-after-sql.json', '.raw-observer-envelope', '.raw-observer-witness.json'])
+def test_prior_partial_private_evidence_refuses_before_any_network(factory_case, suffix):
+    factory, state, _, _ = factory_case
+    factory._path(state['job'], suffix).write_bytes(b'invented retained partial evidence')
+    with pytest.raises(PermissionError, match='forbids replay'):
+        factory.execute()
+    assert state['requests'] == [] and state['paid'] == 0 and state['reservations'] == []
+
+
+def test_receipt_recovery_write_failure_keeps_typed_unknown_and_paid_wire(factory_case, monkeypatch):
+    factory, state, _, _ = factory_case
+    def fail_record(*args, **kwargs):
+        raise OSError('invented receipt fsync unavailable')
+    monkeypatch.setattr(factory.broker, '_record', fail_record)
+    with pytest.raises(m.RawOriginalOutcomeUnknown, match='no automatic retry'):
+        factory.execute()
+    assert state['paid'] == 1 and len(state['finishes']) == 1
+    assert factory._path(state['job'], '.wire').read_bytes()
+    with pytest.raises(PermissionError, match='forbids replay'):
+        factory.execute()
+    assert state['paid'] == 1
+
+
+def test_concurrent_factory_calls_have_one_prepaid_private_evidence_owner(factory_case, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    factory, state, _, _ = factory_case
+    original = factory._persist
+    barrier = Barrier(2)
+    def persist(job, suffix, raw):
+        if suffix == '.raw-models.wire':
+            barrier.wait(timeout=5)
+        return original(job, suffix, raw)
+    monkeypatch.setattr(factory, '_persist', persist)
+    def execute():
+        try:
+            return factory.execute()
+        except FileExistsError:
+            return None
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: execute(), range(2)))
+    assert sum(result is not None for result in results) == 1
+    assert state['paid'] == 1 and len(state['reservations']) == len(state['finishes']) == 1

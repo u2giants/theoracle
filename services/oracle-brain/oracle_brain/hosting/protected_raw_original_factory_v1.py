@@ -200,7 +200,10 @@ class ProtectedRawOriginalFactoryV1:
 
     def execute(self):
         job=self._job();s=self.settings;b=self.broker
-        _require(not any(self._path(job,suffix).exists() for suffix in ('.wire','.wire.json','.json','.raw-paid.json','.raw-evidence.json')),
+        _require(not any(self._path(job,suffix).exists() for suffix in (
+            '.wire','.wire.json','.json','.raw-paid.json','.raw-evidence.json',
+            '.raw-models.wire','.raw-endpoints.wire','.raw-billing.json','.raw-comparison.json',
+            '.raw-before-sql.json','.raw-after-sql.json','.raw-observer-envelope','.raw-observer-witness.json')),
             'existing dispatch custody forbids replay')
         billing=s.read_billing_bounds()  # Missing pointer refuses before metadata/reserve.
         rendered=s.read_pdf_views()
@@ -331,5 +334,11 @@ class ProtectedRawOriginalFactoryV1:
             return ObservedRawOriginalPaidResponseV1(content,commit_raw,manifest)
         except Exception:
             if type(provider.last_reservation_id) is UUID and not self._path(job,'.json').exists():
-                b._record(job,getattr(native,'last_response_text',None),provider.last_reservation_id,failed=True)
+                try:
+                    b._record(job,getattr(native,'last_response_text',None),provider.last_reservation_id,failed=True)
+                except Exception:
+                    # Receipt creation/fsync may itself be uncertain. Keep all
+                    # existing custody and the typed no-retry outcome; a failed
+                    # recovery write never makes the paid operation safe again.
+                    pass
             raise RawOriginalOutcomeUnknown('raw paid outcome retained or uncertain; no automatic retry') from None
