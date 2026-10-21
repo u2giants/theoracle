@@ -15,20 +15,20 @@ __all__ = ('SEAL_PUBLIC_KEY_ENV', 'SEAL_PURPOSE_ALLOWLIST', 'seal_payload', 'ver
 
 
 def _verification_api():
-    # Pin trusted startup public-key configuration on first use. Subsequent
-    # request code cannot select a different issuer by changing the environment.
-    pinned_key = None
+    # Capture trusted startup configuration now, before request code can run.
+    # Missing/invalid startup configuration permanently fails closed for this
+    # module instance; later environment changes cannot install a new issuer.
+    try:
+        public_raw = bytes.fromhex(os.environ.get(SEAL_PUBLIC_KEY_ENV, ''))
+        pinned_key = (Ed25519PublicKey.from_public_bytes(public_raw)
+                      if len(public_raw) == 32 else None)
+    except (ValueError, TypeError):
+        pinned_key = None
 
     def verify(payload: bytes, signature: str) -> bool:
-        nonlocal pinned_key
-        if not isinstance(signature, str) or not signature:
+        if pinned_key is None or not isinstance(signature, str) or not signature:
             return False
         try:
-            if pinned_key is None:
-                public_raw = bytes.fromhex(os.environ.get(SEAL_PUBLIC_KEY_ENV, ''))
-                if len(public_raw) != 32:
-                    return False
-                pinned_key = Ed25519PublicKey.from_public_bytes(public_raw)
             raw_sig = bytes.fromhex(signature)
             if len(raw_sig) != 64:
                 return False
@@ -41,6 +41,7 @@ def _verification_api():
 
 
 verify = _verification_api()
+del _verification_api
 
 
 def verify_mac(purpose: str, mac: str, *fields) -> None:

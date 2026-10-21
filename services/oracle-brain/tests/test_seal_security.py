@@ -522,3 +522,36 @@ def test_request_cannot_replace_pinned_public_issuer(monkeypatch):
     attacker = Ed25519PrivateKey.generate()
     monkeypatch.setenv('ORACLE2_SEAL_PUBLIC_KEY', attacker.public_key().public_bytes_raw().hex())
     assert not verify(payload, attacker.sign(payload).hex())
+
+
+@pytest.mark.parametrize('startup', ['valid', 'missing', 'invalid'])
+def test_startup_issuer_cannot_be_replaced_before_first_verification(startup):
+    """Fresh process: request-time key changes never select trusted authority."""
+    script = """
+import os, sys
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+legitimate = Ed25519PrivateKey.generate()
+if sys.argv[1] == 'valid':
+    os.environ['ORACLE2_SEAL_PUBLIC_KEY'] = legitimate.public_key().public_bytes_raw().hex()
+elif sys.argv[1] == 'invalid':
+    os.environ['ORACLE2_SEAL_PUBLIC_KEY'] = 'not-a-valid-public-key'
+else:
+    os.environ.pop('ORACLE2_SEAL_PUBLIC_KEY', None)
+from oracle_brain.seal import verify, seal_payload
+attacker = Ed25519PrivateKey.generate()
+os.environ['ORACLE2_SEAL_PUBLIC_KEY'] = attacker.public_key().public_bytes_raw().hex()
+payload = seal_payload('participation-enable:v1', 'invented-startup-probe')
+assert verify(payload, attacker.sign(payload).hex()) is False
+assert verify(payload, legitimate.sign(payload).hex()) is (sys.argv[1] == 'valid')
+print('startup issuer preserved; attacker denied')
+"""
+    child = subprocess.run([sys.executable, '-c', script, startup],
+                           capture_output=True, text=True, check=False,
+                           env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1])})
+    assert child.returncode == 0, child.stderr
+    assert child.stdout.strip() == 'startup issuer preserved; attacker denied'
+
+
+def test_verifier_has_no_runtime_reinitialization_factory():
+    import oracle_brain.seal as seal
+    assert not hasattr(seal, '_verification_api')
