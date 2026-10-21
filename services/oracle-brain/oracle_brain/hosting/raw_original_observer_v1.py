@@ -3,7 +3,8 @@
 This separate version never casts raw originals into future qualified SourceRefs.
 Existing TLS and durable challenge/highwater custody primitives remain unchanged.
 """
-import base64,hashlib,json,time
+import base64,hashlib,json,time,math,re
+from dataclasses import dataclass
 from datetime import datetime,timezone
 from typing import Literal
 from uuid import UUID
@@ -98,6 +99,52 @@ def verify_raw_original_currentness_v1(raw,*,admission,trusted_admission_hash,ex
         raise PermissionError('stale replayed revoked or changed raw population witness')
     return witness
 
+@dataclass(frozen=True)
+class RawOriginalObservedCurrentnessV1:
+    """Original authenticated exchange evidence, never an appointment/grant.
+
+    Construction can check bytes/signature consistency, not establish that the
+    caller actually performed TLS or durably advanced replay. Protected callers
+    must obtain this record from the existing appointed consumer.
+    """
+    admission:RawOriginalObserverAdmissionV1
+    trusted_admission_hash:str
+    raw_envelope:bytes
+    challenge:str
+    previous_sequence:int
+    started_at:datetime
+    observed_at:datetime
+    elapsed_seconds:float
+    witness:RawOriginalCurrentnessWitnessV1
+
+    def __post_init__(self):
+        if (type(self.admission) is not RawOriginalObserverAdmissionV1
+                or type(self.witness) is not RawOriginalCurrentnessWitnessV1
+                or type(self.raw_envelope) is not bytes or not 0<len(self.raw_envelope)<=100_000
+                or type(self.trusted_admission_hash) is not str or re.fullmatch(HASH,self.trusted_admission_hash) is None
+                or type(self.challenge) is not str or re.fullmatch(HASH,self.challenge) is None
+                or type(self.previous_sequence) is not int
+                or type(self.elapsed_seconds) is not float or not math.isfinite(self.elapsed_seconds)
+                or any(type(t) is not datetime or t.tzinfo is None or t.utcoffset() is None
+                    for t in (self.started_at,self.observed_at))
+                or not 0<=(self.observed_at-self.started_at).total_seconds()<=self.admission.max_age_seconds):
+            raise PermissionError('exact bounded observed raw exchange required')
+        verified=verify_raw_original_currentness_v1(self.raw_envelope,admission=self.admission,
+            trusted_admission_hash=self.trusted_admission_hash,expected_population=self.admission.population,
+            challenge=self.challenge,previous_sequence=self.previous_sequence,started_at=self.started_at,
+            now=self.observed_at,elapsed_seconds=self.elapsed_seconds)
+        if verified!=self.witness:
+            raise PermissionError('observed raw envelope and verified witness differ')
+
+    @property
+    def envelope_sha256(self):
+        return hashlib.sha256(self.raw_envelope).hexdigest()
+
+    @property
+    def witness_bytes(self):
+        return canonical_bytes(self.witness.model_dump(mode='json'))
+
+
 class RawOriginalObserverClientV1(_FixedTLSClientV2):
     def __init__(self,binding):
         if type(binding) is not PurposeTLSBindingV2 or binding.timeout>5:
@@ -128,25 +175,48 @@ class RawOriginalCurrentnessConsumerV1:
         self.clock=clock or (lambda:datetime.now(timezone.utc));self.monotonic=monotonic or time.monotonic
 
     def current(self,expected_population):
+        return self.observed_current(expected_population).witness
+
+    def observed_current(self,expected_population):
+        """Retain the exact exchange only after actual replay advance succeeds."""
         import secrets
+        admission,admission_hash,transport,replay=self.admission,self.admission_hash,self.transport,self.replay
+        if (type(admission) is not RawOriginalObserverAdmissionV1
+                or digest(admission.model_dump(mode='json'))!=admission_hash
+                or type(transport) is not RawOriginalObserverClientV1 or type(replay) is not DurableNonceSequenceV2
+                or replay.appointment_hash!=admission_hash or replay.minimum_sequence!=admission.minimum_sequence):
+            raise PermissionError('actual current appointed raw observer binding required')
         before=self.clock()
-        if type(expected_population) is not RawOriginalPopulationV1 or before>=min(self.admission.expires_at,expected_population.expires_at):
+        if type(expected_population) is not RawOriginalPopulationV1 or before>=min(admission.expires_at,expected_population.expires_at):
             raise PermissionError('raw observer appointment expired before exchange')
         challenge=secrets.token_hex(32)
-        self.replay.claim(challenge)
+        replay.claim(challenge)
         started_at=self.clock();tick=self.monotonic()
-        raw=self.transport.fetch_current(challenge)  # No SQL/replay lock during network.
+        raw=transport.fetch_current(challenge)  # No SQL/replay lock during network.
         elapsed=self.monotonic()-tick;now=self.clock()
-        if type(raw) is not bytes or len(raw)>100_000:
+        if type(raw) is not bytes or not 0<len(raw)<=100_000:
             raise PermissionError('bounded raw observer metadata required')
-        value=json.loads(raw,object_pairs_hook=unique_object)
+        value=json.loads(raw,object_pairs_hook=unique_object,
+            parse_constant=lambda _:(_ for _ in ()).throw(ValueError('nonfinite observer metadata')))
         if type(value) is not dict or type(value.get('witness')) is not dict:
             raise PermissionError('exact raw witness envelope required')
-        witness=None
+        witness=None;previous_sequence=None
         def verify(previous):
-            nonlocal witness
-            witness=verify_raw_original_currentness_v1(raw,admission=self.admission,
-                trusted_admission_hash=self.admission_hash,expected_population=expected_population,
+            nonlocal witness,previous_sequence
+            previous_sequence=previous
+            witness=verify_raw_original_currentness_v1(raw,admission=admission,
+                trusted_admission_hash=admission_hash,expected_population=expected_population,
                 challenge=challenge,previous_sequence=previous,started_at=started_at,now=now,elapsed_seconds=elapsed)
-        self.replay.advance(challenge,value['witness'].get('sequence'),verify=verify)
-        return witness
+        replay.advance(challenge,value['witness'].get('sequence'),verify=verify)
+        if (self.admission is not admission or self.admission_hash!=admission_hash
+                or self.transport is not transport or self.replay is not replay
+                or digest(admission.model_dump(mode='json'))!=admission_hash):
+            raise PermissionError('raw observer binding changed during actual exchange')
+        # Construction revalidates exact authenticated bytes/pins AFTER advance.
+        observed=RawOriginalObservedCurrentnessV1(admission,admission_hash,raw,challenge,previous_sequence,
+            started_at,now,float(elapsed),witness)
+        returned_at=self.clock()
+        if (type(returned_at) is not datetime or returned_at.tzinfo is None or returned_at.utcoffset() is None
+                or returned_at<now or returned_at>=min(witness.expires_at,admission.expires_at,expected_population.expires_at)):
+            raise PermissionError('raw observer evidence expired before return')
+        return observed
