@@ -54,7 +54,14 @@ The full required W10 inventory initially reported 2760 tests, five failures
 and five skips, with no worker timeout (maximum 100.56 seconds) and zero cleanup
 errors. Exact helper registration/stale assertions and isolated
 object-store/Node/graph-alias setup were repaired without dropping tests or
-changing the 120-second deadline. Passing unit and read-only evidence accompany
+changing the 120-second deadline. The admitted exact `1ff1490c` full rerun
+then reported 2788 tests: 2772 passed, sixteen failed, zero skipped/timeouts/
+launch errors, and zero cleanup errors; slowest worker 100.11 seconds. Fifteen
+failures were the host-control setup above; one was the stale boundary-register
+checksum after explicitly reviewed verification-only helper registration. The
+checksum now binds that exact register without relaxing immutable source anchors.
+These repairs still require a fresh admitted full runtime rerun. Passing unit
+and read-only evidence accompany
 the exact-source security reviews; the protected database gate requires that
 approval before the complete synthetic database verifier can run again. Final
 review/test/merge receipts are recorded on the same issue #27, not inferred
