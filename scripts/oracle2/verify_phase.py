@@ -23,6 +23,7 @@ S02_TESTS = [
     "test_preview_settings.py", "test_worker_guard_parity.py",
 ]
 S03_TESTS = [
+    "test_original_upload_chunks_v1.py", "test_original_upload_browser_v1.py",
     "test_consolidation_contracts_v1.py", "test_consolidation_sql_v1.py",
     "test_replacement_request_service_v1.py", "test_protected_web_python_conformance_v1.py",
     "test_owned_worker_database.py", "test_replacement_upload_service_v1.py",
@@ -50,6 +51,7 @@ S03_TESTS = [
 # S04 — complete source ingestion, revisions and withdrawal
 # (plan_oracle_consultant_overhaul.md §S04 gate list).
 S04_TESTS = [
+    "test_original_upload_chunks_v1.py", "test_original_upload_browser_v1.py",
     "test_binary_documents.py",
     "test_original_byte_storage.py",
     "test_document_provenance.py",

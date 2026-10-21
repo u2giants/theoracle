@@ -315,3 +315,14 @@ assert code==0 and evidence['tests']==1 and evidence['failures']==evidence['skip
         str(Path(__file__).parents[3] / 'scripts/oracle2/verify_phase.py'),
         sys.executable, str(case)], capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stderr
+
+
+def test_original_browser_upload_is_required_with_browser_install_before_w10():
+    from scripts.oracle2.verify_phase import S03_TESTS, S04_TESTS
+    for name in ('original_upload_chunks_v1','original_upload_browser_v1'):
+        assert verifier.required_suites('W10').count(name)==1
+        assert S03_TESTS.count('test_'+name+'.py')==1
+        assert S04_TESTS.count('test_'+name+'.py')==1
+    workflow=(Path(__file__).parents[3]/'.github/workflows/oracle2-contracts.yml').read_text()
+    assert workflow.count('run: pnpm --filter @oracle/web exec playwright install chromium')==1
+    assert workflow.index('name: Install browser for synthetic connected-document proof') < workflow.index('name: New operating-model documentary and event contracts')

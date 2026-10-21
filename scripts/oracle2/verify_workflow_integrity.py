@@ -77,7 +77,7 @@ DOCUMENTARY += ('native_trigger_v1',)
 # suites. They are mandatory source checks, never live/business acceptance.
 DOCUMENTARY += ('replacement_requester_v1','replacement_requester_sql',
     'replacement_request_service_v1','protected_web_python_conformance_v1','owned_worker_database',
-    'replacement_upload_service_v1','replacement_upload_sql',
+    'replacement_upload_service_v1','replacement_upload_sql','original_upload_chunks_v1','original_upload_browser_v1',
     'operations_recovery','recovery_primitives',
     'legacy_mapping','migration_reconcile','migration_resume','migration_delta',
     'legacy_routes_retired','legacy_citation_redirect','retired_writer_denial',

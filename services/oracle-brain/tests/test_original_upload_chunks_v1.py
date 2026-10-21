@@ -187,3 +187,49 @@ def test_protected_spool_lock_replacement_or_missing_initialization_cannot_reset
 def test_public_observation_flags_and_chunk_accounting_are_strict(tmp_path,monkeypatch,certificates,change):
     f,path,seal,s=setup_upload(tmp_path,monkeypatch,certificates);store=OriginalUploadStoreV1(s,OriginalIntakeFactoryV1(f.s));r=store.apply(begin(),peer_until=s.current())
     with pytest.raises(Exception):UploadResponseV1.model_validate_json(json.dumps(r.model_dump(mode='json')|change))
+
+
+def test_revoked_sql_scope_cannot_read_original_chunks_or_mark_restart_unknown(tmp_path,monkeypatch,certificates):
+    f,path,seal,s=setup_upload(tmp_path,monkeypatch,certificates)
+    store=OriginalUploadStoreV1(s,OriginalIntakeFactoryV1(f.s));b=begin()
+    r=store.apply(b,peer_until=s.current());r=store.apply(chunk(b,r),peer_until=s.current())
+    restart=OriginalUploadStoreV1(s,OriginalIntakeFactoryV1(f.s))
+    original_read=restart._read_bytes
+    def read(parts,limit):
+        if parts[-1].endswith('.bin'):pytest.fail('revoked SQL scope reached original bytes')
+        return original_read(parts,limit)
+    def denied(*args,**kwargs):raise PermissionError('current SQL intake scope revoked')
+    monkeypatch.setattr(restart,'_read_bytes',read)
+    monkeypatch.setattr(restart.factory,'reserve_pdf_v1',denied)
+    with pytest.raises(PermissionError,match='scope revoked'):
+        restart.apply(action(b,r),peer_until=s.current())
+    assert not (restart.root/'uploads'/str(b.idempotency_key)/'closed.json').exists()
+
+
+def test_unrelated_retained_upload_inventory_never_rereads_original_bytes(tmp_path,monkeypatch,certificates):
+    f,path,seal,s=setup_upload(tmp_path,monkeypatch,certificates)
+    store=OriginalUploadStoreV1(s,OriginalIntakeFactoryV1(f.s));b=begin()
+    r=store.apply(b,peer_until=s.current());r=store.apply(chunk(b,r),peer_until=s.current())
+    store.apply(action(b,r,'cancel'),peer_until=s.current())
+    original_read=store._read_bytes
+    def read(parts,limit):
+        if parts[-1].endswith('.bin'):pytest.fail('unrelated upload caused retained original read')
+        return original_read(parts,limit)
+    monkeypatch.setattr(store,'_read_bytes',read)
+    fresh=store.apply(begin(),peer_until=s.current())
+    assert fresh.state=='reserved' and fresh.received_bytes==0
+
+
+def test_selected_original_bytes_are_bracketed_by_fresh_actual_intake_calls(tmp_path,monkeypatch,certificates):
+    f,path,seal,s=setup_upload(tmp_path,monkeypatch,certificates)
+    store=OriginalUploadStoreV1(s,OriginalIntakeFactoryV1(f.s));b=begin()
+    r=store.apply(b,peer_until=s.current());r=store.apply(chunk(b,r),peer_until=s.current())
+    initial=f.intake_calls.count('reserve');observed=[];original_read=store._read_bytes
+    def read(parts,limit):
+        if parts[-1].endswith('.bin'):
+            observed.append(f.intake_calls.count('reserve'))
+        return original_read(parts,limit)
+    monkeypatch.setattr(store,'_read_bytes',read)
+    result=store.apply(action(b,r),peer_until=s.current())
+    assert result.received_bytes==len(PDF) and observed and min(observed)>initial
+    assert f.intake_calls.count('reserve')>max(observed)

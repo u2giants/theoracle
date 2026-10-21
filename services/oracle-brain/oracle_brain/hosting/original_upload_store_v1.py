@@ -129,7 +129,7 @@ class OriginalUploadStoreV1:
         entries=list(parent.iterdir())
         if len(entries)>64 or any(not re.fullmatch(r'[a-f0-9-]{36}',x.name) or str(UUID(x.name))!=x.name or not x.is_dir() or x.is_symlink() for x in entries):raise PermissionError('bounded upload inventory required')
         return entries
-    def _state(self,path):
+    def _state(self,path,*,source_bytes=True,record_state=True):
         parts=['uploads',path.name];names={x.name for x in path.iterdir()}
         allowed={'begin-intent.json','begin.json','closed.json','finalize-intent.json','finalize.json'}|{f'lease-{i}.json' for i in range(64)}|{f'chunk-{i}{suffix}' for i in range(13) for suffix in ('.bin','-intent.json','.json')}
         if not names<=allowed or 'begin-intent.json' not in names:raise PermissionError('foreign upload journal population')
@@ -153,9 +153,10 @@ class OriginalUploadStoreV1:
                 descriptor=self._read(parts+[intent]);observed=self._read(parts+[commit])
                 expected_size=min(CHUNK_BYTES,begin.byte_count-i*CHUNK_BYTES)
                 if set(descriptor)!={'request_sha256','chunk_sha256','byte_count','chunk_index'} or descriptor!=observed or type(descriptor['chunk_index']) is not int or type(descriptor['byte_count']) is not int or descriptor['chunk_index']!=i or descriptor['byte_count']!=expected_size or not re.fullmatch(HASH,descriptor['request_sha256']) or not re.fullmatch(HASH,descriptor['chunk_sha256']):raise PermissionError('chunk receipt differs')
-                raw=self._read_bytes(parts+[data],CHUNK_BYTES)
-                if len(raw)!=expected_size or hashlib.sha256(raw).hexdigest()!=descriptor['chunk_sha256']:raise PermissionError('committed chunk bytes differ')
-                count+=1;size+=len(raw)
+                if source_bytes:
+                    raw=self._read_bytes(parts+[data],CHUNK_BYTES)
+                    if len(raw)!=expected_size or hashlib.sha256(raw).hexdigest()!=descriptor['chunk_sha256']:raise PermissionError('committed chunk bytes differ')
+                count+=1;size+=expected_size
             elif intent in names or data in names:pending=True
             elif any(f'chunk-{j}{x}' in names for j in range(i+1,13) for x in ('.json','-intent.json','.bin')):raise PermissionError('omitted chunk identity')
         state='reserved' if count==0 else 'receiving'
@@ -172,9 +173,11 @@ class OriginalUploadStoreV1:
             if state=='committed':raise PermissionError('competing upload terminal states')
             state=closed['state']
         elif state!='committed' and (pending or instance!=self.instance):
-            self._write(parts+['closed.json'],dict(state='UNKNOWN'));state='UNKNOWN'
+            if record_state:self._write(parts+['closed.json'],dict(state='UNKNOWN'))
+            state='UNKNOWN'
         elif state!='committed' and now()>=end:
-            self._write(parts+['closed.json'],dict(state='expired'));state='expired'
+            if record_state:self._write(parts+['closed.json'],dict(state='expired'))
+            state='expired'
         return dict(parts=parts,names=names,begin=begin,reserved=reserved,end=end,state=state,count=count,size=size)
     def _lease(self,parts,end,names=None):
         names=names if names is not None else {x.name for x in self.root.joinpath(*parts).iterdir()}
@@ -214,13 +217,19 @@ class OriginalUploadStoreV1:
     def apply(self,request,*,peer_until):
         if type(request) not in (UploadBeginV1,UploadChunkV1,UploadActionV1):raise TypeError('closed upload request required')
         with self._locked():
-            sessions=[self._state(p) for p in self._sessions()]
+            # Inventory contains custody metadata only. An unrelated or denied
+            # request must never read retained original chunks or mutate their
+            # journal before actual SQL proves its current intake scope.
+            sessions=[self._state(p,source_bytes=False,record_state=False) for p in self._sessions()]
             if type(request) is UploadBeginV1:
                 matching=[s for s in sessions if s['begin'].idempotency_key==request.idempotency_key]
                 if matching:
                     state=matching[0]
                     if state['begin']!=request or state['reserved'] is None:raise PermissionError('begin collision or unknown reservation')
-                    _,end=self._fresh(state,peer_until);return self._response(state,end)
+                    self._fresh(state,peer_until)
+                    state=self._state(self.root.joinpath(*state['parts']))
+                    _,end=self._fresh(state,peer_until)
+                    return self._response(state,end)
                 if len(sessions)>=64 or any(s['state'] not in ('committed','cancelled','expired') for s in sessions):raise PermissionError('one active or unresolved upload required')
                 if not now()<request.caller_deadline<=now()+timedelta(seconds=30):raise PermissionError('finite original upload window required')
                 self.windows[str(request.idempotency_key)]=time.monotonic()+(request.caller_deadline-now()).total_seconds()
@@ -233,6 +242,8 @@ class OriginalUploadStoreV1:
             if len(matches)!=1:raise PermissionError('exact reservation required')
             state=matches[0];b=state['begin'];r=state['reserved'].reservation
             if (request.source_id,request.revision,request.begin_sha256,request.caller_deadline)!=(r.source_id,r.revision,digest(b.model_dump(mode='json')),b.caller_deadline):raise PermissionError('upload action scope differs')
+            self._fresh(state,peer_until)
+            state=self._state(self.root.joinpath(*state['parts']))
             fresh,end=self._fresh(state,peer_until)
             if request.operation=='status':return self._response(state,end)
             if type(request) is UploadChunkV1:

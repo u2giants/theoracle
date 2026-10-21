@@ -118,6 +118,8 @@ jobs:
         run: |
           services/oracle-brain/.venv/bin/python -m pytest -q scripts/licensing/test_source_offer.py
           node scripts/licensing/build_source_offer.mjs
+      - name: Install browser for synthetic connected-document proof
+        run: pnpm --filter @oracle/web exec playwright install chromium
       - name: Start isolated real stores
         run: docker compose -f dev/oracle2/compose.yaml up -d --wait
       - name: Authenticate owned synthetic PostgreSQL with TLS and SCRAM
@@ -142,8 +144,6 @@ jobs:
         run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
       - name: S03 pilot journey offline gate
         run: python3 scripts/oracle2/verify_phase.py S03 --mode offline
-      - name: Install browser for synthetic connected-document proof
-        run: pnpm --filter @oracle/web exec playwright install chromium
       - name: Prove browser through SDK transport and real FalkorDB
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_holistic_browser.py
       - name: Prove isolated native browser transport and authority refusals
