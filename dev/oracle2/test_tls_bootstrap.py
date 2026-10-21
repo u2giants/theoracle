@@ -24,7 +24,10 @@ def run(*args):
     return subprocess.check_output(args,text=True,stderr=subprocess.PIPE,timeout=30)
 
 
-def bootstrap(container,admin_url,directory):
+def owned_postgres_fixture(container,admin_url):
+    """Read-only proof of the exact labelled, invented loopback PostgreSQL."""
+    if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}',container):
+        raise PermissionError('exact synthetic container identity required')
     details=json.loads(run('docker','inspect',container))[0]
     if details['Config'].get('Labels',{}).get('oracle.operating.synthetic')!='true':
         raise PermissionError('explicit synthetic container label required')
@@ -39,6 +42,11 @@ def bootstrap(container,admin_url,directory):
     env=set(details['Config']['Env'])
     if not {'POSTGRES_USER=oracle2_admin','POSTGRES_PASSWORD=oracle2_local_admin_only','POSTGRES_DB=oracle2'}<=env:
         raise PermissionError('invented PostgreSQL fixture identity required')
+    return details
+
+
+def bootstrap(container,admin_url,directory):
+    details=owned_postgres_fixture(container,admin_url)
     directory=Path(directory);directory.mkdir(mode=0o700,parents=True,exist_ok=True);os.chmod(directory,0o700)
     issuer=directory/'issuer';issuer.mkdir(mode=0o700,exist_ok=True);os.chmod(issuer,0o700)
     name=details['Name'].lstrip('/')
