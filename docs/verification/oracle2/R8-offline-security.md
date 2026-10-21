@@ -82,7 +82,13 @@ processing prerequisites. The existing isolated bootstrap now installs the
 canonical ordered synthetic migrations without weakening owner guards. The
 three-file TypeScript registration and this factual evidence are included in
 the same PR under a new deployment declaration and exact successor reviews.
-No manual database writes are performed on that deployment-class source.
+The successor review required stronger target admission before expanding the
+bootstrap: libpq query/environment routing overrides are rejected, only the
+canonical explicit verify-full connection is used, and the owned synthetic
+container, published port, invented identity and prior TLS qualification/CA
+are re-proved before migrations. Focused mocked tests retain valid setup and
+prove denied targets make no database requests. No manual database writes are
+performed on that deployment-class source; cold CI is its runtime proof.
 
 Actual host installation/isolation, Q2b target owner/caller/TLS proof,
 W10/R7 native timing, native/hosted/browser production proof, stage acceptance
