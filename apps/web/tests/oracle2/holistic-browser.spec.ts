@@ -1,9 +1,41 @@
 import { test, expect } from '@playwright/test';
+import { createServer } from 'node:http';
 
 const sourceId = process.env.ORACLE2_HOLISTIC_FIXTURE_SOURCE_ID;
 const draftId = process.env.ORACLE2_HOLISTIC_FIXTURE_DRAFT_ID;
 const token = process.env.ORACLE2_PILOT_TOKEN ?? 'synthetic-browser-token';
 const sourceIds = JSON.parse(process.env.ORACLE2_HOLISTIC_FIXTURE_SOURCE_IDS ?? '[]') as string[];
+
+test('local browser forwards a Secure fixture cookie and denies anonymous access', async ({ browser }) => {
+  const server = createServer((req, res) => {
+    if (req.url === '/login') {
+      res.setHeader('Set-Cookie', 'invented_browser_probe=present; HttpOnly; Secure; SameSite=Lax; Path=/');
+    } else if (req.url === '/protected') {
+      res.statusCode = req.headers.cookie?.split(';').some((value) => value.trim() === 'invented_browser_probe=present') ? 200 : 401;
+    }
+    res.end('invented-only');
+  });
+  const context = await browser.newContext();
+  const anonymous = await browser.newContext();
+  try {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('loopback probe unavailable');
+    const origin = `http://127.0.0.1:${address.port}`;
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.evaluate(() => fetch('/login', { method: 'POST', credentials: 'same-origin' }));
+    expect((await context.cookies()).find((cookie) => cookie.name === 'invented_browser_probe')?.secure).toBe(true);
+    expect(await page.evaluate(() => fetch('/protected', { method: 'POST', credentials: 'same-origin' }).then((response) => response.status))).toBe(200);
+    const denied = await anonymous.newPage();
+    await denied.goto(origin);
+    expect(await denied.evaluate(() => fetch('/protected', { method: 'POST', credentials: 'same-origin' }).then((response) => response.status))).toBe(401);
+  } finally {
+    await context.close();
+    await anonymous.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 test.describe('synthetic holistic connected answer', () => {
   test.beforeEach(async ({ page }) => {
