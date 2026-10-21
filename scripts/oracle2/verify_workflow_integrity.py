@@ -42,7 +42,7 @@ ORIGINAL_PROCESSING_SUITES=('original_corpus_import','original_corpus_read',
     'original_intake_v1','original_native_jobs_v1','original_pdf_image_views',
     'original_population_sql','original_qualification_v1','original_qualification_runtime','original_reading',
     'replacement_original_lifecycle','replacement_qualification_sql',
-    'q2b_target_catalog_v1','seal_security','seal_wire')
+    'q2b_target_catalog_v1','q2b_transaction_freshness_sql','seal_security','seal_wire')
 RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_multimodal_pricing_v1','raw_original_context_v1',
     'raw_original_native_provider_v1','raw_original_observer_v1','raw_original_paid_response_v1',
     'raw_original_request_v1','raw_original_settings_v1','raw_original_views_v1',
