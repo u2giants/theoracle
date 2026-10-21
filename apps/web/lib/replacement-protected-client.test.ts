@@ -141,7 +141,7 @@ test('independently selected invented profile pin, file modes, URI, key, missing
   };
   for (const patch of [{client_uri:'spiffe://oracle/foreign'},{client_certificate_der_sha256:'b'.repeat(64)},{client_key_file:file('server.key'),client_key_sha256:pin('server.key')},{server_ca_file:file('missing.crt')},{expires_at:new Date(Date.now()-1000).toISOString()},{valid_from:new Date(Date.now()+60000).toISOString()}]) check({...binding,...patch});
   check({...binding},'b'.repeat(64));
-  writeFileSync(file('unsafe.key'),readFileSync(file('client.key')),{mode:0o644}); check({...binding,client_key_file:file('unsafe.key')});
+  writeFileSync(file('unsafe.key'),readFileSync(file('client.key')),{mode:0o644}); chmodSync(file('unsafe.key'),0o644); check({...binding,client_key_file:file('unsafe.key')});
 });
 test('verified identity, employee, actual project, configured project, disabled/error all refuse before HTTP',async () => {
   const count = requests;
