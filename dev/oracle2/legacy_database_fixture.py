@@ -139,6 +139,8 @@ def owned_legacy_database():
     receipt = None
     cleaned = False
     phase = 'database-create'
+    cleanup_blocked = False
+    original_failure = None
     try:
         with psycopg.connect(base, autocommit=True) as host:
             if _identity(host, name) is not None:
@@ -174,13 +176,24 @@ def owned_legacy_database():
         phase = 'browser-journey'
         yield handle
     except BaseException as error:
+        # This decision must survive failures in best-effort diagnostic I/O.
+        cleanup_blocked = isinstance(error, LegacyCleanupBlocked)
+        original_failure = error
         # Preserve only the safe class and fixed phase, never SQL/URL/provider text.
         recovery.update(failure_type=type(error).__name__, failure_phase=phase)
-        recovery_path.write_text(json.dumps(recovery, sort_keys=True))
+        pending = private / 'failure.json'
+        try:
+            fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'w') as stream:
+                json.dump(recovery, stream, sort_keys=True)
+            os.replace(pending, recovery_path)
+        except OSError:
+            try: pending.unlink()
+            except OSError: pass
         raise
     finally:
-        if isinstance(sys.exc_info()[1], LegacyCleanupBlocked):
-            raise LegacyCleanupBlocked('owned worker still active; legacy database receipt retained')
+        if cleanup_blocked:
+            raise LegacyCleanupBlocked('owned worker still active; legacy database receipt retained') from original_failure
         if created:
             # Reprove the container and captured object before dropping anything.
             if owned_fixture_admin_url() != base:

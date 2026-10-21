@@ -214,3 +214,32 @@ def test_marker_setup_failure_remains_in_recovery_when_cleanup_refuses(host, mon
     assert recovery['failure_phase'] == 'database-marker'
     assert 'password' not in recovery and 'url' not in recovery
     assert host.state
+
+
+def test_cleanup_blocked_survives_enospc_and_keeps_original_recovery(host, monkeypatch):
+    import errno
+    original = fixture.LegacyCleanupBlocked('invented live descendant')
+    def disk_full(*args, **kwargs): raise OSError(errno.ENOSPC, 'invented full disk')
+    with pytest.raises(fixture.LegacyCleanupBlocked) as caught:
+        with fixture.owned_legacy_database() as handle:
+            recovery = Path(handle.receipt_path).with_name('recovery.json')
+            previous = recovery.read_bytes()
+            monkeypatch.setattr(fixture.json, 'dump', disk_full)
+            raise original
+    assert caught.value.__cause__ is original
+    assert host.state and Path(handle.receipt_path).exists()
+    assert recovery.read_bytes() == previous
+    assert not any(event.startswith('DROP DATABASE') for event in host.events)
+
+
+def test_normal_body_error_survives_diagnostic_io_failure_and_cleans(host, monkeypatch):
+    import errno
+    original = RuntimeError('invented ordinary body failure')
+    def disk_full(*args, **kwargs): raise OSError(errno.ENOSPC, 'invented full disk')
+    with pytest.raises(RuntimeError) as caught:
+        with fixture.owned_legacy_database():
+            monkeypatch.setattr(fixture.json, 'dump', disk_full)
+            raise original
+    assert caught.value is original
+    assert not host.state
+    assert len([event for event in host.events if event.startswith('DROP DATABASE')]) == 1
