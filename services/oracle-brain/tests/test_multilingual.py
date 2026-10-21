@@ -1,12 +1,11 @@
 """S06 offline gate: preserve original-language evidence in Chinese/English turns.
 
 Turn.language and unicode-safe state serialization are real on main.
-A dedicated translation/preservation module is absent and skipped with reason.
+Exact original/translation binding is tested; translations remain unreviewed.
 Invented/synthetic only.
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 
 import pytest
@@ -32,7 +31,7 @@ def test_state_roundtrip_preserves_chinese_and_english_evidence():
     assert restored.known["moq"] == ZH
     assert restored.known["lead_time"] == EN
     assert [t.language for t in restored.turns] == ["zh", "en"]
-    # ensure_ascii=False keeps original wording in the durable JSON
+    # ensure_ascii=False preserves wording in serialization; this is not durable storage
     assert "最小起订量" in state.dumps()
 
 
@@ -46,26 +45,13 @@ def test_mixed_language_session_keeps_both_turns_distinct():
 
 
 def test_original_language_evidence_preservation_api():
-    """Skip-with-reason when bilingual evidence-preservation is not built."""
-    mod = None
-    for name in (
-        "oracle_brain.knowledge.translation",
-        "oracle_brain.interviews.language",
-        "oracle_brain.workflows.multilingual",
-    ):
-        try:
-            if importlib.util.find_spec(name) is not None:
-                mod = name
-                break
-        except ModuleNotFoundError:
-            continue
-    if mod is None:
-        pytest.skip(
-            "No original-language evidence-preservation module on main "
-            "(oracle_brain.knowledge.translation / interviews.language / "
-            "workflows.multilingual all absent). S06 multilingual gate requires "
-            "preserving original-language evidence in Chinese/English turns "
-            "without translating away the source wording; named offline gate "
-            "test registered fail-closed until that module lands."
-        )
-    assert mod
+    from uuid import uuid4
+    from oracle_brain.interviews.language import preserve_original,UnreviewedTranslation,bind_translation
+    original=preserve_original(workspace_id=uuid4(),actor_id=uuid4(),thread_id=uuid4(),
+        turn_id=uuid4(),revision=1,language='zh-CN',text='仅样品不需审批，量产不得跳过批准。')
+    translation=UnreviewedTranslation(original_identity_digest=original.identity_digest(),
+        original_sha256=original.original_sha256,target_language='en',
+        text='Samples do not need approval; production must not skip it.')
+    bind_translation(original,translation)
+    assert original.text=='仅样品不需审批，量产不得跳过批准。'
+    assert translation.review_state=='unreviewed' and translation.replaces_original is False

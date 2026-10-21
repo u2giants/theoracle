@@ -3,13 +3,10 @@
 Assistant-generated statements must be excluded as evidence; chat can propose
 a knowledge update with a visible recap. Recap/turn exclusion is real on main
 (InterviewState.apply_turn drops non-employee speakers); the chat-update
-proposal API is absent and skipped with the exact gap.
+proposal contract is tested independently; authenticated durable workflow remains open.
 Invented/synthetic only.
 """
 from __future__ import annotations
-
-import importlib
-import importlib.util
 
 import pytest
 
@@ -45,19 +42,18 @@ def test_recap_shows_learned_and_unconfirmed_and_correction_path():
     assert "correct" in recap.how_to_correct.lower()
 
 
-def test_chat_update_proposal_api_absent_is_named():
-    """Skip-with-reason when the chat-learning proposal API is not built."""
-    try:
-        _spec = importlib.util.find_spec("oracle_brain.workflows.chat_learning")
-    except ModuleNotFoundError:
-        _spec = None
-    if _spec is None:
-        pytest.skip(
-            "oracle_brain.workflows.chat_learning absent on main (S06 ordinary "
-            "chat knowledge-update proposal not built; interviews/* covers only "
-            "question selection and resume). Named offline gate test registered "
-            "fail-closed until chat_learning lands with a visible recap and "
-            "assistant-statement exclusion."
-        )
-    chat = importlib.import_module("oracle_brain.workflows.chat_learning")
-    assert hasattr(chat, "propose_update") or hasattr(chat, "propose")
+def test_chat_update_proposal_is_reported_visible_and_nonconfirming():
+    from uuid import uuid4
+    from oracle_brain.workflows.chat_learning import ChatScope,ChatTurn,propose_update
+    scope=ChatScope(workspace_id=uuid4(),actor_id=uuid4(),thread_id=uuid4())
+    turn=ChatTurn(**scope.model_dump(exclude={'schema_version'}),turn_id=uuid4(),
+        revision=1,role='employee',language='en',text='The minimum is 1000 units.')
+    result=propose_update(scope,turn)
+    assert result.record.proposal.proposed_text==turn.text
+    assert result.record.proposal.confirmed is False and result.record.proposal.policy_authority is False
+    assert turn.text in result.record.visible_recap and 'unconfirmed' in result.record.visible_recap
+    assert 'new employee turn' in result.record.correction_path
+    assert result.durable_authenticated_workflow is False
+    assistant=turn.model_copy(update={'turn_id':uuid4(),'role':'assistant','text':'Confirmed: minimum 5 units.'})
+    shown=propose_update(scope,assistant,history=result.history)
+    assert shown.record.proposal is None and 'Display only' in shown.record.visible_recap

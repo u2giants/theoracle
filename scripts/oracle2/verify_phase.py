@@ -22,6 +22,7 @@ S02_TESTS = [
     "test_preview_settings.py", "test_worker_guard_parity.py",
 ]
 S03_TESTS = [
+    "test_owned_worker_database.py",
     "test_provider_policy.py", "test_pilot_journey.py", "test_authority.py",
     "test_review_concurrency.py", "test_holistic_graphrag.py",
     "test_holistic_graphrag_integration.py",
@@ -35,6 +36,7 @@ S03_TESTS = [
     "test_q2b_transaction_freshness_sql.py",
     "test_seal_security.py", "test_seal_wire.py",
     "test_replacement_journey_control.py", "test_replacement_job_authority.py",
+    "test_replacement_requester_v1.py", "test_replacement_requester_sql.py",
 ]
 # S04 — complete source ingestion, revisions and withdrawal
 # (plan_oracle_consultant_overhaul.md §S04 gate list).
@@ -60,6 +62,7 @@ S06_TESTS = [
     "test_question_selection.py",
     "test_chat_learning.py",
     "test_multilingual.py",
+    "test_chat_proposal_contract.py",
 ]
 # S07 — learn from explicitly invited meetings.
 S07_TESTS = [
@@ -109,6 +112,7 @@ S12_TESTS = [
 S13_TESTS = [
     "test_source_lifecycle.py",
     "test_recovery_primitives.py",
+    "test_operations_recovery.py",
     "test_operations_offline.py",
 ]
 # S14 — migrate and compare historical knowledge (pattern from
@@ -117,6 +121,7 @@ S14_TESTS = [
     "test_legacy_mapping.py",
     "test_migration_resume.py",
     "test_migration_delta.py",
+    "test_migration_reconcile.py",
 ]
 # S16 — retire the superseded system (pattern from s16-retire-offline;
 # pure fixture tests: no store, provider or live target).

@@ -8,13 +8,42 @@ from contextlib import contextmanager
 import json,os,re,subprocess
 from pathlib import Path
 from uuid import uuid4
-from dev.oracle2.test_tls_bootstrap import bootstrap
+from dev.oracle2.test_tls_bootstrap import bootstrap,owned_postgres_fixture
 
 ROOT=Path(__file__).resolve().parents[2]
 
 
 def run(*args,env=None):
     return subprocess.check_output(args,env=env,text=True,stderr=subprocess.PIPE,timeout=60)
+
+
+def owned_worker_database(container,admin_url):
+    """Read-only proof of a canonical DB inside the exact owned TLS worker.
+
+    The bootstrap guard stays fixed to oracle2. Only its database component is
+    changed for that guard; the actual requested target is separately observed.
+    No connection fallback, migration, role grant or database creation occurs.
+    """
+    import psycopg
+    params=psycopg.conninfo.conninfo_to_dict(admin_url)
+    allowed={'host','port','user','password','dbname','sslmode','sslrootcert'}
+    name=params.get('dbname','')
+    if (set(params)!=allowed or params.get('sslmode')!='verify-full'
+            or not params.get('sslrootcert')
+            or not (name=='oracle2' or re.fullmatch(r'oracle_operating_model_test_[0-9a-f]{32}',name))):
+        raise PermissionError('exact canonical worker database and verify-full TLS required')
+    base=psycopg.conninfo.make_conninfo(**(params|{'dbname':'oracle2'}))
+    details=owned_postgres_fixture(container,base)
+    with psycopg.connect(admin_url,connect_timeout=5) as connection:
+        actual=connection.info.get_parameters()
+        if (not connection.pgconn.ssl_in_use
+                or any(actual.get(key)!=params[key] for key in
+                    ('host','port','user','dbname','sslmode','sslrootcert'))):
+            raise PermissionError('actual owned worker TLS target differs')
+        row=connection.execute("SELECT SESSION_USER,current_database(),pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()").fetchone()
+        if row!=('oracle2_admin',name,'oracle2_admin'):
+            raise PermissionError('actual owned worker database identity/owner differs')
+    return details
 
 
 @contextmanager
