@@ -145,6 +145,8 @@ class OutboundIntent:
     body: str
     idempotency_key: str
     created_at: str
+    recipient_ids: tuple[str, ...] = ()
+    audience_sha256: str = ''
 
     def __post_init__(self) -> None:
         if not all((self.intent_id, self.meeting_id, self.turn_id, self.channel,
@@ -312,13 +314,15 @@ def provider_idempotency_key(*, meeting_id: str, intent_id: str, channel: str) -
 
 
 def create_intent(*, intent_id: str, meeting_id: str, turn_id: str, channel: str,
-                  body: str, created_at: str) -> OutboundIntent:
+                  body: str, created_at: str, recipient_ids: tuple[str, ...] = (),
+                  audience_sha256: str = '') -> OutboundIntent:
     """Build an outbound intent. This function never sends anything."""
     key = provider_idempotency_key(
         meeting_id=meeting_id, intent_id=intent_id, channel=channel)
     return OutboundIntent(
         intent_id=intent_id, meeting_id=meeting_id, turn_id=turn_id,
-        channel=channel, body=body, idempotency_key=key, created_at=created_at)
+        channel=channel, body=body, idempotency_key=key, created_at=created_at,
+        recipient_ids=recipient_ids, audience_sha256=audience_sha256)
 
 
 def intent_recorded(ledger: DeliveryLedger, intent: OutboundIntent) -> DeliveryReceipt:

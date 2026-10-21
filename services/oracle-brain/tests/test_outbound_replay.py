@@ -60,6 +60,8 @@ from oracle_brain.workflows.meeting_turn import evaluate_turn as _raw_evaluate
 
 def evaluate_turn(settings, *args, **fields):
     fields.setdefault('current_state_reader', host_current)
+    from meeting_testkit import host_audience
+    fields.setdefault('current_audience_reader', host_audience)
     return _raw_evaluate(settings, *args, **fields)
 
 
@@ -721,3 +723,61 @@ def test_delivery_signature_rechecks_every_immutable_intent_field(field, changed
         ledger.mark_sent(key, receipt_id='r', channel='meeting_text', sent_at='now',
                          provider_message_id='provider', action_mac=proof)
     assert ledger.replay(key).status == 'recorded'
+
+
+def test_broadcast_requires_fresh_complete_authorized_recipient_set():
+    from meeting_testkit import host_audience
+    settings = record_settings(meeting_id='m-1', enabled=True,
+                               recorded_at='2026-10-16T12:00:00Z', enable_proof_mac=_enable_mac('m-1'))
+    turn = InboundTurn('turn-audience', 'm-1', 'p-1', 'Oracle?', addresses_oracle=True)
+    membership = MembershipView(True, frozenset({'p-1', 'p-2'}))
+    def decide(reader):
+        ledger = DeliveryLedger()
+        result = _raw_evaluate(settings, turn, membership, ledger, receipt_id='audience-r',
+            intent_id='audience-i', answer_body='permitted quoted answer', recorded_at='now',
+            current_state_reader=host_current, current_audience_reader=reader)
+        return result, ledger
+    def all_allowed(*args):
+        return host_audience(*args, recipients=frozenset({'p-1', 'p-2'}), authorized=frozenset({'p-1', 'p-2'}))
+    result, ledger = decide(all_allowed)
+    assert result.decision == 'respond' and result.intent.recipient_ids == ('p-1', 'p-2')
+    assert result.intent.audience_sha256 and ledger.replay(result.intent.idempotency_key).status == 'recorded'
+    for reader in (None,
+            lambda *args: host_audience(*args, complete=False),
+            lambda *args: host_audience(*args, recipients=frozenset({'p-1', 'denied'})),
+            lambda *args: host_audience(*args, recipients=frozenset()),
+            lambda *args: host_audience(*args, recipients=frozenset({'other'}), authorized=frozenset({'other'}))):
+        with pytest.raises(PermissionError):
+            decide(reader)
+    # A new denied attendee invalidates subsequent broadcast even with the same speaker.
+    current = {'recipients': frozenset({'p-1'})}
+    def changing(*args):
+        return host_audience(*args, recipients=current['recipients'])
+    assert decide(changing)[0].decision == 'respond'
+    current['recipients'] = frozenset({'p-1', 'new-denied-attendee'})
+    with pytest.raises(PermissionError):
+        decide(changing)
+
+
+def test_broadcast_rejects_replayed_or_tampered_host_audience():
+    from dataclasses import replace
+    from meeting_testkit import host_audience
+    settings = record_settings(meeting_id='m-1', enabled=True,
+                               recorded_at='2026-10-16T12:00:00Z', enable_proof_mac=_enable_mac('m-1'))
+    turn = InboundTurn('turn-audience', 'm-1', 'p-1', 'Oracle?', addresses_oracle=True)
+    membership = MembershipView(True, frozenset({'p-1'}))
+    cached = []
+    def stale(*args):
+        if not cached: cached.append(host_audience(*args))
+        return cached[0]
+    def decide(reader):
+        ledger = DeliveryLedger()
+        return _raw_evaluate(settings, turn, membership, ledger, receipt_id='r', intent_id='i',
+            answer_body='allowed', recorded_at='now', current_state_reader=host_current,
+            current_audience_reader=reader)
+    assert decide(stale).decision == 'respond'
+    with pytest.raises(PermissionError): decide(stale)
+    for field in ({'answer_sha256': 'f'*64}, {'channel': 'other'}, {'settings_generation': 9},
+                  {'valid_until': 0.0}, {'mac': '0'*128}):
+        with pytest.raises(PermissionError):
+            decide(lambda *args: replace(host_audience(*args), **field))

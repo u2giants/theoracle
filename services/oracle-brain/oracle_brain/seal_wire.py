@@ -29,6 +29,7 @@ SEAL_PURPOSE_ALLOWLIST = frozenset({
     'delivery-action:v1',
     'participation-enable:v1',
     'participation-current:v1',
+    'meeting-audience:v1',
     'q2b-reader-facts:v1',
     'q2b-admission:v1',
     'q2b-connection:v1',
