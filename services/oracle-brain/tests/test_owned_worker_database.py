@@ -61,11 +61,13 @@ def test_actual_observed_owner_session_tls_target_and_exact_container_required(o
     if damage=='container':assert not any(x[0]=='connect' for x in observed['calls'])
 
 
-def test_real_canonical_fresh_owned_worker_database_is_observed():
-    # The proof runner creates this canonical UUID database BEFORE migrations.
+def test_real_canonical_owned_worker_database_is_observed():
+    # Observe the exact caller-selected canonical database, without fallback.
     url=os.environ['ORACLE2_TEST_ADMIN_URL'];container=os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER']
     name=psycopg.conninfo.conninfo_to_dict(url)['dbname']
-    assert name.startswith('oracle_operating_model_test_') and len(name)==60
+    # W10 supplies a fresh UUID database; the S03 phase owns the Compose base.
+    # Both must prove the actual selected target, never switch to a fallback.
+    assert name=='oracle2' or (name.startswith('oracle_operating_model_test_') and len(name)==60)
     details=worker.owned_worker_database(container,url)
     assert details['Id']==container
     assert details['Config']['Labels']['oracle.operating.synthetic']=='true'
