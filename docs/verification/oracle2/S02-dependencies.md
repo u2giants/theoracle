@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b6730d27e54a52b7541aa30b6f14698e48d2959a at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # S02 dependency and runtime qualification
 
 Status: accepted on synthetic evidence, 2026-09-28 EDT. Offline qualification
@@ -71,7 +72,7 @@ The resource script, report JSON and Docker stats are in the CI artifact.
 ## Preview decision (resolved)
 
 Two distinct synthetic-only Trigger.dev projects, one for the extractor and one
-for the projector, separate from legacy `proj_wgpzsvhmsopqhvwqaycn`, because
+for the projector, separate from legacy `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`, because
 Trigger injects project environment variables into scripts and the shared
 legacy project cannot host these roles safely. The extractor receives only
 candidate credentials; the projector only confirmed, projector and signing
@@ -87,8 +88,8 @@ Approved by qwen plan review (`VERDICT APPROVE`); approval record on #26.
 
 | Field | Value |
 |---|---|
-| Extractor project | `dedicated-oracle2-extractor-preview`, `proj_esmuwkezljvasptkbiwr` |
-| Projector project | `dedicated-oracle2-projector-preview`, `proj_jtaztxnmppzfchdsgvea` |
+| Extractor project | `dedicated-oracle2-extractor-preview`, `proj_PRIVATE_REFERENCE_SHA256_5ac719234cae50874f21f058a58195aea057b037473342b561250e996f9cbf9d` |
+| Projector project | `dedicated-oracle2-projector-preview`, `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285` |
 | Staging env vars | Set per dispatch step 2 (synthetic, 7 and 8 values) |
 | Extractor deploy | Version 20260928.1, **failed** at image build after 81 s |
 | Failure | Base image `triggerdotdev/node:24-bookworm`; the extension installs Debian `python3` = **3.11**. The bundle requires Python >=3.12, so pip found no 3.11 wheel for `lxml` and a source build failed (missing libxml2/libxslt headers). |

@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 27cf9f8351642e28f9cb854c90075d7dd270a0be at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # R2 Deeper Responsibility Architecture Implementation Plan
 
 Status: **DEEPER GATE 12/30; OWNER-APPROVED BAKE-OFF FAILED AT 11.5/30 MEAN. DEEPER ARCHITECTURE REQUIRED.**
@@ -69,8 +70,8 @@ Repository and runtime:
 - Workers: Trigger.dev tasks in `apps/workers`.
 - AI contracts and prompts: `packages/ai`.
 - Deterministic business rules: `packages/oracle-engines`.
-- Database: hosted Supabase project `eqccjfbyrywsqkxxpjvg`.
-- Trigger.dev project: `proj_wgpzsvhmsopqhvwqaycn`.
+- Database: hosted Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
+- Trigger.dev project: `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
 - Production web URL: `https://oracle.designflow.app`.
 
 This plan changes the R2 responsibility-reading control plane only. It does not authorize
@@ -954,8 +955,8 @@ pnpm --filter @oracle/workers run verify:r2-responsibilities
 
 Production identifiers:
 
-- Supabase project `eqccjfbyrywsqkxxpjvg`.
-- Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`.
+- Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
+- Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
 - Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
 - Web URL `https://oracle.designflow.app`.
 

@@ -3,6 +3,8 @@ issue: 27
 status: OPEN
 owner: Codex chat 01a12b21-2aa9-7f73-b169-65d0602effa5
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob bcf56eda5e2e1dc47cd22ff2bc8bc3f4e180d7d5 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # Holistic original-document readiness
 
@@ -203,7 +205,7 @@ access, never plaintext public HTTP. Read-only Hetz login item 5xukphmemjyt6cp67
 Use op_run injected secrets, no command-line secret values or full response logs.
 Existing owner Ed25519 key is private on edge-dev3; public index item
  dbqj3uwtlec4okdcxc74ojrwqq contains references, never worker authority.
-Current Oracle production Supabase eqccjfbyrywsqkxxpjvg is read-only for source
+Current Oracle production Supabase PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d is read-only for source
 inventory; do not use it as the isolated preview datastore.
 
 Relevant source/operator guides:

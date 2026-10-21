@@ -1,0 +1,5 @@
+# Oracle maintainers own this exact-word vocabulary for the installed public boundary check.
+# modelcontextprotocol is the public MCP SDK package namespace used in package.json and source imports.
+modelcontextprotocol
+# finalizationregistry is the public dependency package name recorded by pnpm, not infrastructure metadata.
+finalizationregistry

@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 737183aaa564e5e37ac2034a213b8d4926b8d7d9 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Fixed public invented bootstrap
 
 Owner: Oracle W01–W12 coordinator. These inputs prepare a new empty Oracle-only
@@ -20,7 +21,7 @@ and seed run only after an empty-database and exact installer-identity preflight
 `coolify-synthetic.yaml` is a RAW Git-backed Application, not a Coolify Service.
 Only gateway joins the platform ingress network. Store, job and candidate
 networks are internal with isolated IPv4 and IPv6 gateway modes. Ledger IPAM is
-172.30.41.0/24 and fd42:6f72:6163:41::/64; collision checks on the managed server
+SYNTHETIC_NONLOOPBACK_HOST_SHA256_8981bfb1f61d0581c5e61ecf1df837c46bcb9a9c844df8f31b5ad74d90a73222/24 and fd42:6f72:6163:41::/64; collision checks on the managed server
 are mandatory before creation. PostgreSQL runs natively as UID/GID70 with a read-only root, all capabilities
 dropped and no new privileges. Its owned data directory is0700, leaf key0600;
 only own data and fixed container-private /tmp64MiB and socket8MiB tmpfs are

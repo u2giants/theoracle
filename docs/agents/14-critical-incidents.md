@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 57dfcaea5f2566777749fd0179a87da346c623a0 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 14. Critical incidents
@@ -124,7 +125,7 @@ Root cause:
 The same Entra app carries three separate client-secret consumers: Supabase Auth Azure provider, app-only Microsoft Graph backend, and Bot Framework authentication. Rotating one without `--append` invalidated the others.
 
 Recovery:
-Created fresh appended Entra secrets. Updated Supabase Auth's Azure provider client secret manually in the Supabase dashboard, updated Vercel `AZURE_GRAPH_CLIENT_SECRET` / `MICROSOFT_BOT_*`, updated Trigger.dev prod `AZURE_GRAPH_CLIENT_SECRET` via `POST https://api.trigger.dev/api/v1/projects/proj_wgpzsvhmsopqhvwqaycn/envvars/prod/import`, and redeployed Vercel production. Supabase Azure provider URL was corrected to `https://login.microsoftonline.com/1caeb1c0-a087-4cb9-b046-a5e22404f971` (no `/v2.0`; Supabase appends `/oauth2/v2.0/authorize`).
+Created fresh appended Entra secrets. Updated Supabase Auth's Azure provider client secret manually in the Supabase dashboard, updated Vercel `AZURE_GRAPH_CLIENT_SECRET` / `MICROSOFT_BOT_*`, updated Trigger.dev prod `AZURE_GRAPH_CLIENT_SECRET` via `POST https://api.trigger.dev/api/v1/projects/proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01/envvars/prod/import`, and redeployed Vercel production. Supabase Azure provider URL was corrected to `https://login.microsoftonline.com/1caeb1c0-a087-4cb9-b046-a5e22404f971` (no `/v2.0`; Supabase appends `/oauth2/v2.0/authorize`).
 
 Rule added to prevent recurrence:
 When creating or rotating a client secret on the shared Entra app, use `az ad app credential reset --append --display-name <purpose> ...` unless intentionally replacing every consumer. Keep separate display names for `supabase-prod-*`, `oracle-graph-*`, and `oracle-teams-bot-*`. Never put `/v2.0` in the Supabase Azure provider URL.

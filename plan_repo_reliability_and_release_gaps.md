@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob e7f8d3f5af44bbc6269e8a30c93d2d88bc65f5df at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Repository Reliability and Release Gaps Plan
 
 Status: **CANONICAL for known reliability, verification, migration-drift, release-automation,
@@ -7,8 +8,8 @@ Created: 2026-07-26
 Last corrected: 2026-07-29 after the completion audit and Grok 4.5 disposition review
 Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 Production web: `https://oracle.designflow.app`
-Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
-Database: Supabase project `eqccjfbyrywsqkxxpjvg`
+Workers: Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`
+Database: Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`
 
 ## Status table
 
@@ -388,7 +389,7 @@ reconciliation migration or generated SQL change was needed.
   intentionally outside that generated-only journal and is covered by the full-run and schema
   contracts instead.
 - A protected SELECT-only production check against current Supabase project
-  `eqccjfbyrywsqkxxpjvg` confirmed `public.documents.context` is nullable `text` and
+  `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` confirmed `public.documents.context` is nullable `text` and
   `public.documents.domain_hints` is nullable `jsonb`. The production Drizzle journal contained
   12 rows, latest id/timestamp marker `12` / `1785158867458`.
 - Corrected the stale `AGENTS.md`, `DECISIONS.md`, and historical `HANDOFF.md` warnings. They now

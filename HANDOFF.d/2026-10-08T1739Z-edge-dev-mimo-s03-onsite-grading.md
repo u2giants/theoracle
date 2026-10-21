@@ -3,6 +3,8 @@ issue: 58
 status: OPEN
 owner: next Oracle S03 process-owner grading session
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 52560bc41584a8e956806265d665614b5a07a482 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # S03 real-doc acceptance — on-site grading ready (wrap-up 2026-10-08)
 
@@ -24,7 +26,7 @@ owner: next Oracle S03 process-owner grading session
 
 ## 1. What this application is
 
-Oracle (`u2giants/theoracle`) is POP Creations’ evidence-backed knowledge and consulting app. Parent [#24](https://github.com/u2giants/theoracle/issues/24); plan `plan_oracle_consultant_overhaul.md` (**STATUS first**). Web on Vercel `popcre/theoracle` (alias `oracle.designflow.app`, project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`); workers Trigger `proj_wgpzsvhmsopqhvwqaycn`; app DB Supabase `eqccjfbyrywsqkxxpjvg` (Oracle’s own — **not** `popcre/shared-db`).
+Oracle (`u2giants/theoracle`) is POP Creations’ evidence-backed knowledge and consulting app. Parent [#24](https://github.com/u2giants/theoracle/issues/24); plan `plan_oracle_consultant_overhaul.md` (**STATUS first**). Web on Vercel `popcre/theoracle` (alias `oracle.designflow.app`, project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`); workers Trigger `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`; app DB Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (Oracle’s own — **not** `popcre/shared-db`).
 
 ## 2. What this session set out to do
 
@@ -54,9 +56,9 @@ Resume S03 acceptance: prove Oracle understands **real** licensing/project docs,
 ## 5. Root causes and key findings
 
 - `pdf-parse` + Trigger esbuild = `__require.ensure is not a function` (webpack-only). `unpdf` is the serverless-safe replacement (`apps/workers/src/trigger/document-ingestion.ts`).
-- Direct Supabase host `db.eqccjfbyrywsqkxxpjvg.supabase.co` is IPv6-only from edge-dev; **session pooler** (`oracle_session_pooler` field on item `qcuyabwseaptvuzvtjejffi2ou`) works via psql.
+- Direct Supabase host `db.PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d.supabase.co` is IPv6-only from edge-dev; **session pooler** (`oracle_session_pooler` field on item `qcuyabwseaptvuzvtjejffi2ou`) works via psql.
 - `document-ingestion-sweep` retries only `pending_processing`/`processing` — **failed** docs need a status reset.
-- Admin → Documents writes production Supabase (`eqccjfbyrywsqkxxpjvg`), not edge-dev3 Docker Postgres (oracle2 pilot store only; volume is ephemeral — re-compose + `oracle2-bootstrap-run.py`).
+- Admin → Documents writes production Supabase (`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`), not edge-dev3 Docker Postgres (oracle2 pilot store only; volume is ephemeral — re-compose + `oracle2-bootstrap-run.py`).
 - `/claims` isolation is by `gaps.target_employee_id` + `claim_review_question` + status in open/queued/asked; two gaps on the same `related_claim_ids` collapse to one claim row — S03 assignments must use **distinct claims per item** (fixed 5 collisions).
 - Trigger secret key vs PAT: `tr_prod_` / `tr_dev_` trigger runs; `tr_pat_` is management (deploys, envvars). CLI `whoami` rejects good PATs — verify via `GET https://api.trigger.dev/api/v2/whoami`.
 - Consultant pilot engine is extractive (quotes blocks); rarely abstains on A-category items; attaches a standing hypothetical label to every answer.

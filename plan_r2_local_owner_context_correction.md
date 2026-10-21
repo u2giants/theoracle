@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 7b277b4cc22e643fa7338dc0cd06fc500d55f939 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # R2 Local Source-Span Owner Correction Plan
 
 Status: **AUTHORIZED FOLLOW-UP PASSED LOCALLY AT 28/30. PRODUCTION FORBIDDEN.**
@@ -44,8 +45,8 @@ The Oracle is POP Creations and Spruce Line's evidence-backed company knowledge 
 - Branch: `main` only.
 - Stack: TypeScript, pnpm, Turbo, Next.js 16, Trigger.dev, Drizzle, and Supabase.
 - Web production URL: `https://oracle.designflow.app`.
-- Worker project: Trigger.dev `proj_wgpzsvhmsopqhvwqaycn`.
-- Database project: Supabase `eqccjfbyrywsqkxxpjvg`.
+- Worker project: Trigger.dev `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
+- Database project: Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 - Source-span and inventory code: `apps/workers/src/lib/responsibility-reader.ts`.
 - Production orchestration: `apps/workers/src/lib/source-workflow-read.ts`.
 - Pinned verifier: `apps/workers/src/__verify__/r2-pinned-inventory.ts`.
@@ -361,7 +362,7 @@ Anti-leak gate: derive fixture terms in verifier-only code and prove none occur 
 - GitHub CLI is authenticated for later CI inspection, but this planning phase needs no GitHub mutation until the plan is approved and intentionally committed.
 - Pinned local fixture: `Z:\Documentation\company process - Oracle\Licensed Team Responsibilities 2 - tagged.txt`. It is verifier input only; production code may not contain its vocabulary.
 - GLM review uses the installed `ai-glm` harness with `AI_GLM_CALLER=codex` and the existing Oracle session `r2-inventory-p6-final` when it remains the best topic match.
-- Production services are Trigger.dev `proj_wgpzsvhmsopqhvwqaycn`, Vercel `prj_rP6Jlima7iK1paffEPhLqxlswGsC`, and Supabase `eqccjfbyrywsqkxxpjvg`. They are out of scope here.
+- Production services are Trigger.dev `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`, Vercel `prj_rP6Jlima7iK1paffEPhLqxlswGsC`, and Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`. They are out of scope here.
 - Secrets live only in 1Password vault `vibe_coding`. No secret is needed for local planning, implementation, or verification.
 
 ## 13. Definition of done, risks, and open questions

@@ -3,6 +3,8 @@ issue: 27
 status: OPEN
 owner: mimo/edge-dev3-live-proof-120s-wrap
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b77b361e97fa21cd6460348d9892e614e14c4b9b at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # Oracle #24/#27 — 120s gate claimed; live-proof checklist advanced (wrap-up)
 
@@ -133,7 +135,7 @@ Comments: FalkorDB [6250263949](https://github.com/u2giants/theoracle/issues/27#
 
 ## 8. Access, private custody, claims and resources
 
-- edge-dev3 is the Linux work host (SSH from Windows). Fixture compose project `oracle2-synthetic-documentary-journey` (FalkorDB TLS) and purpose PG container `oracle-purpose-working-bfa753ca94-pg` (dbname `oracle_operating_model_test_container_bfa753ca94`, hostaddr `172.21.0.2`) were used for the 120s run. Env recipe (from `/tmp/oracle-purpose-working-b5anet7v/fixture.json` + `/tmp/purpose-cluster-tls-48xeivd4/combined-environment.json`):
+- edge-dev3 is the Linux work host (SSH from Windows). Fixture compose project `oracle2-synthetic-documentary-journey` (FalkorDB TLS) and purpose PG container `oracle-purpose-working-bfa753ca94-pg` (dbname `oracle_operating_model_test_container_bfa753ca94`, hostaddr `PRIVATE_HOST_SHA256_3b44ed988373b22374fa003b40810438b59b5dc8a7dbc2aa9b3c98664c97537d`) were used for the 120s run. Env recipe (from `/tmp/oracle-purpose-working-b5anet7v/fixture.json` + `/tmp/purpose-cluster-tls-48xeivd4/combined-environment.json`):
   - `ORACLE2_TEST_ADMIN_URL` = purpose PG host_url (TLS verify-full, sslrootcert under the purpose cert dir)
   - `ORACLE2_OPERATING_TEST_GRAPH_URL` = `redis://:oracle2_candidate_local_only@127.0.0.1:58379`
   - `COMPOSE_PROJECT_NAME` = `oracle2-synthetic-documentary-journey`

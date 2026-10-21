@@ -3,6 +3,8 @@ issue: 14
 status: OPEN
 owner: codex/jev-integration-plan-final
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 1dcc3057e12d211ade5d88d3fda04093db9d650a at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # TypeSafe Jev integration plan handoff
 
@@ -136,8 +138,8 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 - Machine: `916-alien`, PowerShell 7, Node 20+, pnpm 9.5.
 - GitHub CLI is authenticated for `u2giants`.
 - Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`; production `https://oracle.designflow.app`.
-- Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`.
-- Supabase project `eqccjfbyrywsqkxxpjvg`.
+- Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
+- Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 - 1Password vault: `vibe_coding`. Planned item: `TypeSafe AI - The Oracle`; do not assume it exists until Step 0.
 - TypeSafe official docs and all exact local commands are linked in plan §§10–12.
 

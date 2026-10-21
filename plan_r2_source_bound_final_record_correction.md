@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 61d5a2196caf4e333823fdf767c2d33167a497cf at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # R2 Source-Bound Final Record Correction Plan
 
 Status: **LOCAL IMPLEMENTATION AUTHORIZED BY ALBERT 2026-08-12. PRODUCTION HARD STOP REMAINS.
@@ -483,8 +484,8 @@ source maps. Later business-model merge and apply stages are separately guarded.
 
 - Repo: `u2giants/theoracle`; checkout `C:\repos\oracle`; branch `main` only.
 - Stack: TypeScript, pnpm, Turbo, Next.js 16, Trigger.dev, Drizzle, Supabase.
-- Web: `https://oracle.designflow.app`; workers: `proj_wgpzsvhmsopqhvwqaycn`.
-- Database: Supabase `eqccjfbyrywsqkxxpjvg`.
+- Web: `https://oracle.designflow.app`; workers: `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
+- Database: Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 - Rules: `apps/workers/src/lib/responsibility-reader.ts`.
 - Orchestration: `apps/workers/src/lib/source-workflow-read.ts`.
 - Model contract: `packages/ai/src/prompts/workflow-read.ts`.

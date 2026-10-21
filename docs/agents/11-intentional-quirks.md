@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 01fbd5ed7cd3c947744cc7121b533254cb20a9dd at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 11. Intentional quirks and non-obvious decisions
@@ -166,7 +167,7 @@ Keep the id hashing (don't revert to the raw id) and keep the two endpoints dist
 ### Supabase project cutovers have platform integration surfaces
 
 What changed:
-The production Supabase project moved from Ohio (`vokucjpanhvqunimlvsp`, now `oracle.old`) to N. Virginia (`eqccjfbyrywsqkxxpjvg`, `theoracle`) on 2026-06-20.
+The production Supabase project moved from Ohio (`PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b`, now `oracle.old`) to N. Virginia (`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`, `theoracle`) on 2026-06-20.
 
 Why:
 A Supabase project cutover is not just `DATABASE_URL` / `DIRECT_URL` / browser key rotation. Vercel, GitHub, Trigger.dev, Supabase Auth providers, Microsoft Entra redirect URIs/client secrets, Supabase.com project integrations, and Recall live-bot envs can all hold project-specific URLs or secrets.
@@ -177,10 +178,10 @@ Use `docs/deployment.md` "Supabase project cutover checklist" before declaring a
 ### The prod DIRECT host is IPv6-only — query prod via the session pooler from a local script
 
 Looks like:
-The 1Password "Supabase DB Direct URL - The Oracle (CURRENT PROD …)" `password` field (`postgres@db.eqccjfbyrywsqkxxpjvg.supabase.co:5432`) is the obvious connection string to run a local Node/psql script against prod.
+The 1Password "Supabase DB Direct URL - The Oracle (CURRENT PROD …)" `password` field (`postgres@db.PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d.supabase.co:5432`) is the obvious connection string to run a local Node/psql script against prod.
 
 Actually:
-That direct host now resolves to an **IPv6-only** address. A v4-only machine fails with `getaddrinfo ENOENT` (it resolved once mid-session, then stopped — don't trust intermittent success). Use the **session pooler** instead — same 1Password item, field **`oracle_session_pooler`**: `postgresql://postgres.eqccjfbyrywsqkxxpjvg:<db-pw>@aws-1-us-east-1.pooler.supabase.com:5432/postgres`.
+That direct host now resolves to an **IPv6-only** address. A v4-only machine fails with `getaddrinfo ENOENT` (it resolved once mid-session, then stopped — don't trust intermittent success). Use the **session pooler** instead — same 1Password item, field **`oracle_session_pooler`**: `postgresql://postgres.PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d:<db-pw>@aws-1-us-east-1.pooler.supabase.com:5432/postgres`.
 
 Why:
 Username MUST be `postgres.<ref>` (plain `postgres` → `tenant/user not found`); the pool host prefix is `aws-1` not `aws-0` (Ohio was `aws-1-us-east-2`); the host is region-wide and the username's ref does the tenant routing. Don't guess the pool host — copy it from the Supabase dashboard **Connect → Session pooler**, or read the `oracle_session_pooler` field.
@@ -190,14 +191,14 @@ Username MUST be `postgres.<ref>` (plain `postgres` → `tenant/user not found`)
 What changed / verified:
 As of 2026-06-26, local `C:\repos\oracle\.env.local` still points `DIRECT_URL`,
 `DATABASE_URL`, and browser Supabase URL at the previous Ohio Supabase project
-`vokucjpanhvqunimlvsp` (`oracle.old`), not current prod
-`eqccjfbyrywsqkxxpjvg`.
+`PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b` (`oracle.old`), not current prod
+`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 
 Future sessions should:
 Never run production migrations from the local env by default. Override
 `DIRECT_URL`/`DATABASE_URL` with the current-prod 1Password item
 `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle,
-eqccjfbyrywsqkxxpjvg)` field `oracle_session_pooler`, then run
+PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d)` field `oracle_session_pooler`, then run
 `corepack pnpm --filter @oracle/db migrate`.
 
 ### Diagram / flowchart image ingestion: the verbatim-quote vs relationship-claim tension

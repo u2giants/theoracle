@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 9ffd6ba218251c5c00d5efe869e6092865ae91f6 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # R2 Completion Recovery Cycle Plan
 
 ## STATUS table
@@ -34,8 +35,8 @@ rather than tuning the matcher, the answer key, the validator or the threshold.
 ## 2. What this application is
 
 The Oracle turns POP Creations documents into source-grounded business knowledge. Repository
-`u2giants/theoracle`, `main`, TypeScript, pnpm, Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`,
-production Supabase `eqccjfbyrywsqkxxpjvg`.
+`u2giants/theoracle`, `main`, TypeScript, pnpm, Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`,
+production Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 
 ## 3. What triggered this work
 

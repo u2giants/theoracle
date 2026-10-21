@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b5e39e1305331da62607e6aae51de8c2ffdfe884 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 13. Deployment
@@ -7,7 +8,7 @@ Current deployment path:
 - GitHub repo: `u2giants/theoracle`
 - CI workflows: `.github/workflows/pr-check.yml`, `.github/workflows/task-gates.yml`, and `.github/workflows/oracle2-contracts.yml` (self-hosted; includes workers typecheck and the legacy worker-bundle guard)
 - Web deploy target: Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`
-- Worker deploy target: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
+- Worker deploy target: Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`
 - Database/auth/storage target: Supabase project configured through env
 
 How deployment works today:

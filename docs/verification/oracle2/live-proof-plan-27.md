@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b06386a48efda4c64798c9260ebbe4405a89857a at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Bounded live-proof plan — issue #27 native hosted proofs
 
 Session: MiMo chat ses_ffe5eb95f2b89ffe1WP21eebFP on edge-dev
@@ -16,7 +17,7 @@ Browser is a read-only fact-finding outcome (no mutation).
 
 ## Inputs
 
-- Coolify API `http://100.66.37.58:8000/api/v1` on Tailscale CGNAT (encrypted overlay).
+- Coolify API `http://PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:8000/api/v1` on Tailscale CGNAT (encrypted overlay).
   Owner issued RW token for this managed-platform route (Albert, 2026-10-14).
   Reads use RO observer token; the one POST restart used RW token.
 - SSH metadata: user `ai` @ `vps2` (BatchMode key auth), read-only inspect +

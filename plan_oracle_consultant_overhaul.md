@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob bd8f8ec57aad189858eaf6e8876086541647563a at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Oracle overhaul: a company consultant that learns from evidence
 
 **Workflow integrity addendum, October 11, 2026 EDT:** read
@@ -566,7 +567,7 @@ Authenticated GitHub CLI can read/write `u2giants/theoracle`; account repository
 
 ### Credential locations and target discipline
 
-Use [docs/1password.md](docs/1password.md) as the existing reference inventory. The current Oracle production DB item is titled `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, eqccjfbyrywsqkxxpjvg)` in `vibe_coding`. Its title is a location reference, not authorization to use production. Items explicitly marked `oracle.old` are not current targets. Vercel/Trigger local-token notes may be ephemeral; prefer authenticated platform inspection and verify the target.
+Use [docs/1password.md](docs/1password.md) as the existing reference inventory. The current Oracle production DB item is titled `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d)` in `vibe_coding`. Its title is a location reference, not authorization to use production. Items explicitly marked `oracle.old` are not current targets. Vercel/Trigger local-token notes may be ephemeral; prefer authenticated platform inspection and verify the target.
 
 No dedicated preview employee login, FalkorDB credential, replacement checkpoint credential or new vendor key was verified. The assigned S02/S03 owner resolves these through authenticated platform tools and scoped 1Password items, then records **titles and environment only** in `docs/oracle2-environment.md`. Use synthetic local data until that succeeds; do not ask Albert to expose credentials in chat. If a true missing business approval, spend authority or tenant-admin consent prevents a later action, name the exact action, recommended scope and what it blocks at that point. Do not present technical setup choices as a menu for the owner.
 

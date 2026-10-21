@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 8c469ad4abde86cd88c0383a9b70dd7be893ea36 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # R2 Fresh Production Gate Plan
 
 ## STATUS table
@@ -32,8 +33,8 @@ stop and flag it rather than changing the evidence rules or score.
 The Oracle is POP Creations' evidence-backed business knowledge system. Employees upload documents;
 Trigger.dev workers create source-grounded workflow maps; deterministic validators decide what may be
 stored. Repository `u2giants/theoracle` uses `main`, TypeScript, pnpm, Trigger.dev, and Supabase. The
-web app is `https://oracle.designflow.app`; workers use project `proj_wgpzsvhmsopqhvwqaycn`; production
-data is in Supabase project `eqccjfbyrywsqkxxpjvg`.
+web app is `https://oracle.designflow.app`; workers use project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`; production
+data is in Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 
 ## 3. What triggered this work
 
@@ -104,7 +105,7 @@ recoverable. No implementation judgment may move a locked decision.
    pinned support remains 28/30 with rows 16/26 unsupported, replay remains 19 baseline / 21 corrected,
    and both regression lists are empty.
 4. **Deploy the current worker once.** Use the authenticated Trigger.dev deployment tool with config
-   `apps/workers/trigger.config.ts`, project `proj_wgpzsvhmsopqhvwqaycn`, environment `prod`. Record
+   `apps/workers/trigger.config.ts`, project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`, environment `prod`. Record
    deployment/version and confirm `source-workflow-read` is registered. Gate: promoted production
    worker is healthy and corresponds to current Git code. If deployment fails, stop; do not trigger.
 5. **Trigger exactly one run.** Use the Trigger.dev task `source-workflow-read` in `prod` with payload
@@ -166,9 +167,9 @@ fresh-map gate of 27/30.
 ## 12. Access and environment
 
 Primary checkout: `C:\repos\oracle`. GitHub, Trigger.dev MCP, and 1Password are authenticated. Trigger
-project: `proj_wgpzsvhmsopqhvwqaycn`; worker config: `apps/workers/trigger.config.ts`; production
-Supabase ref: `eqccjfbyrywsqkxxpjvg`. Database access uses 1Password vault `vibe_coding`, item
-`Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, eqccjfbyrywsqkxxpjvg)`, through
+project: `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`; worker config: `apps/workers/trigger.config.ts`; production
+Supabase ref: `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`. Database access uses 1Password vault `vibe_coding`, item
+`Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d)`, through
 `op_run`; no secret value enters commands, logs, chat, or files. The licensed fixture must be reachable
 at the path in section 10.
 

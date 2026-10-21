@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob c1856701902f15a4199870677bcbaa86b8bbebc9 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # test_code_changes.md — Vision transcription & claim-extraction test plan
 
 **Audience:** a developer who just walked in and knows *nothing* about this app beyond the `.md` files. Read this top-to-bottom once before running anything.
@@ -165,7 +166,7 @@ Produce `test1_results.md` (or append here) with the rubric filled, plus a short
 ### How to (re)run the pipeline to test a code change
 1. Make sure the doc is re-ingestable. The single-document worker is `documentIngestionTask` (`id: 'document-ingestion'`, payload `{ documentId: "<uuid>" }`).
 2. Two ways to trigger it:
-   - **Trigger.dev MCP / dashboard:** trigger task `document-ingestion` with payload `{"documentId":"9d09fa89-3a46-465e-a98b-837287c9e22a"}` (project `proj_wgpzsvhmsopqhvwqaycn`). See `CLAUDE.md` → Trigger.dev MCP.
+   - **Trigger.dev MCP / dashboard:** trigger task `document-ingestion` with payload `{"documentId":"9d09fa89-3a46-465e-a98b-837287c9e22a"}` (project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`). See `CLAUDE.md` → Trigger.dev MCP.
    - **Admin UI:** the app re-dispatches ingestion from the documents admin route (`apps/web/app/api/admin/documents/route.ts`). Re-uploading or re-processing the doc enqueues the same task.
 3. **Re-ingest is destructive to the prior claims for that doc if the worker upserts** — snapshot the current `claims`/`document_chunks` first (Steps A/B) so you can diff old vs new.
 
@@ -240,9 +241,9 @@ Pull per-provider prices from each provider's pricing page (record the date + so
 
 ## 6. Environment & tooling the new dev needs
 
-- **Secrets / env:** local `.env.local` currently points at the **old** Supabase (`oracle.old`, `vokucjpanhvqunimlvsp`) per `HANDOFF.md`. Runtime keys, OpenRouter, Trigger.dev secret, and Vercel OIDC are stored in **1Password vault `vibe_coding`** as Secure Notes (see the exact note titles in `HANDOFF.md`). **Do not run prod migrations from local env** without overriding `DIRECT_URL` to the current-prod 1Password session pooler. Current prod Supabase project ref: `eqccjfbyrywsqkxxpjvg`.
+- **Secrets / env:** local `.env.local` currently points at the **old** Supabase (`oracle.old`, `PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b`) per `HANDOFF.md`. Runtime keys, OpenRouter, Trigger.dev secret, and Vercel OIDC are stored in **1Password vault `vibe_coding`** as Secure Notes (see the exact note titles in `HANDOFF.md`). **Do not run prod migrations from local env** without overriding `DIRECT_URL` to the current-prod 1Password session pooler. Current prod Supabase project ref: `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 - **Database reads:** use the Supabase MCP for reads (`CLAUDE.md` → Supabase MCP), or `psql` with the prod session pooler from 1Password. Never commit connection strings.
-- **Running workers / triggering tasks:** Trigger.dev MCP (project `proj_wgpzsvhmsopqhvwqaycn`) can inspect/trigger/deploy. `apps/web/lib/trigger.ts` lists task wiring.
+- **Running workers / triggering tasks:** Trigger.dev MCP (project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`) can inspect/trigger/deploy. `apps/web/lib/trigger.ts` lists task wiring.
 - **Admin UI:** `/admin/ai` (models/settings), `/admin/ai/cache` (cache metrics). Settings API: `GET/POST /api/admin/settings`.
 - **Provider adapters:** `packages/ai/src/providers/*` (anthropic, vertex-gemini, google-gemini, openai, deepseek, qwen). Cache request-shape gates in `packages/ai/src/__verify__/`.
 - **Prompt versioning rule:** any edit to `EXTRACTION_SYSTEM_PROMPT` (or the vision prompt) MUST bump `EXTRACTION_PROMPT_VERSION` in `extraction-system.ts` and be logged in `DECISIONS.md` (repo rule, stated in the prompt file header).

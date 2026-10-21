@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 46bcd94b11154387d86cfbe806bc764b29cb3171 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # R2 Source-Span Inventory Reader Implementation Plan
 
 Status: **P0 THROUGH P8 COMPLETE. SOLE PRODUCTION GATE FAILED AT 19/30. HARD STOP.**
@@ -70,8 +71,8 @@ structure, validate exact evidence, and prepare reviewable knowledge.
 - Branch: `main` only.
 - Stack: TypeScript, `pnpm`, Turbo, Next.js 16, Trigger.dev, Drizzle, and Supabase.
 - Web production URL: `https://oracle.designflow.app`.
-- Worker project: Trigger.dev `proj_wgpzsvhmsopqhvwqaycn`.
-- Database project: Supabase `eqccjfbyrywsqkxxpjvg`.
+- Worker project: Trigger.dev `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
+- Database project: Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 - Reader orchestration: `apps/workers/src/lib/source-workflow-read.ts`.
 - Responsibility rules: `apps/workers/src/lib/responsibility-reader.ts`.
 - AI prompts and schemas: `packages/ai/src/prompts/workflow-read.ts`.

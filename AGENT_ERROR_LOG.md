@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 22182e260f866634a24d93a238c45c2b2dbe3d63 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # AGENT_ERROR_LOG.md — runtime failures for a coding agent to fix
 
 Forward implementation owner: `plan_repo_reliability_and_release_gaps.md`. Read its STATUS table
@@ -35,7 +36,7 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
 <details><summary>Original diagnosis (kept for history)</summary>
 
 - **Symptom:** `macro-relationship-extraction` and `source-coverage-audit` **failed on every run** for document `9d09fa89-3a46-465e-a98b-837287c9e22a`, so the holistic layer produced `macro_relationships = 0` and `source_coverage_findings = 0` while the document still showed `complete`.
-- **Where it surfaced:** Trigger.dev prod, project `proj_wgpzsvhmsopqhvwqaycn`, worker `20260703.2`. Evidence runs: `run_cmr4bxmwi64y00un5c6a7nne0` (macro), `run_cmr4bxqat68b40uof9kxb3bts` (coverage). Both retried 3× and failed identically (~3.7–4.6m, ~$0.008).
+- **Where it surfaced:** Trigger.dev prod, project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`, worker `20260703.2`. Evidence runs: `run_cmr4bxmwi64y00un5c6a7nne0` (macro), `run_cmr4bxqat68b40uof9kxb3bts` (coverage). Both retried 3× and failed identically (~3.7–4.6m, ~$0.008).
 - **Exact error:**
   ```
   AllCandidatesFailedError: All model candidates failed for general:

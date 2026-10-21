@@ -3,6 +3,8 @@ issue: 24
 status: OPEN
 owner: next Oracle coordinator session (Claude or Codex)
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 860a32fef0a943dfcdf2327635b5dc88a1871e14 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # S02 closed, new AI providers live, worker released — handoff
 
@@ -20,8 +22,8 @@ AI reviewers gate technical actions; never hand Albert commands.
 Oracle (`u2giants/theoracle`): POP Creations' evidence-backed knowledge and
 consulting app. Web on Vercel (`prj_rP6Jlima7iK1paffEPhLqxlswGsC`, team
 `popcre`, oracle.designflow.app), workers on Trigger.dev
-(`proj_wgpzsvhmsopqhvwqaycn`), data on Oracle's own Supabase project
-`eqccjfbyrywsqkxxpjvg` (NOT the popcre/shared-db database). Parent program #24;
+(`proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`), data on Oracle's own Supabase project
+`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (NOT the popcre/shared-db database). Parent program #24;
 plan `plan_oracle_consultant_overhaul.md` (STATUS first).
 
 ## 2. What this session set out to do
@@ -83,7 +85,7 @@ release the legacy worker, move Docker test jobs to edge-dev3, fix the admin
    do it manually per the dispatch; rollback is revert + forward deploy, never
    promote-older.
 2. Delete the two Oracle 2 preview Trigger projects
-   (`proj_esmuwkezljvasptkbiwr`, `proj_jtaztxnmppzfchdsgvea`) now that #26 is
+   (`proj_PRIVATE_REFERENCE_SHA256_5ac719234cae50874f21f058a58195aea057b037473342b561250e996f9cbf9d`, `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285`) now that #26 is
    closed, as S02-preview-dispatch step 6 requires (via reviewed dispatch), and
    set `preview_status: deleted` in `dev/oracle2/runtime-identities.yaml`.
 3. Re-evaluate cheaper primary/fallback models (Albert: current pair "way too

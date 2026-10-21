@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 2f520d91e474eccdad3dacffab252d3fd484b83f at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Corrected empty-domain native Application action
 
 Status: REVIEW_REQUIRED. No corrected action executed.
@@ -50,13 +51,13 @@ All target identifiers, transport/fresh GETs, exclusive one-use attempt, savedre
 import os,json,urllib.request,urllib.error,hashlib,socket
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
-BASE='http://100.66.37.58:8000/api/v1'
+BASE='http://PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:8000/api/v1'
 class NoRedirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,*args,**kwargs):return None
 opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
 TOKEN=os.environ.pop('COOLIFY_TOKEN','')
 if not TOKEN:raise PermissionError('existing scoped credential required')
-if set(x[4][0] for x in socket.getaddrinfo('hetz',22))!={'100.66.37.58'}:raise PermissionError('peer drift')
+if set(x[4][0] for x in socket.getaddrinfo('hetz',22))!={'PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae'}:raise PermissionError('peer drift')
 request_file=ROOT/'current-inert-application-request.json'
 raw=request_file.read_bytes()
 if hashlib.sha256(raw).hexdigest()!='e1c7d572b883156f648c947e6e3dda30a291597da675738ec62c1df4c85fd5b3':raise PermissionError('exact input drift')

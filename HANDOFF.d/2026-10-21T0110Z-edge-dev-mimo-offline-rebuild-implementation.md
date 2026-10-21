@@ -3,6 +3,8 @@ issue: 27
 status: OPEN
 owner: mimo/offline-rebuild-implementation
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 5b1cc52928abcce6c7ac6ff5e50d22e1fbd4d360 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # Offline rebuild implementation — U1–U6, S08/S09/S12 leaves, Q2b tooling, R8 hardening
 
@@ -36,7 +38,7 @@ Published on [#27](https://github.com/u2giants/theoracle/issues/27) and [#24](ht
 [Oracle](https://github.com/u2giants/theoracle) is POP Creations' evidence-backed company knowledge system. Employees interact through chat and document uploads. Workers extract operational claims with quote-level evidence; deterministic validators gate promotion into approved claims; synthesis workers maintain traceable Brain sections. Every important answer must be traceable back to messages, document chunks, or approved claims.
 
 - Repo: [u2giants/theoracle](https://github.com/u2giants/theoracle). Stack: TypeScript web/worker (Vercel/Trigger.dev) + Python documentary operating-model (`services/oracle-brain`).
-- Graph: FalkorDB. Dedicated synthetic DBs on S03 Supabase `wfdrklofsczspazshaib` (NOT `popcre/shared-db`).
+- Graph: FalkorDB. Dedicated synthetic DBs on S03 Supabase `PRIVATE_REFERENCE_SHA256_620b6d5ddc335d4bd407f56c4e534cd8141fbcb6772483488a0180abbec651dd` (NOT `popcre/shared-db`).
 - S03 unaccepted; W01–W12 and S04–S16 gates open. Offline building blocks are not stage acceptance.
 
 ## 2. What we set out to do this session, and why

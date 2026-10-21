@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b07ee604700fe51f125e6bfe2952cd5d042d439a at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # S02 preview dispatch — exact inputs for independent technical review
 
 Status: **executed** (revision 6, 2026-09-28 EDT); results in
@@ -17,7 +18,7 @@ with digest-pinned uv 0.12.19 and hash-checked `uv pip install --require-hashes`
 replacing `@trigger.dev/python`'s apt layer; `runScript` still reads
 `PYTHON_BIN_PATH`), and adds task `oracle2-synthetic-pause-resume` for the
 plan's pause/resume proof. Steps 0-2 are already done (approval record on #26;
-projects `proj_esmuwkezljvasptkbiwr`, `proj_jtaztxnmppzfchdsgvea`); step 0 is
+projects `proj_PRIVATE_REFERENCE_SHA256_5ac719234cae50874f21f058a58195aea057b037473342b561250e996f9cbf9d`, `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285`); step 0 is
 repeated for revision 4 before step 3.
 
 **Revision 5** (revision 4 approved at `544347f`; its build, version
@@ -36,8 +37,8 @@ indexing because the config's two-project guard reads
 `ORACLE2_EXTRACT_TRIGGER_PROJECT_REF` / `ORACLE2_PROJECT_TRIGGER_PROJECT_REF`,
 which exist only in the operator's shell). No code change. Adds to step 2, on
 the **staging** environment of **both** projects, the two non-secret project
-identifiers `ORACLE2_EXTRACT_TRIGGER_PROJECT_REF=proj_esmuwkezljvasptkbiwr` and
-`ORACLE2_PROJECT_TRIGGER_PROJECT_REF=proj_jtaztxnmppzfchdsgvea`, set through the
+identifiers `ORACLE2_EXTRACT_TRIGGER_PROJECT_REF=proj_PRIVATE_REFERENCE_SHA256_5ac719234cae50874f21f058a58195aea057b037473342b561250e996f9cbf9d` and
+`ORACLE2_PROJECT_TRIGGER_PROJECT_REF=proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285`, set through the
 same management API. The guard stays unchanged and is now satisfied inside the
 image. Execute: step 0, this step-2 addition, then steps 3-6.
 
@@ -67,7 +68,7 @@ reviewed head.
    before that comment exists.
 1. Confirm the org with Trigger MCP `list_orgs`: it must list `POP`, id
    `cmpdjy8yg0107n50hqma87hjk`, the org that owns legacy
-   `proj_wgpzsvhmsopqhvwqaycn` (per `list_projects`). Then `create_project_in_org`
+   `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` (per `list_projects`). Then `create_project_in_org`
    (`orgParam` = that id) twice, names `dedicated-oracle2-extractor-preview` and
    `dedicated-oracle2-projector-preview` (vocabulary of
    `dev/oracle2/runtime-identities.yaml`). Record both refs. The Trigger MCP

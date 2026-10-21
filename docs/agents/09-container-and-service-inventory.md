@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 54e0d84ebd77240e6a923d120260e36033d21121 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 9. Container and service inventory
@@ -13,9 +14,9 @@ workflow; CI also starts one ephemeral restore container.
 |---|---|---|---|---|
 | Vercel Functions | Next.js web app and API routes | Vercel | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `apps/web` build via `vercel.json` |
 | Oracle MCP server | Read-only MCP endpoint exposing approved business knowledge (claims, Brain sections, domain taxonomy) to external AI agents. Streamable HTTP at `/api/mcp/mcp`, bearer-token auth (`ORACLE_MCP_TOKEN`). | Vercel (in-app route) | same web project | `apps/web/app/api/mcp/[transport]/route.ts` + `apps/web/lib/mcp/` |
-| Trigger.dev Cloud | Background workers | Trigger.dev | `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers` |
-| Trigger.dev Oracle 2 extractor preview | Synthetic-only S02 preview; delete when #26 closes | Trigger.dev | `proj_esmuwkezljvasptkbiwr` | `apps/workers/trigger.oracle2-extract.config.ts` |
-| Trigger.dev Oracle 2 projector preview | Synthetic-only S02 preview; delete when #26 closes | Trigger.dev | `proj_jtaztxnmppzfchdsgvea` | `apps/workers/trigger.oracle2-project.config.ts` |
+| Trigger.dev Cloud | Background workers | Trigger.dev | `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` | `apps/workers` |
+| Trigger.dev Oracle 2 extractor preview | Synthetic-only S02 preview; delete when #26 closes | Trigger.dev | `proj_PRIVATE_REFERENCE_SHA256_5ac719234cae50874f21f058a58195aea057b037473342b561250e996f9cbf9d` | `apps/workers/trigger.oracle2-extract.config.ts` |
+| Trigger.dev Oracle 2 projector preview | Synthetic-only S02 preview; delete when #26 closes | Trigger.dev | `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285` | `apps/workers/trigger.oracle2-project.config.ts` |
 | Supabase Postgres | Primary database | Supabase | configured by env | managed Postgres + pgvector |
 | Supabase Auth | Login and session identity | Supabase | same project | managed Auth |
 | Supabase Storage | Uploaded documents | Supabase | bucket `company_documents` | managed object storage |
