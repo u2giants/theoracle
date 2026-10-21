@@ -10,7 +10,9 @@ import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
 const eslintConfig = [
   // Don't lint build output / deps / generated type shims.
   { ignores: ['.next/**', 'node_modules/**', 'next-env.d.ts'] },
-  ...nextCoreWebVitals,
+  ...nextCoreWebVitals.map(config => config.name === 'next/typescript'
+    ? { ...config, files: [...config.files, '**/*.mts', '**/*.cts'] }
+    : config),
   {
     rules: {
       '@next/next/no-html-link-for-pages': 'off',

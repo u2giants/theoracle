@@ -5,7 +5,8 @@
 // correction (no body edit), scoped confirmation, cancel with liability, and
 // native1..N attempt visibility. Synthetic/invented only.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSessionValue } from '@/lib/use-session-value';
 import {
   REPLACEMENT_STATES,
   REPLACEMENT_STATE_LABELS,
@@ -60,12 +61,34 @@ async function parseJson(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
+async function readJourney(journeyId: string, signal?: AbortSignal): Promise<JourneyView> {
+  const response = await fetch(`/api/consultant/replacement/v1/journeys/${encodeURIComponent(journeyId)}`, {
+    credentials: 'same-origin', cache: 'no-store', signal,
+  });
+  if (!response.ok) throw new Error('Could not retrieve the replacement journey');
+  return response.json() as Promise<JourneyView>;
+}
+
 export function ReplacementWorkspace() {
-  const [sourceId, setSourceId] = useState<string | null>(null);
-  const [sourceMeta, setSourceMeta] = useState<{
-    originalSha256: string;
-    hasStaleSeeded: boolean;
-  } | null>(null);
+  const savedSourceId = useSessionValue('oracle2-replacement-source');
+  const savedSourceMeta = useSessionValue('oracle2-replacement-source-meta');
+  const savedJourneyId = useSessionValue('oracle2-replacement-journey');
+  const [chosenSourceId, setSourceId] = useState<string | null | undefined>(undefined);
+  const sourceId = chosenSourceId === undefined ? savedSourceId : chosenSourceId;
+  type SourceMeta = { originalSha256: string; hasStaleSeeded: boolean };
+  const restoredMeta = useMemo<SourceMeta | null>(() => {
+    if (!savedSourceId || !savedSourceMeta) return null;
+    try {
+      const value: unknown = JSON.parse(savedSourceMeta);
+      if (value && typeof value === 'object' && 'originalSha256' in value && 'hasStaleSeeded' in value
+          && typeof value.originalSha256 === 'string' && typeof value.hasStaleSeeded === 'boolean') {
+        return { originalSha256: value.originalSha256, hasStaleSeeded: value.hasStaleSeeded };
+      }
+    } catch { /* Malformed refresh hints confer no authority. */ }
+    return null;
+  }, [savedSourceId, savedSourceMeta]);
+  const [chosenSourceMeta, setSourceMeta] = useState<SourceMeta | null | undefined>(undefined);
+  const sourceMeta = chosenSourceMeta === undefined ? restoredMeta : chosenSourceMeta;
   const [staleSeededLabel, setStaleSeededLabel] = useState('');
   const [journey, setJourney] = useState<JourneyView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,30 +96,17 @@ export function ReplacementWorkspace() {
   const [correctionReason, setCorrectionReason] = useState('Record an explicit handoff owner after authorized review.');
 
   const refresh = useCallback(async (journeyId: string) => {
-    const response = await fetch(`/api/consultant/replacement/v1/journeys/${journeyId}`, {
-      credentials: 'same-origin',
-    });
-    if (!response.ok) throw new Error('Could not retrieve the replacement journey');
-    const data = (await response.json()) as JourneyView;
-    setJourney(data);
+    setJourney(await readJourney(journeyId));
   }, []);
 
   useEffect(() => {
-    const storedJourney = sessionStorage.getItem('oracle2-replacement-journey');
-    const storedSource = sessionStorage.getItem('oracle2-replacement-source');
-    const storedMeta = sessionStorage.getItem('oracle2-replacement-source-meta');
-    if (storedSource) setSourceId(storedSource);
-    if (storedSource && storedMeta) {
-      try {
-        setSourceMeta(JSON.parse(storedMeta) as { originalSha256: string; hasStaleSeeded: boolean });
-      } catch {
-        /* ignore malformed stored meta */
-      }
-    }
-    if (storedJourney) {
-      refresh(storedJourney).catch(() => {});
-    }
-  }, [refresh]);
+    if (!savedJourneyId) return;
+    const controller = new AbortController();
+    readJourney(savedJourneyId, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setJourney(data); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [savedJourneyId]);
 
   useEffect(() => {
     if (journey) sessionStorage.setItem('oracle2-replacement-journey', journey.journeyId);
