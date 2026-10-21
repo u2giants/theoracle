@@ -6,7 +6,7 @@ Created: 2026-08-11
 
 Parent plan: [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 
-Session handoff: [`HANDOFF.d/2026-08-11T1306Z-al8960ofc-codex-r2-owner-correction-plan.md`](HANDOFF.d/2026-08-11T1306Z-al8960ofc-codex-r2-owner-correction-plan.md)
+Session handoff: [`HANDOFF.d/2026-08-11T1306Z-al8960ofc-codex-r2-owner-correction-plan.md`](https://github.com/u2giants/theoracle/blob/c6dbf81e639cb4dd71f5348d5e8d6025f0bb0992/HANDOFF.d/2026-08-11T1306Z-al8960ofc-codex-r2-owner-correction-plan.md)
 
 ## STATUS table
 

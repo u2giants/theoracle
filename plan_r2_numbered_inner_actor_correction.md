@@ -4,7 +4,7 @@ Status: **LOCAL CORRECTION PASSED AT 28/30 AND LANDED. LATER PRODUCTION GATE SCO
 
 Parent plans: [`plan_r2_local_owner_context_correction.md`](plan_r2_local_owner_context_correction.md) and [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 
-Handoff: [`HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md`](HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md)
+Handoff: [`HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md`](https://github.com/u2giants/theoracle/blob/c6dbf81e639cb4dd71f5348d5e8d6025f0bb0992/HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md)
 
 ## STATUS table
 

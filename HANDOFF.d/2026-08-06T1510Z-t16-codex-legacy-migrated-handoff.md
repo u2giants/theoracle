@@ -704,35 +704,35 @@ must read the named plan's status table first and must not re-plan the work from
 
 | Known problem class | Canonical plan and exact owner |
 |---|---|
-| Macro-first redesign, R1–R10 | [Macro-first plan](MACRO_FIRST_IMPLEMENTATION_PLAN.md) |
-| Completed bounded quote-copy repair and production proof | [Macro-first plan R0.1](MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
-| Stale workflow production script | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| False Teams transcript TODO comments | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| ERR-003 retired fan-out, closed by repository removal and deployed task inventory | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
-| ERR-004 current map-directed path, fixed by owner-approved production proof on 2026-07-29 | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
-| ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
-| ERR-002 obsolete SQL smoke, resolved by zero-caller proof and retirement on 2026-07-27 | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
-| Old DeepSeek phantom-fallback instruction, closed and released 2026-07-27 | [Reliability plan REL-4](plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
-| Migration 65 generated/fresh-DB drift warning, resolved 2026-07-29 | [Reliability plan REL-5](plan_repo_reliability_and_release_gaps.md#rel-5-migration-65-and-snapshot-drift) |
-| Live image upload has no recorded production proof | [Reliability plan REL-6](plan_repo_reliability_and_release_gaps.md#rel-6-live-image-upload-proof) |
-| DB and Trigger.dev releases are manual | [Reliability plan REL-7](plan_repo_reliability_and_release_gaps.md#rel-7-guarded-release-automation) |
-| Unused hard-coded schema repair helper | [Reliability plan REL-8](plan_repo_reliability_and_release_gaps.md#rel-8-remove-dead-schema-repair) |
-| Stale runtime/error documentation | [Reliability plan REL-9](plan_repo_reliability_and_release_gaps.md#rel-9-close-documentation-and-logs) |
-| Old storage-bucket and completed-feature TODO notes | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| Taxonomy approval does not dispatch the existing apply worker | [Product plan GAP-1](plan_deferred_product_and_infrastructure_gaps.md#gap-1-finish-the-existing-taxonomy-reclassification-path) |
-| Retrieval entity filter has no production populator | [Product plan GAP-2](plan_deferred_product_and_infrastructure_gaps.md#gap-2-entity-aware-retrieval-planning) |
-| Authentik is documented but not built | [Product plan GAP-3](plan_deferred_product_and_infrastructure_gaps.md#gap-3-authentik-disposition) |
-| China side-by-side review and measured search hardening | [Product plan GAP-4](plan_deferred_product_and_infrastructure_gaps.md#gap-4-china-review-and-search-hardening) |
-| One-PDF cache and cross-provider attachment loss, closed and released 2026-07-28 | [Product plan GAP-5](plan_deferred_product_and_infrastructure_gaps.md#gap-5-attachment-and-cache-safety) |
-| Vertex cache and batch GCS are not provisioned | [Product plan GAP-6](plan_deferred_product_and_infrastructure_gaps.md#gap-6-vertex-cache-and-batch-storage) |
-| Admin eval results dashboard, closed and released 2026-07-29 | [Product plan GAP-7](plan_deferred_product_and_infrastructure_gaps.md#gap-7-eval-results-dashboard) |
-| Qwen/DeepSeek batch parity limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
-| Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
-| Deferred credential rotation | [Product plan GAP-9](plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
-| Deprecated employee identity columns, closed and released 2026-07-29 | [Product plan GAP-10](plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
-| Audited model-coverage conversion, closed and released 2026-07-29 (send audited, double-submit no-op proven at runtime, test gap resolved) | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
-| Lull topical selection, closed and released 2026-07-29 | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
-| Oversized conversation windowing, closed and released 2026-07-29 | [Product plan GAP-13](plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
+| Macro-first redesign, R1–R10 | [Macro-first plan](../MACRO_FIRST_IMPLEMENTATION_PLAN.md) |
+| Completed bounded quote-copy repair and production proof | [Macro-first plan R0.1](../MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
+| Stale workflow production script | [Reliability plan REL-1](../plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| False Teams transcript TODO comments | [Reliability plan REL-1](../plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| ERR-003 retired fan-out, closed by repository removal and deployed task inventory | [Reliability plan REL-2](../plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-004 current map-directed path, fixed by owner-approved production proof on 2026-07-29 | [Reliability plan REL-2](../plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](../plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-002 obsolete SQL smoke, resolved by zero-caller proof and retirement on 2026-07-27 | [Reliability plan REL-3](../plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
+| Old DeepSeek phantom-fallback instruction, closed and released 2026-07-27 | [Reliability plan REL-4](../plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
+| Migration 65 generated/fresh-DB drift warning, resolved 2026-07-29 | [Reliability plan REL-5](../plan_repo_reliability_and_release_gaps.md#rel-5-migration-65-and-snapshot-drift) |
+| Live image upload has no recorded production proof | [Reliability plan REL-6](../plan_repo_reliability_and_release_gaps.md#rel-6-live-image-upload-proof) |
+| DB and Trigger.dev releases are manual | [Reliability plan REL-7](../plan_repo_reliability_and_release_gaps.md#rel-7-guarded-release-automation) |
+| Unused hard-coded schema repair helper | [Reliability plan REL-8](../plan_repo_reliability_and_release_gaps.md#rel-8-remove-dead-schema-repair) |
+| Stale runtime/error documentation | [Reliability plan REL-9](../plan_repo_reliability_and_release_gaps.md#rel-9-close-documentation-and-logs) |
+| Old storage-bucket and completed-feature TODO notes | [Reliability plan REL-1](../plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| Taxonomy approval does not dispatch the existing apply worker | [Product plan GAP-1](../plan_deferred_product_and_infrastructure_gaps.md#gap-1-finish-the-existing-taxonomy-reclassification-path) |
+| Retrieval entity filter has no production populator | [Product plan GAP-2](../plan_deferred_product_and_infrastructure_gaps.md#gap-2-entity-aware-retrieval-planning) |
+| Authentik is documented but not built | [Product plan GAP-3](../plan_deferred_product_and_infrastructure_gaps.md#gap-3-authentik-disposition) |
+| China side-by-side review and measured search hardening | [Product plan GAP-4](../plan_deferred_product_and_infrastructure_gaps.md#gap-4-china-review-and-search-hardening) |
+| One-PDF cache and cross-provider attachment loss, closed and released 2026-07-28 | [Product plan GAP-5](../plan_deferred_product_and_infrastructure_gaps.md#gap-5-attachment-and-cache-safety) |
+| Vertex cache and batch GCS are not provisioned | [Product plan GAP-6](../plan_deferred_product_and_infrastructure_gaps.md#gap-6-vertex-cache-and-batch-storage) |
+| Admin eval results dashboard, closed and released 2026-07-29 | [Product plan GAP-7](../plan_deferred_product_and_infrastructure_gaps.md#gap-7-eval-results-dashboard) |
+| Qwen/DeepSeek batch parity limitations | [Product plan GAP-8](../plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
+| Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](../plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
+| Deferred credential rotation | [Product plan GAP-9](../plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
+| Deprecated employee identity columns, closed and released 2026-07-29 | [Product plan GAP-10](../plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
+| Audited model-coverage conversion, closed and released 2026-07-29 (send audited, double-submit no-op proven at runtime, test gap resolved) | [Product plan GAP-11](../plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
+| Lull topical selection, closed and released 2026-07-29 | [Product plan GAP-12](../plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
+| Oversized conversation windowing, closed and released 2026-07-29 | [Product plan GAP-13](../plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
 
 `bug_d_ungating_plan.md` is historical and superseded. Its remaining ideas are owned by the macro
 plan and reliability REL-2. `docs/macro-understanding-implementation-plan.md` is also historical.

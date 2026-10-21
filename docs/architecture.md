@@ -245,7 +245,7 @@ submitBatch?(args: SubmitBatchArgs): Promise<SubmitBatchResult>;
 retrieveBatch?(args: RetrieveBatchArgs): Promise<RetrieveBatchResult>;
 ```
 
-The contract flows through provider-agnostic types in [packages/ai/src/providers/types.ts](packages/ai/src/providers/types.ts). Provider-specific shapes (OpenAI file IDs, Vertex GCS URIs) live inside the opaque `providerMetadata` field that the caller persists to `provider_batch_jobs.provider_metadata_json` and passes back at retrieve time.
+The contract flows through provider-agnostic types in [packages/ai/src/providers/types.ts](../packages/ai/src/providers/types.ts). Provider-specific shapes (OpenAI file IDs, Vertex GCS URIs) live inside the opaque `providerMetadata` field that the caller persists to `provider_batch_jobs.provider_metadata_json` and passes back at retrieve time.
 
 | Provider              | submitBatch / retrieveBatch                                                                                                                                                                                                              | Infrastructure needed                                                             |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
