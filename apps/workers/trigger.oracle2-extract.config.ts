@@ -1,13 +1,14 @@
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@trigger.dev/sdk/v3';
+import { isPinnedTarget } from '../../dev/oracle2/private-target-profile.mjs';
 import { oracle2Python } from './oracle2-python-extension';
 
 const project = process.env.ORACLE2_EXTRACT_TRIGGER_PROJECT_REF;
 const otherProject = process.env.ORACLE2_PROJECT_TRIGGER_PROJECT_REF;
 if (!project || !otherProject || project === otherProject
-    || project === 'proj_wgpzsvhmsopqhvwqaycn'
-    || otherProject === 'proj_wgpzsvhmsopqhvwqaycn') {
+    || isPinnedTarget('legacy_trigger_project', project)
+    || isPinnedTarget('legacy_trigger_project', otherProject)) {
   throw new Error('Two distinct non-legacy Oracle 2 Trigger projects required');
 }
 

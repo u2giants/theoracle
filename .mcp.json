@@ -5,14 +5,10 @@
       "args": [
         "/c",
         "${USERPROFILE}\\.config\\ai-devops\\mcp-launch.cmd",
-        "cmd",
-        "/c",
-        "npx",
-        "-y",
-        "@supabase/mcp-server-supabase@latest",
-        "--read-only",
-        "--project-ref",
-        "eqccjfbyrywsqkxxpjvg"
+        "node",
+        "--input-type=module",
+        "--eval",
+        "const r=process.env.CLAUDE_PROJECT_DIR;if(!r)throw Error('Oracle MCP project root unavailable');const u=await import('node:url');const p=await import('node:path');const m=await import(u.pathToFileURL(p.resolve(r,'scripts/oracle2/supabase_mcp.mjs')).href);await m.runSupabaseMcp();"
       ]
     },
     "trigger": {
