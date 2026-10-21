@@ -23,6 +23,27 @@ token and caller identity denial; all 58 TypeScript contract/helper/actual
 session-route tests pass. Current source also rejects stale read-only database
 snapshots and pins the public issuer before the first verification.
 
+The subsequent exact-source review also required exact generated artifact/ACK/
+workflow confirmation with current per-source grants, immutable current-access
+answer dependencies, and complete current meeting recipient authorization.
+These repairs are implemented in the next source checkpoint: requester roles
+remain separate from compiler/executor roles; compiler-derived workflow IDs
+and existing immutable paid-V3 ACK validation bind confirmation. Twenty-five
+real-role SQL cases are prepared but NOT executed on this successor until its
+assigned exact-head approval opens the database gate. Source/static syntax
+checks pass; earlier SQL runtime receipts do not establish this new path.
+
+Retrieval returns only permitted current source quotes with immutable exact
+source dependencies and actor-bound current-access signatures. Mixed denied
+or revoked sources are pruned while permitted content remains. Population
+representation becomes UNKNOWN/incomplete after pruning; no business units are
+invented. Fully authorized coverage stays intact. All 78 retrieval cases pass.
+Meeting intents require an independently signed complete current recipient
+set for the exact answer/channel/settings generation, and retain its recipient
+set and proof hash in the immutable delivery identity. Missing, changed,
+unauthorized, stale or forged audiences deny; legitimate broadcast works.
+The combined meeting/signature focused checkpoint passes 112 cases.
+
 The full required W10 inventory initially reported 2760 tests, five failures
 and five skips, with no worker timeout (maximum 49.8 seconds) and zero cleanup
 errors. Exact helper registration/stale assertions and isolated
