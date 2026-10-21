@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import threading
+import sys
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +33,9 @@ from oracle_brain.graph.graphrag import (
 )
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest
 from oracle_brain import holistic_runtime
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from dev.oracle2.legacy_database_fixture import validate_legacy_database
 
 
 DOC_ONE = "Intake Lead sends the packet to Review Team. Review Team follows the signed policy."
@@ -214,10 +218,9 @@ def main() -> int:
     if not args.admin_url or not args.falkordb_url:
         parser.error("admin and FalkorDB loopback URLs are required")
     _require_loopback(args.admin_url); _require_loopback(args.falkordb_url)
-    parsed = urlsplit(args.admin_url)
-    if (parsed.username != "oracle2_admin" or parsed.password != "oracle2_local_admin_only"
-            or parsed.path != "/oracle2"):
-        raise PermissionError("fixture requires the published synthetic local admin identity")
+    args.admin_url = validate_legacy_database(args.admin_url,
+        os.environ.get("ORACLE2_LEGACY_DATABASE_RECEIPT", ""),
+        os.environ.get("ORACLE2_LEGACY_DATABASE_RECEIPT_SHA256", ""))
     source_ids, draft_ids = (uuid4(), uuid4()), (uuid4(), uuid4())
     holistic_url, revisions = _seed_database(args.admin_url, source_ids, draft_ids)
     if args.engine == holistic_runtime.GRAPH_EVIDENCE:

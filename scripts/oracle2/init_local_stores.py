@@ -29,7 +29,8 @@ def setup_checkpoint_tables(connection: psycopg.Connection) -> None:
         connection.execute(f"GRANT SELECT,INSERT,UPDATE,DELETE ON public.{table} TO oracle2_checkpoint")
 
 
-def main() -> None:
+def owned_fixture_admin_url() -> str:
+    """Read-only admission of the exact qualified main synthetic database."""
     if any(name.startswith("PG") for name in os.environ):
         raise PermissionError("libpq environment overrides forbidden for synthetic bootstrap")
     url = os.environ.get("ORACLE2_TEST_ADMIN_URL", "")
@@ -64,6 +65,11 @@ def main() -> None:
             or qualification.get("ca_sha256") != hashlib.sha256(
                 Path(dict(query)["sslrootcert"]).read_bytes()).hexdigest()):
         raise PermissionError("owned synthetic target and TLS qualification differ")
+    return url
+
+
+def main() -> None:
+    url = owned_fixture_admin_url()
     # W10 owns separate temporary databases. S03 uses this Compose database,
     # which must independently have the same canonical host prerequisites.
     # Execute unchanged migrations in order; their owner/role checks still gate

@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import threading
+from contextlib import ExitStack
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -23,6 +24,9 @@ from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from dev.oracle2.legacy_database_fixture import owned_legacy_database, stop_owned_process, LegacyCleanupBlocked
+
 FIXTURE = ROOT / "scripts/oracle2/holistic_browser_fixture.py"
 
 
@@ -64,16 +68,7 @@ def _read_fixture_env(path: Path) -> dict[str, str]:
 
 
 def _terminate(proc: subprocess.Popen[str] | None) -> None:
-    if proc is None or proc.poll() is not None:
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-        proc.wait(timeout=8)
-    except (ProcessLookupError, subprocess.TimeoutExpired):
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+    stop_owned_process(proc)
 
 
 def _wait_http(url: str, proc: subprocess.Popen[str], timeout: float) -> None:
@@ -151,6 +146,7 @@ def main() -> int:
     scratch_path = None
     opened_logs = []
     fixture_values = {}
+    databases = ExitStack()
     result = {"success": False, "live_business_accepted": False, "phase": "setup"}
     try:
         admin_url = os.environ.get("ORACLE2_TEST_ADMIN_URL", "")
@@ -162,13 +158,15 @@ def main() -> int:
         tmp_parent = os.environ.get("TMPDIR") or tempfile.gettempdir()
         scratch_path = Path(tempfile.mkdtemp(prefix="oracle2-holistic-browser-", dir=tmp_parent))
         os.chmod(scratch_path, 0o700)
+        legacy = databases.enter_context(owned_legacy_database())
+        admin_url = legacy.url
         fixture_env_path = scratch_path / "fixture.env"
         fixture_log = (scratch_path / "fixture.log").open("w", encoding="utf-8")
         fixture_proc = subprocess.Popen(
             [sys.executable, "-u", str(FIXTURE), "--admin-url", admin_url,
              "--falkordb-url", falkor_url, "--env-file", str(fixture_env_path),
              "--engine", ("graph-evidence" if args.pilot_graph_evidence else "holistic-graphrag")],
-            cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT / "services/oracle-brain")},
+            cwd=ROOT, env={**os.environ, **legacy.environment(), "PYTHONPATH": str(ROOT / "services/oracle-brain")},
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=fixture_log,
             text=True, start_new_session=True)
         opened_logs.append(fixture_log)
@@ -238,10 +236,21 @@ def main() -> int:
     except Exception as error:
         result.update({"error": str(error)})
     finally:
-        _terminate(web_proc)
-        _terminate(fixture_proc)
+        cleanup_failure = None
+        for process in (web_proc, fixture_proc):
+            try:
+                _terminate(process)
+            except LegacyCleanupBlocked as error:
+                cleanup_failure = error
         for stream in opened_logs:
             stream.flush(); stream.close()
+        try:
+            if cleanup_failure:
+                databases.__exit__(LegacyCleanupBlocked, cleanup_failure, None)
+            else:
+                databases.close()
+        except Exception as cleanup_error:
+            result.update({"success": False, "cleanup_error": type(cleanup_error).__name__})
         result_path.parent.mkdir(parents=True, exist_ok=True)
         diagnostics=_retain_diagnostics(scratch_path,result_path,fixture_values)
         if scratch_path is not None:shutil.rmtree(scratch_path)
