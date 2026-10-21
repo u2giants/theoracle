@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS oracle2.hosting_replacement_executor_runs_v1 (
  expires_at timestamptz NOT NULL CHECK(isfinite(expires_at)),PRIMARY KEY(role_name,run_id),
  FOREIGN KEY(workspace_id,model_id,model_version) REFERENCES oracle2.artifact_manifests(workspace_id,artifact_id,version));
 -- No runtime receives direct table access. Exact named capabilities follow.
-REVOKE ALL ON oracle2.source_original_revisions,oracle2.source_reading_qualifications,
+REVOKE ALL ON oracle2.processing_artifact_workflows_v1,oracle2.source_original_revisions,oracle2.source_reading_qualifications,
  oracle2.original_source_populations_v1,oracle2.original_source_population_members_v1,oracle2.hosting_original_population_admissions_v1,
  oracle2.hosting_original_source_admissions,oracle2.hosting_request_principal_admissions,
  oracle2.source_intake_reservations_v1,oracle2.processing_journey_runs_v1,oracle2.replacement_journey_events
@@ -932,7 +932,11 @@ BEGIN
   RAISE insufficient_privilege USING MESSAGE='unique registered summaries required';
  END IF;
  SELECT * INTO confirmed FROM oracle2.replacement_journey_events e WHERE e.run_id=wanted_run AND e.workspace_id=a.workspace_id
-  AND e.actor_id=a.principal_id AND e.action='confirm' AND e.payload->>'version'=a.model_version::text
+  AND e.actor_id=a.principal_id AND e.action='confirm'
+  AND e.payload->>'model_id'=a.model_id::text AND e.payload->>'ack_event_id'=a.ack_event_id::text
+  AND EXISTS(SELECT 1 FROM oracle2.processing_artifact_workflows_v1 wf WHERE wf.workspace_id=a.workspace_id
+   AND wf.artifact_id=a.model_id AND wf.version=a.model_version AND wf.workflow_id=e.payload->>'workflow_id')
+  AND e.payload->>'version'=a.model_version::text
   AND e.payload->>'content_hash'=a.model_content_hash AND NOT EXISTS(SELECT 1 FROM oracle2.replacement_journey_events w
    WHERE w.run_id=wanted_run AND w.action='withdraw' AND w.payload->>'confirmation_id'=e.event_id::text)
   ORDER BY e.journey_revision DESC LIMIT 1;
@@ -1370,9 +1374,9 @@ CREATE OR REPLACE FUNCTION oracle2.compare_and_advance_replacement_journey(
  RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
 DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;
  j oracle2.processing_journey_runs_v1%ROWTYPE;current oracle2.processing_journey_runs_v1%ROWTYPE;
- target_state text;until timestamptz;confirm_until timestamptz;event_hash text;payload jsonb;population jsonb;reserved_hash text;
+ target_state text;until timestamptz;confirm_until timestamptz;event_hash text;payload jsonb;population jsonb;reserved_hash text;known_artifact uuid;model_manifest jsonb;delivery record;ref jsonb;source_until timestamptz;
 BEGIN
- a:=oracle2._replacement_request_context();
+ PERFORM oracle2._purpose_deadlines_v2();
  IF expected_revision IS NULL OR expected_revision<1 OR idempotency IS NULL
  OR jsonb_typeof(binding) IS DISTINCT FROM 'object'
  OR NOT binding ?& ARRAY['target_state']
@@ -1382,12 +1386,39 @@ BEGIN
   RAISE invalid_parameter_value USING MESSAGE='strict replacement journey advance required';
  END IF;
  target_state:=binding->>'target_state';
+ IF target_state='delivered' THEN
+  IF NOT binding ?& ARRAY['model_id','version','content_hash','ack_event_id','workflow_id']
+  OR binding-ARRAY['target_state','model_id','version','content_hash','ack_event_id','workflow_id']<>'{}'::jsonb
+  OR jsonb_typeof(binding->'model_id') IS DISTINCT FROM 'string'
+  OR jsonb_typeof(binding->'version') IS DISTINCT FROM 'number' OR binding->>'version' !~ '^[1-9][0-9]*$'
+  OR jsonb_typeof(binding->'content_hash') IS DISTINCT FROM 'string' OR binding->>'content_hash' !~ '^[0-9a-f]{64}$'
+  OR jsonb_typeof(binding->'ack_event_id') IS DISTINCT FROM 'string'
+  OR jsonb_typeof(binding->'workflow_id') IS DISTINCT FROM 'string' OR length(binding->>'workflow_id') NOT BETWEEN 1 AND 200 THEN
+   RAISE invalid_parameter_value USING MESSAGE='exact model ACK and workflow confirmation binding required';
+  END IF;
+  -- Follow the retained artifact-before-workspace lock order. Only a selector
+  -- owned by this actual SESSION_USER may select the pre-lock artifact.
+  SELECT * INTO j FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run;
+  SELECT * INTO a FROM oracle2.hosting_request_principal_admissions WHERE role_name=SESSION_USER;
+  IF j.run_id IS NULL OR a.role_name IS NULL OR (j.workspace_id,j.actor_id) IS DISTINCT FROM (a.workspace_id,a.principal_id)
+   OR j.current_model_id IS NULL THEN
+   RAISE insufficient_privilege USING MESSAGE='current requester-owned model required for confirmation';
+  END IF;
+  known_artifact:=j.current_model_id;
+  PERFORM pg_advisory_xact_lock(hashtextextended('operating-model:'||j.workspace_id::text||':'||known_artifact::text,0));
+ ELSIF binding-ARRAY['target_state']<>'{}'::jsonb THEN
+  RAISE invalid_parameter_value USING MESSAGE='strict replacement transition binding required';
+ END IF;
+ a:=oracle2._replacement_request_context();
  IF target_state='cancel-requested' THEN
   RAISE invalid_parameter_value USING MESSAGE='cancel uses request_replacement_cancel';
  END IF;
  SELECT * INTO j FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run FOR UPDATE;
  IF j.run_id IS NULL OR j.workspace_id IS DISTINCT FROM a.workspace_id OR j.actor_id IS DISTINCT FROM a.principal_id THEN
   RAISE insufficient_privilege USING MESSAGE='current replacement journey identity denied';
+ END IF;
+ IF target_state='delivered' AND j.current_model_id IS DISTINCT FROM known_artifact THEN
+  RAISE serialization_failure USING MESSAGE='current confirmation model changed during lock wait';
  END IF;
  IF j.journey_revision<>expected_revision THEN
   RAISE serialization_failure USING MESSAGE='replacement journey CAS conflict';
@@ -1426,6 +1457,36 @@ BEGIN
   -- revision, withdrawal, missing receipt or model-independence drift is denied.
   population:=oracle2._replacement_population_v1(j.workspace_id,j.reserved_raw_population,true);
   reserved_hash:=population->>'raw_sha256';
+  IF j.cancelled_at IS NOT NULL OR j.current_model_id IS NULL OR j.current_model_version IS NULL
+  OR j.current_model_content_hash IS NULL OR j.current_ack_event_id IS NULL
+  OR binding->>'model_id' IS DISTINCT FROM j.current_model_id::text
+  OR binding->>'version' IS DISTINCT FROM j.current_model_version::text
+  OR binding->>'content_hash' IS DISTINCT FROM j.current_model_content_hash
+  OR binding->>'ack_event_id' IS DISTINCT FROM j.current_ack_event_id::text THEN
+   RAISE insufficient_privilege USING MESSAGE='exact current generated artifact and ACK required for confirmation';
+  END IF;
+  -- Every recipient source grant is checked again, under the same workspace
+  -- and source locks, and contributes its current expiry to the commit fence.
+  FOR ref IN SELECT value FROM jsonb_array_elements(population->'source_refs') LOOP
+   source_until:=oracle2._replacement_scope(a.workspace_id,a.principal_id,'source-read:'||(ref->>'source_id'));
+   confirm_until:=least(confirm_until,source_until);
+  END LOOP;
+  model_manifest:=oracle2._processing_immutable_artifact_metadata_v1(j.workspace_id,
+   j.current_model_id,j.current_model_version,population->'source_refs');
+  IF model_manifest->>'kind' IS DISTINCT FROM 'processing_qualified_model_v1'
+  OR model_manifest->>'state' IS DISTINCT FROM 'ready'
+  OR model_manifest->>'content_hash' IS DISTINCT FROM j.current_model_content_hash
+  OR NOT EXISTS(SELECT 1 FROM oracle2.processing_artifact_workflows_v1 w
+   WHERE w.workspace_id=j.workspace_id AND w.artifact_id=j.current_model_id
+    AND w.version=j.current_model_version AND w.workflow_id=binding->>'workflow_id') THEN
+   RAISE insufficient_privilege USING MESSAGE='workflow must belong to exact qualified model content';
+  END IF;
+  SELECT * INTO STRICT delivery FROM oracle2._processing_projection_receipt_v3(j.workspace_id,
+   j.current_model_id,j.current_model_version,model_manifest);
+  IF delivery.receipt->>'event_id' IS DISTINCT FROM j.current_ack_event_id::text THEN
+   RAISE insufficient_privilege USING MESSAGE='exact current model ACK required for confirmation';
+  END IF;
+
   IF reserved_hash IS DISTINCT FROM j.reserved_raw_sha256 THEN
    RAISE insufficient_privilege USING MESSAGE='reserved raw population changed before promotion';
   END IF;
@@ -1440,6 +1501,7 @@ BEGIN
  END IF;
  UPDATE oracle2.processing_journey_runs_v1
   SET state=target_state,journey_revision=journey_revision+1,
+   answer_hold=(target_state<>'delivered'),
    original_population=CASE WHEN target_state='delivered' THEN population->'source_refs' ELSE original_population END,
    population_sha256=CASE WHEN target_state='delivered' THEN population->>'qualified_sha256' ELSE population_sha256 END
   WHERE run_id=wanted_run AND journey_revision=expected_revision;
@@ -1450,7 +1512,9 @@ BEGIN
   'expected_revision',expected_revision);
  IF target_state='delivered' THEN
   payload:=payload||jsonb_build_object('reserved_raw_sha256',reserved_hash,
-   'qualified_population_sha256',population->>'qualified_sha256','source_refs',population->'source_refs');
+   'qualified_population_sha256',population->>'qualified_sha256','source_refs',population->'source_refs',
+   'model_id',j.current_model_id,'version',j.current_model_version,'content_hash',j.current_model_content_hash,
+   'ack_event_id',j.current_ack_event_id,'workflow_id',binding->>'workflow_id');
  END IF;
  event_hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(payload),'UTF8')),'hex');
  INSERT INTO oracle2.replacement_journey_events(event_id,run_id,workspace_id,journey_revision,
@@ -1461,6 +1525,13 @@ BEGIN
  SELECT * INTO current FROM oracle2.processing_journey_runs_v1 WHERE run_id=wanted_run;
  a:=oracle2._replacement_request_context();
  until:=least(until,a.expires_at);
+ IF target_state='delivered' THEN
+  until:=least(until,oracle2._replacement_scope(a.workspace_id,a.principal_id,'process-confirm'));
+  FOR ref IN SELECT value FROM jsonb_array_elements(population->'source_refs') LOOP
+   until:=least(until,oracle2._replacement_scope(a.workspace_id,a.principal_id,'source-read:'||(ref->>'source_id')));
+  END LOOP;
+ END IF;
+ IF until<=clock_timestamp() THEN RAISE insufficient_privilege USING MESSAGE='confirmation source authority expired before commit'; END IF;
  RETURN jsonb_build_object('schema_version',1,'run_id',current.run_id,
   'journey_revision',current.journey_revision,'state',current.state,
   'population_sha256',current.population_sha256,'context',oracle2._replacement_private_context(a,until));
