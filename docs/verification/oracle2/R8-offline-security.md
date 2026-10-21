@@ -14,7 +14,7 @@ slowest worker 99.331 seconds under the unchanged 120-second ceiling. SQL
 passed 25/25, replacement TypeScript 58/58, and pure checks 423/423. All required
 CI passed, including image, SDK browser, workflow worker and ledger, readiness,
 graph evidence, resource/stress, restart/restore and cleanup. Browser mode skips
-are intentional. The legacy SDK browser proof uses owned original SQL001/002/004
+are intentional; this does not claim every browser mode had zero skips. The legacy SDK browser proof uses owned original SQL001/002/004
 databases; canonical W10/S03/current RLS are unchanged. Host installation and
 isolation, Q2b target, native/hosted/live proof and business acceptance remain
 unproven; business acceptance stays closed.
