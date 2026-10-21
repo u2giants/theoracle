@@ -1,25 +1,6 @@
-"""Offline gate test retained from the building-block branch. Invented/synthetic only.
-
-Import guard: oracle_brain.operating_model.consultant.recommendations is required; skip with reason when absent.
-"""
+"""Pure recommendation/feedback proposals. Invented only; no network or authority."""
 from __future__ import annotations
 
-import importlib.util
-
-import pytest
-
-_REQUIRED = 'oracle_brain.operating_model.consultant.recommendations'
-try:
-    _spec = importlib.util.find_spec(_REQUIRED)
-except ModuleNotFoundError:
-    _spec = None
-if _spec is None:
-    pytest.skip(
-        'S11 recommendation contract implementation absent on main (held PR #142 / branch s11-recommendation-feedback). Named offline gate test retained with the branch assertions; activates when consultant.recommendations lands.',
-        allow_module_level=True,
-    )
-
-"""Fixture-only recommendation contract tests; no live data or providers."""
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -272,9 +253,15 @@ def test_blank_decision_reason_rejected():
 
 
 def test_repair_allowed_once_after_reject_then_bounded():
-    loop = FeedbackLoop("rec:1")
+    # Root-approved safety strengthening: unbound DTOs remain display-only.
+    from uuid import uuid4
+    workspace_id, actor_id = uuid4(), uuid4()
+    rec = recommendation()
+    loop = FeedbackLoop('rec:1', expected_workspace_id=workspace_id,
+                        expected_actor_id=actor_id, current_recommendation=rec)
     assert loop.can_repair() is False
-    rejected = loop.record(DecisionFeedback("rec:1", "reject", "Not now"))
+    rejected = loop.record(DecisionFeedback('rec:1', 'reject', 'Not now',
+        workspace_id=workspace_id, actor_id=actor_id, recommendation_hash=rec.content_hash()))
     assert rejected.can_repair() is True
     repaired = rejected.repaired()
     assert repaired.repairs_used == MAX_REPAIRS

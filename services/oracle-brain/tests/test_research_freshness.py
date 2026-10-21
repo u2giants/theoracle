@@ -1,24 +1,3 @@
-"""Offline gate test retained from the building-block branch. Invented/synthetic only.
-
-Import guard: oracle_brain.research.freshness is required; skip with reason when absent.
-"""
-from __future__ import annotations
-
-import importlib.util
-
-import pytest
-
-_REQUIRED = 'oracle_brain.research.freshness'
-try:
-    _spec = importlib.util.find_spec(_REQUIRED)
-except ModuleNotFoundError:
-    _spec = None
-if _spec is None:
-    pytest.skip(
-        'S10 research freshness implementation absent on main (held PR #140 / branch s10-industry-expertise). Named offline gate test retained with the branch assertions; activates when research.freshness lands.',
-        allow_module_level=True,
-    )
-
 """Pure maintenance freshness DTOs. Fake clock only; no network or worker."""
 
 
@@ -149,3 +128,53 @@ def test_freshness_status_is_immutable_dto():
     assert isinstance(status, FreshnessStatus)
     with pytest.raises(Exception):
         status.freshness = Freshness.FRESH  # type: ignore[misc]
+
+
+def test_no_success_is_never_even_with_future_scheduled_due():
+    status=assess(source_id='s',cadence='weekly',now=T0,last_success=None,next_due=T0+WEEK)
+    assert status.freshness is Freshness.NEVER
+
+
+@pytest.mark.parametrize('due',[None,T0+timedelta(days=100)])
+def test_missing_or_distant_due_cannot_make_old_success_fresh(due):
+    status=assess(source_id='s',cadence='weekly',now=T0+WEEK,last_success=T0,next_due=due)
+    assert status.freshness is Freshness.DUE and status.next_due==T0+WEEK
+
+
+def test_review_fence_and_sensitive_decision_require_actual_newer_success():
+    status=assess(source_id='s',cadence='weekly',now=T0+timedelta(days=2),last_success=T0,
+        next_due=T0+WEEK,review_due=T0+timedelta(days=1))
+    assert status.freshness is Freshness.DUE
+    sensitive=assess(source_id='s',cadence='weekly',now=T0+timedelta(days=1),last_success=T0,
+        next_due=T0+WEEK,required_review_after=T0+timedelta(hours=12))
+    assert sensitive.freshness is Freshness.DUE
+
+
+@pytest.mark.parametrize('changes',[{'now':T0.replace(tzinfo=None)},
+    {'last_success':T0+timedelta(seconds=1)},{'last_success':T0.replace(tzinfo=None)},
+    {'next_due':T0-timedelta(seconds=1)},{'review_due':T0-timedelta(seconds=1)},
+    {'attempts':True},{'attempts':-1},{'attempts':10001},{'cadence':'daily'},
+    {'overdue_after':float('nan')},{'overdue_after':float('inf')},
+    {'overdue_after':timedelta(seconds=-1)},{'required_review_after':T0+timedelta(seconds=1)}])
+def test_invalid_or_future_observed_freshness_inputs_refuse(changes):
+    args=dict(source_id='s',cadence='weekly',now=T0,last_success=T0,next_due=T0+WEEK)
+    with pytest.raises(ValueError):assess(**(args|changes))
+
+
+def test_failure_receipt_validates_cadence_and_direct_construction_validates():
+    with pytest.raises(ValueError):receipt(source_id='s',run_id='r',ok=False,at=T0,attempts_after=1,cadence='daily')
+    for values in [('s','r',True,T0,True,T0+WEEK),('s','r',False,T0,1,T0+WEEK),
+            ('s','r',True,T0.replace(tzinfo=None),0,T0+WEEK),('s','',False,T0,1,None),
+            ('s','r',True,T0,0,T0+timedelta(days=100))]:
+        with pytest.raises(ValueError):RefreshReceipt(*values)
+    with pytest.raises(ValueError):
+        FreshnessStatus('s',Freshness.FRESH,None,T0+WEEK,T0+WEEK,0,'weekly',T0)
+    with pytest.raises(ValueError):
+        FreshnessStatus('s',Freshness.FRESH,T0,T0+timedelta(days=100),T0+WEEK,0,'weekly',T0)
+
+
+def test_direct_dto_cannot_claim_due_before_elapsed_fence():
+    with pytest.raises(ValueError):
+        FreshnessStatus('s',Freshness.DUE,T0,T0+WEEK,T0+WEEK,0,'weekly',T0)
+    with pytest.raises(ValueError):
+        RefreshReceipt('s','r',False,T0,1,None,cadence='daily')
