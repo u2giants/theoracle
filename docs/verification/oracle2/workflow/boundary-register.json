@@ -15,7 +15,9 @@
     "oracle_brain.provider_policy",
     "oracle_brain.provider_transport",
     "oracle_brain.storage",
-    "oracle_brain.outbox"
+    "oracle_brain.outbox",
+    "oracle_brain.seal",
+    "oracle_brain.seal_wire"
   ],
   "ledger_namespace": "oracle2 artifact schema version 1 (additive migration 004)",
   "legacy_default": false,
@@ -107,6 +109,22 @@
         "test_worker_guard_parity.py",
         "test_holistic_runtime.py",
         "verify_holistic_browser.py"
+      ]
+    },
+    {
+      "invariants": [
+        "Owner: Oracle offline rebuild R8; necessary shared Ed25519 verification for Q2b and meeting authority",
+        "Verification-only application; eagerly pinned public issuer; no private key, signer invocation or admission mint",
+        "Fixed purpose allowlist and canonical field boundaries; host signer is not an allowed core helper"
+      ],
+      "paths": [
+        "services/oracle-brain/oracle_brain/seal.py",
+        "services/oracle-brain/oracle_brain/seal_wire.py"
+      ],
+      "required_tests": [
+        "test_seal_security.py",
+        "test_seal_wire.py",
+        "test_q2b_target_catalog_v1.py"
       ]
     }
   ],

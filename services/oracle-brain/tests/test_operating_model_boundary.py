@@ -73,3 +73,11 @@ def test_framework_compile_admission_is_narrow():
     for code in ('builtins.compile("1", "x", "eval")', 'other.compile()',
                  allowed + '\ngraph = other\ngraph.compile()', 'compile("1", "x", "eval")'):
         assert import_violations(code, package='oracle_brain.operating_model', helper_allowlist=frozenset())
+
+
+def test_only_reviewed_verification_helpers_enter_core_boundary():
+    helpers = frozenset(json.loads(REGISTRY.read_text())['helper_allowlist'])
+    for module in ('oracle_brain.seal', 'oracle_brain.seal_wire'):
+        assert not import_violations('import ' + module, package='oracle_brain.operating_model', helper_allowlist=helpers)
+    for module in ('oracle_brain.seal_signer', 'oracle_brain.seal_other'):
+        assert import_violations('import ' + module, package='oracle_brain.operating_model', helper_allowlist=helpers)

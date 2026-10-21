@@ -107,10 +107,7 @@ _FORBIDDEN_SQL = (
 _ALLOWED_FROM_RELATIONS = frozenset({
     'pg_proc', 'pg_roles', 'pg_namespace', 'unnest', 'aclexplode', 'pg_catalog',
 })
-_FROM_RE = re.compile(
-    r'(?:FROM|JOIN)\s+(?:LATERAL\s+)?([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)',
-    re.I,
-)
+_FROM_PATTERN = r'(?:FROM|JOIN)\s+(?:LATERAL\s+)?([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)'
 
 
 def require_metadata_only_sql(sql: str) -> None:
@@ -124,7 +121,8 @@ def require_metadata_only_sql(sql: str) -> None:
     for token in _FORBIDDEN_SQL:
         if token in lowered:
             raise PermissionError('Q2b catalog SQL must not touch source data, secrets or env')
-    for relation in _FROM_RE.findall(sql):
+    for match in re.finditer(_FROM_PATTERN, sql, re.I):
+        relation = match.group(1)
         root = relation.split('.')[0].lower()
         if root not in _ALLOWED_FROM_RELATIONS:
             raise PermissionError('Q2b catalog SQL relation outside metadata allowlist')
