@@ -126,3 +126,88 @@ def test_finalize_lost_commit_ack_returns_unknown_without_returning_source_ref(q
     with psycopg.connect(x['admin']) as c:
         assert c.execute('SELECT count(*) FROM oracle2.source_reading_qualifications WHERE source_id=%s',
             (x['ref'].source_id,)).fetchone()==(1,)
+
+
+@pytest.mark.parametrize('raw_reader',['native-utf8'],indirect=True)
+@pytest.mark.parametrize('operation',['phase','finalize'])
+def test_actual_revocation_after_committed_close_prevents_seal_return(qualified_pair,monkeypatch,operation):
+    x=qualified_pair;reader,reviewer=pair(x)
+    if operation=='finalize':
+        reading,review,_=commit_pair(x,reader,reviewer)
+        target=reviewer
+    else:target=reader
+    original=target._connection;owned=[]
+    @contextmanager
+    def revoke_at_exit(connection=None):
+        if connection is not None:
+            with original(connection) as c:yield c
+            return
+        with original() as c:
+            owned.append(c);yield c
+        if len(owned)==1:
+            assert c.closed
+            # Synthetic fixture observer mutates only its own actual role's
+            # existing admission, after the real transaction committed.
+            with psycopg.connect(x['admin']) as admin:
+                assert admin.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE workspace_id=%s AND actor_id=%s AND scope=%s',
+                    (x['workspace'],target.binding.principal,'source-read:'+str(x['ref'].source_id))).rowcount==1
+    monkeypatch.setattr(target,'_connection',revoke_at_exit)
+    with pytest.raises((PermissionError,psycopg.errors.InsufficientPrivilege)):
+        if operation=='phase':reader.commit_original_reading_response_v1(canonical_bytes(x['body']))
+        else:reviewer.finalize_original_reading_qualification_v1(reading,review,x['reading_text'])
+    assert len(owned)==2 and all(c.closed for c in owned)
+    with psycopg.connect(x['admin']) as observer:
+        if operation=='phase':
+            assert observer.execute('SELECT count(*) FROM oracle2.original_phase_response_commits WHERE commit_sha256=%s',
+                (hashlib.sha256(canonical_bytes(x['body'])).hexdigest(),)).fetchone()==(1,)
+        else:
+            assert observer.execute('SELECT count(*) FROM oracle2.source_reading_qualifications WHERE source_id=%s',
+                (x['ref'].source_id,)).fetchone()==(1,)
+        # Exact same committed phase/finalize rows, no second dispatch/write.
+        assert observer.execute('SELECT count(*) FROM oracle2.original_phase_response_commits WHERE source_id=%s',
+            (x['ref'].source_id,)).fetchone()==((1 if operation=='phase' else 2),)
+
+
+@pytest.mark.parametrize('raw_reader',['native-utf8'],indirect=True)
+@pytest.mark.parametrize('operation',['phase','finalize'])
+def test_actual_old_returned_seal_cannot_be_renewed_by_fresh_post_close_scope(qualified_pair,monkeypatch,operation):
+    from datetime import datetime,timedelta,timezone
+    import time
+    x=qualified_pair;reader,reviewer=pair(x)
+    if operation=='finalize':
+        reading,review,_=commit_pair(x,reader,reviewer)
+        target=reviewer
+    else:target=reader
+    # Narrow the actual source admission so the real SQL return seal expires
+    # soon while the separately pinned binding/population remain current.
+    short_end=datetime.now(timezone.utc)+timedelta(seconds=1)
+    with psycopg.connect(x['admin']) as admin:
+        admin.execute('UPDATE oracle2.hosting_original_source_admissions SET expires_at=%s WHERE role_name=%s',
+            (short_end,target.binding.expected_session_role))
+    original=target._connection;owned=[]
+    @contextmanager
+    def expire_returned_seal_at_exit(connection=None):
+        if connection is not None:
+            with original(connection) as c:yield c
+            return
+        with original() as c:
+            owned.append(c);yield c
+        if len(owned)==1:
+            assert c.closed
+            # Test-only fixture administrator permits a later READ after the
+            # write committed; application never issues or renews authority.
+            # That later read MUST NOT renew the original returned SQL seal.
+            with psycopg.connect(x['admin']) as admin:
+                admin.execute('UPDATE oracle2.hosting_original_source_admissions SET expires_at=%s WHERE role_name=%s',
+                    (target.binding.expires_at,target.binding.expected_session_role))
+            time.sleep(max(0,(short_end-datetime.now(timezone.utc)).total_seconds())+.03)
+    monkeypatch.setattr(target,'_connection',expire_returned_seal_at_exit)
+    with pytest.raises(PermissionError,match='expired after transaction close'):
+        if operation=='phase':reader.commit_original_reading_response_v1(canonical_bytes(x['body']))
+        else:reviewer.finalize_original_reading_qualification_v1(reading,review,x['reading_text'])
+    assert len(owned)==2 and all(c.closed for c in owned)
+    with psycopg.connect(x['admin']) as observer:
+        assert observer.execute('SELECT count(*) FROM oracle2.original_phase_response_commits WHERE source_id=%s',
+            (x['ref'].source_id,)).fetchone()==((1 if operation=='phase' else 2),)
+        assert observer.execute('SELECT count(*) FROM oracle2.source_reading_qualifications WHERE source_id=%s',
+            (x['ref'].source_id,)).fetchone()==((0 if operation=='phase' else 1),)

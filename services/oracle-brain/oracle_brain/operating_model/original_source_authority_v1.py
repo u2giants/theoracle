@@ -152,6 +152,14 @@ class OriginalSourceResolverV1:
                 value=operation(c)
                 self.original_population_current_v1(self.binding.population.population_id,connection=c)
                 self._check(c)
+            # The write is committed, but its seal is not serving authority.
+            # Independently re-read the actual own-phase population AFTER real
+            # commit/close; never retry a write or borrow a requester getter.
+            snapshot=self.original_population_current_v1(self.binding.population.population_id)
+            b=self.binding
+            if datetime.now(timezone.utc)>=min(value.valid_until,snapshot.valid_until,
+                    b.expires_at,b.original_horizon):
+                raise PermissionError('original SQL seal or current authority expired after transaction close')
             return value
         except (psycopg.OperationalError,psycopg.InterfaceError) as exc:
             if attempted and (exc.sqlstate is None or exc.sqlstate.startswith('08')):
