@@ -25,6 +25,7 @@ S02_TESTS = [
 S03_TESTS = [
     "test_original_upload_chunks_v1.py", "test_original_upload_browser_v1.py",
     "test_consolidation_contracts_v1.py", "test_consolidation_sql_v1.py",
+    "test_consolidation_review_v1.py", "test_consolidation_review_browser_v1.py",
     "test_replacement_request_service_v1.py", "test_protected_web_python_conformance_v1.py",
     "test_owned_worker_database.py", "test_replacement_upload_service_v1.py",
     "test_replacement_upload_sql.py",
@@ -61,6 +62,7 @@ S04_TESTS = [
 # S05 — confirmed temporal operating model and corrections.
 S05_TESTS = [
     "test_consolidation_contracts_v1.py", "test_consolidation_sql_v1.py",
+    "test_consolidation_review_v1.py", "test_consolidation_review_browser_v1.py",
     "test_replacement_confirmation_settings_v1.py", "test_replacement_confirmation_service_v1.py", "test_replacement_confirmation_sql.py",
     "test_identity_resolution.py",
     "test_temporal_facts.py",

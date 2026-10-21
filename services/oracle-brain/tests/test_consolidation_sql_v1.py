@@ -675,3 +675,25 @@ def test_actual_decision_change_committed_readback_is_unknown_no_retry(admin_url
         authority.decision_change_v1(target_event=UUID(event['eventId']),action='withdraw',idempotency=uuid4(),deadline=datetime.now(timezone.utc)+timedelta(seconds=10))
     assert len(writes)==1
     with original(admin_url) as c:assert c.execute("SELECT kind,count(*) FROM oracle2.processing_model_events_v1 WHERE artifact_id=%s GROUP BY kind ORDER BY kind",(m.artifact_id,)).fetchall()==[('business-accept',1),('business-withdraw',1)]
+
+
+@pytest.mark.parametrize('damage',('runtime-denial','callback-cannot-grant'))
+def test_actual_optional_runtime_narrowing_cannot_replace_sql_authority(admin_url,sql_qualified_v3,tmp_path,damage):
+    from oracle_brain.operating_model.consolidation_ledger_v1 import persist_consolidation_revision_v1,ConsolidationCommitUnknown
+    stage=prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,return_stage=True)
+    ledger,authority,q=stage['ledger'],stage['authority'],stage['q'];calls=[]
+    def restrict():
+        calls.append(1)
+        if damage=='runtime-denial':raise PermissionError('invented runtime configuration changed')
+        return True  # descriptive return cannot authorize any SQL operation
+    if damage=='callback-cannot-grant':
+        with psycopg.connect(admin_url) as c:c.execute('INSERT INTO oracle2.processing_model_admission_revocations_v1 VALUES(%s,clock_timestamp())',(authority.binding.appointment_id,))
+    expected=ConsolidationCommitUnknown if damage=='runtime-denial' else psycopg.errors.InsufficientPrivilege
+    with pytest.raises(expected):
+        persist_consolidation_revision_v1(ledger,authority,payload=q['payload'],permission_digest=q['admission'].compiler_permission_hash,
+            dependencies=tuple(('artifact',str(e.manifest.artifact_id),'1') for e in stage['exts']),idempotency=uuid4(),
+            deadline=datetime.now(timezone.utc)+timedelta(seconds=10),_runtime_recheck=restrict)
+    assert len(calls)==int(damage=='runtime-denial')
+    with psycopg.connect(admin_url) as c:
+        assert c.execute('SELECT count(*) FROM oracle2.processing_model_revisions_v1 WHERE workspace_id=%s AND artifact_id=%s',(stage['w'],stage['ctx'].model_id)).fetchone()[0]==0
+        assert c.execute('SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND assertion_id=%s',(stage['w'],stage['ctx'].model_id)).fetchone()[0]==0

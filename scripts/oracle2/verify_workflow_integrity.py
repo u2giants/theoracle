@@ -64,7 +64,7 @@ DOCUMENTARY += ('research_rights','research_fetch','research_scheduler')
 DOCUMENTARY += ('research_freshness','applicability','recommendation_contract',
     'recommendation_identity','scenario_math','experiment_outcomes')
 DOCUMENTARY += ('report_v2_codec','report_v2_workflow','report_v2_store')
-DOCUMENTARY += ('consolidation_contracts_v1','consolidation_sql_v1')
+DOCUMENTARY += ('consolidation_contracts_v1','consolidation_sql_v1','consolidation_review_v1','consolidation_review_browser_v1')
 DOCUMENTARY += REPLACEMENT_RESULT_SUITES
 # Keep the light hosting/operator tail with documentary fixtures so every
 # heavy native suite owns one worker without exceeding the ten-worker cap.

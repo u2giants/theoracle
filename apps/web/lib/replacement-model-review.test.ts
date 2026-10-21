@@ -24,3 +24,13 @@ for(const damage of ['top','assertion','evidence','approval','unbounded'])test('
  const value=view();if(damage==='top')Object.assign(value,{role:'private'});else if(damage==='assertion')Object.assign(value.currentAssertions[0]!.assertion,{database_url:'private'});else if(damage==='evidence')Object.assign(value.currentAssertions[0]!.evidence,{config:'private'});else if(damage==='approval')value.policyEligibility='accepted';else value.currentAssertions=Array(65).fill(value.currentAssertions[0]);
  assert.throws(()=>parseModelReviewResponse(bytes(value)));
 });
+
+for(const damage of ['provenance-array','scope-array'])test('response refuses coercible enum '+damage,()=>{
+ const value=view();if(damage==='provenance-array')Object.assign(value.currentAssertions[0]!.assertion,{provenance:['employee_account']});else Object.assign(Reflect.get(value.currentAssertions[0]!.assertion.scope,'process'),{mode:['unknown']});
+ assert.throws(()=>parseModelReviewResponse(bytes(value)));
+});
+for(const damage of ['decision','decision_kind','scope'])test('request refuses coercible enum '+damage,()=>{
+ const decision={schema_version:1,operation:'decide',model_id:id,caller_deadline:'2099-01-01T00:00:00Z',version:1,expected_hash:hash,decision:'accept',decision_kind:'employee-account',scope:scope(),assertions:[{assertion_id:id,revision:1}],command_id:id};
+ if(damage==='scope')Object.assign(Reflect.get(decision.scope,'process'),{mode:['unknown']});else Object.assign(decision,{[damage]:[decision[damage as 'decision'|'decision_kind']]});
+ assert.throws(()=>validateModelReviewRequest(bytes(decision)));
+});

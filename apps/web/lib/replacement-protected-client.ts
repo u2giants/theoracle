@@ -3,7 +3,7 @@
 import * as https from 'node:https';
 import * as tls from 'node:tls';
 import { performance } from 'node:perf_hooks';
-import { canonicalHash, canonicalJson, canonicalUuid, instant, matchesIdentity, parseClosedJson, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding, MAX_ORIGINAL_BYTES, sha256, type InstalledBinding, type ProtectedBinding, type ViewerSourcePin } from './replacement-server-binding';
+import { canonicalHash, canonicalJson, canonicalUuid, instant, matchesIdentity, parseClosedJson, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding,readInstalledModelReviewBinding, MAX_ORIGINAL_BYTES, sha256, type InstalledBinding, type ProtectedBinding, type ViewerSourcePin } from './replacement-server-binding';
 import { readControlWindow, unavailableControl, privateControlHeaders } from './replacement-control-window';
 if (typeof window !== 'undefined') throw new Error('Replacement control unavailable');
 const failure = (): never => { throw new Error('Replacement control unavailable'); };
@@ -56,7 +56,7 @@ async function identity(binding: Readonly<ProtectedBinding>, window: Window): Pr
   remaining(window);
 }
 function current(initial: InstalledBinding<ProtectedBinding>, window: Window): void {
-  const again = initial.profile.purpose==='replacement-upload-web-binding-v1'?readInstalledUploadBinding():initial.profile.purpose==='replacement-original-web-binding-v1'?readInstalledViewerBinding():readInstalledBinding();
+  const again = initial.profile.purpose==='replacement-model-review-web-binding-v1'?readInstalledModelReviewBinding():initial.profile.purpose==='replacement-upload-web-binding-v1'?readInstalledUploadBinding():initial.profile.purpose==='replacement-original-web-binding-v1'?readInstalledViewerBinding():readInstalledBinding();
   if (canonicalJson(again.profile) !== canonicalJson(initial.profile)) return failure();
   window.end = Math.min(window.end,instant(again.profile.expires_at),instant(again.profile.original_horizon));
   remaining(window);
@@ -102,7 +102,7 @@ export function validateControlRequest(bytes: Uint8Array): Readonly<Record<strin
   return Object.freeze(p);
 }
 
-async function transport(installed: InstalledBinding<ProtectedBinding>, body: Buffer, window: Window,pin?:Readonly<ViewerSourcePin>): Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse> {
+async function transport(installed: InstalledBinding<ProtectedBinding>, body: Buffer, window: Window,pin?:Readonly<ViewerSourcePin>): Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket> {
   const p = installed.profile; const url = new URL(p.backend_origin);
   let socket: tls.TLSSocket | undefined; let request: ReturnType<typeof https.request> | undefined;
   const abort = () => { request?.destroy(); socket?.destroy(); };
@@ -128,7 +128,8 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
     connected.destroySoon = () => connected.end();
     // Keep observing the same verified socket after Node detaches its HTTP
     // parser. Count bytes only; HTTPS remains the sole semantic HTTP parser.
-    const headerLimit=16384,bodyLimit=pin?MAX_ORIGINAL_BYTES:16384;
+    const review=p.purpose==='replacement-model-review-web-binding-v1';
+    const headerLimit=16384,bodyLimit=review?262144:pin?MAX_ORIGINAL_BYTES:16384;
     let wireSize=0,headerPrefix=Buffer.alloc(0),headerLength:number|undefined,expectedWireSize:number|undefined,wireFailed=false;
     let rejectWire:(()=>void)|undefined;
     const wireRefuse=()=>{wireFailed=true;rejectWire?.();abort();};
@@ -147,24 +148,24 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
     const agent = new https.Agent({keepAlive:false,maxSockets:1});
     agent.createConnection = () => connected;
     try {
-      const response = new Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse>((resolve,reject) => {
-        let metadata: Readonly<ControlMetadata>|OriginalPacket|UploadResponse|undefined; let ended = false; let peerEnded = false; let responseCount = 0;
+      const response = new Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket>((resolve,reject) => {
+        let metadata: Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|undefined; let ended = false; let peerEnded = false; let responseCount = 0;
         const refuse = () => reject(new Error('Replacement control unavailable'));
         rejectWire=refuse;
         connected.once('end',() => { peerEnded = true; });
         connected.once('close',(hadError) => { if (hadError || !peerEnded || !ended || !metadata || wireFailed || headerLength===undefined || expectedWireSize===undefined || wireSize!==expectedWireSize) refuse(); else resolve(metadata); });
-        request = https.request({protocol:'https:',hostname:p.server_dns,port:url.port || 443,path:p.purpose==='replacement-upload-web-binding-v1'?p.upload_path:p.purpose==='replacement-original-web-binding-v1'?p.original_path:p.control_path,method:'POST',agent,headers:{'Content-Type':'application/json','Content-Length':String(body.length),'Connection':'close'}},res => {
+        request = https.request({protocol:'https:',hostname:p.server_dns,port:url.port || 443,path:p.purpose==='replacement-model-review-web-binding-v1'?p.review_path:p.purpose==='replacement-upload-web-binding-v1'?p.upload_path:p.purpose==='replacement-original-web-binding-v1'?p.original_path:p.control_path,method:'POST',agent,headers:{'Content-Type':'application/json','Content-Length':String(body.length),'Connection':'close'}},res => {
           responseCount++; if (responseCount !== 1 || res.statusCode !== 200 || res.headers['content-type'] !== (pin?(pin.media_type==='application/pdf'?'application/pdf':'text/plain; charset=utf-8'):'application/json') || res.headers['content-encoding'] !== undefined || res.headers['transfer-encoding'] !== undefined || res.headers.connection !== 'close') { refuse(); abort(); return; }
           const seen = new Set<string>();
           for (let i = 0; i < res.rawHeaders.length; i += 2) { const h = res.rawHeaders[i]!.toLowerCase(); if (seen.has(h)) { refuse(); abort(); return; } seen.add(h); }
           const len = res.headers['content-length'];
-          if (typeof len !== 'string' || !/^[1-9][0-9]{0,7}$/.test(len) || Number(len) > (pin?MAX_ORIGINAL_BYTES:p.purpose==='replacement-upload-web-binding-v1'?16384:4096) || (pin!==undefined&&Number(len)!==pin.byte_count)) { refuse(); abort(); return; }
+          if (typeof len !== 'string' || !/^[1-9][0-9]{0,7}$/.test(len) || Number(len) > (review?262144:pin?MAX_ORIGINAL_BYTES:p.purpose==='replacement-upload-web-binding-v1'?16384:4096) || (pin!==undefined&&Number(len)!==pin.byte_count)) { refuse(); abort(); return; }
           if(headerLength===undefined){wireRefuse();return;}expectedWireSize=headerLength+Number(len);
           if(wireSize>expectedWireSize){wireRefuse();return;}
           let lease:string|undefined;
-          if(pin){
+          if(pin||review){
             try{
-              const value=res.headers['x-oracle-original-valid-until'];
+              const value=res.headers[review?'x-oracle-review-valid-until':'x-oracle-original-valid-until'];
               if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value)||res.headers['cache-control']!=='no-store, private'||res.headers['x-content-type-options']!=='nosniff'||res.headers['accept-ranges']!==undefined)throw new Error();
               const end=instant(value);if(end<=Date.now()||end>window.end)throw new Error();
               lease=value;window.end=Math.min(window.end,end);connected.setTimeout(remaining(window));
@@ -176,7 +177,7 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
             catch { refuse(); abort(); }
           });
           res.once('aborted',refuse); res.once('error',refuse);
-          res.once('end',() => { try { remaining(window); if (!res.complete || size !== Number(len) || res.trailers && Object.keys(res.trailers).length) return refuse(); if(pin&&original&&lease){if(sha256(original)!==pin.original_sha256)throw new Error();if(pin.media_type==='application/pdf'){if(!original.subarray(0,5).equals(Buffer.from('%PDF-')))throw new Error();}else{const text=original.toString('utf8');if(text.includes('\0')||!Buffer.from(text,'utf8').equals(original))throw new Error();}remaining(window);metadata={data:original,validUntil:lease};}else metadata = p.purpose==='replacement-upload-web-binding-v1'?parseUploadResponse(Buffer.concat(chunks,size)):parseControlMetadata(Buffer.concat(chunks,size)); ended = true; } catch { refuse(); abort(); } });
+          res.once('end',() => { try { remaining(window); if (!res.complete || size !== Number(len) || res.trailers && Object.keys(res.trailers).length) return refuse(); if(pin&&original&&lease){if(sha256(original)!==pin.original_sha256)throw new Error();if(pin.media_type==='application/pdf'){if(!original.subarray(0,5).equals(Buffer.from('%PDF-')))throw new Error();}else{const text=original.toString('utf8');if(text.includes('\0')||!Buffer.from(text,'utf8').equals(original))throw new Error();}remaining(window);metadata={data:original,validUntil:lease};}else if(review&&lease)metadata={review:parseModelReviewResponse(Buffer.concat(chunks,size)),validUntil:lease};else metadata = p.purpose==='replacement-upload-web-binding-v1'?parseUploadResponse(Buffer.concat(chunks,size)):parseControlMetadata(Buffer.concat(chunks,size)); ended = true; } catch { refuse(); abort(); } });
         });
         request.once('error',refuse);
         request.setTimeout(remaining(window),() => { refuse(); abort(); });
@@ -255,6 +256,73 @@ export async function requestReplacementOriginal(request:Request):Promise<Respon
   finally{if(!handedOff)viewerBusy=false;}
 }
 
+interface ModelReviewPacket {readonly review:Readonly<Record<string,unknown>>;readonly validUntil:string;}
+function reviewEnum(value:unknown,choices:readonly string[]):boolean{return typeof value==='string'&&choices.includes(value);}
+function reviewScope(v:unknown):boolean{
+ if(!exact(v,['schema_version','process','customer','product','region'])||v.schema_version!==1)return false;
+ return ['process','customer','product','region'].every(k=>{const d=v[k];return exact(d,['schema_version','mode','identities'])&&d.schema_version===1&&reviewEnum(d.mode,['unknown','all','exact'])&&Array.isArray(d.identities)&&d.identities.length<=64&&d.identities.every(canonicalUuid)&&new Set(d.identities).size===d.identities.length&&(d.mode==='exact')===(d.identities.length>0)&&canonicalJson(d.identities)===canonicalJson([...d.identities].sort());});
+}
+function reviewAssertion(v:unknown):boolean{
+ if(!exact(v,['schema_version','assertion_id','revision','predecessor_hash','subject_id','predicate','value','unit','provenance','scope','valid_time','valid_from','valid_to','supporting_observations','opposing_observations','unknown_finding_ids','temporal_observations'])||v.schema_version!==1||!canonicalUuid(v.assertion_id)||!integer(v.revision)||!canonicalUuid(v.subject_id)||(v.revision===1)!==(v.predecessor_hash===null)||(v.predecessor_hash!==null&&!canonicalHash(v.predecessor_hash))||typeof v.predicate!=='string'||!v.predicate.length||v.predicate.length>200||typeof v.value!=='string'||!v.value.length||v.value.length>4000||(v.unit!==null&&(typeof v.unit!=='string'||!v.unit.length||v.unit.length>100))||!reviewEnum(v.provenance,['employee_account','documented_process','reported_policy','unknown'])||!reviewScope(v.scope))return false;
+ if(v.valid_time==='unknown'){if(v.valid_from!==null||v.valid_to!==null)return false;}else if(v.valid_time==='evidenced'){const at=instant(v.valid_from);if(v.valid_to!==null&&instant(v.valid_to)<=at)return false;}else return false;
+ return ['supporting_observations','opposing_observations','unknown_finding_ids','temporal_observations'].every(k=>Array.isArray(v[k])&&v[k].length<=1000&&v[k].every((x:unknown)=>typeof x==='string'&&x.length>0&&x.length<=200));
+}
+function reviewEvidence(v:unknown):boolean{
+ if(!exact(v,['supporting','opposing','unknown','temporal']))return false;
+ return Object.values(v).every(group=>Array.isArray(group)&&group.length<=1000&&group.every(q=>{
+  if(!exact(q,['schema_version','ref','start','end','quote'])||q.schema_version!==1||!Number.isSafeInteger(q.start)||(q.start as number)<0||!integer(q.end)||(q.end as number)<=(q.start as number)||typeof q.quote!=='string'||q.quote.length>65536||!exact(q.ref,['schema_version','workspace_id','source_id','revision','original_sha256','reading_sha256','parser_id']))return false;
+  const r=q.ref;return r.schema_version===1&&canonicalUuid(r.workspace_id)&&canonicalUuid(r.source_id)&&integer(r.revision)&&canonicalHash(r.original_sha256)&&canonicalHash(r.reading_sha256)&&typeof r.parser_id==='string'&&r.parser_id.length>0&&r.parser_id.length<=1024;
+ }));
+}
+export function parseModelReviewResponse(bytes:Uint8Array):Readonly<Record<string,unknown>>{
+  const v=parseClosedJson(bytes,262144);
+  if(!v||typeof v!=='object'||Array.isArray(v)||canonicalJson(v)!==Buffer.from(bytes).toString('utf8'))return failure();
+  const dto=v as Record<string,unknown>;
+  if(!canonicalUuid(dto.modelId)||dto.policyEligibility!=='unknown'||dto.automaticRebase!==false)return failure();
+  // Exact response union is selected by the actual fixed service operation.
+  const allowed='decision' in dto?['modelId','version','decision','decisionKind','eventId','policyEligibility','modelConfirmed','automaticRebase']:
+    dto.basePermitted===true?['modelId','currentVersion','currentContentHash','conflict','basePermitted','message','automaticRebase','policyEligibility','baseRecordedAt','currentRecordedAt','currentAssertions','totalAssertions','businessDecisions','changes','totalChanges','truncated']:
+    ['modelId','currentVersion','currentContentHash','conflict','basePermitted','message','automaticRebase','policyEligibility'];
+  if(!exact(dto,allowed))return failure();
+  if('decision' in dto){if(!integer(dto.version)||!reviewEnum(dto.decision,['accept','reject'])||!reviewEnum(dto.decisionKind,['employee-account','process-policy','company-policy'])||!canonicalUuid(dto.eventId)||dto.modelConfirmed!==false)return failure();}
+  else if(!integer(dto.currentVersion)||!canonicalHash(dto.currentContentHash)||typeof dto.conflict!=='boolean'||typeof dto.basePermitted!=='boolean'||typeof dto.message!=='string'||dto.message.length>256)return failure();
+  if(dto.basePermitted===true){instant(dto.baseRecordedAt);instant(dto.currentRecordedAt);if(!Array.isArray(dto.businessDecisions)||dto.businessDecisions.length>64||!Array.isArray(dto.currentAssertions)||dto.currentAssertions.length>64||typeof dto.totalAssertions!=='number'||!Number.isSafeInteger(dto.totalAssertions)||dto.totalAssertions<dto.currentAssertions.length||!Array.isArray(dto.changes)||dto.changes.length>64||typeof dto.totalChanges!=='number'||!Number.isSafeInteger(dto.totalChanges)||dto.totalChanges<dto.changes.length||typeof dto.truncated!=='boolean')return failure();}
+  if(dto.basePermitted===true){
+    for(const item of dto.currentAssertions as unknown[]){if(!exact(item,['assertion','evidence'])||!reviewAssertion(item.assertion)||!reviewEvidence(item.evidence))return failure();}
+    for(const item of dto.changes as unknown[]){if(!exact(item,['assertionId','change','before','after','beforeEvidence','afterEvidence'])||!canonicalUuid(item.assertionId)||!reviewEnum(item.change,['added','retired','changed'])||![item.before,item.after].every(a=>a===null||reviewAssertion(a))||![item.beforeEvidence,item.afterEvidence].every(e=>e===null||reviewEvidence(e)))return failure();}
+    for(const item of dto.businessDecisions as unknown[]){if(!exact(item,['eventId','recordedAt','decisionKind','scopeSha256','assertions','challenged','withdrawn','policyInForce'])||!canonicalUuid(item.eventId)||!canonicalHash(item.scopeSha256)||!reviewEnum(item.decisionKind,['employee-account','process-policy','company-policy'])||typeof item.challenged!=='boolean'||typeof item.withdrawn!=='boolean'||typeof item.policyInForce!=='boolean'||item.withdrawn&&item.policyInForce||(item.decisionKind!=='company-policy'&&item.policyInForce)||!Array.isArray(item.assertions)||item.assertions.length>1000||item.assertions.some(a=>!exact(a,['assertion_id','revision'])||!canonicalUuid(a.assertion_id)||!integer(a.revision)))return failure();instant(item.recordedAt);}
+  }
+  return Object.freeze(dto);
+}
+export function validateModelReviewRequest(bytes:Uint8Array):Readonly<Record<string,unknown>>{
+  const v=parseClosedJson(bytes,65536);
+  if(!v||typeof v!=='object'||Array.isArray(v)||canonicalJson(v)!==Buffer.from(bytes).toString('utf8'))return failure();
+  const p=v as Record<string,unknown>;if(p.schema_version!==1||!canonicalUuid(p.model_id))return failure();instant(p.caller_deadline);
+  const common=['schema_version','operation','model_id','caller_deadline'];
+  if(p.operation==='inspect'){if(!exact(p,[...common,'base_version'])||!integer(p.base_version))return failure();}
+  else if(p.operation==='decide'){
+    if(!exact(p,[...common,'version','expected_hash','decision','decision_kind','scope','assertions','command_id'])||!integer(p.version)||!canonicalHash(p.expected_hash)||!reviewEnum(p.decision,['accept','reject'])||!reviewEnum(p.decision_kind,['employee-account','process-policy','company-policy'])||!canonicalUuid(p.command_id)||!Array.isArray(p.assertions)||p.assertions.length<1||p.assertions.length>64)return failure();
+    const ids=new Set<string>();for(const a of p.assertions){if(!exact(a,['assertion_id','revision'])||!canonicalUuid(a.assertion_id)||!integer(a.revision)||ids.has(a.assertion_id))return failure();ids.add(a.assertion_id);}
+    if(!exact(p.scope,['schema_version','process','customer','product','region'])||p.scope.schema_version!==1)return failure();
+    for(const key of ['process','customer','product','region']){const d=p.scope[key];if(!exact(d,['schema_version','mode','identities'])||d.schema_version!==1||!reviewEnum(d.mode,['unknown','all','exact'])||!Array.isArray(d.identities)||d.identities.length>64||d.identities.some(x=>!canonicalUuid(x))||new Set(d.identities).size!==d.identities.length||(d.mode==='exact')!==(d.identities.length>0)||canonicalJson(d.identities)!==canonicalJson([...d.identities].sort()))return failure();}
+  }else return failure();
+  return Object.freeze(p);
+}
+export async function requestModelReview(request:Request):Promise<Response>{
+  const wall=Date.now(),mono=performance.now();const window:Window={wall,mono,end:wall+30000,signal:request.signal,proxyMonoEnd:process.hrtime.bigint()+30000000000n};
+  try{
+    const proxy=readControlWindow(request.headers);window.end=Math.min(window.end,proxy.wall_end);window.proxyMonoEnd=BigInt(proxy.mono_end);
+    const installed=readInstalledModelReviewBinding(),profile=installed.profile;window.end=Math.min(window.end,instant(profile.expires_at),instant(profile.original_horizon));
+    origin(request,profile);await identity(profile,window);
+    const body=await readBody(request,window),dto=validateModelReviewRequest(body),end=instant(dto.caller_deadline);
+    if(dto.model_id!==profile.model_id||end<=Date.now()||end>window.end)return failure();window.end=end;
+    current(installed,window);await identity(profile,window);current(installed,window);
+    const result=await transport(installed,body,window);if(!('review' in result)||result.review.modelId!==dto.model_id)return failure();
+    current(installed,window);await identity(profile,window);current(installed,window);remaining(window);
+    return Response.json(result.review,{status:200,headers:privateControlHeaders});
+  }catch{return unavailableControl();}
+}
+
 // Same fixed auth/TLS/file/window owners; only this installed purpose chooses
 // the chunk endpoint. No transport selector is accepted from the browser.
 import { UPLOAD_CHUNK_BYTES,UPLOAD_MAX_REQUEST_BYTES,type UploadResponse } from './replacement-upload-contract';
@@ -300,4 +368,14 @@ export async function requestReplacementUpload(request:Request):Promise<Response
   current(installed,window);await identity(profile,window);current(installed,window);remaining(window);
   return new Response(canonicalJson(result),{status:200,headers:{...privateControlHeaders,'Content-Type':'application/json'}});
  }catch{return unavailableControl();}
+}
+
+/** Page props use the SAME actual identity owner; never disclose the installed
+ * model selector merely because a different employee can render the page. */
+export async function authenticatedModelReviewPageModel():Promise<string|undefined>{
+ const wall=Date.now(),mono=performance.now();const window:Window={wall,mono,end:wall+30000,signal:AbortSignal.timeout(30000),proxyMonoEnd:process.hrtime.bigint()+30000000000n};
+ try{
+  const installed=readInstalledModelReviewBinding();window.end=Math.min(window.end,instant(installed.profile.expires_at),instant(installed.profile.original_horizon));
+  current(installed,window);await identity(installed.profile,window);current(installed,window);return installed.profile.model_id;
+ }catch{return undefined;}
 }

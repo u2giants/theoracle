@@ -12,17 +12,17 @@ class ConsolidationCommitUnknown(PermissionError):
     """The write was attempted; read-only reconciliation is required, never retry."""
 
 
-def persist_consolidation_revision_v1(ledger,authority,*,payload,permission_digest,dependencies,idempotency,deadline,protected_settings=None,worker_job=None):
+def persist_consolidation_revision_v1(ledger,authority,*,payload,permission_digest,dependencies,idempotency,deadline,_runtime_recheck=None):
     require_explicit_compiler_ledger_v3(ledger)
     if (type(authority) is not ConsolidationAuthorityV1 or authority.binding.operation!='consolidate'
             or ledger.url!=authority.url or ledger.principal!=authority.binding.principal_id):
         raise PermissionError('exact current canonical compiler and separate consolidation appointment required')
     authority._deadline(deadline)
-    if protected_settings is not None:
-        from oracle_brain.hosting.purpose_journey_v2 import CompilerWorkerSettingsV2
-        if (type(protected_settings) is not CompilerWorkerSettingsV2 or protected_settings.resolver is not ledger.processing_sources
-                or protected_settings.config_sha256!=authority.binding.config_hash):
-            raise PermissionError('exact protected compiler metadata consumer required')
+    # Optional runtime narrowing cannot grant or bypass any canonical SQL,
+    # source, original, independent semantic or exact appointment requirement.
+    # Hosting owns its concrete configuration and never enters this core.
+    if _runtime_recheck is not None and not callable(_runtime_recheck):
+        raise TypeError('internal restrictive runtime recheck required')
     core=ConsolidationCoreV1.model_validate_json(canonical_bytes(payload['consolidation_core']))
     from .purpose_qualification_v3 import PurposeAssemblyQualificationV3
     from .semantic_acceptance import sealed
@@ -61,13 +61,8 @@ def persist_consolidation_revision_v1(ledger,authority,*,payload,permission_dige
                  Jsonb([r.model_dump(mode='json') for r in receipts.values()]),*authority._arguments(deadline),idempotency)).fetchone()[0]
             if result['manifest']!=manifest.model_dump(mode='json'):raise PermissionError('canonical commit returned another artifact')
             authority._check(c,deadline);ledger.processing_sources._check(c)
-            if protected_settings is not None:
-                from oracle_brain.hosting.purpose_journey_v2 import _worker_file
-                _worker_file(protected_settings.config_path,protected_settings.config_sha256)
-                if protected_settings.jobs.current(worker_job.job_id,now=datetime.now(timezone.utc))!=worker_job:
-                    raise PermissionError('externally appointed compiler job changed before commit')
-                if qualification_hash not in protected_settings.semantic.current(datetime.now(timezone.utc)):
-                    raise PermissionError('current external semantic registry changed before commit')
+            if _runtime_recheck is not None:
+                _runtime_recheck()
             body_complete=True
         committed=True
         authority._check_after_close(deadline,result)

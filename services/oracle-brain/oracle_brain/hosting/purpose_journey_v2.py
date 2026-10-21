@@ -1204,7 +1204,7 @@ def _compile_purpose_worker_result_v3(settings,job,*,consolidation_authority=Non
     from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
     from oracle_brain.operating_model.purpose_qualification_v3 import (
         PurposeSemanticAdmissionV3,compile_purpose_assembly_v3)
-    from oracle_brain.operating_model.semantic_acceptance import IndependentAssessment
+    from oracle_brain.operating_model.semantic_acceptance import IndependentAssessment,sealed
     _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
         and job.phase=='compile','exact externally appointed compiler phase required')
     settings.authorize(job)
@@ -1275,18 +1275,32 @@ def _compile_purpose_worker_result_v3(settings,job,*,consolidation_authority=Non
     # completed phase grants are historical receipts, never renewed here.
     if type(ctx) is ConsolidationAssemblyJobContextV1:
         from oracle_brain.operating_model.consolidation_authority_v1 import ConsolidationAuthorityV1
-        from oracle_brain.operating_model.consolidation_ledger_v1 import persist_consolidation_revision_v1
+        from oracle_brain.operating_model.consolidation_ledger_v1 import persist_consolidation_revision_v1,ConsolidationCommitUnknown
         _require(type(consolidation_authority) is ConsolidationAuthorityV1
             and consolidation_authority.binding.config_hash==settings.config_sha256
             and consolidation_authority.binding.runtime_hash==settings.config.runtime_hash
             and consolidation_authority.binding.principal_id==settings.config.actor_id,
             'separate current externally appointed consolidation consumer required')
+        _require(type(settings) is CompilerWorkerSettingsV2
+            and settings.resolver is ledger.processing_sources
+            and settings.config_sha256==consolidation_authority.binding.config_hash,
+            'exact protected compiler metadata consumer required')
+        def current_consolidation_worker():
+            _worker_file(settings.config_path,settings.config_sha256)
+            _require(settings.jobs.current(job.job_id,now=datetime.now(timezone.utc))==job,
+                'externally appointed compiler job changed before commit')
+            _require(sealed(admission) in settings.semantic.current(datetime.now(timezone.utc)),
+                'current external semantic registry changed before commit')
+        current_consolidation_worker()
         result=persist_consolidation_revision_v1(ledger,consolidation_authority,payload=payload,
             permission_digest=admission.compiler_permission_hash,
             dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in ctx.extractions),
-            idempotency=idempotency,deadline=deadline,protected_settings=settings,worker_job=job)
-        settings.authorize(job)
-        consolidation_authority._check_after_close(deadline,result[1])
+            idempotency=idempotency,deadline=deadline,_runtime_recheck=current_consolidation_worker)
+        try:
+            settings.authorize(job)
+            consolidation_authority._check_after_close(deadline,result[1])
+        except Exception:
+            raise ConsolidationCommitUnknown('committed consolidation runtime readback unavailable; read-only reconciliation required, no automatic retry') from None
         return result
     _require(consolidation_authority is None,'consolidation consumer cannot reinterpret old captures')
     return ledger.persist(workspace_id=job.workspace_id,artifact_id=inputs.artifact_id,version=inputs.artifact_version,

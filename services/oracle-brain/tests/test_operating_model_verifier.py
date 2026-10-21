@@ -287,7 +287,7 @@ def test_actual_python_web_peer_conformance_is_mandatory_not_a_skipped_browser_p
 
 def test_canonical_consolidation_is_required_once_with_017_before_018():
     from scripts.oracle2.verify_phase import S03_TESTS, S05_TESTS
-    for name in ('consolidation_contracts_v1', 'consolidation_sql_v1'):
+    for name in ('consolidation_contracts_v1', 'consolidation_sql_v1','consolidation_review_v1','consolidation_review_browser_v1'):
         assert verifier.required_suites('W10').count(name) == 1
         assert S03_TESTS.count('test_' + name + '.py') == 1
         assert S05_TESTS.count('test_' + name + '.py') == 1
