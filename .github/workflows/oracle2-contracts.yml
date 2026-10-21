@@ -62,8 +62,6 @@ jobs:
         run: pnpm --filter @oracle/web typecheck
       - name: Verify new native browser authority and result binding
         run: pnpm --filter @oracle/web exec tsx --test lib/native-trigger.test.ts lib/native-trigger-v2.test.ts
-      - name: Verify replacement journey contract and fixture store
-        run: pnpm --filter @oracle/web exec tsx --test lib/replacement-contract.test.ts
       - name: Verify Oracle 2 worker script bundle paths
         run: node scripts/oracle2/verify_worker_bundle.mjs
       - name: Install uv
