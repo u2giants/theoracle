@@ -34,11 +34,10 @@ CORE_INFRA_SUITES=('authority','bootstrap_pilot_authority','browser_diagnostic_c
     'native_browser_metadata_role','readonly_delivery_fixture_dag')
 GRAPH_HOLISTIC_SUITES=('graph_adapter','graph_evidence_answer','graph_tls_options',
     'holistic_graphrag','holistic_graphrag_integration','holistic_runtime','pilot_journey')
-# original_byte_storage is intentionally NOT in this required list: it imports
-# test_binary_documents (docx/xlsx/pptx helpers) which exists only on unmerged
-# commit 238bd63 ("Prepare bounded native binary document provenance views").
-# A required suite cannot skip — re-add the entry once that module lands on main.
+# Native binary views and original-byte custody are mandatory now that their
+# implementation and fixtures land together. Missing imports must fail, not skip.
 ORIGINAL_PROCESSING_SUITES=('original_corpus_import','original_corpus_read',
+    'binary_documents','original_byte_storage',
     'original_intake_v1','original_native_jobs_v1','original_pdf_image_views',
     'original_population_sql','original_qualification_v1','original_qualification_runtime','original_reading',
     'replacement_original_lifecycle','replacement_qualification_sql',
@@ -56,6 +55,7 @@ DOCUMENTARY += CORE_INFRA_SUITES
 DOCUMENTARY += GRAPH_HOLISTIC_SUITES
 DOCUMENTARY += ORIGINAL_PROCESSING_SUITES
 DOCUMENTARY += RAW_ORIGINAL_SUITES
+DOCUMENTARY += ('research_rights','research_fetch','research_scheduler')
 DOCUMENTARY += REPLACEMENT_RESULT_SUITES
 # Keep the light hosting/operator tail with documentary fixtures so every
 # heavy native suite owns one worker without exceeding the ten-worker cap.
