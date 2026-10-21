@@ -48,10 +48,15 @@ jobs:
       ORACLE2_TEST_CONFIRMED_URL: redis://:oracle2_confirmed_local_only@127.0.0.1:57680
       ORACLE2_TEST_BLOB_ENDPOINT: http://127.0.0.1:57666
       ORACLE2_TEST_FALKORDB_URL: redis://:oracle2_candidate_local_only@127.0.0.1:57679
-      ORACLE_TARGET_PROFILE_PATH: ${{ runner.temp }}/oracle-target-${{ github.run_id }}-${{ github.run_attempt }}/targets.json
       GRAPHITI_TELEMETRY_ENABLED: 'false'
       ORACLE2_TELEMETRY_MODE: 'off'
     steps:
+      - name: Select private metadata path from native runner context
+        run: |
+          test -n "$RUNNER_TEMP"
+          test -n "$GITHUB_RUN_ID"
+          test -n "$GITHUB_RUN_ATTEMPT"
+          printf 'ORACLE_TARGET_PROFILE_PATH=%s/oracle-target-%s-%s/targets.json\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
       - name: Full-history checkout for frozen S01 corpus
         uses: actions/checkout@v4
         with:

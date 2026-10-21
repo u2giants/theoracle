@@ -2,6 +2,7 @@
 from pathlib import Path
 import os
 import subprocess
+import tempfile
 import unittest
 import yaml
 
@@ -41,7 +42,31 @@ class TrustBoundary(unittest.TestCase):
         self.assertEqual(job['needs'], 'trusted-context')
         self.assertEqual(job['if'], "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)")
         self.assertEqual(job['runs-on'], ['self-hosted','edge-dev3'])
-        self.assertEqual(job['steps'][0]['uses'], 'actions/checkout@v4')
+        self.assertNotIn('uses', job['steps'][0])
+        self.assertEqual(job['steps'][1]['uses'], 'actions/checkout@v4')
+
+    def test_profile_selector_uses_native_runner_context_before_checkout(self):
+        job = JOBS['oracle2-offline']
+        self.assertNotIn('ORACLE_TARGET_PROFILE_PATH', job['env'])
+        self.assertNotIn('${{ runner.', str(job.get('env', {})))
+        step = job['steps'][0]
+        self.assertNotIn('uses', step)
+        self.assertNotIn('env', step)
+        with tempfile.TemporaryDirectory(prefix='oracle workflow ') as directory:
+            envfile = Path(directory) / 'github env'
+            envfile.touch()
+            result = subprocess.run(['bash', '-e', '-c', step['run']],
+                env={**os.environ, 'RUNNER_TEMP': directory, 'GITHUB_RUN_ID': '123',
+                     'GITHUB_RUN_ATTEMPT': '2', 'GITHUB_ENV': str(envfile)},
+                capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '')
+            self.assertEqual(envfile.read_text(),
+                f'ORACLE_TARGET_PROFILE_PATH={directory}/oracle-target-123-2/targets.json\n')
+            envfile.write_text('')
+            self.assertNotEqual(shell(step['run'], RUNNER_TEMP='', GITHUB_RUN_ID='123',
+                GITHUB_RUN_ATTEMPT='2', GITHUB_ENV=str(envfile)), 0)
+            self.assertEqual(envfile.read_text(), '')
 
     def test_required_result_never_accepts_skipped_or_failed_suites(self):
         result = JOBS['offline-result']
