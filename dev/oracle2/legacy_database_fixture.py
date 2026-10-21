@@ -71,7 +71,7 @@ def stop_owned_process(process):
 
 
 def _identity(connection, name):
-    return connection.execute("SELECT oid,pg_get_userbyid(datdba),obj_description(oid,'pg_database') FROM pg_database WHERE datname=%s", (name,)).fetchone()
+    return connection.execute("SELECT oid,pg_get_userbyid(datdba),shobj_description(oid,'pg_database') FROM pg_database WHERE datname=%s", (name,)).fetchone()
 
 
 def _read_receipt(path, expected_hash):
@@ -138,6 +138,7 @@ def owned_legacy_database():
     created = False
     receipt = None
     cleaned = False
+    phase = 'database-create'
     try:
         with psycopg.connect(base, autocommit=True) as host:
             if _identity(host, name) is not None:
@@ -148,6 +149,7 @@ def owned_legacy_database():
             recovery['oid'] = initial[0] if initial else None
             recovery_path.write_text(json.dumps(recovery, sort_keys=True))
             host.execute(sql.SQL('COMMENT ON DATABASE {} IS {}').format(sql.Identifier(name), sql.Literal('oracle-legacy-fixture:' + nonce)))
+            phase = 'database-marker'
             oid, owner, marker = _identity(host, name)
             if owner != parts['user'] or marker != 'oracle-legacy-fixture:' + nonce:
                 raise PermissionError('new legacy ownership differs')
@@ -160,13 +162,22 @@ def owned_legacy_database():
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'wb') as stream: stream.write(body)
         handle = LegacyDatabase(url, str(path), hashlib.sha256(body).hexdigest())
+        phase = 'child-ownership'
         validate_legacy_database(url, handle.receipt_path, handle.receipt_hash)
+        phase = 'legacy-schema'
         with psycopg.connect(url) as connection:
             for migration in PROFILE:
                 connection.execute((ROOT / 'services/oracle-brain/sql' / migration).read_text())
+        phase = 'checkpoint-schema'
         with psycopg.connect(url, autocommit=True, prepare_threshold=0, row_factory=dict_row) as connection:
             setup_checkpoint_tables(connection)
+        phase = 'browser-journey'
         yield handle
+    except BaseException as error:
+        # Preserve only the safe class and fixed phase, never SQL/URL/provider text.
+        recovery.update(failure_type=type(error).__name__, failure_phase=phase)
+        recovery_path.write_text(json.dumps(recovery, sort_keys=True))
+        raise
     finally:
         if isinstance(sys.exc_info()[1], LegacyCleanupBlocked):
             raise LegacyCleanupBlocked('owned worker still active; legacy database receipt retained')

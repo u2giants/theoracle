@@ -183,3 +183,34 @@ def test_holistic_browser_cleanup_failure_is_not_consumed(monkeypatch):
     monkeypatch.setattr(browser, '_terminate', denied)
     with pytest.raises(fixture.LegacyCleanupBlocked):
         browser._browser_run(['invented'], cwd=ROOT, env={}, timeout=100)
+
+
+def test_database_identity_reads_shared_object_comment_catalog():
+    from unittest.mock import Mock
+    identity = (42, 'oracle2_admin', 'oracle-legacy-fixture:invented')
+    def execute(query, args):
+        assert args == ('oracle_legacy_invented',)
+        # PostgreSQL stores database comments in pg_shdescription, not
+        # per-database pg_description. Model that actual catalog distinction.
+        marker = identity[2] if 'shobj_description' in query else None
+        return SimpleNamespace(fetchone=lambda: (*identity[:2], marker))
+    connection = Mock(execute=execute)
+    assert fixture._identity(connection, 'oracle_legacy_invented') == identity
+
+
+def test_marker_setup_failure_remains_in_recovery_when_cleanup_refuses(host, monkeypatch, tmp_path):
+    original = fixture._identity
+    def missing_marker(connection, name):
+        identity = original(connection, name)
+        return (*identity[:2], None) if identity else None
+    monkeypatch.setattr(fixture, '_identity', missing_marker)
+    with pytest.raises(PermissionError, match='cleanup ownership changed'):
+        with fixture.owned_legacy_database():
+            pytest.fail('marker mismatch must prevent yielding')
+    records = list(tmp_path.glob('oracle-legacy-db-*/recovery.json'))
+    assert len(records) == 1
+    recovery = json.loads(records[0].read_text())
+    assert recovery['failure_type'] == 'PermissionError'
+    assert recovery['failure_phase'] == 'database-marker'
+    assert 'password' not in recovery and 'url' not in recovery
+    assert host.state
