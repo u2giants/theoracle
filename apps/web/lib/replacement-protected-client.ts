@@ -1,5 +1,5 @@
 /** Server-only, fixed-peer control transport. No admission, retries, result API,
- * writer capability or fixture fallback. Not wired to any route here. */
+ * writer capability or fixture fallback. Used by the protected control route. */
 import * as https from 'node:https';
 import * as tls from 'node:tls';
 import { performance } from 'node:perf_hooks';
