@@ -33,14 +33,20 @@ test.describe('S03 pilot journey', () => {
       sessionStorage.setItem('oracle2-draft-id', draft);
     }, { source: sourceId, draft: draftId });
     await pilotLogin(page);
-    const response = await page.request.post('/api/consultant/questions', {
-      data: { question: 'What is the forklift battery charging schedule?', sourceId, draftId },
-    });
-    expect(response.status()).toBe(202);
-    const { runId } = await response.json();
+    const response = await page.evaluate(async ({ sourceId, draftId }) => {
+      const result = await fetch('/api/consultant/questions', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: 'What is the forklift battery charging schedule?', sourceId, draftId }),
+      });
+      return { status: result.status, body: await result.json() };
+    }, { sourceId, draftId });
+    expect(response.status).toBe(202);
+    const { runId } = response.body;
     await expect.poll(async () => {
-      const run = await page.request.get(`/api/consultant/runs/${runId}`);
-      return (await run.json()).status;
+      return page.evaluate(async (id) => {
+        const response = await fetch(`/api/consultant/runs/${id}`, { credentials: 'same-origin' });
+        return (await response.json()).status;
+      }, runId);
     }, { timeout: 30_000 }).toBe('completed');
     await page.evaluate((id) => sessionStorage.setItem('oracle2-run-id', id), runId);
     await page.reload();
