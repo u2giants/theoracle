@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b334be2843af00390c578b3831e5fe34fbbf1061 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Oracle project status closeout
 
 Created: 2026-08-06 15:10 UTC on machine `t16` by Codex.
@@ -13,7 +14,7 @@ responsibilities, systems, decisions, exceptions, and changes.
 
 The code is the `u2giants/theoracle` TypeScript/pnpm monorepo at `C:\repos\oracle`, branch `main`.
 The Next.js application runs at `https://oracle.designflow.app`; Trigger.dev project
-`proj_wgpzsvhmsopqhvwqaycn` runs workers; Supabase project `eqccjfbyrywsqkxxpjvg` stores production
+`proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` runs workers; Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` stores production
 data and authentication. `MACRO_FIRST_IMPLEMENTATION_PLAN.md` is the architectural plan of record.
 The complete pre-2026-08-06 operational history was preserved verbatim in
 `HANDOFF.d/2026-08-06T1510Z-t16-codex-legacy-migrated-handoff.md`.
@@ -145,8 +146,8 @@ commits, or chat.
 ## 8. Access and environment
 
 Local checkout: `C:\repos\oracle`, branch `main`, Windows PowerShell on machine `t16`. Production
-web: `https://oracle.designflow.app`. Supabase project: `eqccjfbyrywsqkxxpjvg`. Trigger.dev project:
-`proj_wgpzsvhmsopqhvwqaycn`. Vercel project: `prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
+web: `https://oracle.designflow.app`. Supabase project: `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`. Trigger.dev project:
+`proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`. Vercel project: `prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
 
 The machine has authenticated GitHub tooling and connected Trigger.dev/Vercel/Supabase tooling as
 documented in `AGENTS.md` and the legacy handoff. Durable credentials belong in 1Password vault

@@ -51,22 +51,25 @@ def test_falkordb_client_accepts_tls_options(monkeypatch):
             "ssl_check_hostname"} <= accepted
 
 
-def test_seed_target_guard():
+def test_seed_target_guard(monkeypatch):
     import importlib.util, pathlib
     path = pathlib.Path(__file__).resolve().parents[3] / "scripts/oracle2/seed_hosted_preview.py"
     spec = importlib.util.spec_from_file_location("seed_hosted_preview", path)
     mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-    ref = "abcdefghijklmnopqrst"
+    ref = 'a' * 20  # Invented preview tenant.
+    denied_ref = 'z' * 20
+    import hashlib
+    monkeypatch.setattr(mod, 'FORBIDDEN_REF_SHA256', {*mod.FORBIDDEN_REF_SHA256, hashlib.sha256(denied_ref.encode()).hexdigest()})
     ok = [f"postgresql://postgres:x@db.{ref}.supabase.co:5432/postgres?sslmode=require",
           f"postgresql://postgres.{ref}:x@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require"]
     for url in ok:
         mod._require_target(url, ref)
-    bad = [f"postgresql://postgres:x@db.{ref}.supabase.co:5432/postgres",
-           f"postgresql://postgres:x@db.{ref}.supabase.co.evil.example:5432/postgres?sslmode=require",
-           f"postgresql://postgres.other:x@aws-0-us-east-1.pooler.supabase.com/postgres?sslmode=require",
-           f"postgresql://postgres:x@db.eqccjfbyrywsqkxxpjvg.supabase.co/postgres?sslmode=require"]
-    for url in bad:
+    bad = [(f"postgresql://postgres:x@db.{ref}.supabase.co:5432/postgres", ref),
+           (f"postgresql://postgres:x@db.{ref}.supabase.co.evil.example:5432/postgres?sslmode=require", ref),
+           ("postgresql://postgres.other:x@aws-0-us-east-1.pooler.supabase.com/postgres?sslmode=require", ref),
+           (f"postgresql://postgres:x@db.{denied_ref}.supabase.co/postgres?sslmode=require", denied_ref)]
+    for url, target in bad:
         with pytest.raises(PermissionError):
-            mod._require_target(url, "eqccjfbyrywsqkxxpjvg" if "eqcc" in url else ref)
+            mod._require_target(url, target)
     with pytest.raises(PermissionError):
         mod._require_outside_repo(path.parent / "x.json", path.parents[2])

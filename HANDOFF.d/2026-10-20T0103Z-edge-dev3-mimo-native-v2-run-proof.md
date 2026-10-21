@@ -3,6 +3,8 @@ issue: 27
 status: OPEN
 owner: mimo/native-v2-run-proof-standing-order
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 825084a42d0bcf64dc3421b345e45065235bb332 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # Native-v2 browser Run proof complete; standing order: no testing half-built software
 
@@ -34,7 +36,7 @@ Published on [issue #27](https://github.com/u2giants/theoracle/issues/27) (body 
 
 - Website: Vercel preview (this proof used `https://theoracle-81w0ioq9y-popcre.vercel.app/consultant/native-acceptance`, deployment `dpl_AHKseP3yD5nWeddqoqe8VhystCcF`, branch `codex/native-v2-indexer-env`).
 - Long jobs: Trigger.dev task `oracle2-native-invented-v2`.
-- Graph: FalkorDB. Dedicated synthetic DB: `oracle_native_proof_v2` on S03 Supabase `wfdrklofsczspazshaib` (NOT `popcre/shared-db`).
+- Graph: FalkorDB. Dedicated synthetic DB: `oracle_native_proof_v2` on S03 Supabase `PRIVATE_REFERENCE_SHA256_620b6d5ddc335d4bd407f56c4e534cd8141fbcb6772483488a0180abbec651dd` (NOT `popcre/shared-db`).
 - Browser control: CUA / Chrome on host `edge-dev3` (Linux). Playwright is forbidden as a bypass for this proof.
 
 Broader product (consultant overhaul) is planned but **not fully rebuilt**. S01 offline / S02 synthetic are historical; S03 unaccepted; W01–W12 and S04–S16 gates open. See [plan STATUS](https://github.com/u2giants/theoracle/blob/main/plan_oracle_consultant_overhaul.md).
@@ -69,7 +71,7 @@ Production gate used: Muse security-review APPROVE (implementer mimo), report sh
 1. **Reuse the previous re-sealed ticket.** It expired 2026-10-19 01:11:47 UTC (~19h before resume). Do not renew; a fresh re-seal is new timestamps only.
 2. **Assume “re-seal” = run `reticket.py` only.** That script updates web/worker bundles + Vercel + Trigger + `operating_view_runs.expires_at` **only**. It is incomplete (see §5).
 3. **Trigger import `override: false`.** HTTP 400. Use `override: true` for the two V2 keys.
-4. **Trigger API project id `cmulapth5239xn70j4yfpt3ta`.** 400. Use external ref `proj_jtaztxnmppzfchdsgvea`.
+4. **Trigger API project id `cmulapth5239xn70j4yfpt3ta`.** 400. Use external ref `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285`.
 5. **`locator.fill` / paste for the token.** 1Password paste-confirm. Never approve paste; type only.
 6. **Trust `input.value.length` on a password field via evaluate.** Length reported 10 while 64 were typed; evaluate hides password values. Use Sign-in button enabled state as the non-empty signal.
 7. **Playwright as the proof path.** Forbidden. CUA / CDP input events only.
@@ -127,7 +129,7 @@ You’ll know step 1 held when no session comment asks Albert or Ilona/Jessica f
 - Chrome: `/opt/google/chrome/chrome`. CDP needs `--user-data-dir=/tmp/chrome-cdp-profile --remote-debugging-port=9222`.
 - Codex CUA: `/home/ahazan/.local/bin/codex exec --skip-git-repo-check --approve-for-me`. Extension-host under `~/.codex/plugins/cache/openai-bundled/chrome/latest/`.
 - Vercel CLI: `node /home/ahazan/.npm/_npx/69f9afb961c37556/node_modules/vercel/dist/index.js … --scope popcre`. Project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
-- Trigger key file (protected): `/tmp/tmp.1gQ3Iubov5/trigger-prod-key.json`. Project ref `proj_jtaztxnmppzfchdsgvea`.
+- Trigger key file (protected): `/tmp/tmp.1gQ3Iubov5/trigger-prod-key.json`. Project ref `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285`.
 - Admin URL file: `/tmp/tmp.reticket-v2/admin.url` (also 1Password `vibe_coding` item `ttsxtbm4jarw377iuh4qj2ysd4` field `ORACLE2_PREVIEW_ADMIN_URL`).
 - Native token file: `/tmp/tmp.N2M9gSBIdt/actual-native-v2-custody/compiled-native-v2-permission/native-login-token` (64 bytes).
 - Re-seal bundles: `/tmp/tmp.reticket-v3/` (web+worker). Original permission pack: `/tmp/tmp.N2M9gSBIdt/actual-native-v2-custody/compiled-native-v2-permission/`.

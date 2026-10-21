@@ -31,9 +31,23 @@ def compose_block(text: str | None = None) -> str:
     return blocks[0]
 
 
+def _private_controlplane_host():
+    from urllib.parse import urlsplit
+    sys.path.insert(0, str(HERE.parents[2] / 'services' / 'oracle-brain'))
+    from oracle_brain.private_targets import read_private_target
+    return urlsplit(read_private_target('coolify_api_base_url')).hostname
+
+
+HOST_MARKER = 'PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae'
+
+
 def render(role: str, block: str | None = None) -> str:
     port, pub = ROLES[role]
-    return ((compose_block() if block is None else block).replace("<ROLE>", role)
+    source = compose_block() if block is None else block
+    if source.count(HOST_MARKER) != 1 or re.search(r'PRIVATE_HOST_SHA256_(?!69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae)', source):
+        raise ValueError('exact pinned controlplane marker required')
+    source = source.replace(HOST_MARKER, _private_controlplane_host())
+    return (source.replace("<ROLE>", role)
             .replace("<PUBPORT>", str(pub)).replace("<PORT>", str(port)))
 
 
@@ -47,7 +61,13 @@ def normalize(rendered: str) -> str:
                              env={**env, **DUMMY_ENV}, capture_output=True, text=True, cwd=d)
     if out.returncode != 0:
         raise RuntimeError(out.stderr.strip() or "docker compose config failed")
-    return json.dumps(json.loads(out.stdout), indent=1, sort_keys=True) + "\n"
+    document = json.loads(out.stdout)
+    # One defined legacy-real binding only: wrong hosts must fail, never redact into approval.
+    bindings = document['services']['tailnet-fwd']['ports']
+    if len(bindings) != 1 or bindings[0]['host_ip'] != _private_controlplane_host():
+        raise ValueError('exact pinned controlplane binding required')
+    bindings[0]['host_ip'] = HOST_MARKER
+    return json.dumps(document, indent=1, sort_keys=True) + "\n"
 
 
 def compose_version() -> str:
@@ -115,7 +135,10 @@ def main(argv: list[str] | None = None) -> int:
         print(note)
     bad = 0
     for role in ROLES:
-        errs = check(role, render(role, block))
+        try:
+            errs = check(role, render(role, block))
+        except Exception as exc:
+            errs = [f"malformed compose: {type(exc).__name__}: {exc}"]
         print(f"{role}: {'PASS' if not errs else 'FAIL ' + '; '.join(errs)}")
         bad += bool(errs)
     return 1 if bad else 0

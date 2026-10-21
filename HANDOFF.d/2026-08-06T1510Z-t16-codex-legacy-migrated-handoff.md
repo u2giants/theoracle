@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 720b26d972ca785813f58ea161cd2ee34bfb9713 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # HANDOFF — Prior completed work and remaining historical watchouts
 
 Last updated: 2026-07-29. Delete this file once every plan below is complete, intentionally
@@ -71,7 +72,7 @@ GAP-2's production planner and credentialed live gate are released in commit
 session `019facbb-8e3a-7800-9ad5-fdcdaa2f5cb8`. CI run `30432098788` passed, and Vercel deployed
 the exact commit.
 
-The pinned live proof used current Supabase project `eqccjfbyrywsqkxxpjvg`, confirmed the
+The pinned live proof used current Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`, confirmed the
 `entity_aware_retrieval_enabled` setting was off, and called Qwen `qwen3.7-max` four times through
 the exact helper used by chat. Recall was 100%, wrong-entity selection was 0%, invented registry
 IDs were 0, all calls were catalog-priced, and average cost was `$0.00037870625`. P95 added
@@ -704,35 +705,35 @@ must read the named plan's status table first and must not re-plan the work from
 
 | Known problem class | Canonical plan and exact owner |
 |---|---|
-| Macro-first redesign, R1–R10 | [Macro-first plan](MACRO_FIRST_IMPLEMENTATION_PLAN.md) |
-| Completed bounded quote-copy repair and production proof | [Macro-first plan R0.1](MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
-| Stale workflow production script | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| False Teams transcript TODO comments | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| ERR-003 retired fan-out, closed by repository removal and deployed task inventory | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
-| ERR-004 current map-directed path, fixed by owner-approved production proof on 2026-07-29 | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
-| ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
-| ERR-002 obsolete SQL smoke, resolved by zero-caller proof and retirement on 2026-07-27 | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
-| Old DeepSeek phantom-fallback instruction, closed and released 2026-07-27 | [Reliability plan REL-4](plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
-| Migration 65 generated/fresh-DB drift warning, resolved 2026-07-29 | [Reliability plan REL-5](plan_repo_reliability_and_release_gaps.md#rel-5-migration-65-and-snapshot-drift) |
-| Live image upload has no recorded production proof | [Reliability plan REL-6](plan_repo_reliability_and_release_gaps.md#rel-6-live-image-upload-proof) |
-| DB and Trigger.dev releases are manual | [Reliability plan REL-7](plan_repo_reliability_and_release_gaps.md#rel-7-guarded-release-automation) |
-| Unused hard-coded schema repair helper | [Reliability plan REL-8](plan_repo_reliability_and_release_gaps.md#rel-8-remove-dead-schema-repair) |
-| Stale runtime/error documentation | [Reliability plan REL-9](plan_repo_reliability_and_release_gaps.md#rel-9-close-documentation-and-logs) |
-| Old storage-bucket and completed-feature TODO notes | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| Taxonomy approval does not dispatch the existing apply worker | [Product plan GAP-1](plan_deferred_product_and_infrastructure_gaps.md#gap-1-finish-the-existing-taxonomy-reclassification-path) |
-| Retrieval entity filter has no production populator | [Product plan GAP-2](plan_deferred_product_and_infrastructure_gaps.md#gap-2-entity-aware-retrieval-planning) |
-| Authentik is documented but not built | [Product plan GAP-3](plan_deferred_product_and_infrastructure_gaps.md#gap-3-authentik-disposition) |
-| China side-by-side review and measured search hardening | [Product plan GAP-4](plan_deferred_product_and_infrastructure_gaps.md#gap-4-china-review-and-search-hardening) |
-| One-PDF cache and cross-provider attachment loss, closed and released 2026-07-28 | [Product plan GAP-5](plan_deferred_product_and_infrastructure_gaps.md#gap-5-attachment-and-cache-safety) |
-| Vertex cache and batch GCS are not provisioned | [Product plan GAP-6](plan_deferred_product_and_infrastructure_gaps.md#gap-6-vertex-cache-and-batch-storage) |
-| Admin eval results dashboard, closed and released 2026-07-29 | [Product plan GAP-7](plan_deferred_product_and_infrastructure_gaps.md#gap-7-eval-results-dashboard) |
-| Qwen/DeepSeek batch parity limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
-| Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
-| Deferred credential rotation | [Product plan GAP-9](plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
-| Deprecated employee identity columns, closed and released 2026-07-29 | [Product plan GAP-10](plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
-| Audited model-coverage conversion, closed and released 2026-07-29 (send audited, double-submit no-op proven at runtime, test gap resolved) | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
-| Lull topical selection, closed and released 2026-07-29 | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
-| Oversized conversation windowing, closed and released 2026-07-29 | [Product plan GAP-13](plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
+| Macro-first redesign, R1–R10 | [Macro-first plan](../MACRO_FIRST_IMPLEMENTATION_PLAN.md) |
+| Completed bounded quote-copy repair and production proof | [Macro-first plan R0.1](../MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
+| Stale workflow production script | [Reliability plan REL-1](../plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| False Teams transcript TODO comments | [Reliability plan REL-1](../plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| ERR-003 retired fan-out, closed by repository removal and deployed task inventory | [Reliability plan REL-2](../plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-004 current map-directed path, fixed by owner-approved production proof on 2026-07-29 | [Reliability plan REL-2](../plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](../plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-002 obsolete SQL smoke, resolved by zero-caller proof and retirement on 2026-07-27 | [Reliability plan REL-3](../plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
+| Old DeepSeek phantom-fallback instruction, closed and released 2026-07-27 | [Reliability plan REL-4](../plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
+| Migration 65 generated/fresh-DB drift warning, resolved 2026-07-29 | [Reliability plan REL-5](../plan_repo_reliability_and_release_gaps.md#rel-5-migration-65-and-snapshot-drift) |
+| Live image upload has no recorded production proof | [Reliability plan REL-6](../plan_repo_reliability_and_release_gaps.md#rel-6-live-image-upload-proof) |
+| DB and Trigger.dev releases are manual | [Reliability plan REL-7](../plan_repo_reliability_and_release_gaps.md#rel-7-guarded-release-automation) |
+| Unused hard-coded schema repair helper | [Reliability plan REL-8](../plan_repo_reliability_and_release_gaps.md#rel-8-remove-dead-schema-repair) |
+| Stale runtime/error documentation | [Reliability plan REL-9](../plan_repo_reliability_and_release_gaps.md#rel-9-close-documentation-and-logs) |
+| Old storage-bucket and completed-feature TODO notes | [Reliability plan REL-1](../plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| Taxonomy approval does not dispatch the existing apply worker | [Product plan GAP-1](../plan_deferred_product_and_infrastructure_gaps.md#gap-1-finish-the-existing-taxonomy-reclassification-path) |
+| Retrieval entity filter has no production populator | [Product plan GAP-2](../plan_deferred_product_and_infrastructure_gaps.md#gap-2-entity-aware-retrieval-planning) |
+| Authentik is documented but not built | [Product plan GAP-3](../plan_deferred_product_and_infrastructure_gaps.md#gap-3-authentik-disposition) |
+| China side-by-side review and measured search hardening | [Product plan GAP-4](../plan_deferred_product_and_infrastructure_gaps.md#gap-4-china-review-and-search-hardening) |
+| One-PDF cache and cross-provider attachment loss, closed and released 2026-07-28 | [Product plan GAP-5](../plan_deferred_product_and_infrastructure_gaps.md#gap-5-attachment-and-cache-safety) |
+| Vertex cache and batch GCS are not provisioned | [Product plan GAP-6](../plan_deferred_product_and_infrastructure_gaps.md#gap-6-vertex-cache-and-batch-storage) |
+| Admin eval results dashboard, closed and released 2026-07-29 | [Product plan GAP-7](../plan_deferred_product_and_infrastructure_gaps.md#gap-7-eval-results-dashboard) |
+| Qwen/DeepSeek batch parity limitations | [Product plan GAP-8](../plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
+| Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](../plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
+| Deferred credential rotation | [Product plan GAP-9](../plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
+| Deprecated employee identity columns, closed and released 2026-07-29 | [Product plan GAP-10](../plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
+| Audited model-coverage conversion, closed and released 2026-07-29 (send audited, double-submit no-op proven at runtime, test gap resolved) | [Product plan GAP-11](../plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
+| Lull topical selection, closed and released 2026-07-29 | [Product plan GAP-12](../plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
+| Oversized conversation windowing, closed and released 2026-07-29 | [Product plan GAP-13](../plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
 
 `bug_d_ungating_plan.md` is historical and superseded. Its remaining ideas are owned by the macro
 plan and reliability REL-2. `docs/macro-understanding-implementation-plan.md` is also historical.
@@ -741,7 +742,7 @@ plan and reliability REL-2. `docs/macro-understanding-implementation-plan.md` is
 
 The Oracle is POP Creations / Spruce Line's evidence-backed enterprise knowledge system. Employees
 use `https://oracle.designflow.app`; Vercel runs the Next.js web app, Trigger.dev runs ingestion and
-knowledge workers, and Supabase project `eqccjfbyrywsqkxxpjvg` stores documents, maps, claims, and
+knowledge workers, and Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` stores documents, maps, claims, and
 evidence. The source of truth is `u2giants/theoracle`, branch `main`. Macro-first work changes the
 system so durable business structure leads reasoning while atomic claims remain the traceable
 evidence receipts supporting that structure.
@@ -873,7 +874,7 @@ Legacy process tables remain through R9/R10. Use the journaled migration runner 
 Repository: `C:\repos\oracle`, `main`, GitHub `u2giants/theoracle`. Authenticated CLIs/connectors
 used successfully: `gh`, Trigger.dev CLI/MCP, Vercel MCP, and 1Password MCP. Production database
 access comes from the current Supabase session-pooler reference in 1Password vault `vibe_coding`;
-never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`; Vercel project is
+never print or persist the value. Trigger project is `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`; Vercel project is
 `prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
 
 ## Open questions and risks
@@ -1168,7 +1169,7 @@ qwen3.6-flash so summaries keep working). Prod `model_capabilities` already has 
 models. Policy documented in AGENTS.md ("OpenRouter is enrichment-only" block) +
 docs/configuration.md (`DEEPSEEK_API_KEY` row).
 **RESOLVED 2026-07-09:** `DEEPSEEK_API_KEY` was set in the PROD Trigger env via the Trigger
-management API (`POST https://api.trigger.dev/api/v1/projects/proj_wgpzsvhmsopqhvwqaycn/envvars/prod`
+management API (`POST https://api.trigger.dev/api/v1/projects/proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01/envvars/prod`
 `{name,value}`, Bearer = the new Trigger PAT in 1Password "Trigger.dev Personal Access Token
 (management)"). Summary switched to `deepseek/deepseek-v4-flash` (pool fallback qwen3.6-flash),
 worker `20260709.1`, migration `92`, LIVE-VERIFIED (run produced a deepseek-v4-flash summary,
@@ -1225,7 +1226,7 @@ workstream — leave it until someone runs `test_code_changes.md` Tests 1–2.
 **Done and verified:**
 - **Stage 1 (schema + §4.8 transaction contract)** — code merged; migration
   `86_macro_first_schema.sql` (amended by `01ed195` to drop a stale orphan prod table)
-  **APPLIED TO PROD `eqccjfbyrywsqkxxpjvg` and fully verified** (12 tables, RLS on +
+  **APPLIED TO PROD `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` and fully verified** (12 tables, RLS on +
   zero policies, partial-unique idempotency indexes, 13 settings 44→57 single-encoded).
   Details in the dated block below.
 - **Stage 2 (workflow reader)** — `source-workflow-read` worker/service + flat
@@ -1466,7 +1467,7 @@ from `document-ingestion`, but legacy source-outline/lens files still exist for 
 3 cleanup. Added `@oracle/ai` smoke gate `verify:workflow-read`. Commit:
 `5acddc9 feat(macro): add source workflow reader`. Trigger.dev prod deploy:
 `20260707.1` with 27 detected tasks, deployment `hxvtrlqa`
-(`https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn/deployments/hxvtrlqa`).
+(`https://cloud.trigger.dev/projects/v3/proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01/deployments/hxvtrlqa`).
 Verification run
 locally: `corepack pnpm --filter @oracle/ai run verify:workflow-read`,
 `corepack pnpm -r typecheck`, `corepack pnpm --filter @oracle/ai run
@@ -1484,7 +1485,7 @@ already refer to prior-window node IDs, so cross-window edges are not determinis
 dropped. Added `@oracle/workers` smoke gate `verify:source-workflow-read`. Commit:
 `37ee7d5 fix(macro): retry failed workflow reads`. Trigger.dev prod deploy:
 `20260707.2` with 27 detected tasks, deployment `yvrhtfyg`
-(`https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn/deployments/yvrhtfyg`).
+(`https://cloud.trigger.dev/projects/v3/proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01/deployments/yvrhtfyg`).
 Verification run locally: `corepack pnpm --filter @oracle/workers run
 verify:source-workflow-read`, `corepack pnpm --filter @oracle/workers typecheck`,
 `corepack pnpm -r typecheck`, and `git diff --check`.
@@ -1543,7 +1544,7 @@ workflow-read primary again.
 #### 2026-07-06 — Stage 1 migration 86 **APPLIED TO PROD and VERIFIED** ✅
 
 Migration `packages/db/migrations/sql/86_macro_first_schema.sql` (as amended by commit
-`01ed195`) was applied to prod (`eqccjfbyrywsqkxxpjvg`) in one shot and fully verified.
+`01ed195`) was applied to prod (`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`) in one shot and fully verified.
 Note: a first attempt earlier the same day ABORTED with zero prod changes — prod had an
 orphan legacy `source_workflow_maps` table (pre-Stage-1 shape: `source_outline_id` /
 `workflow_version` / `coverage_json`, 0 rows, defined by no migration) which made the
@@ -1654,7 +1655,7 @@ done in source, pushed, migrated, and worker-deployed.
 
 Done:
 - Committed and pushed `8e0a45c` (`feat(ai): remove silent fallbacks and preserve extraction conversations`) to `main`.
-- Applied prod DB migrations/seeds against current prod Supabase `eqccjfbyrywsqkxxpjvg` using the 1Password current-prod session pooler.
+- Applied prod DB migrations/seeds against current prod Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` using the 1Password current-prod session pooler.
 - Deployed Trigger.dev prod worker version `20260626.5`.
 - Reran GitHub Actions `PR check` for the pushed commit; final rerun passed.
 - Implemented `fix_claim_extr.md`: sync and batch claim extraction now claim whole same-channel conversation segments and include prior same-channel complete/skipped messages only as non-quotable carry-in context.
@@ -1672,7 +1673,7 @@ Next action:
 - No continuation is required for this workstream. Web deployment was not directly confirmed through Vercel CLI/MCP because local Vercel metadata was absent and the CLI status check timed out; the pushed commit's Next.js build and CI passed, and the repo's Vercel Git integration remains the expected web deploy path.
 
 Risks / watchouts:
-- Local `.env.local` still points at `oracle.old` (`vokucjpanhvqunimlvsp`). Do not run prod migrations from local env without overriding `DIRECT_URL` to the current prod 1Password session pooler.
+- Local `.env.local` still points at `oracle.old` (`PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b`). Do not run prod migrations from local env without overriding `DIRECT_URL` to the current prod 1Password session pooler.
 - The migration runner hashes generated Drizzle files from the current checkout. Windows CRLF vs CI LF can surface as journal drift if a generated migration was previously recorded with a different line ending hash; reconcile only after verifying the schema objects already exist.
 
 ---
@@ -1766,7 +1767,7 @@ Next action (optional, not blocking):
 
 Risks / watchouts:
 - Do NOT re-introduce auto-ingest in the webhook (it must stay discovery-only). See the AGENTS.md §10 quirk on transcript ids / pull endpoint for two bugs not to reintroduce.
-- `.env.local` points at `oracle.old` (`vokucjpanhvqunimlvsp`), NOT current prod (`eqccjfbyrywsqkxxpjvg`). Local `pnpm db:migrate` hits the old DB unless `DIRECT_URL` is overridden (prod connection string is in 1Password → "Supabase DB Direct URL - The Oracle (CURRENT PROD …)").
+- `.env.local` points at `oracle.old` (`PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b`), NOT current prod (`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`). Local `pnpm db:migrate` hits the old DB unless `DIRECT_URL` is overridden (prod connection string is in 1Password → "Supabase DB Direct URL - The Oracle (CURRENT PROD …)").
 
 ---
 
@@ -1776,7 +1777,7 @@ What it is: serve the knowledge graph to a China team in Mandarin while keeping 
 
 Exact current state:
 - Code is **merged into `main`** (the `docs/china-bilingual-plan` branch was integrated with `origin/main` — which had since shipped the claim-review-groups feature — resolving 12 overlapping files; typecheck + `verify:retrieval-filter-parity`/`verify:auxiliary-defaults`/`verify:mcp`/`verify:vertex-file-cache` + web build + `db:check-drift` all green before push). Vercel auto-deploys web from `main`.
-- DB migration **`0007_tricky_charles_xavier.sql`** is applied to the current prod DB (`eqccjfbyrywsqkxxpjvg`). Verified after the Virginia cutover: `claim_translations` table, `claims.source_lang`, `employees.locale`, and the Drizzle journal hash now match the on-disk migration. HNSW vector index on `claim_translations.embedding` intentionally skipped (build later with `ORACLE_RUN_VECTOR_INDEXES=1`). `0007` was hand-trimmed to only the new objects — see AGENTS.md §10 "The Drizzle snapshot was baselined at migration 0007".
+- DB migration **`0007_tricky_charles_xavier.sql`** is applied to the current prod DB (`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`). Verified after the Virginia cutover: `claim_translations` table, `claims.source_lang`, `employees.locale`, and the Drizzle journal hash now match the on-disk migration. HNSW vector index on `claim_translations.embedding` intentionally skipped (build later with `ORACLE_RUN_VECTOR_INDEXES=1`). `0007` was hand-trimmed to only the new objects — see AGENTS.md §10 "The Drizzle snapshot was baselined at migration 0007".
 - The **`claim-translation` Trigger.dev worker is deployed to prod** in worker version `20260620.1`.
 
 What is done: schema + migration; `SUPPORTED_LOCALES` in `@oracle/shared`; locale-aware `searchWithRetrievalPlan`/`buildPlanMetadataFilters` (+ extended parity guard); `source_lang` stamping at promotion; `claim-translation` worker + `translation` auxiliary model (`default_translation_route`, "copy job brief" in settings); opt-in "Translate selected for China team" bulk action + ✓ persisted badges on `/admin/claims`. **Verify ("ask someone to confirm a claim") was folded into `main`'s existing claim-review-question + review-groups feature** (`assignClaimQuestion`): the separate `claim-recertification` worker and `claim_recertification` gap type were dropped; instead `assignClaimQuestionImpl` now translates the question per recipient so a `zh-CN` recipient is asked in Chinese.
@@ -1794,7 +1795,7 @@ Status: **committed + pushed to `main` (commit `e5179c0`)**; deploys via Vercel.
 
 What shipped (single file, `apps/web/app/admin/claims/page.tsx`): a `review_assignees` subselect on the claims query and a 🔁 "Sent to review" badge + assignee-name chips in the Summary cell. Source of truth is open `claim_review_question` gaps (`gaps.related_claim_ids ? claim.id`, status in `open/queued/asked`) joined to `employees.name` — NOT a column on `claims`. Renders on every status tab, so a claim sent while pending still shows reviewers after it's approved.
 
-Verified originally against the previous Ohio prod DB; the data was migrated to current prod (`eqccjfbyrywsqkxxpjvg`) during the 2026-06-20 Virginia cutover. The subquery returned real names (72 open review gaps, 7 distinct targets) — column names, the `?` jsonb-membership operator, and the gap statuses all match live data.
+Verified originally against the previous Ohio prod DB; the data was migrated to current prod (`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`) during the 2026-06-20 Virginia cutover. The subquery returned real names (72 open review gaps, 7 distinct targets) — column names, the `?` jsonb-membership operator, and the gap statuses all match live data.
 
 Decisions made (and why): Brain synthesis stays English-only; evidence quotes are never translated (verbatim provenance); translation is opt-in per claim (cost proportional to what's directed to China); the verify/"ask to confirm" path reuses main's review-question/review-groups mechanism (no duplicate system) with the question translated per-recipient so only China recipients get Chinese.
 ---
@@ -1945,7 +1946,7 @@ Operational guardrails:
 - Do not paste or commit secret values. During prior debugging, secret-looking values appeared in tool output; future rotations should include any exposed Google service-account JSON, Recall webhook secret, Vercel token, and Trigger keys if policy requires cleanup.
 - `supabase.exe db query --linked` may hang or hit auth circuit breakers. Stop `supabase*` processes and retry gently; do not hammer linked CLI auth.
 - Vercel env writes may require CLI/API/dashboard access; the Vercel MCP is read-only in this environment.
-- Trigger.dev CLI is authenticated on this Windows machine; Trigger production env is project `proj_wgpzsvhmsopqhvwqaycn`.
+- Trigger.dev CLI is authenticated on this Windows machine; Trigger production env is project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
 
 Before declaring future work done:
 - Confirm `git status --short --branch` is clean or document any intentional uncommitted changes.
@@ -2087,7 +2088,7 @@ During Teams bot setup, an Entra secret rotation without `--append` temporarily 
 - Supabase Azure provider client secret was refreshed manually in the Supabase dashboard.
 - Supabase Azure provider URL was corrected to `https://login.microsoftonline.com/1caeb1c0-a087-4cb9-b046-a5e22404f971` — do **not** include `/v2.0`.
 - Vercel `AZURE_GRAPH_CLIENT_SECRET`, `MICROSOFT_BOT_APP_ID`, `MICROSOFT_BOT_APP_PASSWORD`, and `MICROSOFT_BOT_TENANT_ID` were refreshed and production redeployed.
-- Trigger.dev prod `AZURE_GRAPH_CLIENT_SECRET` was refreshed via `POST https://api.trigger.dev/api/v1/projects/proj_wgpzsvhmsopqhvwqaycn/envvars/prod/import` using the authenticated Trigger CLI token.
+- Trigger.dev prod `AZURE_GRAPH_CLIENT_SECRET` was refreshed via `POST https://api.trigger.dev/api/v1/projects/proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01/envvars/prod/import` using the authenticated Trigger CLI token.
 
 Future Entra client secrets on shared app `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` must be created with `az ad app credential reset --append --display-name <purpose> ...` unless intentionally replacing every consumer.
 
@@ -2237,9 +2238,9 @@ WHERE key = 'teams_live_recall_min_confidence_to_post';
 
 ## Tooling and identifiers
 
-- **Supabase project ref**: `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia). Previous Ohio project `vokucjpanhvqunimlvsp` is now `oracle.old`. Use the linked Supabase CLI or `POST https://api.supabase.com/v1/projects/eqccjfbyrywsqkxxpjvg/database/query` with the `sbp_...` token from Windows Credential Manager (`Supabase CLI:supabase`).
-  - **Direct vs pooler from a local script (2026-06-25):** the prod **direct** host `db.eqccjfbyrywsqkxxpjvg.supabase.co` now resolves to an **IPv6-only** address — a v4-only Windows box gets `ENOENT`/`getaddrinfo` and cannot connect. Use the **session pooler** instead: `postgresql://postgres.eqccjfbyrywsqkxxpjvg:<db-pw>@aws-1-us-east-1.pooler.supabase.com:5432/postgres`. Username MUST be `postgres.<ref>` (plain `postgres` → `tenant not found`), pool host prefix is `aws-1` not `aws-0` (Ohio was `aws-1-us-east-2`), and the host is region-wide (the username ref does the routing). The ready-made string is in 1Password item *"Supabase DB Direct URL - The Oracle (CURRENT PROD …)"* → field **`oracle_session_pooler`**.
-- **Trigger.dev project**: `proj_wgpzsvhmsopqhvwqaycn`, prod environment. Trigger MCP (`mcp__trigger__*`) is connected.
+- **Supabase project ref**: `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (`theoracle`, N. Virginia). Previous Ohio project `PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b` is now `oracle.old`. Use the linked Supabase CLI or `POST https://api.supabase.com/v1/projects/PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d/database/query` with the `sbp_...` token from Windows Credential Manager (`Supabase CLI:supabase`).
+  - **Direct vs pooler from a local script (2026-06-25):** the prod **direct** host `db.PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d.supabase.co` now resolves to an **IPv6-only** address — a v4-only Windows box gets `ENOENT`/`getaddrinfo` and cannot connect. Use the **session pooler** instead: `postgresql://postgres.PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d:<db-pw>@aws-1-us-east-1.pooler.supabase.com:5432/postgres`. Username MUST be `postgres.<ref>` (plain `postgres` → `tenant not found`), pool host prefix is `aws-1` not `aws-0` (Ohio was `aws-1-us-east-2`), and the host is region-wide (the username ref does the routing). The ready-made string is in 1Password item *"Supabase DB Direct URL - The Oracle (CURRENT PROD …)"* → field **`oracle_session_pooler`**.
+- **Trigger.dev project**: `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`, prod environment. Trigger MCP (`mcp__trigger__*`) is connected.
 - **Recall.ai workspace**: `f2f8cedc-6d28-4fd2-8d06-402b74d65bcc` (POP Creations), US East. Recall MCP (`mcp__recall-ai__*`) is read-only.
 - **Vercel project**: `prj_rP6Jlima7iK1paffEPhLqxlswGsC`. Vercel MCP (`mcp__vercel__*`) is read-only — env-var writes go via REST API or the Vercel dashboard.
 - **Trigger.dev env var REST endpoint**: `GET/POST https://api.trigger.dev/api/v1/projects/{ref}/envvars/{env}` with PAT from `claude_desktop_config.json`.

@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 85a0b97b83508effa4f3aaf7a280e9628413f5fc at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # New invented native proof on Vercel and Trigger
 
 Owner: root Oracle #27 coordinator. Necessary to review and execute this new
@@ -25,7 +26,7 @@ population; neither provider calls nor company generation is exposed.
    ACL review or a coordinator assertion. Calculate `native_python_digest()`
    from the final package and preserve requirements/pnpm/source/build pins.
 2. Build the isolated Trigger task from the reviewed source in the existing
-   clean, unused production environment of `proj_jtaztxnmppzfchdsgvea`.
+   clean, unused production environment of `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285`.
    Preserve existing staging. Record actual deployed revision/build identity;
    source publication or successful indexing is not a job result. The copied
    Python package computes its own source-population digest before execution.

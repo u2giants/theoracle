@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 97dcebd3a2a33fe04b522ba4ec946c8172e000fc at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Using 1Password in this repo
 
 Two ways to pull secrets from 1Password instead of hardcoding them:
@@ -111,8 +112,8 @@ production use. Do not copy values into docs or commits.
 
 | Item title | What it is for | Important caution |
 |---|---|---|
-| `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, eqccjfbyrywsqkxxpjvg)` | Current production Postgres connection strings, including the `oracle_session_pooler` field used for migrations from local scripts. | Use this for prod migrations. The direct host may be IPv6-only from local Windows; prefer `oracle_session_pooler`. |
-| `Supabase DB Direct URL - The Oracle (oracle.old, vokucjpanhvqunimlvsp)` | Previous Ohio Supabase project DB URL. | Historical / old project. Do not use for current prod migrations. |
+| `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d)` | Current production Postgres connection strings, including the `oracle_session_pooler` field used for migrations from local scripts. | Use this for prod migrations. The direct host may be IPv6-only from local Windows; prefer `oracle_session_pooler`. |
+| `Supabase DB Direct URL - The Oracle (oracle.old, PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b)` | Previous Ohio Supabase project DB URL. | Historical / old project. Do not use for current prod migrations. |
 | `Supabase Runtime Keys - The Oracle (oracle.old local .env.local)` | Supabase URL, anon/publishable key, and service-role key currently present in local `.env.local`. | These point at `oracle.old`, not current prod. Useful for reconstructing local env or understanding why local commands target the old project. |
 | `OpenRouter API Key - The Oracle (local .env.local)` (item `62ieeyycs4ierflalbbbt5pq5i`) | Existing funded Oracle OpenRouter key, matching Vercel; catalog enrichment and explicitly admitted isolated original reading / holistic processing. | Inject `op://vibe_coding/62ieeyycs4ierflalbbbt5pq5i/OPENROUTER_API_KEY` directly. Stored quotation marks were corrected 2026-10-11; no trimming needed. OpenRouter credit is separate from direct OpenAI. See the current provider-processing registration before company calls. |
 | `Trigger.dev Secret Key - The Oracle (local .env.local)` | Local Trigger.dev project/secret values for Oracle worker debugging. | Worker deploys normally use authenticated Trigger tooling; verify dashboard state before assuming this local value is the prod runtime secret. |

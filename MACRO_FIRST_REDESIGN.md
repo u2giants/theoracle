@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob a9472d30e6253822428d880d5ef5fbdde07b7bd0 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # MACRO-FIRST REDESIGN — The Oracle as a business consultant
 
 > **Plan-of-record note (2026-07-21):** This document remains the rationale, original
@@ -1055,10 +1056,10 @@ process context (a settings flip). Never half-apply a stage to prod.
 
 ## 12. Operational constraints & environment gotchas
 
-- Prod DB: Supabase `eqccjfbyrywsqkxxpjvg`, session-pooler URL in 1Password ("Supabase
+- Prod DB: Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`, session-pooler URL in 1Password ("Supabase
   DB Direct URL - The Oracle (CURRENT PROD)"). Supabase MCP allowed for reads +
   hand-written idempotent SQL.
-- Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`; deploy via CLI/MCP; record
+- Workers: Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`; deploy via CLI/MCP; record
   each deployed version in `HANDOFF.md`.
 - Use `corepack pnpm` (plain `pnpm` is not on PATH on this machine).
 - CRLF: generated-migration hash drift gotcha (HANDOFF 2026-06-26) — hand-written SQL

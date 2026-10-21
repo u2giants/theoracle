@@ -1,3 +1,4 @@
+import publicTargetPins from '../../../../dev/oracle2/public-target-pins.json';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -10,6 +11,19 @@ import * as schema from '@oracle/db/schema';
 import { embedMany } from '../embeddings';
 import { searchWithRetrievalPlan } from '../retrieval';
 import { buildRetrievalPlanFromQuery } from '../retrieval-plan';
+
+// Owner: Oracle retrieval verification; inspect the existing input against its original target commitment.
+function reviewedDatabaseTarget(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (!['postgres:', 'postgresql:'].includes(url.protocol)) return false;
+    const direct = /^db\.([a-z]{20})\.supabase\.co$/.exec(url.hostname);
+    const pooled = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(url.hostname);
+    const login = decodeURIComponent(url.username);
+    const tenant = direct ? direct[1]! : pooled ? login.split('.').at(-1)! : '';
+    return /^[a-z]{20}$/.test(tenant) && createHash('sha256').update(tenant).digest('hex') === publicTargetPins.targets.oracle_supabase_project;
+  } catch { return false; }
+}
 
 const fixtures = [
   { query: '样品批准后谁通知供应商', relevant: '样品获得批准后，采购经理通知供应商开始生产。' },
@@ -182,8 +196,8 @@ async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   assert(databaseUrl, 'DATABASE_URL is required in .env.gap4.local.');
   assert(
-    databaseUrl.includes('eqccjfbyrywsqkxxpjvg'),
-    'Refusing database target: expected current production project eqccjfbyrywsqkxxpjvg.',
+    reviewedDatabaseTarget(databaseUrl),
+    'Refusing database target: expected current production project reviewed target.',
   );
 
   const corpus = [...fixtures.map((fixture) => fixture.relevant), ...distractors];

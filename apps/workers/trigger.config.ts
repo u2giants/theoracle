@@ -1,14 +1,13 @@
 // Trigger.dev v3 configuration.
-// The project ref is a public identifier, not a secret — committed here so
-// `pnpm --filter @oracle/workers run deploy` works against a fresh checkout
-// without env juggling. TRIGGER_PROJECT_REF can still override (e.g. for a
-// future staging project).
+// Default routing metadata lives in the protected local target profile.
+// An explicit TRIGGER_PROJECT_REF keeps the existing staging override behaviour.
 // See https://trigger.dev/docs/v3/config.
 
 import { defineConfig } from '@trigger.dev/sdk/v3';
+import { readPrivateTarget } from '../../dev/oracle2/private-target-profile.mjs';
 
 export default defineConfig({
-  project: process.env.TRIGGER_PROJECT_REF ?? 'proj_wgpzsvhmsopqhvwqaycn',
+  project: process.env.TRIGGER_PROJECT_REF ?? readPrivateTarget('legacy_trigger_project'),
   runtime: 'node-24',
   logLevel: 'info',
   maxDuration: 60 * 10, // 10 minutes per run

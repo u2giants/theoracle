@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 40cda0d8f4a7b89136c692f2342aa5176cbef3bc at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # S03 graph-evidence preview provisioning plan (preview only)
 
 Issue: [#27](https://github.com/u2giants/theoracle/issues/27) (S03, parent #24).
@@ -13,9 +14,9 @@ passes with an APPROVE naming the merged head of this plan.
 
 - Invented (synthetic) data only. No company questions, company documents, employee
   messages, grading or staff review.
-- No production writes. Never touched: Supabase `eqccjfbyrywsqkxxpjvg` (Oracle
+- No production writes. Never touched: Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (Oracle
   production) or any other existing Supabase project; Trigger projects
-  `proj_wgpzsvhmsopqhvwqaycn`, `proj_esmuwkezljvasptkbiwr`, `proj_jtaztxnmppzfchdsgvea`;
+  `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`, `proj_PRIVATE_REFERENCE_SHA256_5ac719234cae50874f21f058a58195aea057b037473342b561250e996f9cbf9d`, `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285`;
   Vercel Production or the shared Preview environment variables; FalkorDB confirmed.
 - No new vendor. Platforms: existing Supabase account, existing Trigger org "POP",
   existing Vercel project `theoracle`, existing FalkorDB candidate on Coolify (hetz).
@@ -28,8 +29,8 @@ passes with an APPROVE naming the merged head of this plan.
 
 | # | Resource | Platform / where | Cost |
 |---|---|---|---|
-| R1 | New Supabase project `oracle2-s03-preview`, region `us-east-1` | Existing Supabase org `gcxiglhgughlynvhdljs` ("Free"; has one free active slot) | $0 (free tier) |
-| R2 | New Trigger project `oracle2-holistic-preview` (`proj_fsoejmtnnwajrkjsvlax`, created 2026-10-15), its **`prod`** environment only | Existing Trigger org POP | existing plan |
+| R1 | New Supabase project `oracle2-s03-preview`, region `us-east-1` | Existing Supabase org `PRIVATE_REFERENCE_SHA256_f12d9e37f44e0f794da1be4a02cbe720196b9b79720e5c23bb34135ebd9a0130` ("Free"; has one free active slot) | $0 (free tier) |
+| R2 | New Trigger project `oracle2-holistic-preview` (`proj_PRIVATE_REFERENCE_SHA256_020266ac6571ef681d585e0a02dbae2ee3cc48c02984f4699edb9e599724392b`, created 2026-10-15), its **`prod`** environment only | Existing Trigger org POP | existing plan |
 | R3 | Vercel Preview env vars scoped by `gitBranch=oracle2-s03-preview` only | Existing Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | $0 |
 | R4 | Git branch `oracle2-s03-preview` at the merged head of this plan (deploy trigger for R3) | GitHub `u2giants/theoracle` | $0 |
 | R5 | One Vercel "Protection Bypass for Automation" secret, for scripted proof requests | Same Vercel project | $0 |
@@ -74,7 +75,7 @@ R2 environment variables (the dedicated project's `prod` environment; see note):
 `oracle2_holistic`), `ORACLE2_CANDIDATE_GRAPH_URL` (`rediss://worker:<candidate password>@oracle-graph.designflow.app:16391`),
 `ORACLE2_GRAPH_TLS_CA_PEM` / `_CERT_PEM` / `_KEY_PEM` (candidate worker client TLS + private CA),
 `ORACLE2_HOLISTIC_WORKSPACE_ID`, `ORACLE2_HOLISTIC_SOURCE_IDS`, `ORACLE2_HOLISTIC_CORPUS_DIGEST`,
-`ORACLE2_HOLISTIC_TRIGGER_PROJECT_REF=proj_fsoejmtnnwajrkjsvlax` (non-secret; the remote build's
+`ORACLE2_HOLISTIC_TRIGGER_PROJECT_REF=proj_PRIVATE_REFERENCE_SHA256_020266ac6571ef681d585e0a02dbae2ee3cc48c02984f4699edb9e599724392b` (non-secret; the remote build's
 indexer evaluates `trigger.oracle2-holistic.config.ts`, which refuses to load without it).
 Forbidden and verified absent: `ORACLE2_CONFIRMED_GRAPH_URL`, `ORACLE2_PROJECTION_SIGNING_KEY`,
 `ORACLE2_CHECKPOINT_DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, any model key.
@@ -116,7 +117,7 @@ up to deletion; nothing else depends on them.
 
 ## Applied so far
 
-- R1 `wfdrklofsczspazshaib` created and seeded under APPROVE of `5aaabf0` (stepfun run 20261015T205103-1573801-10144); workspace `13cc935a-6417-41c5-91a9-7f88098a0c1f`, digest `f5ebe8c4e8422726a0b4b82f24e704d04f273b0998935105c471d4fa78035ef8`.
+- R1 `PRIVATE_REFERENCE_SHA256_620b6d5ddc335d4bd407f56c4e534cd8141fbcb6772483488a0180abbec651dd` created and seeded under APPROVE of `5aaabf0` (stepfun run 20261015T205103-1573801-10144); workspace `13cc935a-6417-41c5-91a9-7f88098a0c1f`, digest `f5ebe8c4e8422726a0b4b82f24e704d04f273b0998935105c471d4fa78035ef8`.
 - R2 project created; the eleven variables above (except the project ref) set under APPROVE of `89de682`. First deploy (version 20261015.1) failed at indexing: "Dedicated non-legacy holistic preview project required" because the project ref variable was absent; nothing ran.
 - Worker deployed as R2 version 20261015.2 at `67f3b50`; Vercel branch variables, branch `oracle2-s03-preview`
   and bypass secret created; preview `dpl_8BPUGFSEwyCpC3z1WrDS6TinikuQ` READY. First two proof runs failed in

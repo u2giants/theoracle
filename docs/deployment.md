@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 6c7f33f50901b0f10bd7ce5b9c91a27161707487 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Deployment
 
 This file describes the current deploy and release path that exists in the repo today.
@@ -7,8 +8,8 @@ This file describes the current deploy and release path that exists in the repo 
 | Target | What runs there | Source of truth |
 |---|---|---|
 | Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `apps/web` | `vercel.json`, GitHub integration |
-| Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers`, Node 24 | `apps/workers/trigger.config.ts` |
-| Supabase project `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia) | Postgres, Auth, Storage, Realtime | `.env.local` / runtime env + Supabase dashboard |
+| Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` | `apps/workers`, Node 24 | `apps/workers/trigger.config.ts` |
+| Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (`theoracle`, N. Virginia) | Postgres, Auth, Storage, Realtime | `.env.local` / runtime env + Supabase dashboard |
 
 ## Current release flow
 
@@ -98,10 +99,10 @@ reported by `pnpm db:check-drift`; do not blindly replay generated migrations
 against prod.
 
 Local `C:\repos\oracle\.env.local` was still confirmed on 2026-06-26 to point
-at `oracle.old` (`vokucjpanhvqunimlvsp`). For current prod migrations from a
+at `oracle.old` (`PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b`). For current prod migrations from a
 local shell, override `DIRECT_URL`/`DATABASE_URL` with the 1Password item
 `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle,
-eqccjfbyrywsqkxxpjvg)` field `oracle_session_pooler` before running:
+PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d)` field `oracle_session_pooler` before running:
 
 ```powershell
 $env:DIRECT_URL = op read "op://vibe_coding/qcuyabwseaptvuzvtjejffi2ou/oracle_session_pooler"
@@ -168,7 +169,7 @@ Use `docs/configuration.md` for the exact variable list.
 
 ### Supabase project cutover checklist
 
-The production Supabase project moved on 2026-06-20 from Ohio project `vokucjpanhvqunimlvsp` (`oracle.old`) to N. Virginia project `eqccjfbyrywsqkxxpjvg` (`theoracle`). For any future Supabase project move, verify all of these surfaces before declaring the cutover complete:
+The production Supabase project moved on 2026-06-20 from Ohio project `PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b` (`oracle.old`) to N. Virginia project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (`theoracle`). For any future Supabase project move, verify all of these surfaces before declaring the cutover complete:
 
 1. Runtime envs: `.env.local`, Vercel Production/Preview/Development, Trigger.dev prod, and GitHub Actions secret `PROD_DIRECT_URL` all point at the new Supabase ref/pooler and use new anon/service-role keys.
 2. Supabase Auth: site URL, redirect allow list, Google provider, Azure provider, and SMTP config are present on the new project. For Microsoft SSO, add the new `https://<ref>.supabase.co/auth/v1/callback` redirect URI in Entra and create/update only the Supabase-specific client secret with `az ad app credential reset --append`.

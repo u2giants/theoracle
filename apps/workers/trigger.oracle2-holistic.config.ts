@@ -1,12 +1,13 @@
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@trigger.dev/sdk/v3';
+import { isPinnedTarget } from '../../dev/oracle2/private-target-profile.mjs';
 import { oracle2Python } from './oracle2-python-extension';
 
 const project = process.env.ORACLE2_HOLISTIC_TRIGGER_PROJECT_REF;
 const forbiddenProjects = [process.env.ORACLE2_EXTRACT_TRIGGER_PROJECT_REF,
-  process.env.ORACLE2_PROJECT_TRIGGER_PROJECT_REF, 'proj_wgpzsvhmsopqhvwqaycn'];
-if (!project || forbiddenProjects.includes(project)) {
+  process.env.ORACLE2_PROJECT_TRIGGER_PROJECT_REF];
+if (!project || isPinnedTarget('legacy_trigger_project', project) || forbiddenProjects.includes(project)) {
   throw new Error('Dedicated non-legacy holistic preview project required');
 }
 

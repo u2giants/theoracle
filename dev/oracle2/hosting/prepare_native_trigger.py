@@ -8,6 +8,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from urllib.parse import quote
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'services/oracle-brain'))
+from oracle_brain.private_targets import read_private_target
 from oracle_brain.hosting.synthetic_fixture import fixture,fixed_scenario,NATIVE_TRIGGER_SCENARIO
 from oracle_brain.hosting.synthetic_seed import compile_seed
 from oracle_brain.hosting.native_trigger_v1 import native_python_digest
@@ -28,6 +29,7 @@ def main():
     source_review=Path(a.source_review_file).read_bytes()
     if sha(source_review)!=a.review_hash or source_review.decode().strip().splitlines()[-1]!='APPROVE':raise PermissionError('genuine exact independent native source APPROVE required')
     if a.runtime_hash!=native_python_digest():raise PermissionError('actual native Python population differs from requested runtime')
+    tenant=read_private_target('native_supabase_project')
     root=Path(a.directory)
     if not root.is_absolute() or root.exists():raise PermissionError('new private output directory required')
     root.mkdir(mode=0o700)
@@ -52,7 +54,7 @@ def main():
     seed=seed.replace('invented amber parcel','invented violet envelope')
     write(root,'seed-parameters.json',canonical(params));write(root,'seed.sql',seed);write(root,'source-role-registry.json',canonical(registry));write(root,'artifact.json',canonical(payload));write(root,'release.json',canonical(release.model_dump(mode='json')))
     common={'schema_version':1,'purpose':NATIVE_TRIGGER_SCENARIO,'issued_at':a.issued_at,'expires_at':a.expires_at,'runtime_hash':a.runtime_hash,'review_hash':a.review_hash}
-    def pg(role):return f'postgresql://oracle_synthetic_{role}.wfdrklofsczspazshaib:{passwords[role]}@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v1'
+    def pg(role):return f'postgresql://oracle_synthetic_{role}.{tenant}:{passwords[role]}@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v1'
     def enc(v):return base64.b64encode(v.encode()).decode()
     database_ca=os.environ.get('ORACLE_NATIVE_DATABASE_CA') or Path(os.environ['ORACLE_NATIVE_DATABASE_CA_FILE']).read_text()
     files={k:enc(os.environ[n]) for k,n in {'graph_ca':'ORACLE_NATIVE_GRAPH_CA','graph_cert':'ORACLE_NATIVE_GRAPH_CERT','graph_key':'ORACLE_NATIVE_GRAPH_KEY'}.items()}

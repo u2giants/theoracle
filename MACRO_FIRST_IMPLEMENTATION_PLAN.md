@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob ccc92d62817994a84c402f7e10a55a202f78948a at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Macro-First Implementation Plan — Canonical Plan of Record
 
 Status: **CANONICAL. R0, R0.1, and R1 are complete and production-verified.
@@ -9,8 +10,8 @@ Created: 2026-07-21
 Last reviewed: 2026-07-28
 Repository: `u2giants/theoracle`, branch `main`
 Production: `https://oracle.designflow.app`
-Database: Supabase project `eqccjfbyrywsqkxxpjvg`
-Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
+Database: Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`
+Workers: Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`
 
 ## Status table
 

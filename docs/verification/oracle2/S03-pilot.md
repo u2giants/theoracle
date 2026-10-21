@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 7857680a2bee6e0d60380aa8ad3696619f4606f8 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # S03 pilot — real-data preview journey (sanitized)
 
 **Historical thin pilot; NOT holistic replacement acceptance.** Albert stopped Ilona/Jessica grading on 2026-10-11 EDT. The recorded answer path used keyword matching and quotation assembly; FalkorDB and GraphRAG SDK did not participate. Preserve the records; do not grade, regenerate or rerun the existing questions. The canonical overhaul plan S03 corrective H1–H8 gates now control readiness.
@@ -119,7 +120,7 @@ Synthetic/thin-table answers are not S03 proof. Albert required questions built
 **only** from Admin → Documents production uploads, graded by process owners
 (Ilona + Jessica).
 
-### Source set (production Supabase `eqccjfbyrywsqkxxpjvg`)
+### Source set (production Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`)
 
 | Document | Status 2026-10-06 | Used as source |
 |---|---|---|

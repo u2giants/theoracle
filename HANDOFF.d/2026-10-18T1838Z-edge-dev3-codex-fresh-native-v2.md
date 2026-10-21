@@ -3,6 +3,8 @@ issue: 27
 status: OPEN
 owner: codex/native-fresh-v2
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob e0641df3c4e10bb13947c4ebd1ff381e745301b5 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 # Fresh native/browser v2 proof — planning baton
 
 ## 0. BUSINESS DECISIONS ONLY THE OWNER CAN MAKE
@@ -23,10 +25,10 @@ READYv1preview https://theoracle-m0nv2notf-popcre.vercel.app, dpl_uiPDmrXuVFCGQ8
 New branchcodex/native-fresh-v2 starts merged94b3c173. Only public v2 identity module/JSON plus plan/baton/router were prepared; no v2authority, credential, resource or provider execution. New IDs and locked targets are [manifest](https://github.com/u2giants/theoracle/blob/codex/native-fresh-v2/dev/oracle2/native-v2-fixed-identities.json). These planning artifacts will be committed/pushed together; no source acceptance is implied.
 
 ## 4. What did not work
-All consequential dead ends are plan6–7: actualSDKbuildmapping unpackbug; Nextempty non-nullstreams; Composeaggregatewait masksfailure; customprojectenv missingremoteindexer; CLIarrayserializationmalformedPOST; plan-review mode cannotopenproductiongates; earlypermissionissuanceexpired; stagingisnonempty. Read before touching tools. Never rerun originalseed/projector/jobs to work around any of them.
+All consequential dead ends are plan6–7: actualSDKbuildmapping unpackbug; Nextempty non-nullstreams; Composeaggregatewait masksfailure; customprojectenv missing remote indexer; CLIarrayserializationmalformedPOST; plan-review mode cannotopenproductiongates; earlypermissionissuanceexpired; stagingisnonempty. Read before touching tools. Never rerun originalseed/projector/jobs to work around any of them.
 
 ## 5. Root causes and discoveries
-[Native v1 operations](https://github.com/u2giants/theoracle/blob/94b3c173b82fe17d1faf3fa4a3d0e05c4e2b5486/docs/operations/oracle2-native-trigger-proof.md) has fixed run and one-use installer. [v1fixture](https://github.com/u2giants/theoracle/blob/94b3c173b82fe17d1faf3fa4a3d0e05c4e2b5486/services/oracle-brain/oracle_brain/hosting/synthetic_fixture.py) fixes allUUIDs. Reusing it cannot yield a distinct test. Package digest covers every.py; new v2 code must never replace v1runtime/report pins. [Merged config](https://github.com/u2giants/theoracle/blob/e464fe523af2fa40a677c77543ef9f2772646d69/apps/workers/trigger.oracle2-native-invented.config.ts) now correctly accepts officialprojectref onlyfor exactisolatedproject. Plan5–8 preserve source hashes, provider targets and mutation boundaries.
+[Native v1 operations](https://github.com/u2giants/theoracle/blob/94b3c173b82fe17d1faf3fa4a3d0e05c4e2b5486/docs/operations/oracle2-native-trigger-proof.md) has fixed run and one-use installer. [v1fixture](https://github.com/u2giants/theoracle/blob/94b3c173b82fe17d1faf3fa4a3d0e05c4e2b5486/services/oracle-brain/oracle_brain/hosting/synthetic_fixture.py) fixes allUUIDs. Reusing it cannot yield a distinct test. Package digest covers every.py; new v2 code must never replace v1runtime/report pins. [Merged config](https://github.com/u2giants/theoracle/blob/e464fe523af2fa40a677c77543ef9f2772646d69/apps/workers/trigger.oracle2-native-invented.config.ts) now correctly accepts officialprojectref onlyfor exact isolated project. Plan5–8 preserve source hashes, provider targets and mutation boundaries.
 
 ## 6. Exact next steps
 1. Read planSTATUS,8–13 and identitymanifest; review the architecture before authority/resource actions. Gate: explicit reviewer finds no unaddressed trust-boundary hole.
@@ -37,7 +39,7 @@ All consequential dead ends are plan6–7: actualSDKbuildmapping unpackbug; Next
 6. Update sameissue27/W11/plan with evidence and retire this baton only after allsuccessorconditions. Do not close private/company acceptance.
 
 ## 7. Constraints and gotchas
-User reply under120words, plainEnglish, answer then Stillopen only; keep working authorizedscope. Every live/private/company prohibition, noexpiredrenewal/nooldreplays/noresumepauses/120limit remains. Late v2 permission only after platform buildsready. No values/verifiers in outputs. RootserializesVault; reviewers nevercall1Password. No sourcecodeconfidence equalsliveproof. Canonicalcheckoutlanding-only; managehostinAnsible, appsCoolifyAPI only. No broadcleanup or otherhandoff edits. V1DB/grant/graph/source frozen; expiredunusedruntime credential retirement only under exactreview as plan8/9.5, never presumedapproved.
+User reply under120words, plainEnglish, answer then Stillopen only; keep working authorizedscope. Every live/private/company prohibition, noexpiredrenewal/nooldreplays/noresumepauses/120limit remains. Late v2 permission only after platform buildsready. No values/verifiers in outputs. RootserializesVault; reviewers nevercall1Password. No source code confidence equalsliveproof. Canonicalcheckoutlanding-only; managehostinAnsible, appsCoolifyAPI only. No broadcleanup or otherhandoff edits. V1DB/grant/graph/source frozen; expired unused runtime credential retirement only under exactreview as plan8/9.5, never presumedapproved.
 
 ## 8. Access and environment
 Plan12 carries exact current machinepaths, CLI/MCP, vaultrefs and targetidentities. VaultactualIDpimcaogmxxzoafh7lsluj6uxkq, re-resolve live. Current graphmTLSgl22xkxtonfkxppixwtnwzlpdu and S03adminttsxtbm4jarw377iuh4qj2ysd4 onlyprotectedinjection. Trigger runtime27fflbqtu3q33duknybgypmgz4 notmanagementPAT. No newv2secrets exist. Current frozen sourceworktrees oracle-native-projector-return-contract/838 and oracle-native-trigger-indexer/e464 remain available for receiptvalidation; newsourceworktree oracle-native-fresh-v2/94b3base. Scratchdirs tmp.1gQ3Iubov5 (native/auth), tmp.fFyo11ASA5 (ACL/actions), tmp.Lg2DU3wpbE (CI/tests) must not be mistaken for durablepublictruth; copypublicreceipts beforecloseout. Memory must NOT be updated without explicituserrequest.

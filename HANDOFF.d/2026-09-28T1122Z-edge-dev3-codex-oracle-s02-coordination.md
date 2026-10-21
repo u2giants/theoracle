@@ -3,6 +3,8 @@ issue: 26
 status: OPEN
 owner: codex/oracle-s02-foundation and the next Oracle coordinator
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 05645567aec18dfcf4f193dc517b3f9434e34b85 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # Oracle consultant overhaul — S02 coordination handoff
 
@@ -56,7 +58,7 @@ One ordered child at a time under parent #24. Work in current-upstream isolated 
 
 ## 8. Access and environment
 
-`gh`, Git, Python and task-gate CLI were authenticated/available on `edge-dev3`; `uv` was installed in user-owned form by the S02 sub-agent. GitHub Actions provided Docker-backed isolated test stores. The canonical checkout `/home/ahazan/repos/oracle` remained clean and behind origin/main; the S02 worktree is clean/pushed. The coordinator's prose-only closeout worktree is `/home/ahazan/repos/oracle-s02-coordinator-wrapup`; its branch is `codex/oracle-s02-coordinator-wrapup`. Real credentials live only in approved `vibe_coding` 1Password items; no values were read in this coordinator session. Existing Trigger project ID `proj_wgpzsvhmsopqhvwqaycn` is the legacy shared project, **not** an approved Oracle 2 preview target. Private real-case answer keys and processing approval belong in approved private Oracle storage, not GitHub.
+`gh`, Git, Python and task-gate CLI were authenticated/available on `edge-dev3`; `uv` was installed in user-owned form by the S02 sub-agent. GitHub Actions provided Docker-backed isolated test stores. The canonical checkout `/home/ahazan/repos/oracle` remained clean and behind origin/main; the S02 worktree is clean/pushed. The coordinator's prose-only closeout worktree is `/home/ahazan/repos/oracle-s02-coordinator-wrapup`; its branch is `codex/oracle-s02-coordinator-wrapup`. Real credentials live only in approved `vibe_coding` 1Password items; no values were read in this coordinator session. Existing Trigger project ID `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` is the legacy shared project, **not** an approved Oracle 2 preview target. Private real-case answer keys and processing approval belong in approved private Oracle storage, not GitHub.
 
 ## 9. Open questions and risks
 

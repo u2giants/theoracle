@@ -5,7 +5,7 @@ All diagnostics are withheld because PostgreSQL exceptions can contain SCRAM.
 """
 import argparse,contextlib,io,json,os,re,subprocess,sys,time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,unquote
 import psycopg
 from psycopg import sql
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'services/oracle-brain'))
@@ -63,13 +63,13 @@ def main():
  ca=Path(a.database_ca_file);cert=x509.load_pem_x509_certificate(ca.read_bytes())
  require(cert.fingerprint(hashes.SHA256()).hex()=='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa','trusted S03 CA required')
  raw=os.environ['ORACLE_NATIVE_ADMIN_URL'];u=urlsplit(raw)
- require(u.scheme in ('postgresql','postgres') and u.hostname=='aws-0-us-east-1.pooler.supabase.com' and u.port==5432 and u.username=='postgres.wfdrklofsczspazshaib' and u.path=='/postgres' and not u.query,'exact S03 administrative target required')
+ require(u.scheme in ('postgresql','postgres') and u.hostname=='aws-0-us-east-1.pooler.supabase.com' and u.port==5432 and bool(database_tenant(u.username,'postgres')) and u.path=='/postgres' and bool(u.password) and not u.query and not u.fragment,'exact S03 administrative target required')
  kw={'sslmode':'verify-full','sslrootcert':str(ca),'connect_timeout':10}
  with psycopg.connect(raw,autocommit=True,**kw) as c:
   require(c.pgconn.ssl_in_use and c.execute('SELECT current_database(),current_user').fetchone()==('postgres','postgres'),'authenticated actual S03 identity required')
   require(c.execute('SELECT rolcreatedb AND rolcreaterole FROM pg_roles WHERE rolname=current_user').fetchone()[0],'issuer capability absent')
   collision_check(c)
-  summary={'target_project':'wfdrklofsczspazshaib','new_database':DATABASE,'job_id':r['job_id'],'new_roles':list(ROLES),'seed_sha256':r['seed_sha256'],'migration_sha256':{n:sha(b) for n,b in zip((*MIGRATIONS,'016_native_trigger_proof_v2.sql'),scripts)},'mode':'apply' if a.apply else 'dry-run'}
+  summary={'target_project_sha256':TARGET_PINS['native_supabase_project'],'new_database':DATABASE,'job_id':r['job_id'],'new_roles':list(ROLES),'seed_sha256':r['seed_sha256'],'migration_sha256':{n:sha(b) for n,b in zip((*MIGRATIONS,'016_native_trigger_proof_v2.sql'),scripts)},'mode':'apply' if a.apply else 'dry-run'}
   if not a.apply:return summary
   require(a.action_review_file and a.action_review_sha256,'exact installation action approval required')
   review=Path(a.action_review_file).read_bytes();require(sha(review)==a.action_review_sha256 and review.decode().strip().splitlines()[-1]=='APPROVE','exact action APPROVE required')

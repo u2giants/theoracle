@@ -3,6 +3,8 @@ issue: 27
 status: OPEN
 owner: next Oracle coordinator session (S03 real-data preview / #58)
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 7b8452a5dd10eb65cac0b142937b80f15dc5488e at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # S03 code merged, worker watch recorded, hygiene done — coordination wrap-up
 
@@ -26,7 +28,7 @@ Future owner items (not yet live; recommendations included):
 
 Oracle (`u2giants/theoracle`) is POP Creations / Spruce Line's evidence-backed knowledge and consulting app. Employees chat with it and upload documents; workers extract claims with evidence; validators gate promotion; Brain synthesis keeps traceable sections. The **Oracle consultant overhaul** (parent [#24](https://github.com/u2giants/theoracle/issues/24), plan `plan_oracle_consultant_overhaul.md`) is replacing/expanding this into a company consultant: cited connected knowledge, authorized corrections, interviews, invited meetings, industry research, measurable recommendations.
 
-Where it runs: web on Vercel (`oracle.designflow.app`, project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`, team `popcre`); workers on Trigger.dev (`proj_wgpzsvhmsopqhvwqaycn`); data on Oracle's own Supabase project `eqccjfbyrywsqkxxpjvg` (NOT `popcre/shared-db`).
+Where it runs: web on Vercel (`oracle.designflow.app`, project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`, team `popcre`); workers on Trigger.dev (`proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`); data on Oracle's own Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (NOT `popcre/shared-db`).
 
 ## 2. What this session set out to do
 

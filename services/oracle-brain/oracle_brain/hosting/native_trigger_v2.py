@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode,unquote
 from uuid import UUID
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
+from oracle_brain.private_targets import database_tenant
 from oracle_brain.hosting.synthetic_fixture import fixed_scenario,fixture,NATIVE_TRIGGER_V2_SCENARIO
 from oracle_brain.operating_model.source_binding import SourceRoleBinding
 
@@ -89,7 +90,7 @@ def database_url(raw,ca_path,*,role='executor'):
     parsed=urlsplit(raw.decode().strip())
     require(parsed.scheme=='postgresql' and parsed.hostname=='aws-0-us-east-1.pooler.supabase.com'
         and parsed.port==5432 and parsed.path=='/oracle_native_proof_v2'
-        and unquote(parsed.username or '')=='oracle_native_v2_'+role+'.wfdrklofsczspazshaib'
+        and bool(database_tenant(parsed.username,'oracle_native_v2_'+role))
         and bool(parsed.password) and not parsed.fragment and not parsed.query,
         'exact new isolated Oracle database and executor identity required')
     return urlunsplit(parsed._replace(query=urlencode({'sslmode':'verify-full','sslrootcert':str(ca_path),'connect_timeout':'5'})))

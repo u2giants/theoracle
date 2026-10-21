@@ -1,10 +1,11 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 4d4b30f953cbaa2f3f70adc7c279ae6f9a48d958 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # R2 Numbered Inner-Actor Correction Plan
 
 Status: **LOCAL CORRECTION PASSED AT 28/30 AND LANDED. LATER PRODUCTION GATE SCORED 19/30.**
 
 Parent plans: [`plan_r2_local_owner_context_correction.md`](plan_r2_local_owner_context_correction.md) and [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 
-Handoff: [`HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md`](HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md)
+Handoff: [`HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md`](https://github.com/u2giants/theoracle/blob/c6dbf81e639cb4dd71f5348d5e8d6025f0bb0992/HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md)
 
 ## STATUS table
 
@@ -25,7 +26,7 @@ The Oracle must recognize a directly stated duty owner even when a source line p
 
 ## 2. What this application is
 
-The Oracle is POP Creations and Spruce Line's evidence-backed business knowledge system. The TypeScript/pnpm repo is `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`. Web production is `https://oracle.designflow.app`; Trigger.dev project is `proj_wgpzsvhmsopqhvwqaycn`; Supabase is `eqccjfbyrywsqkxxpjvg`. This plan changes local source parsing only.
+The Oracle is POP Creations and Spruce Line's evidence-backed business knowledge system. The TypeScript/pnpm repo is `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`. Web production is `https://oracle.designflow.app`; Trigger.dev project is `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`; Supabase is `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`. This plan changes local source parsing only.
 
 ## 3. What triggered this work
 

@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 7f5f1594bab124dc20fe0a6a784cda18025ebcb5 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # MODEL BAKE-OFF SPEC — choosing the best model for every pass, empirically
 
 Status: ready to execute in the stages noted per protocol. Written 2026-07-06.
@@ -48,12 +49,12 @@ Ground rules (all learned the hard way in this repo — see HANDOFF 2026-06-26):
 
 ## 2. Environment and access (read once, verify before first run)
 
-- **Prod DB**: Supabase project `eqccjfbyrywsqkxxpjvg`. Connection string: 1Password →
+- **Prod DB**: Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`. Connection string: 1Password →
   "Supabase DB Direct URL - The Oracle (CURRENT PROD …)". ⚠️ Local `.env.local` points
-  at the OLD project (`vokucjpanhvqunimlvsp`) — never run migrations or writes from
+  at the OLD project (`PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b`) — never run migrations or writes from
   local env without overriding `DIRECT_URL`. Reads/ad-hoc SQL may also go through the
   Supabase MCP.
-- **Workers**: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`. Use the Trigger.dev
+- **Workers**: Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`. Use the Trigger.dev
   MCP/dashboard to trigger tasks and read run logs. Do NOT add scheduled tasks (the
   project is at its 10/10 schedule limit) — everything here is on-demand dispatch.
 - **Settings changes**: make them through Admin → Settings (the UI writer normalizes

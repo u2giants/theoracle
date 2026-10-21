@@ -3,6 +3,8 @@ issue: 58
 status: OPEN
 owner: next Oracle S03 acceptance session
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob d07428632aa5af582da9107e2af5f750d73b3c55 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # S03 acceptance / upload+ingestion — wrap-up 2026-10-06
 
@@ -16,7 +18,7 @@ Future owner items (not live):
 
 ## 1. What this application is
 
-Oracle (`u2giants/theoracle`) is POP Creations’ evidence-backed knowledge and consulting app. Parent [#24](https://github.com/u2giants/theoracle/issues/24); plan `plan_oracle_consultant_overhaul.md` (STATUS first). Web on Vercel `prj_rP6Jlima7iK1paffEPhLqxlswGsC`; workers Trigger `proj_wgpzsvhmsopqhvwqaycn`; app DB Supabase `eqccjfbyrywsqkxxpjvg` (Oracle’s own — not `popcre/shared-db`).
+Oracle (`u2giants/theoracle`) is POP Creations’ evidence-backed knowledge and consulting app. Parent [#24](https://github.com/u2giants/theoracle/issues/24); plan `plan_oracle_consultant_overhaul.md` (STATUS first). Web on Vercel `prj_rP6Jlima7iK1paffEPhLqxlswGsC`; workers Trigger `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`; app DB Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (Oracle’s own — not `popcre/shared-db`).
 
 ## 2. What this session set out to do
 

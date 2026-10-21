@@ -3,6 +3,8 @@ issue: 15
 status: OPEN
 owner: Codex chat 019f5f18-a461-7861-a0ec-be5ba1f7bb6c (original issue opener)
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 4eac970cd17347c0ef3f644cb90c5faec6ee259e at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # Connected business answers: released code, interrupted live proof
 
@@ -32,7 +34,7 @@ Employees ask business questions and upload material; approved claims, reviewed 
 and quote-level evidence are supposed to produce explainable answers rather than generic model
 guesses. The repository is `u2giants/theoracle`, a pnpm TypeScript monorepo. The employee web app
 runs on Vercel at <https://oracle.designflow.app>; Trigger.dev runs workers; the application owns
-Supabase project `eqccjfbyrywsqkxxpjvg`.
+Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
 
 This workstream repairs the employee-chat answer path for connected business questions: who owns
 each step, what approval/decision criteria apply, which exceptions alter the path, and what happens
@@ -81,7 +83,7 @@ an unrelated damaged-carton question that tests topic reset.
 
 ### Production proof state
 
-- Production target was verified as `eqccjfbyrywsqkxxpjvg`; authenticated actor was Albert's active
+- Production target was verified as `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`; authenticated actor was Albert's active
   employee account. Test channel: `15d9ff01-2347-4b03-b308-f6fab0a9de71`, named
   `ISSUE-15 live proof 2026-09-20T18:47:04.773Z`.
 - Inert direct seed Q1 user row: `d3d35276-5f81-49d1-92cb-8c69f3adce78`, `skipped`.
@@ -244,12 +246,12 @@ an unrelated damaged-carton question that tests topic reset.
   authenticated; do not automate login/security prompts.
 - Production app: <https://oracle.designflow.app>.
 - Vercel project: `prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
-- Supabase application project: `eqccjfbyrywsqkxxpjvg`. The configured Supabase MCP previously pointed
+- Supabase application project: `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`. The configured Supabase MCP previously pointed
   at a different project and must not be used for this proof.
 - Existing local environment file: `D:\repos\oracle\.env.local`. It was read programmatically without
   printing secret values. Secrets belong in 1Password vault `vibe_coding`; never put values in chat,
   commands, handoffs, issues, or commits.
-- Trigger.dev project: `proj_wgpzsvhmsopqhvwqaycn`.
+- Trigger.dev project: `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
 - Independent plan-review conversation used local session `20260920-143119-987156`; its result is
   historical because the guard expired and the proof was interrupted.
 

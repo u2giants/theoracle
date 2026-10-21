@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 9f1337301fa2ad7ca3c537e308183c9f26986434 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # CLAUDE.md
 
 Read `AGENTS.md` first. It is the canonical operating guide for this repo.
@@ -14,7 +15,7 @@ This file contains Claude Code-specific notes only. If guidance applies to all d
 
 - Supabase MCP may be used for reads and for applying hand-written idempotent SQL migrations. Do not use it for generated Drizzle `packages/db/migrations/0*.sql`.
 - Vercel MCP is read-only in this environment; use the Vercel dashboard or REST API for env-var writes.
-- Trigger.dev MCP can inspect/trigger/deploy workers for project `proj_wgpzsvhmsopqhvwqaycn`.
+- Trigger.dev MCP can inspect/trigger/deploy workers for project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
 - `gh` is available for GitHub operations.
 
 ## Operations

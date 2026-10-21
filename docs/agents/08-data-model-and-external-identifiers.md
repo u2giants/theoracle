@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 0e294b1fe5fb26736c2fa82394f821b30de41f5d at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 8. Data model and external identifiers
@@ -5,10 +6,10 @@
 | Entity/System | Identifier | Where defined | Notes |
 |---|---|---|---|
 | Vercel project | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `AGENTS.md`, deployment/config docs | Web app target |
-| Trigger.dev project | `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers/trigger.config.ts` | Worker target. Set PROD worker env vars programmatically (no dashboard) via the Trigger management API + the PAT in 1Password "Trigger.dev Personal Access Token (management)" — `POST /api/v1/projects/<ref>/envvars/prod`, then redeploy. CLI `env` is read-only. See docs/configuration.md "How env vars are managed". |
+| Trigger.dev project | `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` | `apps/workers/trigger.config.ts` | Worker target. Set PROD worker env vars programmatically (no dashboard) via the Trigger management API + the PAT in 1Password "Trigger.dev Personal Access Token (management)" — `POST /api/v1/projects/<ref>/envvars/prod`, then redeploy. CLI `env` is read-only. See docs/configuration.md "How env vars are managed". |
 | Trigger.dev org POP | `cmpdjy8yg0107n50hqma87hjk` | Trigger dashboard | Owns legacy and Oracle 2 preview projects |
-| Oracle 2 preview projects | `proj_esmuwkezljvasptkbiwr` (extractor), `proj_jtaztxnmppzfchdsgvea` (projector) | `docs/verification/oracle2/S02-dependencies.md` | Synthetic-only staging; delete when #26 closes |
-| Current Supabase project | `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia / `us-east-1`) | Supabase dashboard + runtime env | Primary DB/Auth/Storage/Realtime after 2026-06-20 cutover. Previous Ohio project `vokucjpanhvqunimlvsp` is `oracle.old`. |
+| Oracle 2 preview projects | `proj_PRIVATE_REFERENCE_SHA256_5ac719234cae50874f21f058a58195aea057b037473342b561250e996f9cbf9d` (extractor), `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285` (projector) | `docs/verification/oracle2/S02-dependencies.md` | Synthetic-only staging; delete when #26 closes |
+| Current Supabase project | `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (`theoracle`, N. Virginia / `us-east-1`) | Supabase dashboard + runtime env | Primary DB/Auth/Storage/Realtime after 2026-06-20 cutover. Previous Ohio project `PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b` is `oracle.old`. |
 | Supabase Storage bucket | `company_documents` | schema + worker code + docs | Private document bucket |
 | Interview default route | `anthropic_claude_haiku_4_5_interview_primary` | `packages/ai/src/routes/catalog.ts`, settings row | Employee chat default |
 | Extraction default route | `vertex_gemini_2_5_flash_extraction_primary` | same | Extraction default |

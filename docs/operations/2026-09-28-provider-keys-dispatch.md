@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob a1cdaaf55704571d1e46d80ea70ac17ec7ab394f at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Provider API keys for production — exact dispatch for review (revision 6)
 
 Status: **executed** 2026-09-28 ~4:30 PM EDT (revision 6, approved); results on #49. Tracking issue: #49. Nothing here runs before a
@@ -16,7 +17,7 @@ addresses every finding of the revision-5 review.
   API Key") and `STEPFUN_API_KEY` (item "stepfun step5 ai api key", field
   `credential`). Z.ai excluded (owner hold). No `*_BASE_URL` in any target.
 - Targets: Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` (`popcre/theoracle`)
-  Production, and Trigger.dev `proj_wgpzsvhmsopqhvwqaycn` `prod`. Nothing else.
+  Production, and Trigger.dev `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` `prod`. Nothing else.
 - No new code is deployed anywhere. The Vercel step rebuilds the commit already
   in production; Trigger gets variables only.
 - **The Trigger half is inert until the next worker release.** Workers read env
@@ -68,7 +69,7 @@ addresses every finding of the revision-5 review.
    choice comes from `settings` rows, so the operator runs one read-only query
    (session `default_transaction_read_only=on`, credential from 1Password
    "Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle,
-   eqccjfbyrywsqkxxpjvg)" via the shared IPv4 pooler) over every `settings` row
+   PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d)" via the shared IPv4 pooler) over every `settings` row
    whose key matches `model_pool_%`, `default_%` or `%route%`, and prints only
    key names plus any match of `meta_muse|stepfun|zai|mimo|muse-spark|step-5|glm-`.
    Pass only with zero matches. At authoring (2026-09-28 ~3:40 PM EDT) this ran:
@@ -88,7 +89,7 @@ addresses every finding of the revision-5 review.
    `--sensitive`.
 3. Trigger: current prod deployment (must still be `20260909.1`, which predates
    the adapters; else stop); `GET
-   https://api.trigger.dev/api/v1/projects/proj_wgpzsvhmsopqhvwqaycn/envvars/prod`
+   https://api.trigger.dev/api/v1/projects/proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01/envvars/prod`
    (names only): both names absent, `DEEPSEEK_API_KEY` present.
 
 ## Step 3 — writes

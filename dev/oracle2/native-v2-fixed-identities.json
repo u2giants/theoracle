@@ -38,8 +38,8 @@
     "compiler": "oracle_native_v2_candidate_compiler",
     "executor": "oracle_native_v2_documentary_executor"
   },
-  "project": "proj_jtaztxnmppzfchdsgvea",
   "worker_bundle_env": "ORACLE2_NATIVE_TRIGGER_V2_BUNDLE",
   "worker_bundle_sha_env": "ORACLE2_NATIVE_TRIGGER_V2_BUNDLE_SHA256",
-  "graph_name": "oracle_operating_model_v1_cc904285f2134a579cdb06f8c278d3ec_62ec10d787254fb89668035dd89c9acd_1_5c56ede7638c4f51bd98d9e6cad3a8d0"
+  "graph_name": "oracle_operating_model_v1_cc904285f2134a579cdb06f8c278d3ec_62ec10d787254fb89668035dd89c9acd_1_5c56ede7638c4f51bd98d9e6cad3a8d0",
+  "project_sha256": "580419cdce24974ddddeac0a2dff52e4db4b5b48a2cf01fa5c00ad59bf52970e"
 }

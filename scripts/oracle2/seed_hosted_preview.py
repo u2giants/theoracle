@@ -26,8 +26,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from oracle_brain.authz import appoint_owner, delegate
 from oracle_brain import holistic_runtime
 
-FORBIDDEN_REFS = {"eqccjfbyrywsqkxxpjvg", "vokucjpanhvqunimlvsp", "aaxtrlfpnoutziwhshlt",
-                  "xupnyeifmpsacrqahwwm", "qsllyeztdwjgirsysgai", "ryltkzzernhwnojzouyb"}
+FORBIDDEN_REF_SHA256 = {'653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b', 'ea21672a791a65cd3fd852eb28801d7ce2da59bfd9103f3861ec041e4a008d59', 'de33bec59326276a45a7a4dad153eb17ae428c65e33b94a16abe5b7b27694048', '9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d', '9e4de42a66a8df90fb7c6c6ace67513ca5fad905a1a581d79dd723a3c93c2dec', '55432b7d2fcdc01e94e6e2c534cf08289bbcffc32dc55b645e3af14853819803'}
 DOC_ONE = "Intake Lead sends the packet to Review Team. Review Team follows the signed policy."
 DOC_TWO = ("Review Team reviews the packet. If the packet is incomplete, "
            "Review Team returns it to Intake Lead.")
@@ -38,7 +37,7 @@ ROLES = ("oracle2_extract", "oracle2_project", "oracle2_checkpoint",
 def _require_target(url: str, ref: str) -> None:
     """Exact Supabase shapes only: direct host db.<ref>.supabase.co, or the
     shared pooler host with tenant user postgres.<ref>. TLS is mandatory."""
-    if ref in FORBIDDEN_REFS or not re.fullmatch(r"[a-z]{20}", ref):
+    if hashlib.sha256(ref.encode()).hexdigest() in FORBIDDEN_REF_SHA256 or not re.fullmatch(r"[a-z]{20}", ref):
         raise PermissionError("target is not the reviewed preview project")
     parts = urlsplit(url)
     host, user = parts.hostname or "", parts.username or ""

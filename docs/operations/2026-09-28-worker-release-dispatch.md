@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob c51f88c7d601cb3d303639dbf330a6b57bf987ec at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Legacy worker production release — exact dispatch for review
 
 Status: **awaiting independent review** (revision 7). Not executed. Tracking issue:
@@ -18,7 +19,7 @@ choice on the admin settings page; this release does not depend on it.
 
 ## 1. Target and pinned artifact
 
-- Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`, environment `prod`, config
+- Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`, environment `prod`, config
   `apps/workers/trigger.config.ts`, CLI pinned `trigger.dev@4.5.15`.
 - Deploy exactly commit **`5a441199925d0ddb5a76374f44b8c3243a303214`** (`5a44119`,
   `origin/main` at review time). This dispatch lives in docs-only commits on branch
@@ -168,7 +169,7 @@ Trigger reads use the Trigger MCP (`get_current_worker`, `list_deploys`, `list_r
 1. **Prod re-read (read-only).**
    - `get_current_worker` prod: `20260909.1`, the 25 ids in §2.
    - Env names (management API `GET
-     https://api.trigger.dev/api/v1/projects/proj_wgpzsvhmsopqhvwqaycn/envvars/prod`,
+     https://api.trigger.dev/api/v1/projects/proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01/envvars/prod`,
      print names only): include `META_MUSE_API_KEY`, `STEPFUN_API_KEY`; exclude
      `ZAI_API_KEY`.
    - In `BEGIN TRANSACTION READ ONLY` (the pooler ignores a

@@ -1,4 +1,5 @@
 """Fresh invented permission/one-use SQL tests; never an old live job replay."""
+from oracle_brain.private_targets import read_private_target
 import base64,hashlib,json,os
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
@@ -54,7 +55,7 @@ def test_old_or_caller_selected_native_authority_denied(payload):
 
 
 def test_native_database_target_isolated_and_tls_fixed():
- url=b'postgresql://oracle_synthetic_executor.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v1'
+ url=(b'postgresql://oracle_synthetic_executor.'+read_private_target('native_supabase_project').encode()+b':invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v1')
  result=database_url(url,Path('/private/invented-ca'))
  assert 'sslmode=verify-full' in result and 'sslrootcert=' in result
  for wrong in (url.replace(b'oracle_native_proof_v1',b'postgres'),url+b'?sslmode=disable',url.replace(b'aws-0-us-east-1',b'aws-0-us-west-1')):

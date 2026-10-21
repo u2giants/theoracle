@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 00ef1f4a7ac739c48ab8a8cf9cd07b0d38c30e35 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # FalkorDB on Coolify — executable deployment plan (DRAFT, not executed)
 
 **STATUS 2026-10-15:** attempt 10 DEPLOYED both roles; §9 checks 1–9 PASS (check 4 rerun after Hetzner firewall opened 16390/16391).
@@ -56,7 +57,7 @@ The new stores start EMPTY; there is no migration — the native candidate/confi
 stores hold synthetic data only.
 
 ## 1. Fixed inputs (verified read-only 2026-10-14, Eastern time)
-- **Coolify API endpoint (M5/L4): `http://100.66.37.58:8000/api/v1` over the tailnet.**
+- **Coolify API endpoint (M5/L4): `http://PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:8000/api/v1` over the tailnet.**
   `GET /version` returned `4.4.6`. Why not `https://coolify.designflow.app`: its response
   headers show `server: cloudflare` / `cf-ray`, i.e. TLS terminates at Cloudflare's edge,
   not the Coolify origin, so the bearer token would be decrypted by a third party. The
@@ -86,7 +87,7 @@ stores hold synthetic data only.
 |---|---|---|
 | Coolify service | `oracle-falkordb-confirmed` | `oracle-falkordb-candidate` |
 | Public bind (PRIMARY) | `178.156.180.212:16390` | `178.156.180.212:16391` |
-| Tailnet bind (backup) | `100.66.37.58:6390` | `100.66.37.58:6391` |
+| Tailnet bind (backup) | `PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:6390` | `PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:6391` |
 | DNS name (server SAN) | `oracle-graph.designflow.app` | `oracle-graph.designflow.app` |
 | Volumes | `oracle-falkordb-confirmed-data`, `-backups` | `oracle-falkordb-candidate-data`, `-backups` |
 | Password item | `Oracle FalkorDB confirmed — graph password` | `Oracle FalkorDB candidate — graph password` |
@@ -99,7 +100,7 @@ Every step runs once per column (`<ROLE>`, `<PUBPORT>` 16390/16391, `<PORT>` 639
 Redis scanning), outside Coolify/Traefik's 80/443/8000/6001/6002, and paired with the tailnet
 ports for readability. Before create, a read-only `nc -zv 178.156.180.212 16390 16391` from
 outside must show both closed (nothing else bound); if open, STOP. Shared across roles: image digest, CA, DNS name `oracle-graph.designflow.app`, and
-both bind IPs (`178.156.180.212`, `100.66.37.58`); everything else is per role.
+both bind IPs (`178.156.180.212`, `PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae`); everything else is per role.
 **Name collision note:** `oracle-graph.designflow.app` (this FalkorDB endpoint) is unrelated to the
 pre-existing Entra/1Password secret `oracle-graph-backend` (`docs/configuration.md`, Microsoft Graph
 API access) — different system, different credential; never interchange them.
@@ -112,7 +113,7 @@ plaintext is rejected), `tls-port 6379`, `tls-protocols "TLSv1.3"`, `tls-auth-cl
 `requirepass`: it would re-enable the `default` user),
 `protected-mode yes`. Trigger static outbound IPs are NOT required; an IP allowlist from a paid
 Trigger static-IP plan is an optional later hardening, not a dependency.
-**BACKUP:** the same listener reached on tailnet `100.66.37.58:<PORT>` through the separate `tailnet-fwd`
+**BACKUP:** the same listener reached on tailnet `PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:<PORT>` through the separate `tailnet-fwd`
 sidecar (§5: raw TCP pass-through, TLS still ends at falkordb; its own container, so a missing tailnet
 IP cannot stop the store or the public port; re-resolves `falkordb` every 10 s); reached
 via userspace Tailscale (§7) with the same mTLS + password.
@@ -135,7 +136,7 @@ GRAPH.QUERY and GET → `NOPERM`; unauthenticated PING → `NOAUTH`.
 Three certificate identities per role, each going ONLY where it is used:
 | Identity | Files | Goes to |
 |---|---|---|
-| Server | `server.crt`, `server.key` (SANs `DNS:oracle-graph.designflow.app`, `IP:178.156.180.212`, `IP:100.66.37.58`, `IP:127.0.0.1`) | server container only (item "server TLS") |
+| Server | `server.crt`, `server.key` (SANs `DNS:oracle-graph.designflow.app`, `IP:178.156.180.212`, `IP:PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae`, `IP:127.0.0.1`) | server container only (item "server TLS") |
 | Healthcheck client | `hc.crt`, `hc.key` (CN `oracle-falkordb-<ROLE>-healthcheck`) | server container only (item "server TLS") |
 | Trigger worker client | `worker.crt`, `worker.key` (CN `oracle-trigger-worker-<ROLE>`) | worker item only; never in the server container |
 `ca.crt` (public) goes to both. Storage in `vibe_coding`: CA cert + CA key → "Oracle FalkorDB —
@@ -313,7 +314,7 @@ services:
         printf 'pid /tmp/n.pid; error_log stderr; events {} stream { resolver 127.0.0.11 valid=10s ipv6=off; server { listen 6379; set $$u falkordb:6379; proxy_pass $$u; } }' > /tmp/n.conf
         exec nginx -c /tmp/n.conf -e stderr -g 'daemon off;'
     ports:
-      - "100.66.37.58:<PORT>:6379"        # backup: tailnet
+      - "PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:<PORT>:6379"        # backup: tailnet
 networks:
   oracle-graph-<ROLE>:
     name: oracle-graph-<ROLE>
@@ -333,13 +334,13 @@ project name Coolify passes (`-p <uuid>`); every command in this plan uses these
 exists — a pinned name would otherwise attach to someone else's resource). Container names stay
 Coolify-generated; commands resolve them with `docker ps -q --filter label=com.docker.compose.service=falkordb --filter network=oracle-graph-<ROLE>`.
 **Host-access residual (L4, measured locally on Docker 29.1.3, 2026-10-14; not re-measured on 29.6.0, §9 check 5 records it on hetz):** on a
-`enable_ip_masquerade=false` bridge the container reached its gateway `:22` and `172.17.0.1:22`
+`enable_ip_masquerade=false` bridge the container reached its gateway `:22` and `PRIVATE_HOST_SHA256_346840d5a3d9fe9b61ce99955bb98df3db872090732c96aa5df1d83cb1f3e85a:22`
 (OPEN) while `1.1.1.1:443` timed out; `gateway_mode_ipv4=routed` gave the same, and
 `gateway_mode_ipv4=isolated` is refused by Docker for non-internal networks ("can only be used for
 an internal network"). No compose network setting blocks host access while publishing a port; only
 a host firewall rule could, which is the gated Ansible path. The same route reaches EVERY host-published service: Coolify's own PostgreSQL and Redis,
 Traefik 80/443, the Coolify API/UI 8000/6001/6002, other apps' published ports, and host SSH :22
-(SSH is additionally restricted by the host INPUT rules to Tailscale/localhost/`10.0.1.0/24`, which
+(SSH is additionally restricted by the host INPUT rules to Tailscale/localhost/`PRIVATE_HOST_SHA256_f50dcb37cebf5a57204fc11d8a2a15ec4b7714d11cd6ebc36d02c3ab6c2ead44/24`, which
 include the Docker bridge range only if it falls in those sources — not assumed). The FalkorDB
 container holds the worker graph password in its environment, so a container compromise would have
 that network reach PLUS valid store credentials. Recorded as a residual (also in the README
@@ -367,18 +368,18 @@ and record the body.
    the fix `sysctl vm.overcommit_memory=1` is host config, so it is a SEPARATELY gated Ansible item on
    #27 (`- [ ] vm.overcommit_memory=1 on hetz`), never done in this action.
 0d. Note (forwarder re-resolution, proven locally 2026-10-14): with Docker DNS `127.0.0.11`,
-   `valid=10s` and a variable upstream, recreating the store on a new IP (192.168.240.2 → .4) kept
+   `valid=10s` and a variable upstream, recreating the store on a new IP (PRIVATE_HOST_SHA256_b58a0239c26b1915b8c35eb2d81b5a0e5dffc05cc9ef90853e25d722ad23a55b → .4) kept
    the forwarded route answering after ≤10 s without restarting the forwarder.
 0c. Read, preflight (bind IPs): via HOST-PATH, `ip -br addr` on hetz must list BOTH 178.156.180.212
-   and 100.66.37.58; either missing → STOP. Decoupling (re-proven on docker:29.6.0-dind, Compose
-   5.1.4, 2026-10-14): the public route never depends on Tailscale. With 100.66.37.58 never assigned,
+   and PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae; either missing → STOP. Decoupling (re-proven on docker:29.6.0-dind, Compose
+   5.1.4, 2026-10-14): the public route never depends on Tailscale. With PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae never assigned,
    `compose up` exits 1, `tailnet-fwd` stays `Created`, while the store is healthy and public
    `16391` answers PONG. In a preceding run where the address had been present and was then
    removed, `compose up` exited 0 and Docker listened on the absent address, so container state is
    NOT evidence either way. When the address appears later, the never-started forwarder is NOT started
    automatically (tailnet still refused, measured); it needs a redeploy. A Coolify deploy that reports
    failure must be read per container (`docker ps -a`), not assumed down. **The tailnet route is
-   proven only by §9 check 4 (a real mTLS PING over 100.66.37.58), never by container state.**
+   proven only by §9 check 4 (a real mTLS PING over PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae), never by container state.**
 0b. Read, preflight (host executor): every host-side command in this plan (§5 inspect, step 7 `docker ps`,
    §6 0a, §8 restore, §9 checks 5/7/8, §10) is run ONLY by the root Oracle coordinator over its own
    approved host path (HOST-PATH) — not from edge-dev3, whose SSH to hetz is denied (measured
@@ -387,8 +388,8 @@ and record the body.
    `docker compose version --short` (record only, never a STOP; the goldens' generator Compose version is in
    `dev/oracle2/hosting/golden/meta.json` and the validator prints a note on mismatch);
    if HOST-PATH is unavailable → STOP before step 2 (nothing created). HOST-PATH = this executing
-   session over one ControlMaster `ai@100.66.37.58` (owner/coordinator-approved substitution).
-0. Read, preflight (tailnet bind): `tailscale status` on the executor lists `100.66.37.58 hetz`
+   session over one ControlMaster `ai@PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae` (owner/coordinator-approved substitution).
+0. Read, preflight (tailnet bind): `tailscale status` on the executor lists `PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae hetz`
    active (read 2026-10-14: yes) and `GET /api/v1/servers` over that address returns 200 — the
    Coolify API itself is served on it, proving the address exists on hetz. If not, STOP before create.
 1. Mutation, once: create environment `oracle-graph-production` in the project
@@ -444,7 +445,7 @@ either value is empty (runtime `:?` check), so a missing env fails closed.
    (the body file is built by `python3 -c` with `json.dumps`; the 22-char `command` fits Coolify 4.4.6's
    255-char limit and runs the entrypoint-written §8 script; before creating the task, require
    `docker exec <CTR> sh -n /run/auth/backup.sh` via HOST-PATH to succeed, else STOP), sent with
-   the token rule: `… | curl -sS --config - -X POST http://100.66.37.58:8000/api/v1/services/<SVC>/scheduled-tasks -H 'Content-Type: application/json' --data @"$BODY"`;
+   the token rule: `… | curl -sS --config - -X POST http://PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:8000/api/v1/services/<SVC>/scheduled-tasks -H 'Content-Type: application/json' --data @"$BODY"`;
    record the returned task uuid. For §9 check 7 run it once: `POST /services/<SVC>/scheduled-tasks/<TASK>/execute`,
    then poll `GET /services/<SVC>/scheduled-tasks/<TASK>/executions` until status `success`.
 8. Mutation (§9 check 6 restart): `POST /services/<SVC>/restart`, then poll `GET /services/<SVC>` until healthy.
@@ -453,7 +454,7 @@ either value is empty (runtime `:?` check), so a missing env fails closed.
 Grant `{"src":["tag:oracle-trigger-worker"],"dst":["tag:hetz-coolify"],"ip":["tcp:6390","tcp:6391"]}`,
 nothing else to those ports; ephemeral pre-authorized key tagged `tag:oracle-trigger-worker`
 (item `Oracle Trigger worker — Tailscale ephemeral auth key`). Worker bootstrap: userspace
-`tailscaled`, forwarders 127.0.0.1:16390→100.66.37.58:6390 and 127.0.0.1:16391→:6391, TLS per §3.
+`tailscaled`, forwarders 127.0.0.1:16390→PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:6390 and 127.0.0.1:16391→:6391, TLS per §3.
 
 ## 8. Backup, retention, restore (M8) — owner: root Oracle coordinator
 Coolify 4.4.6 scheduled task on each service (container `<CTR>` resolved in §6 step 7), cron `17 3 * * *`,
@@ -495,8 +496,8 @@ pinned digest (all files `OK`, canary returned). Then `docker rm -f` and `docker
    ACL: worker CONFIG GET → `NOPERM`; healthcheck user GRAPH.QUERY → `NOPERM`; `default` → `NOAUTH`.
 3. Plaintext refused; TLS without client cert refused; no password `NOAUTH`; wrong `WRONGPASS`.
 4. Public route, from edge-dev3 to the PUBLIC IP. First `ip route get 178.156.180.212` must show
-   the public uplink `dev eno1 via 192.168.1.2` (edge-dev3's home ISP NIC — read 2026-10-14:
-   `178.156.180.212 via 192.168.1.2 dev eno1 src 192.168.3.42`); any other device (`tailscale0`, a
+   the public uplink `dev eno1 via PRIVATE_HOST_SHA256_26702f5a55cf837a9e456c664f8446e98715ff614c9c085c9014150f05ebfc9f` (edge-dev3's home ISP NIC — read 2026-10-14:
+   `178.156.180.212 via PRIVATE_HOST_SHA256_26702f5a55cf837a9e456c664f8446e98715ff614c9c085c9014150f05ebfc9f dev eno1 src PRIVATE_HOST_SHA256_855682545aadc296747c466513aa0b2c9e96c717db11c8f1fe21efd937563e57`); any other device (`tailscale0`, a
    bridge, a Hetzner private network) → STOP. This path leaves edge-dev3 over the public internet,
    outside Hetzner. Then connect to
    `178.156.180.212:<PUBPORT>` with SNI/verify name `oracle-graph.designflow.app`
@@ -509,7 +510,7 @@ pinned digest (all files `OK`, canary returned). Then `docker rm -f` and `docker
    cert → handshake refused; plaintext → refused; `178.156.180.212` ports 6390/6391/6379 closed.
    Backup route: same from a tagged tailnet node after §7.
 5. Network: service attached only to `oracle-graph-<ROLE>` and Coolify's `<SVC>` network, the latter `Internal=true`; outbound internet TCP from the container
-   fails. Host/bridge probe (L4): TCP from the container to its network gateway and to `172.17.0.1`
+   fails. Host/bridge probe (L4): TCP from the container to its network gateway and to `PRIVATE_HOST_SHA256_346840d5a3d9fe9b61ce99955bb98df3db872090732c96aa5df1d83cb1f3e85a`
    is RECORDED, not claimed blocked — see residual below.
 6. Canary from edge-dev3 (worker user, public route): `GRAPH.QUERY oracle2_synthetic_probe "CREATE (:Canary {id:'fk-<ROLE>'})"`;
    §6 step 8 restart; `GRAPH.RO_QUERY oracle2_synthetic_probe "MATCH (c:Canary) RETURN c.id"` returns it.

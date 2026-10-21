@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b92334d000a32b2b160bc3e10d3e16b8b0de4a59 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Deferred Product and Infrastructure Gaps Plan
 
 Status: **CANONICAL for known open product features, runtime limitations, optional infrastructure,
@@ -277,7 +278,7 @@ Release-gate evidence (2026-07-29):
 - `packages/ai/src/entity-planner-model.ts` is the one production selector shared by chat and the
   credentialed live verifier. It uses the configured primary `general` route, structured JSON,
   strict registry-only output, visible attempt telemetry, and catalog-priced token cost.
-- The pinned-production verifier confirmed project `eqccjfbyrywsqkxxpjvg` and confirmed
+- The pinned-production verifier confirmed project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` and confirmed
   `entity_aware_retrieval_enabled` was not true. Qwen `qwen3.7-max` completed four calls with no
   failure or fallback, 100% recall, 0% wrong-entity selection, 0 invented registry IDs, and average
   cost `$0.00037870625`.
@@ -336,7 +337,7 @@ Implementation evidence (2026-07-27):
 
 Release-gate evidence (2026-07-29):
 
-- The live verifier pins project `eqccjfbyrywsqkxxpjvg`, uses the real
+- The live verifier pins project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`, uses the real
   `searchWithRetrievalPlan(..., 'zh-CN')` path, performs no writes, and accepts only independently
   authored labeled fixtures. It rejects circular or duplicate queries, duplicate target claims,
   fake negative-control IDs, stale translations, and claims outside the production `current`
@@ -732,8 +733,8 @@ session. Do not carry downstream drift only in chat.
 
 - Local repo: `C:\repos\oracle`.
 - Production web: `https://oracle.designflow.app`.
-- Supabase project: `eqccjfbyrywsqkxxpjvg`.
-- Trigger.dev project: `proj_wgpzsvhmsopqhvwqaycn`.
+- Supabase project: `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`.
+- Trigger.dev project: `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`.
 - Vercel project: `prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
 - Secrets live only in 1Password vault `vibe_coding`.
 - Use authenticated CLI/connectors only after a real read check.

@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob ef443c87bbe2f0d65b59eec0093a57395f50a394 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # R2: the reason-code prompt regressed production to 13/30. Reverted and the good map restored.
 
 Status: **Regression fully contained. One owner decision remains.** The third cycle was measured and
@@ -33,8 +34,8 @@ negative controls, the frozen route and limits, and the business-model flags. Do
 ## 1. What this application is
 
 The Oracle turns POP Creations documents into source-grounded business knowledge. Repository
-`u2giants/theoracle`, `main`, TypeScript, pnpm, Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`,
-production Supabase `eqccjfbyrywsqkxxpjvg`, web at `https://oracle.designflow.app`.
+`u2giants/theoracle`, `main`, TypeScript, pnpm, Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01`,
+production Supabase `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`, web at `https://oracle.designflow.app`.
 
 ## 2. What this session set out to do
 
@@ -118,7 +119,7 @@ pushed to `main`; that worktree needed its own `pnpm install`. Preserve the untr
 
 ## 8. Access and environment
 
-`al8960ofc`. GitHub, Trigger.dev CLI, Supabase MCP (`eqccjfbyrywsqkxxpjvg`, read-only) and 1Password
+`al8960ofc`. GitHub, Trigger.dev CLI, Supabase MCP (`PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`, read-only) and 1Password
 are authenticated. Vault `vibe_coding` is id `pimcaogmxxzoafh7lsluj6uxkq`; `op://` refs must use item
 IDs, not titles, because the titles contain spaces the resolver rejects. SELECT-only verifiers read
 `R2_REPLAY_DATABASE_URL` from item `qcuyabwseaptvuzvtjejffi2ou`, field `password`; the trigger key is

@@ -26,7 +26,7 @@ checkpoint:
     - ORACLE2_CONFIRMED_GRAPH_URL
     - SUPABASE_SERVICE_ROLE_KEY
 legacy_trigger_project:
-  project_ref: proj_wgpzsvhmsopqhvwqaycn
+  project_ref_sha256: fea89e37d060c6e49e41fe96e1b526a1dfe47eb2dafff368a32eb4ac0c7563e5
   oracle2_tasks_allowed: false
 preview_status: measured_synthetic
 holistic:
@@ -54,7 +54,7 @@ operating_model:
 native_v2:
   synthetic_only: true
   deployment: dedicated-oracle2-projector-preview
-  project_ref: proj_jtaztxnmppzfchdsgvea
+  project_ref_sha256: 580419cdce24974ddddeac0a2dff52e4db4b5b48a2cf01fa5c00ad59bf52970e
   environment: prod
   task: oracle2-native-invented-v2
   database: oracle_native_proof_v2

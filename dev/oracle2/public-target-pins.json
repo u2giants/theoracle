@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "targets": {
+    "legacy_trigger_project": "fea89e37d060c6e49e41fe96e1b526a1dfe47eb2dafff368a32eb4ac0c7563e5",
+    "native_trigger_project": "580419cdce24974ddddeac0a2dff52e4db4b5b48a2cf01fa5c00ad59bf52970e",
+    "oracle_supabase_project": "9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d",
+    "native_supabase_project": "620b6d5ddc335d4bd407f56c4e534cd8141fbcb6772483488a0180abbec651dd",
+    "coolify_api_base_url": "208ba8dd3931fe4a0638e12862634386e96412b6cf6a02fe26a1ef2e42036c3c"
+  }
+}

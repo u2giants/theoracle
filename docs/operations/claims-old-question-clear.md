@@ -1,12 +1,13 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob f854e16f1f12928c12f83164d6597a312678a857 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Exact reversible cleanup of obsolete CLAIMS assignments
 
 Status: prepared; no production mutation has occurred. Root coordinator retains the production decision.
 
 Owner request, verbatim: “clear the questions that are currently under CLAIMS for Ilona and Jessica. they were generated under the old (incorrect) logic”.
 
-Target: Oracle CURRENT PROD Supabase project eqccjfbyrywsqkxxpjvg, selected through its specific existing vault session-pooler credential. Never use connected unrelated Supabase MCP, old Oracle project, or shared POP database.
+Target: Oracle CURRENT PROD Supabase project PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d, selected through its specific existing vault session-pooler credential. Never use connected unrelated Supabase MCP, old Oracle project, or shared POP database.
 
-Live identity binding, verified read-only: Ilona Kereki = 0afd45f8-5ee1-4d41-a43c-36bcd59f4102; Jessica Cortazar = 52a0662e-f24b-46bb-87bf-706286c20255. The transaction rechecks these exact names and UUIDs before any UPDATE. Pooler credential endpoint metadata verified read-only at12:10PM EDT October12: aws-1-us-east-1.pooler.supabase.com, postgres.eqccjfbyrywsqkxxpjvg, port5432, databasepostgres. Employee names locked FOR SHARE through commit. Pooler target is strictly allowlisted by exact Supabase endpoint, exact project-bound database username, port5432 and databasepostgres; a substring or wrong host is rejected.
+Live identity binding, verified read-only: Ilona Kereki = 0afd45f8-5ee1-4d41-a43c-36bcd59f4102; Jessica Cortazar = 52a0662e-f24b-46bb-87bf-706286c20255. The transaction rechecks these exact names and UUIDs before any UPDATE. Pooler credential endpoint metadata verified read-only at12:10PM EDT October12: aws-1-us-east-1.pooler.supabase.com, postgres.PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d, port5432, databasepostgres. Employee names locked FOR SHARE through commit. Pooler target is strictly allowlisted by exact Supabase endpoint, exact project-bound database username, port5432 and databasepostgres; a substring or wrong host is rejected.
 
 Read-only inventory found precisely 30 open claim_review_question gaps, 15 for each exact named employee. All belong to one October 6 legacy generation run. No new generation/grading permitted. Existing resolved history remains untouched. The existing admin gaps action supports rejected, and the dynamic employee CLAIMS page excludes rejected assignments.
 
@@ -32,7 +33,7 @@ assert set(employees)=={'0afd45f8-5ee1-4d41-a43c-36bcd59f4102','52a0662e-f24b-46
 assert all(r['status']=='open' and r['gap_type']=='claim_review_question' and r['target_employee_id'] in employees for r in b['rows'])
 u=urllib.parse.urlparse(os.environ['ORACLE_DIRECT_URL'])
 assert u.scheme in ('postgres','postgresql') and u.port==5432
-assert u.hostname=='aws-1-us-east-1.pooler.supabase.com' and u.username=='postgres.eqccjfbyrywsqkxxpjvg'
+assert u.hostname=='aws-1-us-east-1.pooler.supabase.com' and u.username=='postgres.PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d'
 assert u.path=='/postgres' 
 def canon(value): return json.dumps(value,default=str,sort_keys=True,separators=(',',':'))
 def save(name,value):
@@ -91,7 +92,7 @@ Exact metadata-only target manifest (no question text):
     "0afd45f8-5ee1-4d41-a43c-36bcd59f4102",
     "52a0662e-f24b-46bb-87bf-706286c20255"
   ],
-  "project_ref": "eqccjfbyrywsqkxxpjvg",
+  "project_ref": "PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d",
   "rows": [
     {
       "created_at": "2026-10-06 23:19:08.050456",

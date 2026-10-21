@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 46e5a2dad09283ec04e8dcd3ab30e44b250634da at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # SECURITY NOTE
 
 The Vercel token shared during overnight setup is in the chat transcript. **Rotate it at https://vercel.com/account/tokens before sharing this repo widely.** Also rotate any Supabase service-role / DB URL / Trigger.dev / OpenRouter keys that were pulled into `.env.local` during bootstrap (they remain only in the local untracked `.env.local`, but the token used to fetch them was in chat).
@@ -104,7 +105,7 @@ This file is the running log of every assumption, stub, and resolution made by t
 ### D1.storage-bucket — company_documents is managed outside SQL migrations
 
 - **Decision**: Phase 2 needs the private `company_documents` Supabase Storage bucket. Storage buckets are managed through the Storage API or dashboard, not the app's SQL migration runner.
-- **Current state**: A SELECT-only production check on 2026-07-26 confirmed that `company_documents` exists and is private in Supabase project `eqccjfbyrywsqkxxpjvg`. There is no bucket-creation action left open.
+- **Current state**: A SELECT-only production check on 2026-07-26 confirmed that `company_documents` exists and is private in Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`. There is no bucket-creation action left open.
 
 ### D1.rls-policies — admin reads via service role, not RLS bypass
 

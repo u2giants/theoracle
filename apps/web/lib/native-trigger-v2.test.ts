@@ -1,3 +1,4 @@
+import {readPrivateTarget} from '../../../dev/oracle2/private-target-profile.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
@@ -10,7 +11,7 @@ const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 const enc=(s:string)=>Buffer.from(s).toString('base64');
 function install(patch:Record<string,unknown>={}){
  const now=Math.floor(Date.now()/1000);
- const body={schema_version:1,purpose:'public-invented-trigger-v2',issued_at:now-1,expires_at:now+3599,runtime_hash:'a'.repeat(64),review_hash:'b'.repeat(64),release_hash:'c'.repeat(64),admission_hash:hash('oracle-public-invented-trigger-fixture/v2'),files:{database_url:enc('postgresql://oracle_native_v2_gateway.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v2'),database_ca:enc('invented unit CA only')},...patch};
+ const body={schema_version:1,purpose:'public-invented-trigger-v2',issued_at:now-1,expires_at:now+3599,runtime_hash:'a'.repeat(64),review_hash:'b'.repeat(64),release_hash:'c'.repeat(64),admission_hash:hash('oracle-public-invented-trigger-fixture/v2'),files:{database_url:enc(`postgresql://oracle_native_v2_gateway.${readPrivateTarget('native_supabase_project')}:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v2`),database_ca:enc('invented unit CA only')},...patch};
  const raw=JSON.stringify(body);process.env.ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE=raw;process.env.ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE_SHA256=hash(raw);return body;
 }
 test('new native web bundle keeps exact isolated SQL target and verify-full',()=>{install();const s=triggerV2Settings();assert.match(s.url,/sslmode=verify-full/);assert.match(s.url,/oracle_native_proof_v2/);});
@@ -19,7 +20,7 @@ test('expired, foreign or extended authority is rejected without a connection',(
 });
 test('missing/tampered bundle cannot grant native permission',()=>{install();process.env.ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE_SHA256='0'.repeat(64);assert.throws(()=>triggerV2Settings());delete process.env.ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE;assert.throws(()=>triggerV2Settings());});
 test('retained pilot DB and SSL override cannot become native SQL target',()=>{
- for(const url of ['postgresql://oracle_native_v2_gateway.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.com:5432/postgres','postgresql://oracle_native_v2_gateway.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v2?sslmode=disable']){install({files:{database_url:enc(url),database_ca:enc('invented')}});assert.throws(()=>triggerV2Settings());}
+ for(const url of [`postgresql://oracle_native_v2_gateway.${readPrivateTarget('native_supabase_project')}:invented@aws-0-us-east-1.pooler.supabase.com:5432/postgres`,`postgresql://oracle_native_v2_gateway.${readPrivateTarget('native_supabase_project')}:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v2?sslmode=disable`]){install({files:{database_url:enc(url),database_ca:enc('invented')}});assert.throws(()=>triggerV2Settings());}
 });
 test('Vercel access and wrong native token do not grant native session',async()=>{
  install();process.env.ORACLE2_NATIVE_TRIGGER_TOKEN='invented-native-token';assert.equal((await createTriggerNativeV2Session('wrong')).ok,false);assert.equal((await authorizeTriggerNativeV2Request(new Headers())).ok,false);
@@ -88,7 +89,7 @@ test('v2 refuses foreign native/projector/admin environment before metadata',()=
 });
 
 test('v2 refuses v1 SQL namespace and login even with a correctly sealed bundle',()=>{
- for(const url of ['postgresql://oracle_synthetic_gateway.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v1','postgresql://oracle_native_v2_projector.wfdrklofsczspazshaib:invented@aws-0-us-east-1.pooler.supabase.co:5432/oracle_native_proof_v2']){
+ for(const url of [`postgresql://oracle_synthetic_gateway.${readPrivateTarget('native_supabase_project')}:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v1`,`postgresql://oracle_native_v2_projector.${readPrivateTarget('native_supabase_project')}:invented@aws-0-us-east-1.pooler.supabase.co:5432/oracle_native_proof_v2`]){
   install({files:{database_url:enc(url),database_ca:enc('invented')}});assert.throws(()=>triggerV2Settings());
  }
 });
@@ -165,4 +166,9 @@ test('v2 ignores ordinary configured website credentials and uses only its seale
  const previous=Object.fromEntries(names.map(k=>[k,process.env[k]]));
  try{for(const name of names)process.env[name]='invented ordinary website value';install();assert.match(triggerV2Settings().url,/oracle_native_proof_v2/);}
  finally{for(const name of names){if(previous[name]===undefined)delete process.env[name];else process.env[name]=previous[name];}}
+});
+test('native v2 rejects foreign tenants and altered gateway logins',()=>{
+ for(const login of ['oracle_native_v2_gateway.'+'z'.repeat(20),'postgres.'+readPrivateTarget('native_supabase_project'),'oracle_native_v2_gateway.'+readPrivateTarget('native_supabase_project')+'.extra']){
+  install({files:{database_url:enc(`postgresql://${login}:invented@aws-0-us-east-1.pooler.supabase.com:5432/oracle_native_proof_v2`),database_ca:enc('invented')}});assert.throws(()=>triggerV2Settings());
+ }
 });

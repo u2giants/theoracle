@@ -4,6 +4,21 @@ Scope: invented fixtures only. No employees, company data, renewal/replay,
 production installation or live/business acceptance. The 120-second ceiling
 remains unchanged.
 
+**Final merge receipt — October 21, 2026, 1:12 AM EDT:** PR [#171](https://github.com/u2giants/theoracle/pull/171) merged at
+`c3076ee821a4e5efa708149ce5fc91cb400e5c4e`, including workflow registration.
+Reviewed implementation head `d049912499d7879436af178a8fe1f4bdad5d500b`
+received the requested Codex APPROVE and independent GLM APPROVE; [full exact-head
+reports](https://github.com/u2giants/theoracle/pull/171#issuecomment-6308433101).
+W10 passed 2788 with zero failures, skips, timeouts, launch or cleanup errors;
+slowest worker 99.331 seconds under the unchanged 120-second ceiling. SQL
+passed 25/25, replacement TypeScript 58/58, and pure checks 423/423. All required
+CI passed, including image, SDK browser, workflow worker and ledger, readiness,
+graph evidence, resource/stress, restart/restore and cleanup. Browser mode skips
+are intentional; this does not claim every browser mode had zero skips. The legacy SDK browser proof uses owned original SQL001/002/004
+databases; canonical W10/S03/current RLS are unchanged. Host installation and
+isolation, Q2b target, native/hosted/live proof and business acceptance remain
+unproven; business acceptance stays closed.
+
 The requested security review identified three blockers: application-accessible
 authority minting, ambiguous signed field boundaries, and forgeable enabled
 participation settings. The application now verifies only; Q2b observations
@@ -107,7 +122,7 @@ SQL001/002/004 contract. Exact container, certificate, database OID/owner and
 private creation receipt bind their setup and cleanup. Canonical W10/S03
 migrations and security policies remain unchanged. Legacy SDK journey proof
 does not establish canonical hosted admission or live/business acceptance;
-the isolated browser successor still requires fresh governed CI proof.
+the isolated-browser successor's required CI proof passed in PR #171.
 
 Actual host installation/isolation, Q2b target owner/caller/TLS proof,
 W10/R7 native timing, native/hosted/browser production proof, stage acceptance

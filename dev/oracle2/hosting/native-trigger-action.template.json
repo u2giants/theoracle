@@ -19,16 +19,15 @@
   "workspace_id": "6426980e-6287-4f58-9e94-d1cb49b5cd5d",
   "root_appointment": "62b4902e-9865-4fb3-8d30-872c76cf06c4",
   "postgres": {
-    "existing_project": "wfdrklofsczspazshaib",
     "new_database": "oracle_native_proof_v1",
     "operation": "create once only after absence and native-global-role collision checks",
     "tls": "verify-full with authenticated Supabase Root 2021 CA",
     "legacy_database_writes": false,
     "legacy_roles_connect_new_database": false,
-    "partial_failure": "preserve new database and receipts; never DROP, reissue or silently retry"
+    "partial_failure": "preserve new database and receipts; never DROP, reissue or silently retry",
+    "existing_project_sha256": "620b6d5ddc335d4bd407f56c4e534cd8141fbcb6772483488a0180abbec651dd"
   },
   "trigger": {
-    "project": "proj_jtaztxnmppzfchdsgvea",
     "environment": "prod",
     "prior_deployments": 0,
     "prior_environment_names": [],
@@ -39,14 +38,21 @@
     "deployed_revision": null,
     "deployment_id": null,
     "runtime_key_secret_reference": null,
-    "worker_credentials": "new executor PG identity and exact-graph read-only Falkor identity only; no PAT/admin/projector/provider credentials"
+    "worker_credentials": "new executor PG identity and exact-graph read-only Falkor identity only; no PAT/admin/projector/provider credentials",
+    "project_sha256": "580419cdce24974ddddeac0a2dff52e4db4b5b48a2cf01fa5c00ad59bf52970e"
   },
   "vercel": {
     "project": "prj_rP6Jlima7iK1paffEPhLqxlswGsC",
     "environment_branch_and_deployment": null,
     "native_mode": "v1",
     "permitted_credentials": "new metadata PG identity, one isolated Trigger runtime key and dedicated native-login token",
-    "managed_environment_names": ["ORACLE2_NATIVE_TRIGGER_MODE", "ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE", "ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE_SHA256", "ORACLE2_NATIVE_TRIGGER_SECRET_KEY", "ORACLE2_NATIVE_TRIGGER_TOKEN"]
+    "managed_environment_names": [
+      "ORACLE2_NATIVE_TRIGGER_MODE",
+      "ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE",
+      "ORACLE2_NATIVE_TRIGGER_WEB_BUNDLE_SHA256",
+      "ORACLE2_NATIVE_TRIGGER_SECRET_KEY",
+      "ORACLE2_NATIVE_TRIGGER_TOKEN"
+    ]
   },
   "projection": {
     "host": "oracle-graph.designflow.app",

@@ -1,3 +1,4 @@
+import targetPins from '../../../dev/oracle2/public-target-pins.json';
 // New separately authorized invented test. Existing mTLS/browser adapter stays intact.
 import { createHash,randomUUID,timingSafeEqual } from 'node:crypto';
 import { mkdtempSync,writeFileSync } from 'node:fs';
@@ -36,7 +37,7 @@ export function triggerSettings(now=Math.floor(Date.now()/1000)){
   for(const v of Object.values(c.files))if(typeof v!=='string'||v.length>40000||!v.length||!/^[A-Za-z0-9+/]+={0,2}$/.test(v))deny();
   writeFileSync(ca,Buffer.from(c.files.database_ca,'base64'),{mode:0o600});
   const u=new URL(Buffer.from(c.files.database_url,'base64').toString('utf8'));
-  if(u.protocol!=='postgresql:'||u.hostname!=='aws-0-us-east-1.pooler.supabase.com'||u.port!=='5432'||u.pathname!=='/oracle_native_proof_v1'||decodeURIComponent(u.username)!=='oracle_synthetic_gateway.wfdrklofsczspazshaib'||!u.password||u.search||u.hash)deny();
+  if(u.protocol!=='postgresql:'||u.hostname!=='aws-0-us-east-1.pooler.supabase.com'||u.port!=='5432'||u.pathname!=='/oracle_native_proof_v1'||(!decodeURIComponent(u.username).startsWith('oracle_synthetic_gateway.')||sha(decodeURIComponent(u.username).slice(25))!==targetPins.targets.native_supabase_project)||!u.password||u.search||u.hash)deny();
   u.searchParams.set('sslmode','verify-full');u.searchParams.set('sslrootcert',ca);cached={seal:seal!,url:u.toString()};
  }
  return {c,url:cached!.url,seal:seal!};

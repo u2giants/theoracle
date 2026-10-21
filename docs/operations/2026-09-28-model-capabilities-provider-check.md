@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 7aa46273b49fa0ac435d2d4a174c566b0be7f06e at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Widen model_capabilities provider CHECK — exact dispatch for review (revision 2)
 
 Status: awaiting review. Tracking issue: #49 (catalog refresh scope). Nothing
@@ -40,7 +41,7 @@ lines of errors. Revision 1 was refused (qwen); revision 2 fixes every finding.
    `drizzle-journal-drift-proof`.)
 3. Target proof: `DIRECT_URL`/`DATABASE_URL` = 1Password item
    `qcuyabwseaptvuzvtjejffi2ou` field `oracle_session_pooler` (Oracle's own
-   Supabase project `eqccjfbyrywsqkxxpjvg`, not the shared database), per
+   Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d`, not the shared database), per
    `docs/deployment.md`. Read-only: `select current_database()`, the constraint
    text equals Evidence, and `corepack pnpm --filter @oracle/db check-drift`
    reports OK. Stop otherwise.

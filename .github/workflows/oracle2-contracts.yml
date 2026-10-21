@@ -14,7 +14,25 @@ permissions:
   contents: read
 
 jobs:
+  trusted-context:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse untrusted events before allocating a private runner
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          case "$EVENT_NAME" in
+            push) test "$EVENT_REF" = refs/heads/main ;;
+            pull_request) test -n "$HEAD_REPOSITORY" && test "$HEAD_REPOSITORY" = "$BASE_REPOSITORY" ;;
+            *) echo 'Untrusted Oracle workflow event.' >&2; exit 1 ;;
+          esac
   oracle2-offline:
+    name: Oracle offline suites
+    needs: trusted-context
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, edge-dev3]
     timeout-minutes: 60
     env:
@@ -33,6 +51,12 @@ jobs:
       GRAPHITI_TELEMETRY_ENABLED: 'false'
       ORACLE2_TELEMETRY_MODE: 'off'
     steps:
+      - name: Select private metadata path from native runner context
+        run: |
+          test -n "$RUNNER_TEMP"
+          test -n "$GITHUB_RUN_ID"
+          test -n "$GITHUB_RUN_ATTEMPT"
+          printf 'ORACLE_TARGET_PROFILE_PATH=%s/oracle-target-%s-%s/targets.json\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
       - name: Full-history checkout for frozen S01 corpus
         uses: actions/checkout@v4
         with:
@@ -50,6 +74,12 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Prepare private pinned target metadata
+        env:
+          ORACLE_TARGET_PROFILE_JSON: ${{ secrets.ORACLE_TARGET_PROFILE_JSON }}
+        run: node dev/oracle2/prepare-ci-target-profile.mjs
+      - name: Verify private metadata custody and refusal paths
+        run: node --test dev/oracle2/private-target-profile.test.mjs dev/oracle2/prepare-ci-target-profile.test.mjs
       - name: Install TypeScript contracts
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify TypeScript contract fixtures
@@ -72,6 +102,8 @@ jobs:
           version: '0.12.19'
       - name: Install locked CPU dependency bundle
         run: uv sync --project services/oracle-brain --frozen --extra test --extra process-analysis
+      - name: Verify workflow trust and required-result boundaries
+        run: services/oracle-brain/.venv/bin/python -m unittest discover -s dev/oracle2 -p 'test_ci_trust_boundary.py'
       - name: S02 model evaluation harness offline tests
         env:
           ORACLE2_REQUIRE_MODEL_TESTS: '1'
@@ -199,3 +231,18 @@ jobs:
         run: |
           docker rm -f oracle2-ci-restored-${{ github.run_id }} 2>/dev/null || true
           docker compose -f dev/oracle2/compose.yaml down --volumes
+      - name: Remove private target metadata
+        if: always()
+        run: node dev/oracle2/prepare-ci-target-profile.mjs --cleanup
+  offline-result:
+    name: oracle2-offline
+    runs-on: ubuntu-latest
+    needs: [trusted-context, oracle2-offline]
+    if: always()
+    steps:
+      - name: Require trusted context and all offline suites
+        env:
+          TRUST_RESULT: ${{ needs['trusted-context'].result }}
+          SUITE_RESULT: ${{ needs['oracle2-offline'].result }}
+        run: |
+          test "$TRUST_RESULT" = success && test "$SUITE_RESULT" = success

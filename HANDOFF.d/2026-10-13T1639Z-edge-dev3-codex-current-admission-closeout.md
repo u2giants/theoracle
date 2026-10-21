@@ -3,6 +3,8 @@ issue: 27
 status: BLOCKED
 owner: codex/01a135e2-53ea-73d0-8ff2-9047b8c094bb
 ---
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob a76b3e2c7f9418c19e7c4801900c2fc779124575 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
+
 
 # Oracle current admission and blocked acceptance closeout
 
@@ -75,7 +77,7 @@ Housekeeping ran report-only:5LIVE/10MERGED CANDIDATE/28UNKNOWN workspaces;21mer
 
 ## 8. Access, secrets and recoverable evidence
 
-Supported installed ai-task-gates/ai-review/ai-gh and protected vault op_run are available on edge-dev3. Oracle GitHub reads/comments succeeded. Docker/local Python exist; Coolify4.4.6 management API is http://100.66.37.58:8000/api/v1. Existing platform credential is vibe_coding itemc44ghscsnug2xvvrzzp3on7mme fieldcredential. Existing readonly hetz login is vibe_coding item5xukphmemjyt6cp67qo5qdawby fieldpassword, with the pinned sole-known-host digest retained in the predecessor. No SSH mutation is allowed. Existing service-account and custody references remain in that preceding handoff; note5kscqezqjsxtnjko4okmoa5fny indexes the protected continuation custody. Current invented credentials item3qwwm65e7zzthpg5osvtt7gfmu are recovery-only after expiry, not new action authority. Existing old no-rotation provider/hetz/PAT dispositions remain.
+Supported installed ai-task-gates/ai-review/ai-gh and protected vault op_run are available on edge-dev3. Oracle GitHub reads/comments succeeded. Docker/local Python exist; Coolify4.4.6 management API is http://PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae:8000/api/v1. Existing platform credential is vibe_coding itemc44ghscsnug2xvvrzzp3on7mme fieldcredential. Existing readonly hetz login is vibe_coding item5xukphmemjyt6cp67qo5qdawby fieldpassword, with the pinned sole-known-host digest retained in the predecessor. No SSH mutation is allowed. Existing service-account and custody references remain in that preceding handoff; note5kscqezqjsxtnjko4okmoa5fny indexes the protected continuation custody. Current invented credentials item3qwwm65e7zzthpg5osvtt7gfmu are recovery-only after expiry, not new action authority. Existing old no-rotation provider/hetz/PAT dispositions remain.
 
 Secrets sweep found no newly created, leaked or unstored credential. The existing Coolify credential was injected only into one protected process and removed from its environment; it never entered script contents/arguments/output or a credential file. No vault write, duplicate, overwrite or rotation was performed. Owned scratch contains a secret-free bounded GET operator, minimized metadata/readbacks, housekeeping output and closeout publication/review receipts; preserve these in the protected successor-admission-wrap-up-01a135e2 collection beneath existing continuation custody before workspace archival. These receipts are not active-volume backup or restore proof. No private original bytes were opened/transformed in this session. GitHub file references are public prose/source only; private custody is discoverable from the existing vault note, not published.
 

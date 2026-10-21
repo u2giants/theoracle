@@ -1,3 +1,4 @@
+<!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 6aabed68fa7957bba1bec1ae5cda6d6567f7777c at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Macro-First Battery / Gate Log
 
 Append-only record for `MACRO_FIRST_REDESIGN.md` stage gates and acceptance-battery
@@ -203,7 +204,7 @@ seeding from the map's stored validated quotes if the prompt fix alone misses â‰
 
 Scope: the pre-DDL R1 audit required by `MACRO_FIRST_IMPLEMENTATION_PLAN.md`.
 Every production query ran inside an explicit `BEGIN READ ONLY` transaction
-against current production project `eqccjfbyrywsqkxxpjvg` through its session
+against current production project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` through its session
 pooler. No schema, data, journal, setting, deployment, or worker state changed.
 
 ### Existing-table counts and row disposition
