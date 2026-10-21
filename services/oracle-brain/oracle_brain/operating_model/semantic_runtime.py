@@ -103,6 +103,13 @@ def ledger_object_evidence(payload, *, workspace_id, receipts, inventories):
         if key in evidence or key in observations:
             raise ValueError('finding projection identity collision')
         evidence[key] = finding.evidence_refs
+    if 'consolidation_core' in payload:
+        from .consolidation_contracts_v1 import ConsolidationCoreV1,validate_core_evidence
+        core=ConsolidationCoreV1.model_validate_json(json.dumps(payload['consolidation_core']))
+        if core.model!=model:raise PermissionError('temporal core model differs from captured model')
+        temporal=validate_core_evidence(core,observations,{k:v.model_dump(mode='json') for k,v in findings.items()})
+        if set(temporal)&evidence.keys():raise ValueError('temporal evidence identity collision')
+        evidence.update(temporal)
     return evidence
 
 

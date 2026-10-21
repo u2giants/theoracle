@@ -92,6 +92,8 @@ class ReadOnlyConnection:
 
 class SDKProjection:
     graph_prefix=PREFIX
+    consolidation_records=False
+    ontology_labels=('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')
 
     def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False,qualification_guard=None,_paid_connection_config=None):
         if version('graphrag-sdk')!='1.4.0':raise RuntimeError('exact qualified SDK required')
@@ -99,12 +101,12 @@ class SDKProjection:
         if _paid_connection_config is None:
             config=ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000)
         else:
-            if type(self) not in (PaidProcessingSDKProjectionV3,PaidMetadataSDKProjectionV3,NativeInventedTLSProjectionV1,NativeInventedTLSProjectionV2):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
+            if type(self) not in (PaidProcessingSDKProjectionV3,PaidConsolidationSDKProjectionV1,PaidMetadataSDKProjectionV3,NativeInventedTLSProjectionV1,NativeInventedTLSProjectionV2):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
             config=paid_tls_connection_config_v3(graph_url,self.graph_name,_paid_connection_config)
         self.connection=FalkorDBConnection(config)
         if read_only:self.connection=ReadOnlyConnection(self.connection)
         self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
-          ontology=Ontology() if read_only else Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')],relations=[Relation(label='RELATED_TO')]))
+          ontology=Ontology() if read_only else Ontology(entities=[Entity(label=k) for k in self.ontology_labels],relations=[Relation(label='RELATED_TO')]))
         self.qualification_guard=qualification_guard
         self.read_only=read_only
         self.workspace_id=workspace_id
@@ -124,6 +126,10 @@ class SDKProjection:
             for kind,key,item in canonical_workflow_items(typed):
                 add(w['workflow_id']+':'+key,kind,item.model_dump(mode='json'))
         for model in payload.get('operating_models',[]):add(str(model['model_id']),'operating_model',model)
+        if 'consolidation_core' in payload:
+            from .consolidation_contracts_v1 import ConsolidationCoreV1
+            core=ConsolidationCoreV1.model_validate_json(canonical_bytes(payload['consolidation_core']))
+            for assertion in core.assertions:add('assertion:'+str(assertion.assertion_id)+':'+str(assertion.revision),'temporal_assertion',assertion.model_dump(mode='json'))
         add('artifact:'+digest(payload),'artifact',payload)
         return records
 
@@ -153,6 +159,17 @@ class SDKProjection:
                     add(identifier,'BusinessInterface',identifier,interface,support)
                     for suffix,a,b in [('from',interface['from_process'],identifier),('to',identifier,interface['to_process'])]:
                         relations[identifier+':'+suffix]=(a,b,digest(interface),'Reported handoff '+interface['artifact_id'],tuple(support))
+        if 'consolidation_core' in payload:
+            from .consolidation_contracts_v1 import ConsolidationCoreV1
+            core=ConsolidationCoreV1.model_validate_json(canonical_bytes(payload['consolidation_core']))
+            if core.model.model_dump(mode='json')!=payload['operating_models'][0]:raise PermissionError('qualified temporal graph body differs')
+            for assertion in core.assertions:
+                raw=assertion.model_dump(mode='json')
+                identifier='assertion:'+str(assertion.assertion_id)+':'+str(assertion.revision)
+                support=tuple(sorted(set(assertion.supporting_observations)|set(assertion.opposing_observations)|set(assertion.temporal_observations)|set(assertion.unknown_finding_ids)))
+                # Entire exact assertion, including opposition/unknown/time/scope,
+                # participates in actual SDK entity-name embedding inventory.
+                add(identifier,'ReportedAssertion',canonical_bytes(raw).decode(),raw,support)
         return nodes,relations
 
     def source_texts(self,ledger,workspace_id,payload):
@@ -189,11 +206,18 @@ class SDKProjection:
         semantic_nodes,semantic_relations=self.semantic_projection(payload)
         texts=self.source_texts(ledger,workspace_id,payload)
         observation_chunks={o['observation_id']:digest({'text':texts[o['ref']['source_id']]}) for o in payload.get('observations',[])}
-        semantic_chunks={identifier:sorted({observation_chunks[oid] for oid in values[3]}) for identifier,values in semantic_nodes.items()}
+        support_chunks={key:{value} for key,value in observation_chunks.items()}
+        if 'consolidation_core' in payload:
+            if not self.consolidation_records:raise PermissionError('explicit qualified consolidation SDK profile required')
+            for finding in payload.get('findings',[]):
+                support_chunks[finding['finding_id']]={self.document_id(e['ref'],payload) for e in finding['evidence_refs']}
+        semantic_chunks={identifier:sorted({chunk for oid in values[3] for chunk in support_chunks[oid]}) for identifier,values in semantic_nodes.items()}
         for ref in payload['source_refs']:
             text=texts[ref['source_id']]
             observations=[o for o in payload.get('observations',[]) if o['ref']==ref]
             source_observations={o['observation_id'] for o in observations}
+            if 'consolidation_core' in payload:
+                source_observations|={f['finding_id'] for f in payload.get('findings',[]) if any(e['ref']==ref for e in f['evidence_refs'])}
             source_nodes=[(identifier,label,title,seal) for identifier,(label,title,seal,support) in semantic_nodes.items() if source_observations.intersection(support)]
             source_relations=[(a,b,key,seal,fact) for key,(a,b,seal,fact,support) in semantic_relations.items() if source_observations.intersection(support)]
             # Stock SDK prunes relations whose endpoints are absent from this batch.
@@ -211,13 +235,26 @@ class SDKProjection:
         if not finalized.indexes or not all(finalized.indexes.values()):raise RuntimeError('SDK finalization incomplete')
         # Artifact/finding/control records stay outside SDK entity name deduplication.
         for identifier,(kind,seal) in records.items():
-            label='ReportedFinding' if kind=='finding' else ('AnalysisArtifact' if kind=='analysis' else 'WorkflowArtifact')
+            label='ReportedFinding' if kind=='finding' else ('AnalysisArtifact' if kind=='analysis' else ('ReportedAssertionRecord' if kind=='temporal_assertion' else 'WorkflowArtifact'))
             await self.connection.query(f'CREATE (n:OperatingModelRecord:{label} {{id:$id,kind:$kind,payload_hash:$seal}})',params={'id':identifier,'kind':kind,'seal':seal})
         for o in payload.get('observations',[]):
             await self.connection.query('MATCH (r:OperatingModelRecord {id:$id}),(e:__Entity__ {id:$id}) CREATE (r)-[:PROJECTS]->(e)',params={'id':o['observation_id']})
         for f in payload.get('findings',[]):
             for evidence in f['evidence_refs']:
                 await self.connection.query('MATCH (f:OperatingModelRecord {id:$fid}),(d:Document {id:$sid}) CREATE (f)-[:SUPPORTED_BY {payload_hash:$seal}]->(d)',params={'fid':f['finding_id'],'sid':self.document_id(evidence['ref'],payload),'seal':digest(evidence)})
+        if 'consolidation_core' in payload:
+            from .consolidation_contracts_v1 import ConsolidationCoreV1
+            core=ConsolidationCoreV1.model_validate_json(canonical_bytes(payload['consolidation_core']))
+            observations={o['observation_id']:o for o in payload.get('observations',[])}
+            findings={f['finding_id']:f for f in payload.get('findings',[])}
+            for assertion in core.assertions:
+                identifier='assertion:'+str(assertion.assertion_id)+':'+str(assertion.revision)
+                groups=(('supporting',assertion.supporting_observations),('opposing',assertion.opposing_observations),('valid-time',assertion.temporal_observations),('unknown',assertion.unknown_finding_ids))
+                for polarity,ids in groups:
+                    for item in ids:
+                        evidence=findings[item]['evidence_refs'] if polarity=='unknown' else observations[item]['evidence']
+                        for quote in evidence:
+                            await self.connection.query('MATCH (r:OperatingModelRecord {id:$id}),(d:Document {id:$document}) CREATE (r)-[:SUPPORTED_BY {polarity:$polarity,payload_hash:$seal,reading_start:$start,reading_end:$end,original_source_ref:$ref}]->(d)',params={'id':identifier,'document':self.document_id(quote['ref'],payload),'polarity':polarity,'seal':digest(quote),'start':quote['start'],'end':quote['end'],'ref':canonical_bytes(quote['ref']).decode()})
         return records,finalized
 
     async def verify(self,payload):
@@ -286,6 +323,7 @@ class ProcessingSDKProjection(SDKProjection):
             content={'projection_schema':'qualified-evidence-projection-v1',
                 'original_source_ref':ref,'qualified_model':model,
                 'observations':observations,'findings':findings}
+            if 'consolidation_core' in payload:content['qualified_consolidation_core']=payload['consolidation_core']
             text=json.dumps(content,sort_keys=True,separators=(',',':'),ensure_ascii=False,allow_nan=False)
             content_hash=hashlib.sha256(text.encode()).hexdigest()
             identifier='qualified_doc_'+digest({'model_hash':digest(model),'candidate_hash':qualification['candidate_hash'],
@@ -678,3 +716,13 @@ class NativeInventedTLSProjectionV2(SDKProjection):
         super().__init__(graph_url,workspace_id=UUID(i['workspace']),artifact_id=UUID(i['artifact']),
             artifact_version=1,generation=UUID(i['generation']),llm=NoGeneration(),embedder=SyntheticEmbedding(),
             dimensions=8,read_only=read_only,_paid_connection_config=connection_config)
+
+
+class PaidConsolidationSDKProjectionV1(PaidProcessingSDKProjectionV3):
+    """Only fresh admitted temporal captures; no historic graph serving."""
+    consolidation_records=True
+    ontology_labels=SDKProjection.ontology_labels+('ReportedAssertion',)
+
+    def _paid_payload(self,payload):
+        if 'consolidation_core' not in payload:raise PermissionError('explicit fresh consolidation projection required')
+        return super()._paid_payload(payload)

@@ -167,15 +167,15 @@ def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret,caller_
 
 
 async def project_processing_event(ledger,lease,projection,*,secret,projector_id):
-    from .sdk_projection import PaidProcessingSDKProjectionV3
+    from .sdk_projection import PaidProcessingSDKProjectionV3,PaidConsolidationSDKProjectionV1
     if isinstance(projection,PaidProcessingSDKProjectionV3):
         raise PermissionError('paid V3 projection requires explicit strict V3 delivery')
     return await _project_processing_event(ledger,lease,projection,secret=secret,projector_id=projector_id,authority=None)
 
 
 async def project_paid_processing_event_v3(ledger,lease,projection,*,secret,projector_id,authority):
-    from .sdk_projection import PaidProcessingSDKProjectionV3
-    if type(projection) is not PaidProcessingSDKProjectionV3 or not isinstance(authority,ProcessingProjectionAuthorityProtocol):
+    from .sdk_projection import PaidProcessingSDKProjectionV3,PaidConsolidationSDKProjectionV1
+    if type(projection) not in (PaidProcessingSDKProjectionV3,PaidConsolidationSDKProjectionV1) or not isinstance(authority,ProcessingProjectionAuthorityProtocol):
         raise PermissionError('actual strict paid V3 projector and authority required')
     return await _project_processing_event(ledger,lease,projection,secret=secret,projector_id=projector_id,authority=authority)
 

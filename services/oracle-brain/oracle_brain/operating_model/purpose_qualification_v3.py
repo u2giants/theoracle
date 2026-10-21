@@ -17,7 +17,7 @@ from .assembly_qualification import (
 from .contracts import StrictRecord,digest
 from .purpose_context import HASH,LOGIN
 from .purpose_capture_v2 import (
-    CapturedAssemblyCandidateV2,ObservedAssemblyProtocolV2,ObservedAssemblyWireV2,
+    CapturedAssemblyCandidateV2,CapturedConsolidationCandidateV1,ObservedConsolidationProtocolV1,ObservedAssemblyProtocolV2,ObservedAssemblyWireV2,
     captured_assembly_candidate_v2)
 from .purpose_profiles_v2 import PurposePrivateContextV2
 from .purpose_receipts_v2 import PhaseResponseCommitV2
@@ -32,10 +32,10 @@ class PurposeSemanticAdmissionV3(CapturedAssemblySemanticAdmission):
     compiler_profile: Literal['candidate-compiler']='candidate-compiler'
     issuer_actor: UUID
     reviewer_actor: UUID
-    context_schema: Literal['purpose-assembly-context-v2']='purpose-assembly-context-v2'
+    context_schema: Literal['purpose-assembly-context-v2','purpose-consolidation-context-v1']='purpose-assembly-context-v2'
     context_hash: str=Field(pattern=HASH)
     handoff_hash: str=Field(pattern=HASH)
-    captured_schema: Literal['purpose-captured-assembly-v2']='purpose-captured-assembly-v2'
+    captured_schema: Literal['purpose-captured-assembly-v2','purpose-captured-consolidation-v1']='purpose-captured-assembly-v2'
     compiler_actor: UUID
     compiler_login: str=Field(pattern=LOGIN)
     compiler_permission_hash: str=Field(pattern=HASH)
@@ -48,6 +48,8 @@ class PurposeSemanticAdmissionV3(CapturedAssemblySemanticAdmission):
 
     @model_validator(mode='after')
     def independent_qualification(self):
+        if (self.context_schema=='purpose-consolidation-context-v1') != (self.captured_schema=='purpose-captured-consolidation-v1'):
+            raise PermissionError('explicit consolidation context/capture pair required')
         if (self.issuer_actor==self.reviewer_actor or self.compiler_actor==self.assessor_actor
                 or {self.issuer_actor,self.reviewer_actor}&{self.compiler_actor,self.implementer_actor,self.assessor_actor}):
             raise PermissionError('actual separately appointed independent issuer/reviewer required')
@@ -78,7 +80,7 @@ def _phase_commits(commits):
 
 
 def purpose_qualified_content_core_v3(captured,*,census,assessment,phase_commits):
-    if type(captured) is not CapturedAssemblyCandidateV2:
+    if type(captured) not in {CapturedAssemblyCandidateV2,CapturedConsolidationCandidateV1}:
         raise PermissionError('exact purpose V2 capture required for schema3')
     commits=_phase_commits(phase_commits)
     return _qualified_content_core(captured,census=census,assessment=assessment,
@@ -240,7 +242,7 @@ def verify_purpose_final_assembly_v3(manifest,payload,principal,now,*,trusted_ad
         trusted_admission_hashes=trusted_admission_hashes,runtime_hash=runtime_hash,
         current_source_identity=current_source_identity,current_extraction_seal=current_extraction_seal,
         qualification_model=PurposeAssemblyQualificationV3,lineage_model=PurposeFinalLineageV3,
-        protocol_model=ObservedAssemblyProtocolV2,wire_model=ObservedAssemblyWireV2,
+        protocol_model=(ObservedConsolidationProtocolV1 if payload.get('assembly_capture',{}).get('candidate_schema')=='purpose-captured-consolidation-v1' else ObservedAssemblyProtocolV2),wire_model=ObservedAssemblyWireV2,
         permission_field='compiler_permission_hash',additional_check=_serve_schema3)
 
 
@@ -294,7 +296,25 @@ class PurposeQualifiedAssemblyReadGuardV3(QualifiedAssemblyReadGuard):
             raise PermissionError('parent authority expired during summary validation')
         return result.valid_until
 
+    def _validated_recommendation_parent_v1(self,manifest,payload,principal,now):
+        from .consolidation_recommendations_v1 import QualifiedRecommendationsV1,validate_recommendation_parent
+        from .processing_ledger import PurposeProcessingCompilerLedgerV3,ValidatedQualifiedParentV3
+        reader=getattr(self,'_full_parent_v3',None)
+        if (type(getattr(reader,'__self__',None)) is not PurposeProcessingCompilerLedgerV3
+                or getattr(reader,'__func__',None) is not PurposeProcessingCompilerLedgerV3.read_validated_qualified_parent_v3
+                or reader.__self__.principal!=principal):
+            raise PermissionError('exact current canonical qualified parent owner required')
+        body=QualifiedRecommendationsV1.model_validate_json(canonical_bytes(payload['recommendations']))
+        result=reader(manifest.workspace_id,body.parent_model_id,body.parent_version)
+        if type(result) is not ValidatedQualifiedParentV3:raise PermissionError('validated immutable parent required')
+        import json
+        validate_recommendation_parent(manifest,payload,result.manifest,json.loads(result.canonical_body))
+        return result.valid_until
+
     def __call__(self,manifest,payload,principal,now):
+        if manifest.kind=='processing_recommendation_v1':
+            self._validated_recommendation_parent_v1(manifest,payload,principal,now)
+            return None
         if manifest.kind=='processing_summary_v1' and hasattr(self,'_full_parent_v3'):
             self._validated_summary_parent_v3(manifest,payload,principal,now)
             return None
@@ -305,6 +325,8 @@ class PurposeQualifiedAssemblyReadGuardV3(QualifiedAssemblyReadGuard):
         return super().__call__(manifest,payload,principal,now)
 
     def valid_until(self,manifest,payload,principal,now):
+        if manifest.kind=='processing_recommendation_v1':
+            return self._validated_recommendation_parent_v1(manifest,payload,principal,now)
         if manifest.kind=='processing_summary_v1' and hasattr(self,'_full_parent_v3'):
             return self._validated_summary_parent_v3(manifest,payload,principal,now)
         if manifest.kind!='processing_qualified_model_v1':
@@ -356,7 +378,7 @@ def _verify_embedding_projection(*,resolver,context,semantic_registry,now,connec
         trusted_admission_hashes=semantic_registry.current(now),runtime_hash=semantic_registry.appointment.runtime_hash,
         current_source_identity=identity,current_extraction_seal=extraction,
         qualification_model=PurposeAssemblyQualificationV3,lineage_model=PurposeFinalLineageV3,
-        protocol_model=ObservedAssemblyProtocolV2,wire_model=ObservedAssemblyWireV2,
+        protocol_model=(ObservedConsolidationProtocolV1 if context.qualified_payload.get('assembly_capture',{}).get('candidate_schema')=='purpose-captured-consolidation-v1' else ObservedAssemblyProtocolV2),wire_model=ObservedAssemblyWireV2,
         permission_field='compiler_permission_hash',additional_check=_serve_schema3,
         metadata_model=ProcessingQualifiedProjectionSealV2)
     type(context).model_validate(context.model_dump(mode='python'))

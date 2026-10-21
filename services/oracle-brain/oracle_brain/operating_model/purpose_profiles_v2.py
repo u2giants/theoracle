@@ -13,7 +13,7 @@ from pydantic import Field,model_validator
 
 from .acceptance_profiles import (
     CensusContext,AssessmentContext,POLICY,validate_context,validate_payload)
-from .purpose_assembly_v2 import AssemblyJobContextV2
+from .purpose_assembly_v2 import AssemblyJobContextV2,ConsolidationAssemblyJobContextV1
 from .contracts import StrictRecord,canonical_bytes,digest
 from .native_factory import NativeDispatchJob,validate_embedding_response
 from .purpose_context import HASH,PHASE_CONTRACTS,PurposeDispatchV2,PurposeRunDescriptorV2
@@ -107,7 +107,7 @@ class PurposePrivateContextV2(StrictRecord):
     phase: Literal['census','assembly','assessment','embedding']
     job: NativeDispatchJob
     census: CensusContext|None=None
-    assembly: AssemblyJobContextV2|None=None
+    assembly: ConsolidationAssemblyJobContextV1|AssemblyJobContextV2|None=None
     assessment: AssessmentContext|None=None
     embedding: DerivedEmbeddingContextV2|DerivedSDKEmbeddingContextV3|None=None
 

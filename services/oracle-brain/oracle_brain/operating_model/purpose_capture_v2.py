@@ -7,7 +7,7 @@ from pydantic import Field,AwareDatetime
 from .contracts import StrictRecord,digest
 from .captured_assembly import (
     AssemblyObserverContext,ObservedAssemblyCustodian,_observed_model_content)
-from .purpose_assembly_v2 import AssemblyJobContextV2
+from .purpose_assembly_v2 import AssemblyJobContextV2,ConsolidationAssemblyJobContextV1
 from .semantic_acceptance import sealed
 from .purpose_context import HASH
 
@@ -53,11 +53,26 @@ class CapturedAssemblyCandidateV2(StrictRecord):
     object_evidence_hash: str=Field(pattern=HASH)
 
 
+class ObservedConsolidationProtocolV1(ObservedAssemblyProtocolV2):
+    protocol: Literal['observed-consolidation-candidate-v1']='observed-consolidation-candidate-v1'
+    context_schema: Literal['purpose-consolidation-context-v1']='purpose-consolidation-context-v1'
+    candidate_schema: Literal['purpose-captured-consolidation-v1']='purpose-captured-consolidation-v1'
+
+
+class CapturedConsolidationCandidateV1(CapturedAssemblyCandidateV2):
+    candidate_schema: Literal['purpose-captured-consolidation-v1']='purpose-captured-consolidation-v1'
+
+
+def _capture_types(context,protocol):
+    return ((type(context) is AssemblyJobContextV2 and type(protocol) is ObservedAssemblyProtocolV2)
+        or (type(context) is ConsolidationAssemblyJobContextV1 and type(protocol) is ObservedConsolidationProtocolV1))
+
+
 class ObservedAssemblyCustodianV2(ObservedAssemblyCustodian):
     def _check_identity(self):
         c=self.context
         if (type(c) is not AssemblyObserverContextV2 or sealed(c)!=self.expected_context_hash
-                or type(self.protocol) is not ObservedAssemblyProtocolV2
+                or type(self.protocol) not in {ObservedAssemblyProtocolV2,ObservedConsolidationProtocolV1}
                 or sealed(self.protocol)!=self.expected_protocol_hash or c.protocol_hash!=self.expected_protocol_hash
                 or self._identity!=(c.custodian_id,c.custodian_config_hash,c.custodian_session_hash,c.runtime_hash)):
             raise PermissionError('actual V2 protected custodian/session/protocol differs')
@@ -73,8 +88,7 @@ class ObservedAssemblyCustodianV2(ObservedAssemblyCustodian):
 
 def captured_assembly_candidate_v2(*,context,observer,expected_observer_context_hash,
         protocol,expected_protocol_hash,observed,raw,now):
-    if (type(context) is not AssemblyJobContextV2 or type(observer) is not AssemblyObserverContextV2
-            or type(protocol) is not ObservedAssemblyProtocolV2 or type(observed) is not ObservedAssemblyWireV2
+    if (not _capture_types(context,protocol) or type(observer) is not AssemblyObserverContextV2 or type(observed) is not ObservedAssemblyWireV2
             or now.tzinfo is None or now.utcoffset() is None or now>=min(context.expires_at,observer.expires_at)
             or sealed(observer)!=expected_observer_context_hash or sealed(protocol)!=expected_protocol_hash
             or observer.protocol_hash!=expected_protocol_hash or observer.runtime_hash!=context.runtime_hash
@@ -99,7 +113,8 @@ def captured_assembly_candidate_v2(*,context,observer,expected_observer_context_
         'extractions':[{k:e.manifest.model_dump(mode='json')[k] for k in (
             'artifact_id','version','content_hash','input_digest','source_digest','permission_digest','compiler_digest')}
             |{'manifest_hash':sealed(e.manifest)} for e in context.extractions]}
-    return CapturedAssemblyCandidateV2(context_hash=sealed(context),handoff_hash=sealed(context.handoff),
+    captured_type=CapturedConsolidationCandidateV1 if type(context) is ConsolidationAssemblyJobContextV1 else CapturedAssemblyCandidateV2
+    return captured_type(context_hash=sealed(context),handoff_hash=sealed(context.handoff),
         observed_wire=observed,candidate=payload,candidate_hash=digest(payload),
         object_evidence_hash=digest({k:[e.model_dump(mode='json') for e in v] for k,v in evidence.items()})),evidence
 
@@ -111,7 +126,7 @@ class ObservedPurposeAssemblyBrokerEgress(_ObservedAssemblyBrokerBase):
     """Exact V2 startup protocol; retained paid-wire capture precedes parsing."""
     @staticmethod
     def _validate_context_types(context,observer):
-        if (type(context) is not AssemblyJobContextV2 or type(observer) is not ObservedAssemblyCustodianV2
+        if (type(observer) is not ObservedAssemblyCustodianV2 or not _capture_types(context,observer.protocol)
                 or observer.context.assembly_context_hash!=sealed(context)
                 or observer.context.handoff_hash!=sealed(context.handoff)):
             raise PermissionError('exact separately admitted V2 assembly/custodian context required')
