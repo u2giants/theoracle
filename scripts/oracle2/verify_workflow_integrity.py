@@ -250,7 +250,7 @@ def cleanup_test_databases(admin,parts,owned):
 
 
 SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_worker_postgres_fixture.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
-SOURCE_INPUT_PATHS += ('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py')
+SOURCE_INPUT_PATHS += ('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py','dev/oracle2/test_canonical_schema.py')
 SOURCE_INPUT_PATHS += ('dev/oracle2/native-v2-fixed-identities.json', 'dev/oracle2/hosting/prepare_native_trigger_v2.py', 'dev/oracle2/hosting/install_native_trigger_v2.py', 'dev/oracle2/hosting/project_native_trigger_v2.py', 'dev/oracle2/hosting/falkor_native_proof_acl_v2.py')
 
 
@@ -302,12 +302,11 @@ def main(argv=None):
                 conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
             owned.append(name);targets.append((worker_admin,worker_parts,name))
             target=psycopg.conninfo.make_conninfo(**{**worker_parts,'dbname':name})
-            with psycopg.connect(target) as conn:
-                if conn.execute('SELECT current_database()').fetchone()[0]!=name:
-                    raise PermissionError('actual fresh synthetic target differs')
-                for migration in SYNTHETIC_MIGRATIONS:conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
+            from dev.oracle2.test_canonical_schema import bootstrap_canonical_test_schema
+            schema_receipt=(evidence/(label+'-schema.json')).resolve()
+            schema_seal=bootstrap_canonical_test_schema(target,container_id=identity['container_id'],receipt_path=schema_receipt)
             command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--basetemp={evidence/(label+"-tmp")}',f'--junitxml={evidence/(label+".xml")}']
-            jobs.append({'name':label,'command':command,'env':{**os.environ,**worker_env,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain'),
+            jobs.append({'name':label,'command':command,'env':{**os.environ,**worker_env,'ORACLE2_TEST_ADMIN_URL':target,'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT':str(schema_receipt),'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256':schema_seal,'PYTHONPATH':str(ROOT/'services/oracle-brain'),
                 'OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1','MKL_NUM_THREADS':'1','NUMEXPR_NUM_THREADS':'1'}})
         results,worker_cleanup=run_test_groups(jobs,evidence,deadline=time.monotonic()+120)
         report['cleanup_errors'].extend(worker_cleanup)
