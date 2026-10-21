@@ -465,6 +465,7 @@ def test_sql_advance_function_validates_legal_transitions():
     assert 'terminal journey cannot advance' in sql
     # Promotion to delivered requires confirmation authority and evidence binding.
     assert 'confirmation authority required for delivered promotion' in sql
-    assert 'qualification and review commits required for delivered promotion' in sql
+    assert '_replacement_population_v1(j.workspace_id,j.reserved_raw_population,true)' in sql
+    assert 'complete current qualification and matching receipt required' in sql
     assert "'process-confirm'" in sql
     assert 'source_reading_qualifications' in sql
