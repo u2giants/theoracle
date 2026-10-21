@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 import os
 import re
+from pathlib import Path
 import psycopg
 import pytest
 from dev.oracle2 import test_worker_postgres_fixture as worker
@@ -144,3 +145,28 @@ assert seen and _RECEIPTS
     env={**os.environ,'ORACLE2_TEST_ADMIN_URL':admin_url,'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT':str(path.resolve()),'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256':seal}
     result=subprocess.run([sys.executable,'-c',script],env=env,capture_output=True,text=True,timeout=20)
     assert result.returncode==0,result.stderr
+
+
+@pytest.mark.parametrize('interrupt',(False,True))
+def test_actual_phase_uses_distinct_uuid_and_cleans_only_its_database(admin_url,tmp_path,interrupt):
+    from dev.oracle2.test_canonical_schema import owned_phase_database
+    from scripts.oracle2.verify_phase import run_phase_tests
+    import sys
+    selected=None
+    def exercise():
+        nonlocal selected
+        with owned_phase_database(admin_url,os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'],tmp_path) as env:
+            selected=psycopg.conninfo.conninfo_to_dict(env['ORACLE2_TEST_ADMIN_URL'])['dbname']
+            assert re.fullmatch(r'oracle_operating_model_test_[0-9a-f]{32}',selected)
+            assert selected!=psycopg.conninfo.conninfo_to_dict(admin_url)['dbname']
+            case=tmp_path/'test_actual_phase_namespace.py'
+            case.write_text("import os,psycopg\ndef test_actual():\n with psycopg.connect(os.environ['ORACLE2_TEST_ADMIN_URL']) as c:\n  assert c.pgconn.ssl_in_use\n  assert c.execute(\"SELECT to_regprocedure('oracle2.finalize_source_revision_v1(uuid,integer,jsonb)') IS NOT NULL\").fetchone()==(True,)\n")
+            code,evidence,_=run_phase_tests(Path(sys.executable),[str(case)],env=env)
+            assert code==0 and evidence['tests']==1 and evidence['failures']==evidence['skipped']==0
+            if interrupt:raise RuntimeError('invented phase failure after actual tests')
+    if interrupt:
+        with pytest.raises(RuntimeError,match='invented phase failure'):exercise()
+    else:exercise()
+    with psycopg.connect(admin_url) as c:
+        assert c.execute('SELECT count(*) FROM pg_database WHERE datname=%s',(selected,)).fetchone()==(0,)
+        assert c.execute('SELECT current_database()').fetchone()==(psycopg.conninfo.conninfo_to_dict(admin_url)['dbname'],)

@@ -171,7 +171,7 @@ PHASE_TESTS = {
 FIXTURE_ONLY_PHASES = {"S12", "S14", "S16"}
 
 
-def run_phase_tests(python: Path, tests: list[str]) -> tuple[int, dict, str]:
+def run_phase_tests(python: Path, tests: list[str], *, env: dict | None = None) -> tuple[int, dict, str]:
     """Use the existing mandatory evidence check, including skipped/setup cases.
 
     A zero pytest exit alone cannot establish that every required case ran.
@@ -188,7 +188,7 @@ def run_phase_tests(python: Path, tests: list[str]) -> tuple[int, dict, str]:
             output.chmod(0o600)
             completed = subprocess.run(
                 [str(python), "-m", "pytest", "-q", *tests, f"--junitxml={junit}"],
-                cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT, check=False,
+                cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT, check=False, env=env,
             )
         evidence = aggregate_evidence(
             [{"name": "phase"}],
@@ -206,6 +206,7 @@ def main() -> int:
     parser.add_argument("phase", choices=sorted(PHASE_TESTS))
     parser.add_argument("--mode", choices=["offline", "live"], required=True)
     parser.add_argument("--manifest")
+    parser.add_argument("--owned-phase-worker",action="store_true",help=argparse.SUPPRESS)
     parser.add_argument("--result", type=Path,
                         default=None)
     args = parser.parse_args()
@@ -235,7 +236,22 @@ def main() -> int:
     if not python.exists():
         parser.error("frozen Python environment missing; run uv sync --frozen --extra test")
     tests = [str(SERVICE / "tests" / name) for name in test_list]
-    exit_code, evidence, output_tail = run_phase_tests(python, tests)
+    if args.phase not in FIXTURE_ONLY_PHASES:
+        # The ordinary frontdoor remains standard-library only. All actual DB
+        # work runs in the selected frozen interpreter, never the system Python.
+        if not args.owned_phase_worker:
+            return subprocess.run([str(python),str(Path(__file__).resolve()),args.phase,
+                '--mode','offline','--result',str(args.result),'--owned-phase-worker'],cwd=ROOT,check=False).returncode
+        if Path(sys.executable).resolve()!=python.resolve():
+            parser.error('owned phase worker requires the selected frozen interpreter')
+        sys.path.insert(0,str(ROOT))
+        from dev.oracle2.test_canonical_schema import owned_phase_database
+        with tempfile.TemporaryDirectory(prefix='oracle-owned-phase-') as directory:
+            with owned_phase_database(os.environ['ORACLE2_TEST_ADMIN_URL'],
+                    os.environ.get('ORACLE2_SYNTHETIC_POSTGRES_CONTAINER',''),directory) as env:
+                exit_code,evidence,output_tail=run_phase_tests(python,tests,env=env)
+    else:
+        exit_code, evidence, output_tail = run_phase_tests(python, tests)
     # No test output enters a public artifact; raw logs remain in local CI job.
     lock_hash = hashlib.sha256((SERVICE / "uv.lock").read_bytes()).hexdigest()
     result = {

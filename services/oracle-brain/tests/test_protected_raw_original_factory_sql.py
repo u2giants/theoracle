@@ -27,7 +27,7 @@ def actual_factory_ledger(admin_url):
     # again before its own DDL; no fallback URL or noncanonical database.
     import os,re
     from dev.oracle2.test_worker_postgres_fixture import owned_worker_database
-    container=os.environ.get('ORACLE2_WORKER_CONTAINER_ID','')
+    container=os.environ.get('ORACLE2_SYNTHETIC_POSTGRES_CONTAINER','')
     if not container:raise PermissionError('actual owned worker identity required')
     owned_worker_database(container,admin_url)
     name='raw_billing_'+uuid4().hex[:12];password=uuid4().hex

@@ -143,3 +143,37 @@ def bootstrap_canonical_test_schema(url,*,container_id=None,receipt_path=None):
             raise PermissionError('canonical test schema changed during bootstrap')
     _RECEIPTS[key] = {'inventory': inventory, 'catalog': catalog}
     return _write_receipt(receipt_path,key,_RECEIPTS[key]) if receipt_path is not None else None
+
+
+# Phase fixtures use a fresh UUID namespace even when CI supplies its owned
+# Compose base. Reuse the existing exact database cleanup owner; no shared target.
+from contextlib import contextmanager
+from uuid import uuid4
+
+
+@contextmanager
+def owned_phase_database(admin_url,container,directory):
+    from psycopg import sql
+    from scripts.oracle2.verify_workflow_integrity import cleanup_test_databases
+    owned_worker_database(container,admin_url)
+    parts=psycopg.conninfo.conninfo_to_dict(admin_url)
+    name='oracle_operating_model_test_'+uuid4().hex
+    created=False
+    try:
+        with psycopg.connect(admin_url,autocommit=True) as connection:
+            if connection.execute('SELECT session_user,current_database()').fetchone()!=('oracle2_admin',parts['dbname']):
+                raise PermissionError('actual owned phase administrator differs')
+            connection.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
+            created=True
+        target=psycopg.conninfo.make_conninfo(**(parts|{'dbname':name}))
+        owned_worker_database(container,target)
+        receipt=Path(directory).resolve()/'canonical-schema.json'
+        seal=bootstrap_canonical_test_schema(target,container_id=container,receipt_path=receipt)
+        yield {**os.environ,'ORACLE2_TEST_ADMIN_URL':target,
+            'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT':str(receipt),
+            'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256':seal}
+    finally:
+        if created:
+            owned_worker_database(container,admin_url)
+            errors=cleanup_test_databases(admin_url,parts,[name])
+            if errors:raise PermissionError('exact owned phase database cleanup failed')
