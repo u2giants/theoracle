@@ -37,7 +37,10 @@ before their assertions because separate legacy host setup omitted its exact
 source draft state. The bounded fixture repair asserts qualification alone
 retains processing state, then prepares the existing legacy draft/blocks/role
 control independently. It does not implement or claim a production
-raw-intake-to-legacy-compiler bridge. Fresh runtime proof remains required.
+raw-intake-to-legacy-compiler bridge. The subsequently admitted exact
+`7c4f300187cbc54f05b3b8acec9a57a8f60bf3b4` run passed all twenty-five
+real-role SQL cases, including legitimate artifact/ACK confirmation and
+wrong, stale, unacknowledged, invalidated and revoked/expired-source denials.
 
 Retrieval returns only permitted current source quotes with immutable exact
 source dependencies and actor-bound current-access signatures. Mixed denied
@@ -60,18 +63,26 @@ launch errors, and zero cleanup errors; slowest worker 100.11 seconds. Fifteen
 failures were the host-control setup above; one was the stale boundary-register
 checksum after explicitly reviewed verification-only helper registration. The
 checksum now binds that exact register without relaxing immutable source anchors.
-These repairs still require a fresh admitted full runtime rerun. Passing unit
-and read-only evidence accompany
-the exact-source security reviews; the protected database gate requires that
-approval before the complete synthetic database verifier can run again. Final
-review/test/merge receipts are recorded on the same issue #27, not inferred
-from this source checkpoint.
+The subsequent assigned exact-head approval opened the database gate for
+`7c4f300187cbc54f05b3b8acec9a57a8f60bf3b4`. Its full canonical W10 run
+passed all 2788 required tests, with zero failures, skips, timeouts, launch
+errors or cleanup errors. The slowest worker completed in 97.10 seconds; the
+shared 120-second ceiling is unchanged. The separately executed SQL controls
+passed 25/25. Companion offline checks passed 354 named cases, 12 immutable coverage/checksum cases, 58 TypeScript cases and all seven S12 checks. This
+receipt supersedes the failed inventory results for this exact source while
+retaining them above. Review, test and merge evidence belongs on the same
+issue #27. Nonblocking Low follow-ups for fixture memory use and the proxy
+assumption remain owned there; neither establishes host or business acceptance.
 
-Workflow registration is deliberately a separate protected follow-up. The
-implementation has no net workflow change; its full three-file TypeScript
-registration is recoverable on `codex/offline-rebuild-ci-preserved` and remains
-owned until its separately reviewed PR merges. This is scope separation, not a
-class/base masking exception.
+The initial implementation review excluded workflow changes to permit its
+properly gated synthetic database proof. After that proof, PR #171 CI exposed
+an independently incomplete cold S03 database: its main compose database had
+only SQL001/002/004, while the new confirmation controls required the canonical
+processing prerequisites. The existing isolated bootstrap now installs the
+canonical ordered synthetic migrations without weakening owner guards. The
+three-file TypeScript registration and this factual evidence are included in
+the same PR under a new deployment declaration and exact successor reviews.
+No manual database writes are performed on that deployment-class source.
 
 Actual host installation/isolation, Q2b target owner/caller/TLS proof,
 W10/R7 native timing, native/hosted/browser production proof, stage acceptance

@@ -62,6 +62,8 @@ jobs:
         run: pnpm --filter @oracle/web typecheck
       - name: Verify new native browser authority and result binding
         run: pnpm --filter @oracle/web exec tsx --test lib/native-trigger.test.ts lib/native-trigger-v2.test.ts
+      - name: Verify replacement journey contract and fixture store
+        run: pnpm --filter @oracle/web exec tsx --test lib/replacement-contract.test.ts lib/replacement-fixture-auth.test.ts lib/replacement-fixture-route.test.ts
       - name: Verify Oracle 2 worker script bundle paths
         run: node scripts/oracle2/verify_worker_bundle.mjs
       - name: Install uv
@@ -98,7 +100,9 @@ jobs:
           candidate=$(docker compose -f dev/oracle2/compose.yaml ps -q falkor-candidate)
           services/oracle-brain/.venv/bin/python dev/oracle2/test_readonly_graph_fixture.py \
             --container "$candidate" --directory "$RUNNER_TEMP/oracle2-readonly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-      - name: Bootstrap isolated LangGraph checkpoint tables
+      - name: Verify synthetic bootstrap ordering and owner refusals
+        run: services/oracle-brain/.venv/bin/python -m pytest -q scripts/oracle2/init_local_stores_test.py
+      - name: Bootstrap isolated synthetic ledger and checkpoint tables
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
       - name: New operating-model documentary and event contracts
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_workflow_integrity.py --stage W10 --mode synthetic
