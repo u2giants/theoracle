@@ -10,6 +10,8 @@ test('local browser forwards a Secure fixture cookie and denies anonymous access
   const server = createServer((req, res) => {
     if (req.url === '/login') {
       res.setHeader('Set-Cookie', 'invented_browser_probe=present; HttpOnly; Secure; SameSite=Lax; Path=/');
+    } else if (req.url === '/logout') {
+      res.setHeader('Set-Cookie', 'invented_browser_probe=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0');
     } else if (req.url === '/protected') {
       res.statusCode = req.headers.cookie?.split(';').some((value) => value.trim() === 'invented_browser_probe=present') ? 200 : 401;
     }
@@ -30,6 +32,8 @@ test('local browser forwards a Secure fixture cookie and denies anonymous access
     const denied = await anonymous.newPage();
     await denied.goto(origin);
     expect(await denied.evaluate(() => fetch('/protected', { method: 'POST', credentials: 'same-origin' }).then((response) => response.status))).toBe(401);
+    await page.evaluate(() => fetch('/logout', { method: 'POST', credentials: 'same-origin' }));
+    expect(await page.evaluate(() => fetch('/protected', { method: 'POST', credentials: 'same-origin' }).then((response) => response.status))).toBe(401);
   } finally {
     await context.close();
     await anonymous.close();
