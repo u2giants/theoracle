@@ -458,7 +458,7 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         await self._verify_paid_vectors(payload)
 
     async def build(self,ledger,workspace_id,artifact_id,artifact_version):
-        if type(self) is not PaidProcessingSDKProjectionV3 or self.read_only or workspace_id!=self.workspace_id:
+        if type(self) not in (PaidProcessingSDKProjectionV3,PaidConsolidationSDKProjectionV1) or self.read_only or workspace_id!=self.workspace_id:
             raise PermissionError('exact writable paid projection identity required')
         from .assembly_qualification import read_documentary_artifact
         self._paid_built_here=False
