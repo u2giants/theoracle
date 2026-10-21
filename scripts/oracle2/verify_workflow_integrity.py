@@ -56,6 +56,8 @@ DOCUMENTARY += GRAPH_HOLISTIC_SUITES
 DOCUMENTARY += ORIGINAL_PROCESSING_SUITES
 DOCUMENTARY += RAW_ORIGINAL_SUITES
 DOCUMENTARY += ('research_rights','research_fetch','research_scheduler')
+DOCUMENTARY += ('research_freshness','applicability','recommendation_contract',
+    'recommendation_identity','scenario_math','experiment_outcomes')
 DOCUMENTARY += REPLACEMENT_RESULT_SUITES
 # Keep the light hosting/operator tail with documentary fixtures so every
 # heavy native suite owns one worker without exceeding the ten-worker cap.
