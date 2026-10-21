@@ -151,10 +151,14 @@ def _native(monkeypatch, *, response_content='{"invented":true}', cost='0.00001'
                              'limit': 25, 'limit_remaining': 25, 'is_free_tier': False}}
         if path == '/chat/completions':
             sent.append(body)
-            raw = json.dumps(response).encode()
+            actual_response = dict(response, model=body['model'])
+            if isinstance(response_content, dict):
+                actual_response['choices'] = [{'finish_reason': 'stop', 'message': {
+                    'content': response_content[body['model']]}}]
+            raw = json.dumps(actual_response).encode()
             self._receive_paid_wire(raw, complete=True)
             self.last_response_text = raw.decode()
-            return dict(response, model=body['model'])
+            return actual_response
         raise AssertionError('unadmitted path ' + path)
 
     monkeypatch.setattr(NativeOpenRouter, '_request', request)
@@ -182,7 +186,7 @@ def _chain_fixture(monkeypatch, *, reader_model=MODELS[0], reviewer_model=MODELS
                    sizes=None, omit_png=False, substitute=False):
     """Build one complete offline chain context (no finalize yet)."""
     data = b'%PDF-1.4 invented raw original bytes for U1 offline e2e'
-    q, now = _quote()
+    q, now = _quote(model=reader_model)
     sizes = sizes if sizes is not None else VIEW_SIZES
     if omit_png:
         reading_messages = _messages(sizes=sizes[:-1])
@@ -197,13 +201,16 @@ def _chain_fixture(monkeypatch, *, reader_model=MODELS[0], reviewer_model=MODELS
         review_messages = _messages(sizes=sizes)
     reader_principal = reader_principal or uuid4()
     reviewer_principal = reviewer_principal or uuid4()
-    native, wires, sent, _ = _native(monkeypatch)
+    phase_contents = {reader_model: '{"reading":"invented π"}',
+                      reviewer_model: '{"review":"supported π"}'}
+    native, wires, sent, _ = _native(monkeypatch, response_content=phase_contents)
     reading_provider, reading_recorder, _ = _open_provider(
         monkeypatch, purpose='source-original-reading', quote=q, now=now, native=native)
+    review_quote = q.model_copy(update={'model': reviewer_model})
     review_provider, review_recorder, _ = _open_provider(
-        monkeypatch, purpose='source-original-review', quote=q, now=now, native=native)
+        monkeypatch, purpose='source-original-review', quote=review_quote, now=now, native=native)
     workspace_id, source_id = uuid4(), uuid4()
-    view_manifest_sha256, locator_map_sha256 = '7' * 64, '8' * 64
+    view_manifest_sha256, locator_map_sha256 = q.view_manifest_hash, '8' * 64
     parser_id = '9' * 64
     original_sha256 = hashlib.sha256(data).hexdigest()
     reading_text = json.dumps({'reading': 'invented complete reading'}, sort_keys=True)
@@ -215,7 +222,8 @@ def _chain_fixture(monkeypatch, *, reader_model=MODELS[0], reviewer_model=MODELS
         'view_manifest_hash': view_manifest_sha256, 'locator_map_hash': locator_map_sha256,
         'reading_body_hash': 'a' * 64, 'native_job_hash': 'b' * 64,
         'request_hash': 'c' * 64, 'raw_wire_hash': 'd' * 64,
-        'model_content_hash': 'e' * 64, 'native_custody_receipt_hash': 'f' * 64,
+        'model_content_hash': hashlib.sha256(phase_contents[reader_model].encode()).hexdigest(),
+        'native_custody_receipt_hash': 'f' * 64,
         'authorized_phase_commit_hash': '0' * 64,
         'reading_population_id': str(uuid4()),
         'reading_operation_registry_hash': '1' * 64, 'review_body_hash': '2' * 64,
@@ -230,7 +238,9 @@ def _chain_fixture(monkeypatch, *, reader_model=MODELS[0], reviewer_model=MODELS
         reading_sha256=reading_sha256, parser_id=parser_id,
         committed_at=now, original_horizon=now + timedelta(seconds=40))
     review_body = build_paid_response_body_v1(
-        raw_ref=raw_ref, population_id=uuid4(), hashes=hashes, purpose='review',
+        raw_ref=raw_ref, population_id=uuid4(),
+        hashes=dict(hashes, model_content_hash=hashlib.sha256(
+            phase_contents[reviewer_model].encode()).hexdigest()), purpose='review',
         reading_commit_hash=hashlib.sha256(seal_response_body_v1(reading_body)).hexdigest(),
         reading_sha256=reading_sha256, parser_id=parser_id,
         committed_at=now, original_horizon=now + timedelta(seconds=40),
@@ -463,8 +473,9 @@ def test_raw_pdf_all_png_views_flow_into_qualified_source_ref(monkeypatch):
     native, wires, sent, _ = _native(monkeypatch)
     reading_provider, reading_recorder, _ = _open_provider(
         monkeypatch, purpose='source-original-reading', quote=q, now=now, native=native)
+    review_quote = q.model_copy(update={'model': MODELS[1]})
     review_provider, review_recorder, _ = _open_provider(
-        monkeypatch, purpose='source-original-review', quote=q, now=now, native=native)
+        monkeypatch, purpose='source-original-review', quote=review_quote, now=now, native=native)
     reading_text = json.dumps({'reading': 'invented complete PDF reading'}, sort_keys=True)
     reading_sha256 = hashlib.sha256(reading_text.encode()).hexdigest()
     hashes = {
@@ -475,7 +486,8 @@ def test_raw_pdf_all_png_views_flow_into_qualified_source_ref(monkeypatch):
         'locator_map_hash': rendered.locator_map_hash,
         'reading_body_hash': 'a' * 64, 'native_job_hash': 'b' * 64,
         'request_hash': 'c' * 64, 'raw_wire_hash': 'd' * 64,
-        'model_content_hash': 'e' * 64, 'native_custody_receipt_hash': 'f' * 64,
+        'model_content_hash': hashlib.sha256(b'{"invented":true}').hexdigest(),
+        'native_custody_receipt_hash': 'f' * 64,
         'authorized_phase_commit_hash': '0' * 64,
         'reading_population_id': str(uuid4()),
         'reading_operation_registry_hash': '1' * 64, 'review_body_hash': '2' * 64,
@@ -508,3 +520,97 @@ def test_raw_pdf_all_png_views_flow_into_qualified_source_ref(monkeypatch):
     assert source_ref.reading_sha256 == reading_sha256
     assert detail['qualification'].view_manifest_sha256 == rendered.view_manifest_hash
     assert len(reading_recorder.reservations) == 1 and len(review_recorder.reservations) == 1
+
+
+def _execute_chain_fixture(f, store, **overrides):
+    keys = ('data', 'quote', 'reading_provider', 'review_provider', 'reading_messages',
+            'review_messages', 'workspace_id', 'source_id', 'reader_principal',
+            'reviewer_principal', 'reader_role', 'reviewer_role', 'reader_model',
+            'reviewer_model', 'parser_id', 'now', 'reading_body', 'review_body',
+            'view_manifest_sha256', 'locator_map_sha256')
+    arguments = {key: f[key] for key in keys}
+    arguments.update(store=store, revision=1)
+    arguments.update(overrides)
+    return run_raw_to_source_ref_v1(**arguments)
+
+
+@pytest.mark.parametrize('phase', ['reading', 'review'])
+@pytest.mark.parametrize('substitution', ['unrelated', 'unicode', 'whitespace'])
+def test_native_content_substitution_never_qualifies_and_retains_cost(monkeypatch, phase, substitution):
+    f = _chain_fixture(monkeypatch)
+    store = QualificationCustodyStoreV1()
+    changed = dict(f[phase + '_body'])
+    actual = '{"reading":"invented π"}' if phase == 'reading' else '{"review":"supported π"}'
+    replacement = {'unrelated': '{"foreign":true}', 'unicode': actual.replace('π', 'p'),
+                   'whitespace': actual + ' '}[substitution]
+    changed['model_content_hash'] = hashlib.sha256(replacement.encode()).hexdigest()
+    overrides = {phase + '_body': changed}
+    if phase == 'reading':
+        # Preserve all metadata lineage so only actual response binding can deny.
+        review = dict(f['review_body'], reading_commit_hash=hashlib.sha256(
+            seal_response_body_v1(changed)).hexdigest())
+        overrides['review_body'] = review
+    with pytest.raises(QualificationDenied, match=f'actual {phase} response content differs'):
+        _execute_chain_fixture(f, store, **overrides)
+    assert store.source_ref(f['workspace_id'], f['source_id'], 1) is None
+    assert store.get_commit(hashlib.sha256(seal_response_body_v1(
+        overrides.get('reading_body', f['reading_body']))).hexdigest()) is None
+    assert store.get_commit(hashlib.sha256(seal_response_body_v1(
+        overrides.get('review_body', f['review_body']))).hexdigest()) is None
+    expected_phases = 1 if phase == 'reading' else 2
+    assert len(f['sent']) == expected_phases
+    assert len(f['wires']) == expected_phases
+    assert all(complete for _, complete in f['wires'])
+    assert len(f['reading_recorder'].finishes) == 1
+    assert f['reading_recorder'].finishes[0]['actual_usd'] == Decimal('0.00001')
+    assert len(f['review_recorder'].finishes) == expected_phases - 1
+    if phase == 'review':
+        assert f['review_recorder'].finishes[0]['actual_usd'] == Decimal('0.00001')
+
+
+@pytest.mark.parametrize('attack', [
+    'reader-label', 'reviewer-label', 'same-actual-model', 'reader-purpose',
+    'reviewer-purpose', 'reading-quote', 'review-images', 'review-view-seal', 'review-quote-seal',
+])
+def test_actual_phase_identity_and_quote_denied_before_any_dispatch(monkeypatch, attack):
+    f = _chain_fixture(monkeypatch)
+    store = QualificationCustodyStoreV1()
+    overrides = {}
+    if attack == 'reader-label':
+        overrides['reader_model'] = 'foreign-reader'
+    elif attack == 'reviewer-label':
+        overrides['reviewer_model'] = 'foreign-reviewer'
+    elif attack == 'same-actual-model':
+        # Two distinct caller labels must not disguise one actual selected model.
+        f['review_provider'].quote = f['reading_provider'].quote
+    elif attack == 'reader-purpose':
+        f['reading_provider'].processing_request = _processing('source-original-review')
+    elif attack == 'reviewer-purpose':
+        f['review_provider'].processing_request = _processing('source-original-reading')
+    elif attack == 'reading-quote':
+        overrides['quote'] = f['quote'].model_copy(update={'dispatch_id': uuid4()})
+    elif attack == 'review-images':
+        f['review_provider'].quote = f['review_provider'].quote.model_copy(update={'view_count': 6})
+        f['review_provider'].expected_quote_sha256 = digest(f['review_provider'].quote.model_dump(mode='json'))
+    elif attack == 'review-view-seal':
+        f['review_provider'].quote = f['review_provider'].quote.model_copy(update={'view_manifest_hash': 'f' * 64})
+        f['review_provider'].expected_quote_sha256 = digest(f['review_provider'].quote.model_dump(mode='json'))
+    elif attack == 'review-quote-seal':
+        f['review_provider'].quote = f['review_provider'].quote.model_copy(update={'dispatch_id': uuid4()})
+    with pytest.raises(PermissionError):
+        _execute_chain_fixture(f, store, **overrides)
+    assert f['sent'] == []
+    assert f['wires'] == []
+    assert f['reading_recorder'].reservations == []
+    assert f['review_recorder'].reservations == []
+    assert store.source_ref(f['workspace_id'], f['source_id'], 1) is None
+
+
+def test_two_actual_models_and_exact_phase_contents_qualify(monkeypatch):
+    f = _chain_fixture(monkeypatch)
+    store = QualificationCustodyStoreV1()
+    ref, detail = _execute_chain_fixture(f, store)
+    assert [request['model'] for request in f['sent']] == list(MODELS)
+    assert detail['reading_response'] == '{"reading":"invented π"}'
+    assert detail['review_response'] == '{"review":"supported π"}'
+    assert ref == store.source_ref(f['workspace_id'], f['source_id'], 1)
