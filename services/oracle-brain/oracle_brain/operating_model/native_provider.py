@@ -4,6 +4,9 @@ import hashlib
 import urllib.request
 import urllib.error
 import http.client
+import math
+import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -12,6 +15,35 @@ from .key_coverage import VerifiedKeyCoverage
 
 ENDPOINT='https://openrouter.ai/api/v1'
 NY=ZoneInfo('America/New_York')
+
+_METADATA_PATHS=frozenset({'/models','/models/openai/gpt-6.1-sol/endpoints',
+    '/models/openai/gpt-6-astra/endpoints'})
+_METADATA_BYTES=16*1024*1024
+
+
+@dataclass(frozen=True)
+class NativeMetadataWireV1:
+    """Observed public metadata bytes, never billing-route or source authority."""
+    path:str
+    wire:bytes
+    started_at:datetime
+    observed_at:datetime
+    elapsed_seconds:float
+
+    def __post_init__(self):
+        if (type(self.path) is not str or self.path not in _METADATA_PATHS
+                or type(self.wire) is not bytes or not 0<len(self.wire)<=_METADATA_BYTES
+                or any(type(t) is not datetime or t.tzinfo is None or t.utcoffset() is None
+                    for t in (self.started_at,self.observed_at))
+                or not timedelta(0)<=self.observed_at-self.started_at<=timedelta(seconds=60)
+                or type(self.elapsed_seconds) is not float or not math.isfinite(self.elapsed_seconds)
+                or not 0<=self.elapsed_seconds<=60):
+            raise ValueError('complete bounded observed native metadata required')
+
+    @property
+    def wire_sha256(self):
+        return hashlib.sha256(self.wire).hexdigest()
+
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):raise PermissionError('provider redirects are not admitted')
@@ -117,6 +149,30 @@ class NativeOpenRouter:
             if error.code==402:raise ProviderQuotaError('existing provider credit quota exhausted; terminal') from None
             raise RuntimeError('fixed admitted provider request failed; private request not logged') from None
         except Exception:raise RuntimeError('fixed admitted provider request failed; private request not logged') from None
+    def metadata_wire_v1(self,path):
+        """One fixed HTTPS GET, same key; no paid path, retry or decoded substitute."""
+        if type(path) is not str or path not in _METADATA_PATHS:
+            raise PermissionError('fixed raw metadata operation required')
+        started=datetime.now(timezone.utc);tick=time.monotonic()
+        self._coverage(started)
+        request=urllib.request.Request(ENDPOINT+path,headers={
+            'Authorization':'Bearer '+self._key,'Content-Type':'application/json','Cache-Control':'no-store'})
+        try:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect()).open(request,timeout=60) as response:
+                if response.status!=200 or response.geturl()!=ENDPOINT+path:
+                    raise ValueError('fixed successful native metadata target required')
+                raw=response.read(_METADATA_BYTES+1)
+                length=response.getheader('Content-Length')
+                if (length is not None and (type(length) is not str or not length.isascii()
+                        or not length.isdecimal() or int(length)!=len(raw))):
+                    raise ValueError('incomplete native metadata envelope')
+            observed=datetime.now(timezone.utc);elapsed=float(time.monotonic()-tick)
+            result=NativeMetadataWireV1(path,raw,started,observed,elapsed)
+            self._coverage(observed)
+            return result
+        except Exception:
+            raise RuntimeError('fixed complete native metadata unavailable; no retry') from None
+
     def allowance(self):
         observed=datetime.now(timezone.utc)
         self._coverage(observed)
