@@ -10,6 +10,10 @@ bytes and malformed field lists are refused before any key use.
 """
 from __future__ import annotations
 
+from datetime import datetime
+import json
+import math
+
 __all__ = (
     'SEAL_PURPOSE_ALLOWLIST',
     'seal_payload',
@@ -39,18 +43,27 @@ def require_allowed_purpose(purpose: str) -> None:
 def wire_fields(*fields) -> list[str]:
     """Stringify payload fields the same way on both sides of the wire.
 
-    Datetimes use ``isoformat()``; everything else is ``str()``. Returns
-    the plain string parts after the purpose tag.
+    Datetimes use ``isoformat()``; explicit scalar types use ``str()``.
+    Arbitrary objects and their conversion hooks are never accepted.
+    Returns the plain string parts after the purpose tag.
     """
     parts: list[str] = []
     for f in fields:
-        iso = getattr(f, 'isoformat', None)
-        parts.append(iso() if callable(iso) else str(f))
+        if type(f) is datetime:
+            parts.append(f.isoformat())
+        elif type(f) in (str, bool, int, float, type(None)):
+            if type(f) is float and not math.isfinite(f):
+                raise ValueError('seal field must be finite')
+            parts.append(str(f))
+        else:
+            raise TypeError('seal fields must be strings, datetimes or scalars')
     return parts
 
 
 def seal_payload(purpose: str, *fields) -> bytes:
     """Canonical purpose-tagged message bytes for sign and verify."""
-    if not purpose or not isinstance(purpose, str):
-        raise ValueError('seal purpose required')
-    return '|'.join([purpose, *wire_fields(*fields)]).encode('utf-8')
+    require_allowed_purpose(purpose)
+    return json.dumps(
+        [purpose, wire_fields(*fields)], ensure_ascii=False,
+        separators=(',', ':'), allow_nan=False,
+    ).encode('utf-8')
