@@ -25,6 +25,7 @@ S03_TESTS = [
     "test_replacement_request_service_v1.py",
     "test_owned_worker_database.py", "test_replacement_upload_service_v1.py",
     "test_replacement_upload_sql.py",
+    "test_replacement_confirmation_settings_v1.py", "test_replacement_confirmation_service_v1.py", "test_replacement_confirmation_sql.py",
     "test_provider_policy.py", "test_pilot_journey.py", "test_authority.py",
     "test_review_concurrency.py", "test_holistic_graphrag.py",
     "test_holistic_graphrag_integration.py",
@@ -53,6 +54,7 @@ S04_TESTS = [
 ]
 # S05 — confirmed temporal operating model and corrections.
 S05_TESTS = [
+    "test_replacement_confirmation_settings_v1.py", "test_replacement_confirmation_service_v1.py", "test_replacement_confirmation_sql.py",
     "test_identity_resolution.py",
     "test_temporal_facts.py",
     "test_admission.py",

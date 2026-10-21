@@ -49,7 +49,8 @@ RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_endpoint_quote_v1','raw_na
     'raw_original_native_provider_v1','raw_original_observer_v1','raw_original_paid_response_v1',
     'raw_original_request_v1','raw_original_settings_v1','raw_original_views_v1',
     'raw_provider_reservation_hooks','raw_vision_policy_v1')
-REPLACEMENT_RESULT_SUITES=('replacement_executor_target_sql','replacement_public_view_v1',
+REPLACEMENT_RESULT_SUITES=('replacement_confirmation_settings_v1','replacement_confirmation_service_v1','replacement_confirmation_sql',
+    'replacement_executor_target_sql','replacement_public_view_v1',
     'replacement_result_cleanup_v1','replacement_result_settings_v1','replacement_result_v1',
     'replacement_result_tls_sdk_close_v1','replacement_source_authority','replacement_source_intake_sql',
     'replacement_transport_v1','replacement_adversarial_journey_v1','replacement_answer',
