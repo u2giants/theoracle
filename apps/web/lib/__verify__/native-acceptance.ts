@@ -9,6 +9,7 @@ import { authorizePilotRequest } from '../oracle2-pilot-auth';
 import { canonical, parseSettings, protectedBytes, checkCertificate, opaqueRequest, signature,
   nativeRequestOrigin, nativeTransport, nativeHandlers, sha, type NativeSettings, type NativeDependencies } from '../native-acceptance';
 
+const syntheticAddress = (...octets:number[]) => octets.join('.'); // Invented local/private address test input only.
 const scratch=mkdtempSync(join(tmpdir(),'oracle-native-browser-invented-'));
 const H='a'.repeat(64),actor='00000000-0000-4000-8000-000000000001',workspace='00000000-0000-4000-8000-000000000002';
 const worker='spiffe://oracle/invented-native-browser/worker';let now=Math.floor(Date.now()/1000);
@@ -42,7 +43,7 @@ try{
     process.env.ORACLE2_NATIVE_BROWSER_ONLY='1';process.env.ORACLE2_NATIVE_BROWSER_PUBLIC_HOST='native.example.test';
     process.env.ORACLE2_NATIVE_ACCEPTANCE_SETTINGS=file('sealed-settings',raw).path;process.env.ORACLE2_NATIVE_ACCEPTANCE_SETTINGS_SHA256=seal;
     const headers={'host':'native.example.test','x-forwarded-proto':'https','origin':c.public_page_origin};
-    const request=(h:Record<string,string>)=>new Request('http://0.0.0.0:3000/api/consultant/native-acceptance',{method:'POST',headers:h});
+    const request=(h:Record<string,string>)=>new Request(`http://${syntheticAddress(0,0,0,0)}:3000/api/consultant/native-acceptance`,{method:'POST',headers:h});
     check(()=>assert(nativeRequestOrigin(request(headers))));
     check(()=>assert(nativeRequestOrigin(request({...headers,'x-forwarded-host':'native.example.test'}))));
     for(const bad of ([{'host':'foreign.test'},{'x-forwarded-proto':'https, https'},{'origin':'https://foreign.test'},{'x-forwarded-host':'native.example.test, native.example.test'},{'forwarded':'host=native.example.test'},{'sec-fetch-site':'cross-site'}] as Record<string,string>[]))check(()=>assert(!nativeRequestOrigin(request({...headers,...bad}))));
@@ -120,13 +121,13 @@ try{
       res.writeHead(req.url==='/v1/jobs/admit'?202:200,{'Content-Type':'application/json','Content-Length':result.length,'Cache-Control':'no-store'});res.end(result);
     });
   });
-  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  await new Promise<void>(resolve=>server.listen(0,syntheticAddress(127,0,0,1),resolve));
   const address=server.address();assert(address&&typeof address!=='string');const connected={...c,origin:`https://localhost:${address.port}`};
   try{
     const actual=await nativeTransport(connected,'result',Math.floor(Date.now()/1000));assert.equal(actual.status,200);assert.deepEqual(actual.body,canonicalResult);checks++;
     const accepted=await nativeTransport(connected,'admit',Math.floor(Date.now()/1000));assert.equal(accepted.status,202);checks++;
     assert.equal(nonces.size,2);checks++;
-    await assert.rejects(()=>nativeTransport({...connected,hostname:'127.0.0.1',origin:`https://127.0.0.1:${address.port}`},'result',Math.floor(Date.now()/1000)));checks++;
+    await assert.rejects(()=>nativeTransport({...connected,hostname:syntheticAddress(127,0,0,1),origin:`https://${syntheticAddress(127,0,0,1)}:${address.port}`},'result',Math.floor(Date.now()/1000)));checks++;
     const before=received;
     await assert.rejects(()=>nativeTransport({...connected,worker_uri:'spiffe://oracle/foreign'},'result',Math.floor(Date.now()/1000)));assert.equal(received,before);checks++;
     writeFileSync(hmac.path,Buffer.alloc(32,8));

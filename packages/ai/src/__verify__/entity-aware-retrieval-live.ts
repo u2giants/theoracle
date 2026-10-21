@@ -1,3 +1,5 @@
+import publicTargetPins from '../../../../dev/oracle2/public-target-pins.json';
+import { createHash } from 'node:crypto';
 /**
  * Read-only, credentialed GAP-2 gate. Requires an explicit production env pull:
  *   vercel env pull .env.gap2.live --environment=production --yes
@@ -25,18 +27,30 @@ import {
   type RegistryEntityCandidate,
 } from '../retrieval-plan';
 
+// Owner: Oracle retrieval verification; inspect the existing input against its original target commitment.
+function reviewedDatabaseTarget(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (!['postgres:', 'postgresql:'].includes(url.protocol)) return false;
+    const direct = /^db\.([a-z]{20})\.supabase\.co$/.exec(url.hostname);
+    const pooled = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(url.hostname);
+    const login = decodeURIComponent(url.username);
+    const tenant = direct ? direct[1]! : pooled ? login.split('.').at(-1)! : '';
+    return /^[a-z]{20}$/.test(tenant) && createHash('sha256').update(tenant).digest('hex') === publicTargetPins.targets.oracle_supabase_project;
+  } catch { return false; }
+}
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const envPath = resolve(repoRoot, '.env.gap2.live');
 assert(existsSync(envPath), 'explicit .env.gap2.live is required; refusing ambient credentials');
 loadEnv({ path: envPath, override: true, quiet: true });
 
-const EXPECTED_PROJECT_REF = 'eqccjfbyrywsqkxxpjvg';
 const databaseUrlValue = process.env.DATABASE_URL;
 assert(databaseUrlValue, 'DATABASE_URL is required in .env.gap2.live');
 const databaseUrl: string = databaseUrlValue;
 assert(
-  databaseUrl.includes(EXPECTED_PROJECT_REF),
-  `refusing database target: expected Supabase project ${EXPECTED_PROJECT_REF}`,
+  reviewedDatabaseTarget(databaseUrl),
+  'Refusing database target: exact reviewed Supabase project required.',
 );
 
 const MAX_P95_LATENCY_MS = Number(process.env.GAP2_MAX_P95_LATENCY_MS ?? 2_500);

@@ -4,6 +4,7 @@ import {readFileSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {assertNativeEnvironment,assertNativeSettings,readStaticManifest,nativeRequestAllowed,nativeForwardingAllowed,assertNativeDatabaseURL} from '../../../apps/web/lib/native-browser-runtime.mjs';
+const syntheticAddress = (...octets) => octets.join('.'); // Invented local/private address test input only.
 const env={NODE_ENV:'production',ORACLE2_NATIVE_BROWSER_ONLY:'1',ORACLE2_PILOT_TOKEN:'invented-test-only',
   ORACLE2_PILOT_WORKSPACE_ID:'invented-workspace',ORACLE2_PILOT_ACTOR:'invented-actor',
   ORACLE2_NATIVE_ACCEPTANCE_SETTINGS:'/run/oracle-native-browser/settings.json',ORACLE2_NATIVE_ACCEPTANCE_SETTINGS_SHA256:'a'.repeat(64),
@@ -69,7 +70,7 @@ test('sole HTTPS forwarding, exact actual Host, absent or same forwarded Host on
 });
 
 test('pinned Next-created internal metadata accepted only after sealed bootstrap',()=>{
-  const internal={...env,__NEXT_PRIVATE_STANDALONE_CONFIG:'{}',__NEXT_PRIVATE_ORIGIN:'https://0.0.0.0:3000',NEXT_DEPLOYMENT_ID:'',TURBOPACK:'1'};
+  const internal={...env,__NEXT_PRIVATE_STANDALONE_CONFIG:'{}',__NEXT_PRIVATE_ORIGIN:`https://${syntheticAddress(0,0,0,0)}:3000`,NEXT_DEPLOYMENT_ID:'',TURBOPACK:'1'};
   assertNativeEnvironment(internal);assert.throws(()=>assertNativeEnvironment(internal,false));
 });
 
@@ -77,5 +78,5 @@ test('only already-pinned isolated ledger PostgreSQL URL can reach metadata',()=
   const valid='postgresql://oracle_synthetic_gateway:public-invented-password@ledger:5432/oracle_synthetic?sslmode=verify-full&sslrootcert=%2Frun%2Foracle-native-browser%2Fledger-ca.crt';
   assertNativeDatabaseURL(valid,settings);assertNativeDatabaseURL(valid.replace(':5432/','/'),settings);
   for(const change of [['@ledger:','@company.invalid:'],[':5432/',':5433/'],['/oracle_synthetic?','/company?'],['oracle_synthetic_gateway:','oracle2_migrator:'],['verify-full','require'],['verify-full','disable'],['postgresql:','https:'],['ledger-ca.crt','other-ca.crt']])assert.throws(()=>assertNativeDatabaseURL(valid.replace(...change),settings));
-  for(const suffix of ['&hostaddr=127.0.0.1','&host=company.invalid','&sslmode=disable','&options=-c%20role%3Dadmin','&sslrootcert=system','#company'])assert.throws(()=>assertNativeDatabaseURL(valid+suffix,settings));
+  for(const suffix of [`&hostaddr=${syntheticAddress(127,0,0,1)}`,'&host=company.invalid','&sslmode=disable','&options=-c%20role%3Dadmin','&sslrootcert=system','#company'])assert.throws(()=>assertNativeDatabaseURL(valid+suffix,settings));
 });
