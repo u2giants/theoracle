@@ -101,7 +101,7 @@ jobs:
           services/oracle-brain/.venv/bin/python dev/oracle2/test_readonly_graph_fixture.py \
             --container "$candidate" --directory "$RUNNER_TEMP/oracle2-readonly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
       - name: Verify synthetic bootstrap ordering and owner refusals
-        run: services/oracle-brain/.venv/bin/python -m pytest -q scripts/oracle2/init_local_stores_test.py
+        run: services/oracle-brain/.venv/bin/python -m pytest -q scripts/oracle2/init_local_stores_test.py scripts/oracle2/legacy_database_fixture_test.py
       - name: Bootstrap isolated synthetic ledger and checkpoint tables
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
       - name: New operating-model documentary and event contracts

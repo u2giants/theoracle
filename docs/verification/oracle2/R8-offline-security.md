@@ -98,6 +98,17 @@ with no target selection or migrations; the retained test preserves its fresh
 isolated database. Full migration entry still requires the exact owned
 `oracle2` target. A fresh cold run remains required for the repaired source.
 
+The later cold `8d0e2a0e` run passed canonical W10 2788/2788 with no
+failures, skips, timeouts or cleanup errors; slowest worker 102.807 seconds.
+Canonical hosted RLS exposed a separate legacy browser-fixture mismatch after
+authenticated questions returned 202. The SDK, readiness and workflow browser
+fixtures now use newly created owned TLS databases with their original
+SQL001/002/004 contract. Exact container, certificate, database OID/owner and
+private creation receipt bind their setup and cleanup. Canonical W10/S03
+migrations and security policies remain unchanged. Legacy SDK journey proof
+does not establish canonical hosted admission or live/business acceptance;
+the isolated browser successor still requires fresh governed CI proof.
+
 Actual host installation/isolation, Q2b target owner/caller/TLS proof,
 W10/R7 native timing, native/hosted/browser production proof, stage acceptance
 and business acceptance remain separate unproven gates on existing issue #27.
