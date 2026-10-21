@@ -48,11 +48,10 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         with stage_lock:
             timings[name]=round(time.monotonic()-started,3)
             path=tmp_path/'stage-timings.json';path.write_text(json.dumps(timings,sort_keys=True));path.chmod(0o600)
-    # Canonical runner installs this too; standalone owned proof must not defer
-    # the actual result getter rollout until after a spent paid attempt.
-    from pathlib import Path
+    # Consume the complete current bootstrap; never downgrade its extensions.
+    from dev.oracle2.test_canonical_schema import assert_canonical_test_schema
     with psycopg.connect(admin_url) as connection:
-        connection.execute((Path(__file__).parents[1]/'sql/014_replacement_source_custody.sql').read_text())
+        assert_canonical_test_schema(connection, admin_url)
     x,settings,job=compiler_worker
     parent=x['input_parent']
     assert parent is not None and len(parent.contexts)==3

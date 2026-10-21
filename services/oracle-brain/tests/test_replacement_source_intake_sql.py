@@ -17,8 +17,8 @@ def requester(admin_url):
     until=datetime.now(timezone.utc)+timedelta(seconds=90)
     root,leaf=uuid4(),uuid4()
     with psycopg.connect(admin_url) as c:
-        for migration in ('012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql','014_replacement_source_custody.sql'):
-            c.execute((Path(__file__).parents[1]/'sql'/migration).read_text())
+        from dev.oracle2.test_canonical_schema import assert_canonical_test_schema
+        assert_canonical_test_schema(c, admin_url)
         c.execute(sql.SQL('CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD {}').format(
             sql.Identifier(login),sql.Literal('synthetic-requester-only')))
         c.execute(sql.SQL('GRANT oracle2_replacement_requester TO {}').format(sql.Identifier(login)))

@@ -73,3 +73,33 @@ def test_real_canonical_owned_worker_database_is_observed():
     assert re.fullmatch(r'[0-9a-f]{64}',details['Id'])
     assert container==details['Id'] or details['Name']=='/'+container
     assert details['Config']['Labels']['oracle.operating.synthetic']=='true'
+
+
+def test_retained_requester_fixture_cannot_overwrite_a_newer_canonical_capability(admin_url):
+    """Regression: old requester setup replayed012/014 over newer same-OID code."""
+    from dev.oracle2 import test_canonical_schema as schema
+    from test_replacement_source_intake_sql import requester
+    import psycopg
+    signature = 'oracle2.finalize_source_revision_v1(uuid,integer,jsonb)'
+    worker.owned_worker_database(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'], admin_url)
+    with psycopg.connect(admin_url) as connection:
+        original = connection.execute('SELECT pg_get_functiondef(to_regprocedure(%s))', (signature,)).fetchone()[0]
+        assert original.count('AS $function$') == 1
+        newer = original.replace('AS $function$', 'AS $function$\n-- invented later canonical extension; fixture must never overwrite\n', 1)
+        connection.execute(newer)
+    setup = requester.__wrapped__(admin_url)
+    try:
+        with pytest.raises(PermissionError, match='canonical test schema changed'):
+            next(setup)
+        with psycopg.connect(admin_url) as connection:
+            actual = connection.execute('SELECT pg_get_functiondef(to_regprocedure(%s))', (signature,)).fetchone()[0]
+            assert 'invented later canonical extension' in actual
+        with pytest.raises(PermissionError, match='canonical test schema changed'):
+            schema.bootstrap_canonical_test_schema(admin_url)
+    finally:
+        setup.close()
+        worker.owned_worker_database(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'], admin_url)
+        with psycopg.connect(admin_url) as connection:
+            connection.execute(original)
+    with psycopg.connect(admin_url) as connection:
+        schema.assert_canonical_test_schema(connection, admin_url)
