@@ -73,7 +73,16 @@ def test_factory_actual_budget_commit_and_unknown_overrun_are_durable(factory_ca
         return VerifiedKeyCoverage(admission_hash=COVERAGE,key_fingerprint=FP,ledger_identity_hash=rh,
             observed_at=at,expires_at=at+timedelta(seconds=10))
     b._coverage=coverage
+    wire_locks=[]
+    def no_budget_lock_during_native():
+        with psycopg.connect(url) as conn:
+            conn.execute('SET TRANSACTION READ ONLY')
+            available=conn.execute('SELECT pg_try_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',)).fetchone()[0]
+            wire_locks.append(available)
+            assert available is True, 'actual Budget transaction held across native POST'
+    state['wire_hook']=no_budget_lock_during_native
     result=factory.execute()
+    assert wire_locks==[True]
     with psycopg.connect(url) as conn:
         assert conn.execute('SELECT actual_usd,status,response_hash FROM oracle2.operating_dispatch_receipts WHERE reservation_id=%s',
             (result.commit.reservation_id,)).fetchone()==(Decimal('.003'),'completed',hashlib.sha256(result.content_utf8).hexdigest())
@@ -98,6 +107,7 @@ def test_factory_actual_budget_commit_and_unknown_overrun_are_durable(factory_ca
             FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)
             WHERE r.artifact_id=%s''',(second.artifact_id,)).fetchone()
         assert row[1:]==(Decimal('2.001'),'overrun','transport_failure',None)
+    assert wire_locks==[True,True]
     assert state['paid']==2 and factory._path(second,'.wire').exists() and factory._path(second,'.json').exists()
     assert not factory._path(second,'.raw-paid.json').exists()
     with pytest.raises(PermissionError):factory.execute()

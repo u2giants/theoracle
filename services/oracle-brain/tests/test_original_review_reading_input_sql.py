@@ -1,5 +1,4 @@
 """Actual owned SQL018 reviewer capability; no provider, private original or qualification."""
-from pathlib import Path
 from dataclasses import replace
 from datetime import datetime,timedelta,timezone
 from uuid import uuid4
@@ -17,8 +16,9 @@ from test_replacement_source_intake_sql import requester
 @pytest.fixture
 def retained_reading(qualified_pair):
     x=qualified_pair
-    with psycopg.connect(x['admin']) as c:
-        c.execute((Path(__file__).parents[1]/'sql/018_original_review_reading_input.sql').read_text())
+    # Canonical worker bootstrap installs018 ONCE. Never replay an old
+    # migration from a retained fixture; the actual capability checks below
+    # must fail if the canonical function is absent or differs.
     reader,reviewer=pair(x)
     seal=reader.commit_original_reading_response_v1(canonical_bytes(x['body']))
     return x,reader,reviewer,seal
