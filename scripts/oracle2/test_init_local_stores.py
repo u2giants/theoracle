@@ -2,12 +2,12 @@
 from contextlib import contextmanager
 from unittest.mock import patch
 
-import pytest
-
-import init_local_stores as bootstrap
 
 
 def run_bootstrap(monkeypatch, *, fail=None):
+    import pytest
+    import init_local_stores as bootstrap
+
     events = []
 
     class Connection:
@@ -39,6 +39,8 @@ def run_bootstrap(monkeypatch, *, fail=None):
 
 
 def test_canonical_prerequisites_precede_checkpoints(monkeypatch):
+    import init_local_stores as bootstrap
+
     events = run_bootstrap(monkeypatch)
     expected = [
         (bootstrap.ROOT / "services/oracle-brain/sql" / name).read_text()
@@ -64,8 +66,10 @@ def test_owner_refusal_stops_bootstrap_before_checkpoint_setup(monkeypatch):
     assert not any("GRANT SELECT,INSERT,UPDATE,DELETE ON public." in x for x in events)
 
 
-@pytest.mark.parametrize("url", ["", "postgresql://invented@outside.example/oracle2"])
-def test_non_loopback_rejected_before_any_database_access(monkeypatch, url):
+def assert_non_loopback_rejected(monkeypatch, url):
+    import pytest
+    import init_local_stores as bootstrap
+
     monkeypatch.setenv("ORACLE2_TEST_ADMIN_URL", url)
     with patch.object(bootstrap.psycopg, "connect") as connect, patch.object(
         bootstrap.PostgresSaver, "from_conn_string"
@@ -74,3 +78,11 @@ def test_non_loopback_rejected_before_any_database_access(monkeypatch, url):
             bootstrap.main()
         connect.assert_not_called()
         saver.assert_not_called()
+
+
+def test_missing_target_rejected_before_any_database_access(monkeypatch):
+    assert_non_loopback_rejected(monkeypatch, "")
+
+
+def test_remote_target_rejected_before_any_database_access(monkeypatch):
+    assert_non_loopback_rejected(monkeypatch, "postgresql://invented@outside.example/oracle2")
