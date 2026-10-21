@@ -48,7 +48,8 @@ RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_endpoint_quote_v1','raw_na
     'raw_multimodal_pricing_v1','raw_original_context_v1',
     'raw_original_native_provider_v1','raw_original_observer_v1','raw_original_paid_response_v1',
     'raw_original_request_v1','raw_original_settings_v1','raw_original_views_v1',
-    'raw_provider_reservation_hooks','raw_vision_policy_v1')
+    'raw_provider_reservation_hooks','raw_vision_policy_v1',
+    'protected_raw_original_factory_v1','protected_raw_original_factory_sql','original_review_reading_input_sql')
 REPLACEMENT_RESULT_SUITES=('replacement_confirmation_settings_v1','replacement_confirmation_service_v1','replacement_confirmation_sql',
     'replacement_executor_target_sql','replacement_public_view_v1',
     'replacement_result_cleanup_v1','replacement_result_settings_v1','replacement_result_v1',
@@ -86,7 +87,7 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql')
+    '014_replacement_source_custody.sql','018_original_review_reading_input.sql')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2

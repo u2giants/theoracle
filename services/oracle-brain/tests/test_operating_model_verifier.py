@@ -91,7 +91,7 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
         '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
         '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-        '014_replacement_source_custody.sql')
+        '014_replacement_source_custody.sql','018_original_review_reading_input.sql')
 
 
 def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
@@ -199,7 +199,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
-    assert verifier.SYNTHETIC_MIGRATIONS[-1]=='014_replacement_source_custody.sql'
+    assert verifier.SYNTHETIC_MIGRATIONS[-2:]==('014_replacement_source_custody.sql','018_original_review_reading_input.sql')
 
 
 @pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])
@@ -241,3 +241,16 @@ def test_worker_cluster_existing_project_refuses_before_any_mutation(tmp_path,mo
         with helper.worker_postgres({'COMPOSE_PROJECT_NAME':'oracle2-synthetic-unit'},tmp_path/'cluster','event'):pass
     assert len(calls)==1 and calls[0][:3]==('docker','ps','-aq')
     assert not (tmp_path/'cluster').exists()
+
+
+def test_protected_raw_factory_and_actual_reviewer_input_are_mandatory_once():
+    from collections import Counter
+    import ast
+    names={'protected_raw_original_factory_v1','protected_raw_original_factory_sql','original_review_reading_input_sql'}
+    for stage in ('W10','W12','documentary'):
+        counts=Counter(verifier.required_suites(stage))
+        assert all(counts[name]==1 for name in names)
+    phase=ast.parse((Path(__file__).parents[3]/'scripts/oracle2/verify_phase.py').read_text())
+    suites=next(ast.literal_eval(n.value) for n in phase.body if isinstance(n,ast.Assign)
+        and any(isinstance(t,ast.Name) and t.id=='S03_TESTS' for t in n.targets))
+    assert all(suites.count('test_'+name+'.py')==1 for name in names)

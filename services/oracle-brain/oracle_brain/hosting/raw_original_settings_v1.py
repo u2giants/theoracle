@@ -44,6 +44,7 @@ class RawOriginalProviderConfigV1(StrictRecord):
     original_allocation_hash:str=Field(pattern=HASH)
     original_horizon:AwareDatetime
     billing_bounds:RawPrivateFileV1|None=None
+    reading_packet:RawPrivateFileV1|None=None
     database_url:RawPrivateFileV1
     database_ca:RawPrivateFileV1
     database_hostname:str
@@ -304,6 +305,56 @@ class RawOriginalProviderSettingsV1:
         self._current_settings_pins()
         _require(datetime.now(timezone.utc)<observed.window.current_until,'raw authorization expired before return')
         return observed
+
+    def read_review_prompt(self,rendered):
+        """Own reviewer SQL metadata plus protected exact actual reading body.
+
+        The historical reader admission may expire. Only current independently
+        appointed reviewer rights permit this read; no requester getter is used.
+        """
+        from oracle_brain.ingest import originals
+        from oracle_brain.operating_model.original_source_authority_v1 import OriginalReviewReadingInputV1
+        from oracle_brain.operating_model.original_qualification_v1 import parse_original_response_commit_v1
+        from .raw_original_views_v1 import RawPDFViewsV1
+        import json
+        self._current_settings_pins();x=self.context;j=x.job;pointer=self.config.reading_packet
+        _require(j.purpose=='source-original-review' and type(rendered) is RawPDFViewsV1
+            and type(pointer) is RawPrivateFileV1 and rendered.raw_ref==j.raw_ref,
+            'appointed protected review reading input required')
+        before=self.resolver.original_review_reading_input_v1(j.reading_commit_hash)
+        _require(type(before) is OriginalReviewReadingInputV1,'actual own SQL reader metadata required')
+        raw=_worker_file(pointer.path,pointer.sha256,limit=originals.MAX_ORIGINAL_BYTES)
+        from oracle_brain.operating_model.native_factory import _unique_object,_deny_constant
+        body=json.loads(raw,object_pairs_hook=_unique_object,parse_constant=_deny_constant)
+        _require(type(body) is dict,'exact protected reading body required')
+        reader_population=RawOriginalPopulationV1.model_validate_json(canonical_bytes(body['population']))
+        reading=originals.parse_original_reading_response_v1(bytes.fromhex(body['response_utf8_hex']),
+            rendered=rendered,population=reader_population,principal=UUID(body['principal_id']),model=body['model_id'])
+        record=parse_original_response_commit_v1(bytes.fromhex(before.reading_commit_canonical_utf8_hex),phase='reading')
+        _require(raw==reading.body and reading.body_hash==pointer.sha256==record.reading_body_hash
+            and reading.reading_sha256==record.reading_sha256 and record.raw_ref==j.raw_ref
+            and record.view_manifest_hash==j.view_manifest_hash==rendered.view_manifest_hash
+            and record.locator_map_hash==j.locator_map_hash==rendered.locator_map_hash
+            and record.population_id==reader_population.population_id==before.reader_population_id
+            and record.operation_registry_hash==reader_population.operation_registry_hash==before.reader_operation_registry_hash
+            and reader_population.runtime_hash==before.reader_runtime_hash
+            and body['principal_id']==str(before.reader_principal_id) and body['model_id']==before.reader_model_id
+            and record.original_root_hash==x.population.original_root_hash
+            and record.allocation_hash==x.original_allocation_hash and record.original_horizon==x.original_horizon,
+            'actual committed reader metadata and protected body differ')
+        prompt=originals.original_review_prompt_v1(reading,rendered=rendered,population=x.population,
+            principal=x.actor_id,model=j.pricing.model)
+        after=self.resolver.original_review_reading_input_v1(j.reading_commit_hash)
+        _require(type(after) is OriginalReviewReadingInputV1
+            and before.model_dump(exclude={'reviewer_snapshot','checked_at','valid_until'})==
+                after.model_dump(exclude={'reviewer_snapshot','checked_at','valid_until'})
+            and self.config.reading_packet==pointer
+            and _worker_file(pointer.path,pointer.sha256,limit=originals.MAX_ORIGINAL_BYTES)==raw,
+            'current reviewer or exact protected reading changed')
+        self._current_settings_pins()
+        _require(datetime.now(timezone.utc)<min(before.valid_until,after.valid_until),
+            'actual own reviewer read expired before return')
+        return prompt
 
     def read_billing_bounds(self):
         """Read actual appointed prospective bounds; never reserve or dispatch.
