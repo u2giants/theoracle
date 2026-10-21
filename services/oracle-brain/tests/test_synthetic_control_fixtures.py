@@ -95,6 +95,7 @@ def test_exported_uri_retained_checkpoint_bootstrap(tmp_path,monkeypatch):
  rootcert=os.environ.get('ORACLE2_TEST_TLS_ROOT')
  if not admin or not rootcert:pytest.fail('actual proper-leaf TLS/SCRAM fixture required')
  dbname='oracle_uri_test_'+uuid4().hex
+ assert len(dbname.encode('utf-8'))<=63
  with psycopg.connect(admin,autocommit=True) as connection:
   created_role=connection.execute("SELECT 1 FROM pg_roles WHERE rolname='oracle2_checkpoint'").fetchone() is None
   if created_role:connection.execute('CREATE ROLE oracle2_checkpoint NOLOGIN NOSUPERUSER NOBYPASSRLS')
