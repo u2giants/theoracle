@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -162,6 +163,36 @@ PHASE_TESTS = {
 FIXTURE_ONLY_PHASES = {"S12", "S14", "S16"}
 
 
+def run_phase_tests(python: Path, tests: list[str]) -> tuple[int, dict, str]:
+    """Use the existing mandatory evidence check, including skipped/setup cases.
+
+    A zero pytest exit alone cannot establish that every required case ran.
+    Private fresh evidence prevents a prior run's report from satisfying this run.
+    """
+    sys.path.insert(0, str(ROOT))
+    from scripts.oracle2.verify_workflow_integrity import aggregate_evidence
+
+    with tempfile.TemporaryDirectory(prefix="oracle-phase-evidence-") as temporary:
+        directory = Path(temporary)
+        output = directory / "phase.stdout"
+        junit = directory / "phase.xml"
+        with output.open("xb") as stream:
+            output.chmod(0o600)
+            completed = subprocess.run(
+                [str(python), "-m", "pytest", "-q", *tests, f"--junitxml={junit}"],
+                cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT, check=False,
+            )
+        evidence = aggregate_evidence(
+            [{"name": "phase"}],
+            [{"name": "phase", "exit_code": completed.returncode,
+              "timed_out": False, "launch_error": False}], directory,
+        )
+        with output.open("rb") as stream:
+            stream.seek(max(0, output.stat().st_size - 4000))
+            tail = stream.read(4000).decode(errors="replace")
+        return completed.returncode or evidence["exit_code"], evidence, tail
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("phase", choices=sorted(PHASE_TESTS))
@@ -196,8 +227,7 @@ def main() -> int:
     if not python.exists():
         parser.error("frozen Python environment missing; run uv sync --frozen --extra test")
     tests = [str(SERVICE / "tests" / name) for name in test_list]
-    completed = subprocess.run([str(python), "-m", "pytest", "-q", *tests], cwd=ROOT,
-                               capture_output=True, text=True, check=False)
+    exit_code, evidence, output_tail = run_phase_tests(python, tests)
     # No test output enters a public artifact; raw logs remain in local CI job.
     lock_hash = hashlib.sha256((SERVICE / "uv.lock").read_bytes()).hexdigest()
     result = {
@@ -205,18 +235,17 @@ def main() -> int:
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "lock_sha256": lock_hash,
         "required_test_files": test_list,
-        "test_exit_code": completed.returncode,
-        "passed": completed.returncode == 0,
+        "test_exit_code": evidence["worker_results"][0]["exit_code"],
+        "evidence": evidence,
+        "passed": exit_code == 0,
         "live_accepted": False,
     }
     args.result.parent.mkdir(parents=True, exist_ok=True)
     args.result.write_text(json.dumps(result, indent=2) + "\n")
-    if completed.stdout:
-        print(completed.stdout[-4000:])
-    if completed.stderr:
-        print(completed.stderr[-2000:], file=sys.stderr)
+    if output_tail:
+        print(output_tail)
     print(f"sanitized result: {args.result}")
-    return completed.returncode
+    return exit_code
 
 
 if __name__ == "__main__":

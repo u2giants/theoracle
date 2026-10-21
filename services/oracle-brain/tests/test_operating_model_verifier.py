@@ -241,3 +241,26 @@ def test_worker_cluster_existing_project_refuses_before_any_mutation(tmp_path,mo
         with helper.worker_postgres({'COMPOSE_PROJECT_NAME':'oracle2-synthetic-unit'},tmp_path/'cluster','event'):pass
     assert len(calls)==1 and calls[0][:3]==('docker','ps','-aq')
     assert not (tmp_path/'cluster').exists()
+
+
+@pytest.mark.parametrize(('body', 'exit_code', 'skipped', 'failures'), [
+    ('def test_actual(): assert True\n', 0, 0, 0),
+    ('import pytest\ndef test_actual(): pytest.skip("missing capability")\n', 1, 1, 0),
+    ('def test_actual(): assert False\n', 1, 0, 1),
+    ('import pytest\n@pytest.fixture\ndef broken(): raise RuntimeError("setup failed")\ndef test_actual(broken): pass\n', 1, 0, 1),
+])
+def test_phase_gate_checks_actual_case_evidence_not_only_pytest_exit(tmp_path, body, exit_code, skipped, failures):
+    import sys
+    from scripts.oracle2.verify_phase import run_phase_tests
+    test = tmp_path / 'test_actual_phase.py'
+    test.write_text(body)
+    code, evidence, _ = run_phase_tests(Path(sys.executable), [str(test)])
+    assert bool(code) == bool(exit_code)
+    assert evidence['tests'] == 1
+    assert evidence['skipped'] == skipped
+    assert evidence['failures'] == failures
+    assert bool(evidence['evidence_errors']) == bool(exit_code)
+    assert evidence['worker_results'][0]['junit_present']
+    assert evidence['worker_results'][0]['junit_sha256']
+    if skipped:
+        assert evidence['worker_results'][0]['exit_code'] == 0
