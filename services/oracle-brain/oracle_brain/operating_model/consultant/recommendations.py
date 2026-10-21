@@ -331,3 +331,88 @@ class FeedbackLoop:
         if not self.can_repair():
             raise ValueError("no repair remaining")
         return replace(self, repairs_used=self.repairs_used + 1)
+
+
+def _payload_object(value, fields):
+    if type(value) is not dict or set(value) != set(fields):
+        raise ValueError('exact recommendation payload fields required')
+    return value
+
+
+def _payload_array(value, *, maximum, minimum=0):
+    if type(value) is not list or not minimum <= len(value) <= maximum:
+        raise ValueError('bounded recommendation payload array required')
+    return value
+
+
+def evidence_revision_from_payload(value) -> EvidenceRevision:
+    data = _payload_object(value, ('revision_id', 'evidence_refs', 'evidence_seal'))
+    refs = _payload_array(data['evidence_refs'], maximum=MAX_REFS, minimum=1)
+    return EvidenceRevision(data['revision_id'], tuple(refs), data['evidence_seal'])
+
+
+def evidence_revision_to_payload(value: EvidenceRevision) -> dict:
+    if type(value) is not EvidenceRevision:
+        raise ValueError('exact evidence revision required')
+    payload = _wire(asdict(value))
+    if evidence_revision_from_payload(payload) != value:
+        raise ValueError('evidence revision wire mismatch')
+    return payload
+
+
+def _measurement_from_payload(value) -> Measurement:
+    data = _payload_object(value, ('amount', 'unit', 'period', 'currency'))
+    if type(data['amount']) is not str or not 1 <= len(data['amount']) <= 96:
+        raise ValueError('exact Decimal string required')
+    from decimal import InvalidOperation
+    try:
+        amount = Decimal(data['amount'])
+    except InvalidOperation as error:
+        raise ValueError('exact Decimal string required') from error
+    if str(amount) != data['amount']:
+        raise ValueError('canonical Decimal string required')
+    return Measurement(amount, data['unit'], data['period'], data['currency'])
+
+
+def _forecast_from_payload(value):
+    if value is None:
+        return None
+    data = _payload_object(value, ('baseline', 'alternative', 'assumptions', 'kind'))
+    assumptions = _payload_array(data['assumptions'], maximum=MAX_MEASURES, minimum=1)
+    if any(not _natural(item) for item in assumptions):
+        raise ValueError('bounded forecast assumption text required')
+    return Forecast(_measurement_from_payload(data['baseline']), _measurement_from_payload(data['alternative']),
+                    tuple(assumptions), data['kind'])
+
+
+def _cost_from_payload(value):
+    data = _payload_object(value, ('kind', 'measure'))
+    return CostedMeasure(data['kind'], None if data['measure'] is None else _measurement_from_payload(data['measure']))
+
+
+def recommendation_from_payload(value) -> Recommendation:
+    """Strict explicit JSON wire; no dropped fields, inferred identities or effects."""
+    data = _payload_object(value, ('recommendation_id', 'lens', 'evidence', 'options',
+                                  'opposing_evidence', 'opposing_unknown', 'scope_note'))
+    options = []
+    for raw in _payload_array(data['options'], maximum=MAX_OPTIONS, minimum=2):
+        row = _payload_object(raw, ('option_id', 'title', 'is_no_change', 'evidence_refs',
+                                   'forecast', 'downstream_costs', 'measured_basis'))
+        refs = _payload_array(row['evidence_refs'], maximum=MAX_REFS, minimum=1)
+        downstream = _payload_array(row['downstream_costs'], maximum=MAX_MEASURES, minimum=1)
+        basis = _payload_array(row['measured_basis'], maximum=MAX_MEASURES)
+        options.append(Alternative(row['option_id'], row['title'], row['is_no_change'], tuple(refs),
+            _forecast_from_payload(row['forecast']), tuple(_cost_from_payload(item) for item in downstream),
+            tuple(_cost_from_payload(item) for item in basis)))
+    opposing = _payload_array(data['opposing_evidence'], maximum=MAX_REFS)
+    return Recommendation(data['recommendation_id'], data['lens'], evidence_revision_from_payload(data['evidence']),
+                          tuple(options), tuple(opposing), data['opposing_unknown'], data['scope_note'])
+
+
+def recommendation_to_payload(value: Recommendation) -> dict:
+    if type(value) is not Recommendation:
+        raise ValueError('exact recommendation required')
+    payload = _wire(asdict(value))
+    if recommendation_from_payload(payload) != value:
+        raise ValueError('recommendation wire mismatch')
+    return payload
