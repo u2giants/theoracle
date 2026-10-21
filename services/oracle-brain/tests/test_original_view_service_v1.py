@@ -175,7 +175,8 @@ def test_late_private_read_stops_before_second_getter_or_sql_pass(tmp_path,certi
     def late(self,ref):time.sleep(1.35);return original(self,ref)
     monkeypatch.setattr(FileBlobStore,'_read_original_bytes',late)
     with running(f) as server:assert send(server,certificates,wire(f,seconds=1.25))[:2]==(503,b'')
-    assert len(f.connections)==1 and f.caps==1
+    assert len(f.connections)==1 and f.caps==2
+    assert f.connections[0].closed
 
 
 def test_one_active_read_slot_and_client_drop_preserve_server(tmp_path,certificates,monkeypatch):
@@ -288,3 +289,17 @@ def test_actual_expired_client_certificate_is_denied_at_tls(tmp_path,certificate
                 connection.request('POST',PATH,body=wire(f),headers={'Content-Type':'application/json'});connection.getresponse()
         finally:connection.close()
     assert not f.connections
+
+
+def test_private_bytes_are_read_after_first_sql_connection_closes(tmp_path,certificates,monkeypatch):
+    f=configured_viewer(tmp_path,certificates);recording_sql(f,monkeypatch)
+    original=OriginalViewerFactoryV1._private
+    observed=[]
+    def read(self,*args):
+        assert len(f.connections)==1 and f.connections[0].closed
+        observed.append('closed-before-private-read')
+        return original(self,*args)
+    monkeypatch.setattr(OriginalViewerFactoryV1,'_private',read)
+    with running(f) as server:
+        status,data,_=send(server,certificates,wire(f))
+    assert status==200 and data==PDF and observed==['closed-before-private-read']

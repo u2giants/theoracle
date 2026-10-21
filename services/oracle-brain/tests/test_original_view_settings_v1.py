@@ -124,3 +124,10 @@ def test_peer_identity_mismatch_denied(tmp_path, certificates, changes):
 def test_root_custody_and_permissions_remain_current(tmp_path,certificates):
     f=configured_viewer(tmp_path,certificates);f.root.chmod(0o755)
     with pytest.raises(PermissionError): f.settings.current()
+
+
+@pytest.mark.parametrize('section', ['config_changes','appointment_changes','peer_changes'])
+@pytest.mark.parametrize('version', [True, 1.0, '1'])
+def test_viewer_versions_refuse_coercion(tmp_path,certificates,section,version):
+    with pytest.raises(ValueError):
+        configured_viewer(tmp_path,certificates,**{section:{'schema_version':version}})

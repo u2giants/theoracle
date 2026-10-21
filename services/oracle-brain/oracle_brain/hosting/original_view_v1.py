@@ -179,8 +179,6 @@ class OriginalViewerFactoryV1:
                     self._check(conn, target, caller_deadline)
                     before = self._capability(conn, ref, caller_deadline)
                     caller_deadline = min(caller_deadline, before.valid_until)
-                    if phase == 0:
-                        data = self._private(before, ref, caller_deadline)
                     after = self._capability(conn, ref, caller_deadline)
                     caller_deadline = min(caller_deadline, after.valid_until)
                     if before.private_object_key != after.private_object_key:
@@ -190,6 +188,9 @@ class OriginalViewerFactoryV1:
                     conn.commit()
                 # Actual close must succeed; only then start independent phase2.
                 self._current(min(caller_deadline, before.valid_until, after.valid_until))
+                if phase == 0:
+                    # Private filesystem I/O never holds a SQL transaction.
+                    data = self._private(after, ref, caller_deadline)
             return ViewedOriginalV1(data, caller_deadline)
         except Exception:
             raise OriginalViewerUnavailable('original view unavailable; delivery unproved') from None

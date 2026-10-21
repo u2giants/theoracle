@@ -9,13 +9,22 @@ from typing import Literal
 from uuid import UUID
 
 from cryptography import x509
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 from oracle_brain.operating_model.contracts import StrictRecord
 from .original_intake_v1 import ProtectedInputV1, _pinned, _parse
 
 HASH = r'^[a-f0-9]{64}$'
 ROLE = r'^[a-z][a-z0-9_]{0,62}$'
 MAX_BYTES = 25 * 1024 * 1024
+
+
+class _ViewerVersionV1(StrictRecord):
+    @field_validator('schema_version', mode='before', check_fields=False)
+    @classmethod
+    def exact_version(cls, value):
+        if type(value) is not int or value != 1:
+            raise ValueError('exact original viewer version required')
+        return value
 
 
 class ViewerSourceV1(StrictRecord):
@@ -28,7 +37,7 @@ class ViewerSourceV1(StrictRecord):
     custody_seal_sha256: str = Field(pattern=HASH)
 
 
-class OriginalViewerConfigV1(StrictRecord):
+class OriginalViewerConfigV1(_ViewerVersionV1):
     schema_version: Literal[1]
     purpose: Literal['original-revision-view-v1']
     principal_id: UUID
@@ -57,7 +66,7 @@ class OriginalViewerConfigV1(StrictRecord):
         return self
 
 
-class OriginalViewerAppointmentV1(StrictRecord):
+class OriginalViewerAppointmentV1(_ViewerVersionV1):
     schema_version: Literal[1]
     purpose: Literal['original-revision-view-v1']
     config_sha256: str = Field(pattern=HASH)
@@ -81,7 +90,7 @@ class OriginalViewerAppointmentV1(StrictRecord):
         return self
 
 
-class OriginalViewerPeerProfileV1(StrictRecord):
+class OriginalViewerPeerProfileV1(_ViewerVersionV1):
     schema_version: Literal[1]
     purpose: Literal['original-revision-view-peer-v1']
     config_sha256: str = Field(pattern=HASH)
