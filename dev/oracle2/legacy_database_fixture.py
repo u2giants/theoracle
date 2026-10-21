@@ -16,6 +16,7 @@ import tempfile
 import sys
 import signal
 import subprocess
+import time
 from uuid import uuid4
 
 import psycopg
@@ -30,19 +31,43 @@ class LegacyCleanupBlocked(RuntimeError):
     """An owned worker could not be reaped; preserve its database and receipt."""
 
 
+def _group_alive(pgid):
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except OSError as error:
+        raise LegacyCleanupBlocked('owned process group state is unknown') from error
+
+
 def stop_owned_process(process):
-    """Stop/reap only a caller-owned Popen started with start_new_session=True."""
-    if process is None or process.poll() is not None:
+    """Prove the owned session group absent, even after its leader has exited."""
+    if process is None:
+        return
+    pgid = process.pid  # Captured Popen identity; every caller starts a new session.
+    if not _group_alive(pgid):
+        try: process.wait(timeout=8)
+        except (subprocess.TimeoutExpired, OSError) as error:
+            raise LegacyCleanupBlocked('owned process could not be reaped') from error
         return
     for action in (signal.SIGTERM, signal.SIGKILL):
-        try: os.killpg(process.pid, action)
+        try: os.killpg(pgid, action)
         except ProcessLookupError: pass
-        try:
-            process.wait(timeout=8)
-            return
-        except subprocess.TimeoutExpired:
-            pass
-    raise LegacyCleanupBlocked('owned process could not be reaped')
+        except OSError as error:
+            raise LegacyCleanupBlocked('owned process group could not be stopped') from error
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            try: process.poll()  # Reap the leader without mistaking it for the whole group.
+            except OSError as error:
+                raise LegacyCleanupBlocked('owned process state is unknown') from error
+            if not _group_alive(pgid):
+                try: process.wait(timeout=8)
+                except (subprocess.TimeoutExpired, OSError) as error:
+                    raise LegacyCleanupBlocked('owned process could not be reaped') from error
+                return
+            time.sleep(0.05)
+    raise LegacyCleanupBlocked('owned process group is still present')
 
 
 def _identity(connection, name):

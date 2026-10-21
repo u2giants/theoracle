@@ -115,20 +115,71 @@ def test_unreaped_worker_keeps_database_and_ownership_proof(host):
     assert host.state and Path(handle.receipt_path).exists()
 
 
-def test_owned_process_is_killed_and_reaped_after_term_timeout(monkeypatch):
+
+def test_exited_leader_does_not_hide_live_descendant(monkeypatch):
     from unittest.mock import Mock
-    process = Mock(pid=123, poll=Mock(return_value=None))
-    process.wait.side_effect = [fixture.subprocess.TimeoutExpired('invented', 8), 0]
+    process = Mock(pid=123, poll=Mock(return_value=0))
+    present = iter([True, True, False])
+    monkeypatch.setattr(fixture, '_group_alive', lambda pgid: next(present))
+    monkeypatch.setattr(fixture.time, 'sleep', lambda seconds: None)
     signals = []
     monkeypatch.setattr(fixture.os, 'killpg', lambda pid, action: signals.append((pid, action)))
     fixture.stop_owned_process(process)
-    assert signals == [(123, fixture.signal.SIGTERM), (123, fixture.signal.SIGKILL)]
-    assert process.wait.call_count == 2
+    assert signals == [(123, fixture.signal.SIGTERM)]
+    process.wait.assert_called_once_with(timeout=8)
 
 
-def test_unreapable_owned_process_fails_closed(monkeypatch):
+def test_normal_absent_group_only_reaps_owned_leader(monkeypatch):
     from unittest.mock import Mock
-    process = Mock(pid=123, poll=Mock(return_value=None))
-    process.wait.side_effect = fixture.subprocess.TimeoutExpired('invented', 8)
-    monkeypatch.setattr(fixture.os, 'killpg', lambda *args: None)
-    with pytest.raises(fixture.LegacyCleanupBlocked): fixture.stop_owned_process(process)
+    process = Mock(pid=123)
+    monkeypatch.setattr(fixture, '_group_alive', lambda pgid: False)
+    signal = Mock()
+    monkeypatch.setattr(fixture.os, 'killpg', signal)
+    fixture.stop_owned_process(process)
+    signal.assert_not_called()
+    process.wait.assert_called_once_with(timeout=8)
+
+
+def test_post_kill_live_group_fails_closed(monkeypatch):
+    from unittest.mock import Mock
+    process = Mock(pid=123, poll=Mock(return_value=0))
+    monkeypatch.setattr(fixture, '_group_alive', lambda pgid: True)
+    ticks = iter(range(100))
+    monkeypatch.setattr(fixture.time, 'monotonic', lambda: next(ticks))
+    monkeypatch.setattr(fixture.time, 'sleep', lambda seconds: None)
+    signals = []
+    monkeypatch.setattr(fixture.os, 'killpg', lambda pid, action: signals.append((pid, action)))
+    with pytest.raises(fixture.LegacyCleanupBlocked, match='still present'):
+        fixture.stop_owned_process(process)
+    assert signals == [(123, fixture.signal.SIGTERM), (123, fixture.signal.SIGKILL)]
+
+
+def test_unknown_group_permission_fails_closed(monkeypatch):
+    def deny(*args):raise PermissionError('invented denial')
+    monkeypatch.setattr(fixture.os, 'killpg', deny)
+    with pytest.raises(fixture.LegacyCleanupBlocked, match='unknown'):
+        fixture._group_alive(123)
+
+
+def test_holistic_browser_checks_group_after_leader_success(monkeypatch):
+    import io
+    from unittest.mock import Mock
+    import verify_holistic_browser as browser
+    process = Mock(returncode=0, stdout=io.BytesIO(b'invented browser output'))
+    monkeypatch.setattr(browser.subprocess, 'Popen', lambda *args, **kwargs: process)
+    stopped = []
+    monkeypatch.setattr(browser, '_terminate', lambda child: stopped.append(child))
+    result = browser._browser_run(['invented'], cwd=ROOT, env={}, timeout=100)
+    assert result.returncode == 0 and stopped == [process]
+
+
+def test_holistic_browser_cleanup_failure_is_not_consumed(monkeypatch):
+    import io
+    from unittest.mock import Mock
+    import verify_holistic_browser as browser
+    process = Mock(returncode=0, stdout=io.BytesIO(b''))
+    monkeypatch.setattr(browser.subprocess, 'Popen', lambda *args, **kwargs: process)
+    def denied(child): raise fixture.LegacyCleanupBlocked('invented descendant alive')
+    monkeypatch.setattr(browser, '_terminate', denied)
+    with pytest.raises(fixture.LegacyCleanupBlocked):
+        browser._browser_run(['invented'], cwd=ROOT, env={}, timeout=100)

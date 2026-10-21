@@ -141,7 +141,7 @@ def _run(admin):
 
         parts=psycopg.conninfo.conninfo_to_dict(admin);parts.update(user=role,password=password)
         viewer=postgres_uri(psycopg.conninfo.make_conninfo(**parts),sslrootcert=parts['sslrootcert'])
-        stopped=threading.Event();worker_errors=[];active_worker=[None];worker_lock=threading.Lock()
+        stopped=threading.Event();worker_errors=[];cleanup_failures=[];live_workers={};worker_lock=threading.Lock()
         worker_env={**os.environ,'ORACLE2_DATABASE_URL':viewer,'ORACLE2_OPERATING_GRAPH_URL':graph,'ORACLE2_OPERATING_BLOB_ROOT':str(blobs.root),'ORACLE2_OPERATING_SYNTHETIC':'1','ORACLE2_ENVIRONMENT':'synthetic'}
         def dispatch():
             while not stopped.wait(.15):
@@ -152,14 +152,19 @@ def _run(admin):
                         with worker_lock:
                             if stopped.is_set():break
                             process=subprocess.Popen([sys.executable,str(ROOT/'services/oracle-brain/oracle_brain/operating_model_cli.py'),json.dumps({'runId':str(run_id),'workspaceId':str(run_workspace),'operation':operation})],env=worker_env,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
-                            active_worker[0]=process
-                        with process:
-                            try:
-                                output,_=process.communicate(timeout=60)
-                            finally:
-                                stop_owned_process(process)
-                                with worker_lock:active_worker[0]=None
-                            if process.returncode or json.loads(output).get('state')!='completed':raise RuntimeError('fresh worker denied')
+                            live_workers[process.pid]=process
+                        try:
+                            output,_=process.communicate(timeout=60)
+                        finally:
+                            stop_owned_process(process)
+                            with worker_lock:live_workers.pop(process.pid, None)
+                            if process.stdout:process.stdout.close()
+                            if process.stderr:process.stderr.close()
+                        if process.returncode or json.loads(output).get('state')!='completed':raise RuntimeError('fresh worker denied')
+                    except LegacyCleanupBlocked as problem:
+                        cleanup_failures.append(problem)
+                        stopped.set()
+                        return
                     except Exception as problem:
                         worker_errors.append(type(problem).__name__)
                         with psycopg.connect(admin,connect_timeout=5) as conn:conn.execute("UPDATE oracle2.operating_view_runs SET status='error' WHERE run_id=%s",(run_id,))
@@ -169,7 +174,7 @@ def _run(admin):
         env={**os.environ,'ORACLE2_DATABASE_URL':viewer,'ORACLE2_PILOT_ACTOR':str(actor),'ORACLE2_PILOT_WORKSPACE_ID':str(workspace),'ORACLE2_PILOT_TOKEN':token,'ORACLE2_OPERATING_SYNTHETIC':'1','ORACLE2_PREVIEW_URL':f'http://127.0.0.1:{port}','NEXT_PUBLIC_SUPABASE_URL':'https://example.supabase.co','NEXT_PUBLIC_SUPABASE_ANON_KEY':'synthetic','ORACLE2_WORKFLOW_SCREENSHOT':str(ROOT/'.ai/reviews/workflow-browser.png')}
         import base64
         env['ORACLE2_EVENT_FIXTURE']=json.dumps({'process_id':'intake','mapping':{'columns':{'event_id':'id','case_id':'case','activity_id':'activity','timestamp':'time'},'source_system':'invented','process_id':'intake','scope':'intake','activity_map':{'Review':'review'}},'raw_export_base64':base64.b64encode(export_text.encode()).decode(),'format':'csv','window_start':'2026-01-01T00:00:00+00:00','window_end':'2026-01-02T00:00:00+00:00','source_refs':[authority.current(workspace,export_source).ref.model_dump(mode='json')]})
-        web=None
+        web=browser=None
         try:
             worker.start()
             with (private/'web.log').open('w') as log:
@@ -182,18 +187,28 @@ def _run(admin):
                             if response.status==200:break
                     except Exception:time.sleep(.3)
                 else:raise TimeoutError('owned browser server readiness')
-                result=subprocess.run(['pnpm','--filter','@oracle/web','exec','playwright','test','--config','playwright.oracle2.config.ts','tests/oracle2/workflow-browser.spec.ts'],cwd=ROOT,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=100)
-                if result.returncode:print(result.stdout[-6000:]);raise RuntimeError('invented browser proof failed')
+                browser=subprocess.Popen(['pnpm','--filter','@oracle/web','exec','playwright','test','--config','playwright.oracle2.config.ts','tests/oracle2/workflow-browser.spec.ts'],cwd=ROOT,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
+                try:
+                    browser_output,_=browser.communicate(timeout=100)
+                finally:
+                    stop_owned_process(browser)
+                    if browser.stdout:browser.stdout.close()
+                if browser.returncode:print(browser_output[-6000:]);raise RuntimeError('invented browser proof failed')
+                if cleanup_failures:raise LegacyCleanupBlocked('owned worker cleanup failed')
                 if worker_errors:raise RuntimeError('view worker failed current-source SDK check')
             print(json.dumps({'success':True,'synthetic':True,'live_business_accepted':False,'worker_sdk_ledger_verified':True}))
         finally:
+            if isinstance(sys.exc_info()[1],LegacyCleanupBlocked):cleanup_failures.append(sys.exc_info()[1])
             stopped.set()
-            with worker_lock:
-                process=active_worker[0]
-                stop_owned_process(process)
+            with worker_lock:processes=list(live_workers.values())
+            for process in processes:
+                try:stop_owned_process(process)
+                except LegacyCleanupBlocked as problem:cleanup_failures.append(problem)
             if worker.ident is not None:worker.join(timeout=15)
-            stop_owned_process(web)
-            if worker.is_alive():raise LegacyCleanupBlocked('owned worker did not terminate')
+            for process in (browser,web):
+                try:stop_owned_process(process)
+                except LegacyCleanupBlocked as problem:cleanup_failures.append(problem)
+            if worker.is_alive() or cleanup_failures:raise LegacyCleanupBlocked('owned worker cleanup is not proven')
             with psycopg.connect(admin) as conn:
                 conn.execute(sql.SQL('DROP OWNED BY {}').format(sql.Identifier(role)));conn.execute(sql.SQL('DROP ROLE {}').format(sql.Identifier(role)))
 

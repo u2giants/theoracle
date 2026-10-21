@@ -103,10 +103,13 @@ def _browser_run(command, *, cwd, env, timeout):
     timed_out=False
     try:proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        timed_out=True;_terminate(proc)
+        timed_out=True
     finally:
-        reader.join(timeout=8)
-        if reader.is_alive():raise RuntimeError('browser output did not close')
+        try:
+            _terminate(proc)
+        finally:
+            reader.join(timeout=8)
+            if reader.is_alive():raise LegacyCleanupBlocked('owned browser output did not close')
         proc.stdout.close()
     if timed_out:raise subprocess.TimeoutExpired(command,timeout,output=bytes(tail))
     return subprocess.CompletedProcess(command,proc.returncode,bytes(tail).decode('utf-8',errors='replace'))
@@ -147,6 +150,7 @@ def main() -> int:
     opened_logs = []
     fixture_values = {}
     databases = ExitStack()
+    body_cleanup_failure = None
     result = {"success": False, "live_business_accepted": False, "phase": "setup"}
     try:
         admin_url = os.environ.get("ORACLE2_TEST_ADMIN_URL", "")
@@ -233,10 +237,13 @@ def main() -> int:
             target=scratch_path / "browser.log"
             target.write_text(partial[-262144:]);target.chmod(0o600)
         result.update({"phase": "browser", "error": "browser proof timed out"})
+    except LegacyCleanupBlocked as error:
+        body_cleanup_failure = error
+        result.update({"error": "owned process cleanup is not proven"})
     except Exception as error:
         result.update({"error": str(error)})
     finally:
-        cleanup_failure = None
+        cleanup_failure = body_cleanup_failure
         for process in (web_proc, fixture_proc):
             try:
                 _terminate(process)
