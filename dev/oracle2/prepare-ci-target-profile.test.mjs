@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, statSync, existsSync, rmSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir } from 'node:os';
+import { defaultTargetProfile } from './private-target-profile.mjs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const script = new URL('./prepare-ci-target-profile.mjs', import.meta.url);
-const profile = readFileSync(join(homedir(), '.config/oracle/targets.json'), 'utf8');
+const profile = readFileSync(defaultTargetProfile(), 'utf8');
 function setup() {
   const root = mkdtempSync(join(tmpdir(), 'oracle-ci-metadata-'));
   const path = join(root, 'oracle-target-123-1/targets.json');

@@ -56,7 +56,7 @@ test('private metadata refuses a symlink and group-readable file',()=>{
 });
 
 test('private metadata refuses a non-private parent',()=>{
- const d=join(scratch,'public-parent');mkdirSync(d,{mode:0o755});const p=join(d,'targets.json');
+ const d=join(scratch,'public-parent');mkdirSync(d,{mode:0o755});chmodSync(d,0o755);const p=join(d,'targets.json');
  writeFileSync(p,JSON.stringify(document()),{mode:0o600});
  assert.throws(()=>readBoundedTargetJson(p,{privateProfile:true}),/Private target metadata unavailable/);
 });
