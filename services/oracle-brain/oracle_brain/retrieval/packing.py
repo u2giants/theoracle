@@ -104,16 +104,31 @@ def current_supported_spans(spans, access: AccessBounds,
 class CoverageBounds(_StrictModel):
     """Explicit coverage for global answers; never inferred from hit count."""
     declared_population: int = Field(strict=True, ge=1)
-    represented: int = Field(strict=True, ge=0)
+    represented: int | None = Field(strict=True, ge=0)
     complete: bool
 
     @model_validator(mode="after")
     def _represented_within_population(self) -> "CoverageBounds":
-        if self.represented > self.declared_population:
+        if self.represented is not None and self.represented > self.declared_population:
             raise ValueError("represented cannot exceed declared_population")
         if self.complete and self.represented != self.declared_population:
             raise ValueError("complete coverage requires full representation")
         return self
+
+
+def coverage_after_access(coverage, required_dependencies, authorized_dependencies, *, missing_support=False):
+    """A pruned source does not establish how many business units remain.
+
+    Keep the declared population boundary, but the represented population is
+    UNKNOWN after support loss. Source-span counts are not business counts.
+    """
+    if coverage is None:
+        return None
+    required = {dep.model_dump_json() for dep in required_dependencies}
+    authorized = {dep.model_dump_json() for dep in authorized_dependencies}
+    if missing_support or required != authorized:
+        return coverage.model_copy(update={'represented': None, 'complete': False})
+    return coverage
 
 
 class AssembledAnswer(_StrictModel):
@@ -205,6 +220,10 @@ def assemble_answer(
     if mode != "historical" and history is not None:
         raise ValueError("HistorySpan only applies to historical retrieval")
 
+    required_spans = tuple(spans)
+    if mode == "historical" and history is not None:
+        required_spans = filter_by_history(required_spans, history)
+    required_dependencies = tuple(dependency_for(span) for span in required_spans)
     visible = filter_by_access(spans, access)
     if mode == "historical" and history is not None:
         visible = filter_by_history(visible, history)
@@ -218,6 +237,7 @@ def assemble_answer(
     if not visible:
         return AssembledAnswer(
             state="abstained", mode=mode, question=question,
+            coverage=coverage_after_access(coverage, required_dependencies, (), missing_support=True),
             caveats=("Missing evidence under current role/workspace/access bounds.",),
         )
 
@@ -231,6 +251,8 @@ def assemble_answer(
         )
 
     current = current_supported_spans(visible, access, current_source_reader)
+    coverage = coverage_after_access(coverage, required_dependencies,
+                                     tuple(dep for _, dep in current), missing_support=not current)
     if not current:
         return AssembledAnswer(
             state="abstained", mode=mode, question=question,
@@ -257,8 +279,11 @@ def assemble_answer(
 
     if coverage is not None:
         if not coverage.complete:
+            if coverage.represented is None:
+                caveats.append("Represented population is UNKNOWN after unavailable source support; "
+                               "source dependency counts do not determine business population coverage.")
             caveats.append(
-                f"Coverage is partial ({coverage.represented} of "
+                f"Coverage is partial ({coverage.represented if coverage.represented is not None else 'UNKNOWN'} of "
                 f"{coverage.declared_population} in the declared population); "
                 "this is not a complete aggregate total."
             )

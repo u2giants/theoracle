@@ -201,3 +201,29 @@ def test_global_current_actor_and_role_scope_cannot_be_forwarded_from_cached_cla
                            coverage=CoverageBounds(declared_population=1, represented=1, complete=True),
                            access=access, current_source_reader=host_reader((span,)))
     assert summary.state == 'abstained' and not summary.claims
+
+
+def test_global_pruned_support_downgrades_previously_complete_population():
+    allowed, denied = _support('allowed'), _support('denied')
+    claim = GlobalClaim(claim='caller prose', revision=1, support=(allowed, denied))
+    spans = tuple(SpanCandidate(span_id=s.span_id, source_id=s.source_id, workspace_id=s.workspace_id,
+                                revision=s.revision, quote=s.quote, roles=s.roles) for s in claim.support)
+    access = AccessBounds(actor_id=ACTOR, role='analyst', workspace_id=WORKSPACE,
+                          allowed_workspace_ids=(WORKSPACE,))
+    summary = _raw_global(question='Global evidence?', claims=(claim,),
+                           coverage=CoverageBounds(declared_population=2, represented=2, complete=True),
+                           access=access, current_source_reader=host_reader(spans, denied_sources={denied.source_id}))
+    assert summary.state == 'answered' and summary.claims[0].claim == allowed.quote
+    assert summary.coverage.represented is None and not summary.coverage.complete
+    assert summary.coverage.declared_population == 2
+    assert 'partial_coverage' in summary.labels and 'complete_coverage' not in summary.labels
+    assert any('UNKNOWN' in caveat for caveat in summary.caveats)
+
+
+def test_global_fully_authorized_support_preserves_complete_bounds():
+    support = _support()
+    claim = GlobalClaim(claim='caller prose', revision=1, support=(support,))
+    coverage = CoverageBounds(declared_population=5, represented=5, complete=True)
+    summary = build_global_summary(question='Global evidence?', claims=(claim,), coverage=coverage)
+    assert summary.state == 'answered' and summary.coverage == coverage
+    assert 'complete_coverage' in summary.labels and 'partial_coverage' not in summary.labels

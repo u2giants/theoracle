@@ -14,7 +14,7 @@ from pydantic import Field
 
 from ..operating_model.source_receipts import _StrictModel
 from .packing import (CoverageBounds, SpanCandidate, SourceDependency, CurrentSourceReader,
-                      current_supported_spans)
+                      current_supported_spans, coverage_after_access, dependency_for)
 from .planner import AccessBounds
 
 GlobalState = Literal["answered", "abstained"]
@@ -107,12 +107,24 @@ def build_global_summary(
             rejected_claims=tuple(f'claim-{i}' for i, _ in enumerate(claims)),
         )
 
+    accepted, rejected = _reject_unsupported(tuple(claims), access, current_source_reader)
+    required = tuple(dependency_for(SpanCandidate(
+        span_id=s.span_id, source_id=s.source_id, workspace_id=s.workspace_id,
+        revision=s.revision, quote=s.quote, roles=s.roles))
+        for claim in claims for s in claim.support)
+    authorized = tuple(dep for claim in accepted for dep in claim.dependencies)
+    coverage = coverage_after_access(coverage, required, authorized,
+                                     missing_support=bool(rejected) or not accepted)
+
     labels: list[str] = []
     caveats: list[str] = []
     if not coverage.complete:
         labels.append("partial_coverage")
+        if coverage.represented is None:
+            caveats.append("Represented population is UNKNOWN after unavailable source support; "
+                           "source dependency counts do not determine business population coverage.")
         caveats.append(
-            f"Coverage is partial ({coverage.represented} of "
+            f"Coverage is partial ({coverage.represented if coverage.represented is not None else 'UNKNOWN'} of "
             f"{coverage.declared_population} in the declared population); "
             "this is not a complete aggregate total."
         )
@@ -122,8 +134,6 @@ def build_global_summary(
             f"Coverage bounds: {coverage.represented} of "
             f"{coverage.declared_population} in the declared population."
         )
-
-    accepted, rejected = _reject_unsupported(tuple(claims), access, current_source_reader)
 
     if not accepted:
         return GlobalSummary(

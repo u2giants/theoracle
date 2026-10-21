@@ -316,3 +316,35 @@ def test_untrusted_relation_labels_cannot_echo_denied_claim_text(access, workspa
                            current_source_reader=host_reader((first, second)))
     assert answer.state == 'answered' and 'contradiction' in answer.labels
     assert 'DENIED SECRET' not in answer.model_dump_json()
+
+
+@pytest.mark.parametrize('denial', ['workspace', 'current_revocation'])
+def test_prefilter_complete_coverage_becomes_unknown_partial_after_pruning(access, workspace, denial):
+    allowed = _span('allowed', workspace=workspace)
+    denied = _span('denied', workspace=workspace if denial == 'current_revocation' else uuid4())
+    reader = host_reader((allowed, denied), denied_sources={denied.source_id})
+    answer = _raw_assemble(question='Global source evidence?', mode='global',
+                           spans=(allowed, denied), access=access, claim='untrusted prose',
+                           coverage=CoverageBounds(declared_population=2, represented=2, complete=True),
+                           current_source_reader=reader)
+    assert answer.state == 'answered' and answer.claim == allowed.quote
+    assert answer.coverage.declared_population == 2
+    assert answer.coverage.represented is None and answer.coverage.complete is False
+    assert 'partial_coverage' in answer.labels
+    assert any('UNKNOWN' in caveat for caveat in answer.caveats)
+
+
+def test_fully_authorized_evidence_preserves_declared_population_bounds(access, workspace):
+    span = _span('source', workspace=workspace)
+    coverage = CoverageBounds(declared_population=3, represented=3, complete=True)
+    answer = _raw_assemble(question='Global source evidence?', mode='global', spans=(span,),
+                           access=access, claim='untrusted prose', coverage=coverage,
+                           current_source_reader=host_reader((span,)))
+    assert answer.state == 'answered' and answer.coverage == coverage
+    assert 'partial_coverage' not in answer.labels
+
+
+def test_complete_coverage_cannot_use_unknown_represented_population():
+    with pytest.raises(ValueError, match='complete coverage'):
+        CoverageBounds(declared_population=2, represented=None, complete=True)
+    assert CoverageBounds(declared_population=2, represented=None, complete=False).represented is None
