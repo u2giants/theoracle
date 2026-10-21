@@ -326,3 +326,21 @@ def test_original_browser_upload_is_required_with_browser_install_before_w10():
     workflow=(Path(__file__).parents[3]/'.github/workflows/oracle2-contracts.yml').read_text()
     assert workflow.count('run: pnpm --filter @oracle/web exec playwright install chromium')==1
     assert workflow.index('name: Install browser for synthetic connected-document proof') < workflow.index('name: New operating-model documentary and event contracts')
+
+
+
+def test_recorded_source_inventory_binds_shared_evidence_and_phase_frontdoor_bytes(tmp_path,monkeypatch):
+    import subprocess
+    subprocess.run(['git','init','-q',str(tmp_path)],check=True)
+    names=('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py')
+    for name in names:
+        p=tmp_path/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('invented initial source\n')
+    monkeypatch.setattr(verifier,'ROOT',tmp_path)
+    first=verifier.source_input_hashes()
+    assert set(first)==set(names)
+    for index,name in enumerate(names):
+        before=verifier.source_input_hashes()
+        (tmp_path/name).write_text('invented changed source '+str(index)+'\n')
+        after=verifier.source_input_hashes()
+        assert before[name]!=after[name]
+        assert all(before[other]==after[other] for other in names if other!=name)
