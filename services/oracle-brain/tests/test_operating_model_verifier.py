@@ -277,3 +277,9 @@ def test_phase_gate_checks_actual_case_evidence_not_only_pytest_exit(tmp_path, b
     assert evidence['worker_results'][0]['junit_sha256']
     if skipped:
         assert evidence['worker_results'][0]['exit_code'] == 0
+
+
+def test_actual_python_web_peer_conformance_is_mandatory_not_a_skipped_browser_placeholder():
+    from scripts.oracle2.verify_phase import S03_TESTS
+    assert verifier.required_suites('W10').count('protected_web_python_conformance_v1') == 1
+    assert S03_TESTS.count('test_protected_web_python_conformance_v1.py') == 1

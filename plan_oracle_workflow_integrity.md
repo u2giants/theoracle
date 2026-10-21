@@ -9,6 +9,22 @@ Implementation owner: Codex chat `01a13a68-dc8a-73b1-8506-808c7227d8d9` on edge-
 
 ## STATUS — read first
 
+**CURRENT WHOLE-PROGRAM COORDINATION — October 21, 2026, 6:35 PM EDT:**
+The accountable owner is Codex chat `01a16013-c8c6-7113-b307-7d4d516f2bc6`
+on edge-dev3. Read the [complete current S/W/U obligation ledger](plan_oracle_consultant_overhaul.md#current-whole-program-obligation-ledger--october-21-2026-635-pm-edt)
+for current-main `bfd8e047d8a49e53ce8ccae94296795b67cdc623`, landed source,
+prospective combined changes, actual conformance findings and bounded active
+owners. Current-main W10 passed3822/zero failures/skips/worker/cleanup errors;
+this is source evidence only. Clean combined source b1edd933 received valid
+independent APPROVE and27eda02a received valid incremental security APPROVE;
+new strict peer-EOF/late-byte repair, phase evidence correction, actual original
+factory, consolidation/history and interviews still require their own exact
+integration/review/CI. Every S03–S16 and remaining W/U acceptance requirement
+stays open. Actual target/Q2b/current installed authority remains UNKNOWN;
+expired native-v2 is never renewed or replayed. No company work, employee
+contact, production action or business acceptance is authorized by this progress.
+
+
 **DOCUMENTATION SAFETY CLOSEOUT — October 21, 2026, 11:15 AM EDT:** [PR #172](https://github.com/u2giants/theoracle/pull/172) merged at `9f50ee57ca2575d9d1abc0eabcd0ca7b2abe2415`, with an identical tree to independently approved source `1963e9b52352cbbbe206ae0ddee30821cf18aec9`. Installed whole-tree public-boundary and 194-Markdown-link safety passed; all nine observed CI checks passed with two intentional skips. The protected local toolkit installation and two actual guarded Windows MCP initialization/tool-list/close journeys passed; no tool was called. [Signed completion and remaining same-issue ownership](https://github.com/u2giants/theoracle/issues/27#issuecomment-6319495588). These local capability proofs do not establish Oracle host isolation, Q2b target, native/hosted/live or business acceptance. Those existing gates remain unproven; business acceptance stays CLOSED. No employee/company work, provider dispatch, renewal or replay is authorized.
 
 **OFFLINE REBUILD MERGED — October 21, 2026, 1:12 AM EDT:** U1/U2/U3–U5/S08/S09/S12/Q2b offline source, including workflow registration, merged in [PR #171](https://github.com/u2giants/theoracle/pull/171) at `c3076ee821a4e5efa708149ce5fc91cb400e5c4e`. Reviewed implementation head `d049912499d7879436af178a8fe1f4bdad5d500b` received the requested Codex APPROVE and independent GLM APPROVE; [full exact-head reports](https://github.com/u2giants/theoracle/pull/171#issuecomment-6308433101). W10 passed 2788 with zero failures, skips, timeouts, launch or cleanup errors; slowest worker 99.331 seconds under the unchanged 120-second ceiling. SQL passed 25/25, replacement TypeScript 58/58, pure checks 423/423. All required CI passed, including image, SDK browser, workflow worker and ledger, readiness, graph evidence, resource/stress, restart/restore and cleanup. Browser mode skips are intentional; this does not claim every browser mode had zero skips. Legacy SDK browser proof uses owned original SQL001/002/004 databases; canonical W10/S03/current RLS are unchanged. Host installation/isolation, Q2b target, native/hosted/live and business acceptance remain unproven; business acceptance stays closed. Predecessor handoffs remain because broader obligations are unfinished. No employee/company work, renewal or replay.

@@ -122,20 +122,45 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
     await identity(p,window);
     current(installed,window);
     const connected = socket;
+    // Node HTTP closes Connection:close responses with destroySoon after the
+    // declared body. Keep this verified TLS socket's read side owned until its
+    // actual peer end; the unchanged absolute timer/abort still destroys it.
+    connected.destroySoon = () => connected.end();
+    // Keep observing the same verified socket after Node detaches its HTTP
+    // parser. Count bytes only; HTTPS remains the sole semantic HTTP parser.
+    const headerLimit=16384,bodyLimit=pin?MAX_ORIGINAL_BYTES:16384;
+    let wireSize=0,headerPrefix=Buffer.alloc(0),headerLength:number|undefined,expectedWireSize:number|undefined,wireFailed=false;
+    let rejectWire:(()=>void)|undefined;
+    const wireRefuse=()=>{wireFailed=true;rejectWire?.();abort();};
+    const observeWire=(chunk:Buffer)=>{
+      if(wireFailed)return;wireSize+=chunk.length;
+      if(wireSize>headerLimit+bodyLimit){wireRefuse();return;}
+      if(headerLength===undefined){
+        headerPrefix=Buffer.concat([headerPrefix,chunk.subarray(0,headerLimit-headerPrefix.length)]);
+        const boundary=headerPrefix.indexOf('\r\n\r\n');
+        if(boundary>=0){headerLength=boundary+4;headerPrefix=Buffer.alloc(0);}
+        else if(headerPrefix.length===headerLimit){wireRefuse();return;}
+      }
+      if(expectedWireSize!==undefined&&wireSize>expectedWireSize)wireRefuse();
+    };
+    connected.on('data',observeWire);
     const agent = new https.Agent({keepAlive:false,maxSockets:1});
     agent.createConnection = () => connected;
     try {
       const response = new Promise<Readonly<ControlMetadata>|OriginalPacket>((resolve,reject) => {
         let metadata: Readonly<ControlMetadata>|OriginalPacket|undefined; let ended = false; let peerEnded = false; let responseCount = 0;
         const refuse = () => reject(new Error('Replacement control unavailable'));
+        rejectWire=refuse;
         connected.once('end',() => { peerEnded = true; });
-        connected.once('close',(hadError) => { if (hadError || !peerEnded || !ended || !metadata) refuse(); else resolve(metadata); });
+        connected.once('close',(hadError) => { if (hadError || !peerEnded || !ended || !metadata || wireFailed || headerLength===undefined || expectedWireSize===undefined || wireSize!==expectedWireSize) refuse(); else resolve(metadata); });
         request = https.request({protocol:'https:',hostname:p.server_dns,port:url.port || 443,path:p.purpose==='replacement-original-web-binding-v1'?p.original_path:p.control_path,method:'POST',agent,headers:{'Content-Type':'application/json','Content-Length':String(body.length),'Connection':'close'}},res => {
           responseCount++; if (responseCount !== 1 || res.statusCode !== 200 || res.headers['content-type'] !== (pin?'application/pdf':'application/json') || res.headers['content-encoding'] !== undefined || res.headers['transfer-encoding'] !== undefined || res.headers.connection !== 'close') { refuse(); abort(); return; }
           const seen = new Set<string>();
           for (let i = 0; i < res.rawHeaders.length; i += 2) { const h = res.rawHeaders[i]!.toLowerCase(); if (seen.has(h)) { refuse(); abort(); return; } seen.add(h); }
           const len = res.headers['content-length'];
           if (typeof len !== 'string' || !/^[1-9][0-9]{0,7}$/.test(len) || Number(len) > (pin?MAX_ORIGINAL_BYTES:4096) || (pin!==undefined&&Number(len)!==pin.byte_count)) { refuse(); abort(); return; }
+          if(headerLength===undefined){wireRefuse();return;}expectedWireSize=headerLength+Number(len);
+          if(wireSize>expectedWireSize){wireRefuse();return;}
           let lease:string|undefined;
           if(pin){
             try{
@@ -158,7 +183,7 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
         request.end(body);
       });
       return await within(response,window);
-    } finally { agent.destroy(); }
+    } finally { connected.removeListener('data',observeWire);agent.destroy(); }
   } finally { window.signal.removeEventListener('abort',abort); abort(); }
 }
 export type ProtectedControlResult = Readonly<{available:true;metadata:Readonly<ControlMetadata>}> | Readonly<{available:false}>;

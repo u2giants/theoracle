@@ -31,6 +31,7 @@ const hooks = registerHooks({
   },
 });
 let dir: string, server: tls.Server, binding: ServerBinding;
+const peerSockets=new Set<tls.TLSSocket>();
 let mode = 'valid', requests = 0, acceptedClients = 0;
 const received: Buffer[] = [];
 const metadata = {runId:id,journeyRevision:1,controlState:'processing',populationSha256:h,cancelRequested:false,remoteStopProven:false,resultAvailable:false};
@@ -49,7 +50,8 @@ before(async () => {
   }
   openssl('req','-x509','-newkey','rsa:2048','-nodes','-keyout','untrusted.key','-out','untrusted.crt','-days','1','-subj','/CN=Invented Untrusted','-addext','subjectAltName=DNS:localhost.localdomain');
   for (const name of ['ca.crt','server.crt','server.key','client.crt','client.key','alternate.crt','alternate.key','wronghost.crt','wronghost.key']) chmodSync(file(name),0o600);
-  server = tls.createServer({key:readFileSync(file('server.key')),cert:readFileSync(file('server.crt')),ca:readFileSync(file('ca.crt')),requestCert:true,rejectUnauthorized:true}, socket => {
+  server = tls.createServer({key:readFileSync(file('server.key')),cert:readFileSync(file('server.crt')),ca:readFileSync(file('ca.crt')),requestCert:true,rejectUnauthorized:true,allowHalfOpen:true}, socket => {
+    peerSockets.add(socket);socket.on('close',()=>peerSockets.delete(socket));
     socket.on('error',() => undefined);
     if (!socket.authorized || !socket.getPeerCertificate().subjectaltname?.includes('URI:spiffe://oracle/invented-web')) { socket.destroy(); return; }
     acceptedClients++; let data = Buffer.alloc(0); let answered = false;
@@ -69,6 +71,11 @@ before(async () => {
       const reply = Buffer.concat([Buffer.from('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n'+duplicate+'Content-Length: '+bytes.length+'\r\nConnection: close\r\n\r\n'),bytes]);
       if (mode === 'uncertain') { socket.write(reply.subarray(0,reply.length - 5)); socket.destroy(); }
       else if (mode === 'extra') socket.end(Buffer.concat([reply,Buffer.from('extra')]));
+      else if (mode === 'delayed-end') {socket.write(reply);setTimeout(()=>socket.end(),60);}
+      else if (mode === 'header-overflow') socket.end(Buffer.concat([Buffer.from('HTTP/1.1 200 OK\r\nX-Oversized: '+ 'a'.repeat(17000)+'\r\n\r\n'),bytes]));
+      else if (mode === 'no-eof') socket.write(reply);
+      else if (mode === 'late-extra') {socket.write(reply);setTimeout(()=>socket.end('extra'),40);}
+      else if (mode === 'double-response') {socket.write(reply);setTimeout(()=>socket.end(reply),40);}
       else if (mode === 'slow') setTimeout(() => socket.end(reply),100);
       else socket.end(reply);
     });
@@ -77,7 +84,7 @@ before(async () => {
   await new Promise<void>(resolve => server.listen(0,'::1',resolve));
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   binding = {
-    schema_version:1,purpose:'replacement-web-binding-v1',project_url:fixture.project,auth_issuer:fixture.project+'/auth/v1',auth_user_id:id,employee_id:employee,principal_id:'33333333-3333-4333-8333-333333333333',workspace_id:'44444444-4444-4444-8444-444444444444',runtime_hash:h,registry_hash:h,intake_appointment_sha256:h,peer_profile_sha256:h,web_origin:'https://web.example.test',backend_origin:'https://localhost.localdomain:'+address.port,control_path:'/v1/replacement/control',server_dns:'localhost.localdomain',server_certificate_der_sha256:sha256(new X509Certificate(readFileSync(file('server.crt'))).raw),server_ca_file:file('ca.crt'),server_ca_sha256:pin('ca.crt'),client_certificate_file:file('client.crt'),client_certificate_sha256:pin('client.crt'),client_certificate_der_sha256:sha256(new X509Certificate(readFileSync(file('client.crt'))).raw),client_uri:'spiffe://oracle/invented-web',client_key_file:file('client.key'),client_key_sha256:pin('client.key'),issuer_actor:'independent-issuer',reviewer_actor:'independent-reviewer',valid_from:new Date(Date.now()-10000).toISOString(),expires_at:new Date(Date.now()+180000).toISOString(),original_horizon:new Date(Date.now()+180000).toISOString(),
+    schema_version:1,purpose:'replacement-web-binding-v1',project_url:fixture.project,auth_issuer:fixture.project+'/auth/v1',auth_user_id:id,employee_id:employee,principal_id:'33333333-3333-4333-8333-333333333333',workspace_id:'44444444-4444-4444-8444-444444444444',runtime_hash:h,registry_hash:h,intake_appointment_sha256:h,peer_profile_sha256:h,web_origin:'https://web.example.test',backend_origin:'https://localhost.localdomain:'+address.port,control_path:'/v1/replacement/control',server_dns:'localhost.localdomain',server_certificate_der_sha256:sha256(new X509Certificate(readFileSync(file('server.crt'))).raw),server_ca_file:file('ca.crt'),server_ca_sha256:pin('ca.crt'),client_certificate_file:file('client.crt'),client_certificate_sha256:pin('client.crt'),client_certificate_der_sha256:sha256(new X509Certificate(readFileSync(file('client.crt'))).raw),client_uri:'spiffe://oracle/invented-web',client_key_file:file('client.key'),client_key_sha256:pin('client.key'),issuer_actor:'independent-issuer',reviewer_actor:'independent-reviewer',valid_from:new Date(Date.now()-10000).toISOString(),expires_at:new Date(Date.now()+350000).toISOString(),original_horizon:new Date(Date.now()+350000).toISOString(),
   };
   writeFileSync(file('binding.json'),canonicalJson(binding),{mode:0o600});
   process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE = file('binding.json');
@@ -183,6 +190,13 @@ test('missing selector and changed selector refuse; original immutable file rema
   process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE=file('other.json'); await refused(request());
   process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE=saved;
 });
+test('valid complete body with delayed peer EOF remains supported inside original lease',async()=>{
+ mode='delayed-end';const before=Date.now(),count=requests;const result=await requestReplacementControl(request(body({caller_deadline:new Date(Date.now()+1000).toISOString()})));assert.equal(result.available,true);assert.equal(requests,count+1);assert.ok(Date.now()-before>=40);mode='valid';
+});
+test('half-close ownership still refuses delayed extra response bytes double responses and missing peer EOF',async()=>{
+ for(mode of ['late-extra','double-response','no-eof','header-overflow']){const count=requests;await refused(request(body({caller_deadline:new Date(Date.now()+350).toISOString()})));assert.equal(requests,count+1,mode);for(const socket of peerSockets)socket.destroy();}mode='valid';
+});
+
 test('mid-transport identical file replacement refuses reply and later entry (last: installation poisoned)',async () => {
   mode='slow'; const count=requests; const pending=requestReplacementControl(request());
   await new Promise<void>((resolve,reject) => { const started=Date.now(); const tick=()=>{if(requests>count)return resolve();if(Date.now()-started>1000)return reject(new Error('invented request did not reach peer'));setTimeout(tick,2)};tick(); });
