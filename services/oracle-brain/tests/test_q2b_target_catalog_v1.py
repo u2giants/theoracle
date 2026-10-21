@@ -5,6 +5,7 @@ shared database and never read source data, secrets or environment values.
 Q2b stays OPEN: actual target owner/caller/TLS remain UNKNOWN.
 """
 from types import SimpleNamespace
+from psycopg.pq import TransactionStatus
 
 import pytest
 
@@ -133,11 +134,14 @@ class FakeResult:
 class FakeConnection:
     """Duck-typed catalog connection. No network, no PostgreSQL, no secrets."""
 
-    def __init__(self, *, function_rows, role_row, identity_row, params, ssl_in_use, log=None):
+    def __init__(self, *, function_rows, role_row, identity_row, params, ssl_in_use, log=None,
+                 autocommit=True, transaction_status=TransactionStatus.IDLE):
         self._function_rows = function_rows
         self._role_row = role_row
         self._identity_row = identity_row
-        self.info = SimpleNamespace(get_parameters=lambda: dict(params))
+        self.autocommit = autocommit
+        self.info = SimpleNamespace(get_parameters=lambda: dict(params),
+                                    transaction_status=transaction_status)
         self.pgconn = SimpleNamespace(ssl_in_use=ssl_in_use)
         self.log = log if log is not None else []
 
@@ -622,3 +626,24 @@ def test_connection_signature_cannot_authorize_mutated_fake_driver():
     capability._connection = SimpleNamespace(execute=lambda *args: None)
     with pytest.raises(PermissionError, match='real DB-API'):
         _application_read(capability, pins())
+
+
+@pytest.mark.parametrize(('autocommit', 'status'), [
+    (False, TransactionStatus.IDLE), (False, TransactionStatus.INTRANS),
+    (True, TransactionStatus.INTRANS), (True, TransactionStatus.INERROR),
+    (True, TransactionStatus.ACTIVE), (True, TransactionStatus.UNKNOWN),
+    (True, 0),
+])
+def test_catalog_reader_refuses_nonidle_or_nonautocommit_before_sql(autocommit, status):
+    log = []
+    connection = good_connection(autocommit=autocommit, transaction_status=status, log=log)
+    with pytest.raises(PermissionError, match='idle autocommit'):
+        _application_read(connection, pins())
+    assert not log
+
+
+def test_idle_autocommit_catalog_reader_preserves_positive_metadata_flow():
+    log = []
+    receipt = _application_read(good_connection(log=log), pins())
+    assert len(log) == 3
+    assert receipt.admitted is False and receipt.fact_mac == ''

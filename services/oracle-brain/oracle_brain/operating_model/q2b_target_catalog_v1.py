@@ -574,6 +574,25 @@ def _require_all_pins(receipt: Q2bTargetCatalogReceipt,
 from oracle_brain.seal import verify_mac
 
 
+
+def _require_idle_autocommit_catalog_connection(connection) -> None:
+    """Never mistake a pre-existing transaction snapshot for current catalogs.
+
+    The caller already passed the exact real-driver type boundary. Inspect
+    its driver-owned transaction state, not a caller assertion of freshness.
+    No commit/rollback or connection reconfiguration is performed here.
+    """
+    from psycopg.pq import TransactionStatus
+    if type(connection) not in _real_dbapi_connection_types():
+        raise PermissionError('real DB-API catalog connection required')
+    try:
+        autocommit = connection.autocommit
+        status = connection.info.transaction_status
+    except AttributeError as exc:
+        raise PermissionError('driver catalog transaction state unavailable') from exc
+    if autocommit is not True or status is not TransactionStatus.IDLE:
+        raise PermissionError('fresh catalog read requires idle autocommit connection')
+
 def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
     """Metadata-only catalog read. Refuses incomplete pins and any non-metadata SQL.
 
@@ -581,13 +600,16 @@ def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatal
     connection capability; duck-typed fakes are denied before any
     sign. Reads only pg_proc owner/prosecdef/proconfig/ACL, pg_has_role
     reachability and target identity (host/port/dbname/user + TLS).
-    Never source data, secrets or environment values. Emits UNKNOWN
+    Requires an idle autocommit driver connection, so an old transaction
+    snapshot cannot masquerade as fresh evidence. Never source data, secrets
+    or environment values. Emits UNKNOWN
     where the catalog holds nothing; invents no fact. Returns unsealed observations. A separately authorized host must attest
     the facts before admission; the application cannot self-certify them.
     """
     if not isinstance(expected, Q2bExpectedPins):
         raise PermissionError('complete Q2b expected descriptor/role scope required')
     conn = _require_catalog_connection(connection)
+    _require_idle_autocommit_catalog_connection(conn)
     execute = getattr(conn, 'execute', None)
     if execute is None:
         raise PermissionError('Q2b catalog connection execute required')
