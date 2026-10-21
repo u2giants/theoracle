@@ -67,6 +67,15 @@ DOCUMENTARY += ('falkor_native_proof_acl',)
 DOCUMENTARY += ('native_trigger_v2','native_trigger_v2_sql','native_trigger_v2_tooling','falkor_native_proof_acl_v2_tooling')
 DOCUMENTARY += PURPOSE_V2_SUITES
 DOCUMENTARY += ('native_trigger_v1',)
+# Parent24 source delivery owns these actual implementations and adversarial
+# suites. They are mandatory source checks, never live/business acceptance.
+DOCUMENTARY += ('replacement_requester_v1','replacement_requester_sql',
+    'owned_worker_database',
+    'operations_recovery','recovery_primitives',
+    'legacy_mapping','migration_reconcile','migration_resume','migration_delta',
+    'legacy_routes_retired','legacy_citation_redirect','retired_writer_denial',
+    'chat_learning','multilingual','chat_proposal_contract',
+    'interview_resume','question_selection')
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
