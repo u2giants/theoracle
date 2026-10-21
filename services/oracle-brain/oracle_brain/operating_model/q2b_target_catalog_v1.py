@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import time
 import re
 from typing import Literal
 
@@ -267,6 +268,8 @@ class Q2bTargetCatalogReceipt(StrictRecord):
     admitted: bool = False
     fact_mac: str = ''
     admission_mac: str = ''
+    observed_at: int = 0
+    valid_until: int = 0
 
     def fact_classes(self) -> tuple[str, ...]:
         return FACT_CLASSES
@@ -382,6 +385,8 @@ def build_receipt(
         role_memberships=role_memberships,
         target_identity=target_identity,
         admitted=False,
+        observed_at=int(time.time()),
+        valid_until=int(time.time()) + 60,
     )
 
 
@@ -467,12 +472,14 @@ def _require_catalog_connection(connection):
     the catalog.
     """
     real_types = _real_dbapi_connection_types()
-    if real_types and isinstance(connection, real_types):
+    if real_types and type(connection) in real_types:
         return connection
     if isinstance(connection, CatalogConnection):
         from oracle_brain.seal import verify_mac
         verify_mac(CONNECTION_PURPOSE, connection.connection_mac,
                    connection.identity)
+        if type(connection.connection) not in real_types:
+            raise PermissionError('sealed catalog capability must bind a real DB-API connection')
         return connection.connection
     raise PermissionError(
         'Q2b catalog connection must be a real DB-API connection '
@@ -610,7 +617,7 @@ def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatal
     return receipt
 
 def admit_target_catalog(receipt: Q2bTargetCatalogReceipt,
-                         expected: Q2bExpectedPins, *, admission_mac: str = '') -> Q2bTargetCatalogReceipt:
+                         expected: Q2bExpectedPins, *, admission_mac: str = '', connection=None) -> Q2bTargetCatalogReceipt:
     """Verify independent host fact attestation and exact admission authority.
 
     Caller-provided observations remain untrusted without a valid host fact
@@ -624,10 +631,11 @@ def admit_target_catalog(receipt: Q2bTargetCatalogReceipt,
     verify_mac(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
     _require_all_pins(receipt, expected)
     verify_mac(ADMISSION_PURPOSE, admission_mac, _facts_payload(receipt))
+    _require_fresh_catalog(receipt, expected, connection)
     return receipt.model_copy(update={'admitted': True, 'admission_mac': admission_mac})
 
 def require_target_catalog(receipt: Q2bTargetCatalogReceipt,
-                           expected: Q2bExpectedPins) -> None:
+                           expected: Q2bExpectedPins, *, connection=None) -> None:
     """Use-site gate: signed admission plus real pin checks.
 
     The ``admitted`` boolean alone is never believed. The
@@ -646,3 +654,19 @@ def require_target_catalog(receipt: Q2bTargetCatalogReceipt,
         raise PermissionError('Q2b reader-produced sealed facts required')
     verify_mac(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
     _require_all_pins(receipt, expected)
+    _require_fresh_catalog(receipt, expected, connection)
+
+
+def _require_fresh_catalog(receipt, expected, connection) -> None:
+    now = int(time.time())
+    if (type(receipt.observed_at) is not int or type(receipt.valid_until) is not int
+            or receipt.observed_at > now or receipt.valid_until <= now
+            or not 0 < receipt.valid_until - receipt.observed_at <= 60):
+        raise PermissionError('Q2b catalog attestation expired or freshness unavailable')
+    if connection is None:
+        raise PermissionError('Q2b fresh catalog connection required at admission and use')
+    fresh = read_target_catalog(connection, expected)
+    _require_all_pins(fresh, expected)
+    excluded = {'admitted', 'fact_mac', 'admission_mac', 'observed_at', 'valid_until'}
+    if receipt.model_dump(mode='json', exclude=excluded) != fresh.model_dump(mode='json', exclude=excluded):
+        raise PermissionError('Q2b current catalog differs from host-attested facts')

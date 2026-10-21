@@ -34,13 +34,17 @@ from oracle_brain.operating_model.q2b_target_catalog_v1 import (
 # The independent fixture host attests observations and authorizes exact facts.
 _application_read = read_target_catalog
 _application_admit = admit_target_catalog
+_application_require = require_target_catalog
+
+def require_target_catalog(receipt, expected):
+    return _application_require(receipt, expected, connection=good_connection())
 
 def read_target_catalog(connection, expected):
     receipt = _application_read(connection, expected)
     return receipt.model_copy(update={'fact_mac': _test_mac(READER_FACT_PURPOSE, _facts_payload(receipt))})
 
 def admit_target_catalog(receipt, expected):
-    return _application_admit(receipt, expected, admission_mac=_test_mac(ADMISSION_PURPOSE, _facts_payload(receipt)))
+    return _application_admit(receipt, expected, admission_mac=_test_mac(ADMISSION_PURPOSE, _facts_payload(receipt)), connection=good_connection())
 
 
 def _test_mac(purpose, *fields):
@@ -148,6 +152,14 @@ class FakeConnection:
         raise AssertionError('unexpected SQL in metadata-only catalog read: %r' % (sql,))
 
 
+class FixtureDriverConnection(FakeConnection):
+    """Synthetic driver stand-in; never a production connection capability."""
+
+@pytest.fixture(autouse=True)
+def synthetic_driver_type(monkeypatch):
+    monkeypatch.setattr(q2b, '_real_dbapi_connection_types', lambda: (FixtureDriverConnection,))
+
+
 def good_connection(**overrides):
     """Synthetic catalog connection sealed by the test host adapter.
 
@@ -175,6 +187,10 @@ def sealed_connection(connection, identity='test-catalog-connection-v1'):
     over the identity. Duck-typed raw fakes are denied by the reader; only
     real DB-API types or sealed capabilities pass the connection gate.
     """
+    if type(connection) is FakeConnection:
+        trusted = object.__new__(FixtureDriverConnection)
+        trusted.__dict__.update(connection.__dict__)
+        connection = trusted
     mac = _test_mac(CONNECTION_PURPOSE, identity)
     return issue_catalog_connection(connection, identity=identity, connection_mac=mac)
 
@@ -582,5 +598,27 @@ def test_application_reader_cannot_mint_fact_or_admission_authority():
     with pytest.raises(PermissionError):
         _application_admit(attested, pins(), admission_mac=attested.fact_mac)
     admitted = _application_admit(attested, pins(), admission_mac=_test_mac(
-        ADMISSION_PURPOSE, _facts_payload(attested)))
+        ADMISSION_PURPOSE, _facts_payload(attested)), connection=good_connection())
     require_target_catalog(admitted, pins())
+
+
+def test_freshness_requires_current_target_and_expiring_attestation(monkeypatch):
+    receipt = read_target_catalog(good_connection(), pins())
+    signature = _test_mac(ADMISSION_PURPOSE, _facts_payload(receipt))
+    with pytest.raises(PermissionError, match='fresh catalog connection'):
+        _application_admit(receipt, pins(), admission_mac=signature)
+    admitted = _application_admit(receipt, pins(), admission_mac=signature, connection=good_connection())
+    with pytest.raises(PermissionError):
+        _application_require(admitted, pins(), connection=good_connection(function_rows=function_rows(damage='owner')))
+    with pytest.raises(PermissionError, match='fresh catalog connection'):
+        _application_require(admitted, pins())
+    monkeypatch.setattr(q2b.time, 'time', lambda: receipt.valid_until)
+    with pytest.raises(PermissionError, match='expired'):
+        _application_require(admitted, pins(), connection=good_connection())
+
+
+def test_connection_signature_cannot_authorize_mutated_fake_driver():
+    capability = good_connection()
+    capability._connection = SimpleNamespace(execute=lambda *args: None)
+    with pytest.raises(PermissionError, match='real DB-API'):
+        _application_read(capability, pins())

@@ -62,7 +62,13 @@ the exact canonical fact payload (`q2b-reader-facts:v1`) and independently
 authorize that same payload (`q2b-admission:v1`). The caller supplies both
 signatures; `admit_target_catalog(..., admission_mac=...)` verifies them and
 rechecks all pins. `require_target_catalog` repeats both signature and pin
-checks. An `admitted` boolean or matching caller-provided facts grant nothing.
+checks. Both admission and every use require a new catalog read on an exact
+trusted DB-API connection and compare the current facts with the host-attested
+payload. Attestations include a signed observation time and at most a 60-second
+validity window; absent connection or expired/currently changed facts deny. A
+sealed connection wrapper cannot substitute a fake underlying driver.
+
+An `admitted` boolean or matching caller-provided facts grant nothing.
 
 The retained host signing executable is separate from the application. Its
 fixed `/etc/oracle2/seal-signer.json` must be root-owned and not group/other
