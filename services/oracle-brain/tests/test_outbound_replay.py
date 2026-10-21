@@ -59,9 +59,11 @@ def _credential_mac(principal_id, role, expires_at):
     return _test_mac(SENDER_CREDENTIAL_PURPOSE, principal_id, role, expires_at)
 
 
-def _enable_mac(meeting_id):
+def _enable_mac(meeting_id, **configuration):
     """Host-authorized participation enable proof."""
-    return _test_mac(ENABLE_PROOF_PURPOSE, meeting_id)
+    from oracle_brain.meetings.participation import settings_authority_payload
+    return _test_mac(ENABLE_PROOF_PURPOSE, settings_authority_payload(
+        meeting_id=meeting_id, recorded_at='2026-10-16T12:00:00Z', **configuration))
 
 
 def _action_mac(intent_id, status, timestamp):
@@ -579,3 +581,18 @@ def test_cross_meeting_turn_rejected_and_capture_survives_failed_answer():
                             ledger, receipt_id='r-2', answer_body='   ',
                             recorded_at='2026-10-16T12:00:00Z')
     assert outcome.decision == 'decline' and outcome.capture_continues is True
+
+
+def test_evaluate_turn_rechecks_host_settings_before_recording_intent():
+    settings = record_settings(meeting_id='m-1', enabled=True,
+                               recorded_at='2026-10-16T12:00:00Z',
+                               enable_proof_mac=_enable_mac('m-1'))
+    object.__setattr__(settings, 'channel', 'meeting_chat')
+    turn = InboundTurn(turn_id='t-1', meeting_id='m-1', speaker_id='p-1',
+                       text='Oracle?', addresses_oracle=True)
+    import pytest
+    with pytest.raises(PermissionError):
+        evaluate_turn(settings, turn,
+                      MembershipView(determined=True, shared_access=frozenset({'p-1'})),
+                      DeliveryLedger(), receipt_id='r-1', intent_id='i-1',
+                      answer_body='invented answer', recorded_at='now')

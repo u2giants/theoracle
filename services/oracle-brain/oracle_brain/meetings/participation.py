@@ -6,6 +6,7 @@ evidence. This module never contacts a provider.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -17,7 +18,7 @@ DEFAULT_CHANNEL: Literal['meeting_text', 'meeting_chat'] = 'meeting_text'
 CHANNELS = frozenset({'meeting_text', 'meeting_chat'})
 RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed', 'suppressed'})
 # Purpose tag for the host-authorized enable seal. Enabling participation
-# for a meeting requires an Ed25519 signature over (meeting_id) issued
+# for a meeting requires an Ed25519 signature over all configuration fields issued
 # under this purpose. The signature is the authority — there is no
 # in-process enable registry to mutate.
 ENABLE_PROOF_PURPOSE = 'participation-enable:v1'
@@ -34,6 +35,7 @@ class ParticipationSettings:
     cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS
     max_interventions: int = DEFAULT_MAX_INTERVENTIONS
     recorded_at: str = ''
+    enable_proof_mac: str = ''
 
     def __post_init__(self) -> None:
         if not self.meeting_id:
@@ -46,6 +48,7 @@ class ParticipationSettings:
             raise ValueError('max_interventions must be nonnegative')
         if self.enabled and not self.recorded_at:
             raise ValueError('enabling participation requires recorded_at')
+        verify_settings_authority(self)
 
 
 @dataclass(frozen=True)
@@ -89,26 +92,51 @@ def record_settings(*, meeting_id: str, enabled: bool = False,
     """Record host settings for a meeting. Enabling participation is explicit.
 
     When ``enabled`` is true, ``enable_proof_mac`` must be a
-    host-authorized Ed25519 seal over the meeting id under
+    host-authorized Ed25519 seal over all configuration fields under
     ``ENABLE_PROOF_PURPOSE``. A bare settings object without that proof
     cannot enable participation.
     """
-    if enabled:
-        if not recorded_at:
-            raise ValueError('enabling participation requires recorded_at')
-        if not enable_proof_mac:
-            raise PermissionError('host-authorized enable proof required to enable participation')
-        verify_mac(ENABLE_PROOF_PURPOSE, enable_proof_mac, meeting_id)
     return ParticipationSettings(
         meeting_id=meeting_id, enabled=enabled, channel=channel,
         proactive_enabled=proactive_enabled, cooldown_seconds=cooldown_seconds,
-        max_interventions=max_interventions, recorded_at=recorded_at)
+        max_interventions=max_interventions, recorded_at=recorded_at,
+        enable_proof_mac=enable_proof_mac)
+
+
+def settings_authority_payload(*, meeting_id: str, enabled: bool = True,
+                               channel: str = DEFAULT_CHANNEL,
+                               proactive_enabled: bool = False,
+                               cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS,
+                               max_interventions: int = DEFAULT_MAX_INTERVENTIONS,
+                               recorded_at: str = '') -> str:
+    """Unambiguous, complete host-authorized configuration for the signer."""
+    return json.dumps([meeting_id, enabled, channel, proactive_enabled,
+                       cooldown_seconds, max_interventions, recorded_at],
+                      separators=(',', ':'), ensure_ascii=True)
+
+
+def verify_settings_authority(settings: ParticipationSettings) -> None:
+    """Recheck authority at each consumption; frozen objects are not a boundary."""
+    if type(settings) is not ParticipationSettings:
+        raise PermissionError('exact participation settings required')
+    if not settings.enabled:
+        return
+    if not settings.enable_proof_mac:
+        raise PermissionError('host-authorized enable proof required to enable participation')
+    verify_mac(ENABLE_PROOF_PURPOSE, settings.enable_proof_mac,
+               settings_authority_payload(
+                   meeting_id=settings.meeting_id, enabled=settings.enabled,
+                   channel=settings.channel, proactive_enabled=settings.proactive_enabled,
+                   cooldown_seconds=settings.cooldown_seconds,
+                   max_interventions=settings.max_interventions,
+                   recorded_at=settings.recorded_at))
 
 
 def decide_addressed(settings: ParticipationSettings, *, turn_id: str,
                      receipt_id: str, recorded_at: str) -> ParticipationReceipt:
     """Addressed turns respond only while the host has participation enabled.
     Silence is a recorded outcome, not a missing receipt."""
+    verify_settings_authority(settings)
     if not turn_id or not receipt_id:
         raise ValueError('turn and receipt identity required')
     if not settings.enabled:
@@ -124,6 +152,7 @@ def can_intervene_proactively(settings: ParticipationSettings, budget: Intervent
                               *, now_seconds: float) -> bool:
     """Proactive clarification is off by default, rate-limited by cooldown and
     capped at max_interventions per meeting."""
+    verify_settings_authority(settings)
     if not settings.enabled or not settings.proactive_enabled:
         return False
     if budget.count >= settings.max_interventions:

@@ -34,15 +34,18 @@ def _test_mac(purpose, *fields):
     return sign_seal(purpose, *fields)
 
 
-def _enable_mac(meeting_id):
-    return _test_mac(ENABLE_PROOF_PURPOSE, meeting_id)
+def _enable_mac(meeting_id, **configuration):
+    from oracle_brain.meetings.participation import settings_authority_payload
+    return _test_mac(ENABLE_PROOF_PURPOSE, settings_authority_payload(
+        meeting_id=meeting_id, recorded_at='2026-10-16T12:00:00Z', **configuration))
 
 
 def _settings(**kw):
     base = dict(meeting_id='m-1', enabled=True, recorded_at='2026-10-16T12:00:00Z')
     base.update(kw)
     if base.get('enabled') and 'enable_proof_mac' not in base:
-        base['enable_proof_mac'] = _enable_mac(base['meeting_id'])
+        from oracle_brain.meetings.participation import settings_authority_payload
+        base['enable_proof_mac'] = _test_mac(ENABLE_PROOF_PURPOSE, settings_authority_payload(**base))
     return record_settings(**base)
 
 
@@ -97,3 +100,41 @@ def test_silence_when_disabled_still_returns_a_durable_receipt():
     receipt = decide_addressed(settings, turn_id='t-9', receipt_id='r-9',
                                recorded_at='2026-10-16T12:00:01Z')
     assert receipt.status == 'suppressed' and receipt.turn_id == 't-9'
+
+
+def test_direct_enabled_settings_without_host_proof_rejected():
+    from oracle_brain.meetings.participation import ParticipationSettings
+    with pytest.raises(PermissionError, match='host-authorized'):
+        ParticipationSettings(meeting_id='m-1', enabled=True,
+                              recorded_at='2026-10-16T12:00:00Z')
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('meeting_id', 'm-other'), ('channel', 'meeting_chat'),
+    ('proactive_enabled', True), ('cooldown_seconds', 0),
+    ('max_interventions', 999), ('recorded_at', '2026-10-17T12:00:00Z'),
+    ('enable_proof_mac', '0' * 128),
+])
+def test_consumers_reject_mutated_signed_settings(field, value):
+    settings = _settings()
+    # Deliberately bypass frozen dataclass protection as hostile same-process code.
+    object.__setattr__(settings, field, value)
+    with pytest.raises(PermissionError):
+        decide_addressed(settings, turn_id='t-1', receipt_id='r-1', recorded_at='now')
+    with pytest.raises(PermissionError):
+        can_intervene_proactively(settings, InterventionBudget(), now_seconds=0)
+
+
+def test_enabled_bit_cannot_be_forged_after_disabled_construction():
+    settings = record_settings(meeting_id='m-1', recorded_at='now')
+    object.__setattr__(settings, 'enabled', True)
+    with pytest.raises(PermissionError, match='host-authorized'):
+        decide_addressed(settings, turn_id='t-1', receipt_id='r-1', recorded_at='now')
+
+
+def test_valid_host_proof_retained_and_consumed_for_both_actions():
+    settings = _settings(proactive_enabled=True)
+    assert settings.enable_proof_mac
+    assert decide_addressed(settings, turn_id='t-1', receipt_id='r-1',
+                            recorded_at='now').status == 'recorded'
+    assert can_intervene_proactively(settings, InterventionBudget(), now_seconds=0)

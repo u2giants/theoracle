@@ -12,7 +12,7 @@ from typing import Literal, Optional
 
 from oracle_brain.meetings.delivery import DeliveryLedger, OutboundIntent, create_intent
 from oracle_brain.meetings.participation import (
-    ParticipationReceipt, ParticipationSettings, decide_addressed,
+    ParticipationReceipt, ParticipationSettings, decide_addressed, verify_settings_authority,
 )
 
 Decision = Literal['respond', 'silence', 'decline']
@@ -74,6 +74,7 @@ def evaluate_turn(settings: ParticipationSettings, turn: InboundTurn,
     The ledger only records the intent; sending is a separate authorized act
     with its own provider idempotency receipt.
     """
+    verify_settings_authority(settings)
     if turn.meeting_id != settings.meeting_id:
         raise ValueError('turn does not belong to this meeting')
     if turn.origin != 'participant':
