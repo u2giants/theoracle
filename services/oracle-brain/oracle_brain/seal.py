@@ -14,18 +14,33 @@ SEAL_PUBLIC_KEY_ENV = 'ORACLE2_SEAL_PUBLIC_KEY'
 __all__ = ('SEAL_PUBLIC_KEY_ENV', 'SEAL_PURPOSE_ALLOWLIST', 'seal_payload', 'verify', 'verify_mac')
 
 
-def verify(payload: bytes, signature: str) -> bool:
-    if not isinstance(signature, str) or not signature:
-        return False
-    try:
-        public_raw = bytes.fromhex(os.environ.get(SEAL_PUBLIC_KEY_ENV, ''))
-        raw_sig = bytes.fromhex(signature)
-        if len(public_raw) != 32 or len(raw_sig) != 64:
+def _verification_api():
+    # Pin trusted startup public-key configuration on first use. Subsequent
+    # request code cannot select a different issuer by changing the environment.
+    pinned_key = None
+
+    def verify(payload: bytes, signature: str) -> bool:
+        nonlocal pinned_key
+        if not isinstance(signature, str) or not signature:
             return False
-        Ed25519PublicKey.from_public_bytes(public_raw).verify(raw_sig, bytes(payload))
-    except (InvalidSignature, ValueError, TypeError):
-        return False
-    return True
+        try:
+            if pinned_key is None:
+                public_raw = bytes.fromhex(os.environ.get(SEAL_PUBLIC_KEY_ENV, ''))
+                if len(public_raw) != 32:
+                    return False
+                pinned_key = Ed25519PublicKey.from_public_bytes(public_raw)
+            raw_sig = bytes.fromhex(signature)
+            if len(raw_sig) != 64:
+                return False
+            pinned_key.verify(raw_sig, bytes(payload))
+        except (InvalidSignature, ValueError, TypeError):
+            return False
+        return True
+
+    return verify
+
+
+verify = _verification_api()
 
 
 def verify_mac(purpose: str, mac: str, *fields) -> None:

@@ -509,3 +509,14 @@ def test_host_signer_denies_same_application_and_signer_identity(synthetic_host_
     host = synthetic_host_signer
     host.config['application_uid'] = host.config['signer_uid']
     assert host.run(host.request()) == (1, {'error': 'host signer authorization refused'})
+
+
+def test_request_cannot_replace_pinned_public_issuer(monkeypatch):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from oracle_brain.seal import verify, seal_payload
+    from seal_testkit import sign_seal
+    payload = seal_payload('delivery-action:v1', 'intent', 'sent', 'time')
+    assert verify(payload, sign_seal('delivery-action:v1', 'intent', 'sent', 'time'))
+    attacker = Ed25519PrivateKey.generate()
+    monkeypatch.setenv('ORACLE2_SEAL_PUBLIC_KEY', attacker.public_key().public_bytes_raw().hex())
+    assert not verify(payload, attacker.sign(payload).hex())
