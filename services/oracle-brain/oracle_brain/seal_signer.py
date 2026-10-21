@@ -1,121 +1,80 @@
-"""Isolated Ed25519 seal signing entrypoint (process boundary).
+"""Host-only signer, never invoked by the verification-only application.
 
-This module is a process entrypoint, not a signing library. All signing
-logic lives under the ``__main__`` guard, so ``import
-oracle_brain.seal_signer`` never yields a usable ``sign()``: application
-code and the verify path cannot reach a signing capability through this
-import surface. Signing is reached only by launching this module as a
-one-shot child process.
-
-Launch and handshake (one-shot, process-per-signature):
-
-    python -m oracle_brain.seal_signer
-    stdin:  {"purpose": "<purpose>", "fields": ["...", ...]}
-    stdout: {"signature": "<hex ed25519 signature>"}
-
-The signer only signs structured payloads whose purpose is in the fixed
-allowlist (``oracle_brain.seal_wire.SEAL_PURPOSE_ALLOWLIST``). Unknown
-purpose, free-form ``payload_hex`` bytes, or a malformed request are
-refused before any key use. Fields are plain strings; the canonical wire
-is ``purpose|field|field|...``.
-
-Key source (signer child only — never the parent process):
-
-- ``ORACLE2_SEAL_SIGNER_KEY_FILE``: path to a file holding a hex-encoded
-  32-byte Ed25519 private key. The parent process knows only this path
-  string and never reads the file into Python objects. The signer child
-  is spawned with an explicit clean environment that carries the path;
-  the key material is loaded here, inside the child, and never returned.
-
-Remaining trust boundary (honest): the key file is readable by the same
-OS user that runs the signer process. Restricting file ACLs or running
-the signer as a separate OS user is a host-wiring concern outside this
-offline leaf. Until host wiring lands, treat the key file as the
-production secret store and do not commit key material.
+Installation must provide /etc/oracle2/seal-signer.json owned by root and
+not writable by group/others. It pins distinct signer/application Unix UIDs,
+a private key owned exclusively by the signer, and a separate grant authority
+public key. Every request needs that authority's unexpired signature over the
+exact purpose/payload digest. Offline tests do not establish host installation.
 """
 from __future__ import annotations
-
+import hashlib
 import json
+import math
 import os
+import stat
 import sys
-
+import time
 from oracle_brain.seal_wire import require_allowed_purpose, seal_payload
 
-SEAL_SIGNER_KEY_FILE_ENV = 'ORACLE2_SEAL_SIGNER_KEY_FILE'
+CONFIG_PATH = '/etc/oracle2/seal-signer.json'
+__all__ = ('CONFIG_PATH',)
 
-__all__ = ('SEAL_SIGNER_KEY_FILE_ENV',)
 
-
-def _parse_sign_request(raw: str) -> bytes:
-    """Parse and validate a structured sign request into canonical bytes.
-
-    Refuses free-form payload bytes, unknown purposes and malformed
-    field lists. Never loads any key. Pure validation + wire encoding.
-    """
-    try:
-        request = json.loads(raw or '{}')
-    except ValueError as error:
-        raise PermissionError('seal signer request must be JSON') from error
+def _parse_sign_request(raw: str) -> tuple[bytes, dict, str]:
+    request = json.loads(raw or '{}')
     if not isinstance(request, dict):
-        raise PermissionError('seal signer request must be a JSON object')
+        raise PermissionError('seal signer request must be JSON object')
     if 'payload_hex' in request or 'payload' in request:
         raise PermissionError('seal signer refuses free-form payload bytes')
     purpose = request.get('purpose')
-    fields = request.get('fields')
-    if not isinstance(purpose, str) or not purpose:
-        raise PermissionError('seal signer purpose required')
     require_allowed_purpose(purpose)
-    if not isinstance(fields, list):
-        raise PermissionError('seal signer fields must be a list')
-    for item in fields:
-        if not isinstance(item, str):
-            raise PermissionError('seal signer fields must be strings')
-    return seal_payload(purpose, *fields)
+    fields = request.get('fields')
+    if not isinstance(fields, list) or not all(isinstance(v, str) for v in fields):
+        raise PermissionError('seal signer fields must be strings')
+    grant, signature = request.get('grant'), request.get('grant_signature')
+    if not isinstance(grant, dict) or not isinstance(signature, str):
+        raise PermissionError('independent exact-payload authorization grant required')
+    return seal_payload(purpose, *fields), grant, signature
 
 
-# Everything below runs only when this module is the process entrypoint.
-# Importing the module defines no signing helper, no key loader and no
-# main() — there is nothing for application code to call. The request
-# parser above is pure and keyless.
 if __name__ == '__main__':
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-        Ed25519PrivateKey,
-    )
-
-    def _load_private_key() -> Ed25519PrivateKey:
-        """Read the seal private key from the configured key file. Fail closed."""
-        path = os.environ.get(SEAL_SIGNER_KEY_FILE_ENV, '')
-        if not path:
-            raise PermissionError(
-                'seal signer key file not configured; set '
-                f'{SEAL_SIGNER_KEY_FILE_ENV}')
-        try:
-            with open(path, encoding='ascii') as handle:
-                hex_key = handle.read().strip()
-        except OSError as error:
-            raise PermissionError('seal private key file unreadable') from error
-        try:
-            raw = bytes.fromhex(hex_key)
-        except ValueError as error:
-            raise ValueError('seal private key must be hex-encoded') from error
-        if len(raw) != 32:
-            raise ValueError('seal private key must be 32 bytes')
-        return Ed25519PrivateKey.from_private_bytes(raw)
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
     def main() -> int:
-        """CLI child: stdin structured request → stdout signature response.
-
-        The child is the process boundary for private-key use. The parent
-        sends only a purpose-tagged structured request; the private key
-        is loaded here and never returned.
-        """
         try:
-            payload = _parse_sign_request(sys.stdin.read())
-            signature = _load_private_key().sign(payload).hex()
-        except Exception as error:  # noqa: BLE001 — child must fail closed
-            sys.stdout.write(json.dumps({'error': str(error)}))
+            payload, grant, grant_signature = _parse_sign_request(sys.stdin.read())
+            config_fd = os.open(CONFIG_PATH, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(config_fd, encoding='utf-8') as handle:
+                config_stat = os.fstat(handle.fileno())
+                if not stat.S_ISREG(config_stat.st_mode) or config_stat.st_uid != 0 or config_stat.st_mode & 0o022:
+                    raise PermissionError('host signer configuration ownership invalid')
+                config = json.load(handle)
+            uid = os.geteuid()
+            if uid != config['signer_uid'] or uid == config['application_uid']:
+                raise PermissionError('signer requires a separate host identity')
+            if (grant.get('audience') != 'oracle2-host-seal-v1'
+                    or grant.get('payload_sha256') != hashlib.sha256(payload).hexdigest()
+                    or not isinstance(grant.get('expires_at'), (int, float))
+                    or isinstance(grant.get('expires_at'), bool)
+                    or not math.isfinite(grant['expires_at'])
+                    or grant['expires_at'] <= time.time()):
+                raise PermissionError('host grant mismatch or expired')
+            grant_bytes = json.dumps(grant, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+            Ed25519PublicKey.from_public_bytes(bytes.fromhex(config['grant_public_key'])).verify(bytes.fromhex(grant_signature), grant_bytes)
+            key_fd = os.open(config['key_file'], os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(key_fd, encoding='ascii') as handle:
+                key_stat = os.fstat(handle.fileno())
+                if (not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != uid
+                        or key_stat.st_mode & 0o077):
+                    raise PermissionError('signer key must be exclusive to host signer identity')
+                key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(handle.read().strip()))
+            if key.public_key().public_bytes_raw().hex() == config['grant_public_key']:
+                raise PermissionError('grant authority must differ from signing identity')
+            signature = key.sign(payload).hex()
+            sys.stdout.write(json.dumps({'signature': signature}))
+            return 0
+        except Exception:
+            sys.stdout.write(json.dumps({'error': 'host signer authorization refused'}))
             return 1
-        sys.stdout.write(json.dumps({'signature': signature}))
-        return 0
 
     raise SystemExit(main())

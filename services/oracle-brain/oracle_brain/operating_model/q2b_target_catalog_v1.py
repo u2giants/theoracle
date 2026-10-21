@@ -402,7 +402,7 @@ class CatalogConnection:
     Authority is the Ed25519 ``connection_mac`` over the connection
     identity under ``CONNECTION_PURPOSE``. Direct construction is refused.
     A duck-typed look-alike built with ``object.__new__`` carries no valid
-    signature and is denied before any sign. There is no capability
+    signature and is denied before any catalog read. There is no capability
     registry to mutate.
     """
     __slots__ = ('_connection', '_identity', '_connection_mac', '__weakref__')
@@ -462,7 +462,7 @@ def _real_dbapi_connection_types() -> tuple:
 def _require_catalog_connection(connection):
     """Accept only a real DB-API connection or a sealed capability.
 
-    Duck-typed fakes are denied before any sign. A sealed capability's
+    Duck-typed fakes are denied before any catalog read. A sealed capability's
     signature is re-verified here so a mutated look-alike never reaches
     the catalog.
     """
@@ -566,108 +566,83 @@ def _require_all_pins(receipt: Q2bTargetCatalogReceipt,
         raise PermissionError('Q2b TLS not in use')
 
 
-def _install_sealed_catalog_api(*, mint, verify):
-    """Sealed Q2b catalog API: bound mint/verify, signature-only admission.
+from oracle_brain.seal import verify_mac
 
-    Receives the bound internal mint and verify callables from the seal
-    closure and closes over them. There is no mutable registry: admission
-    is a purpose-tagged Ed25519 signature over the admitted fact payload,
-    and use-site checks re-verify that signature plus the reader seal and
-    the pin expectations. A constructor copy with ``admitted=True`` and no
-    valid ``admission_mac`` is denied — there is no identity table to
-    mutate through ``__closure__``.
+
+def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
+    """Metadata-only catalog read. Refuses incomplete pins and any non-metadata SQL.
+
+    The connection must be a real DB-API connection or a sealed
+    connection capability; duck-typed fakes are denied before any
+    sign. Reads only pg_proc owner/prosecdef/proconfig/ACL, pg_has_role
+    reachability and target identity (host/port/dbname/user + TLS).
+    Never source data, secrets or environment values. Emits UNKNOWN
+    where the catalog holds nothing; invents no fact. Returns unsealed observations. A separately authorized host must attest
+    the facts before admission; the application cannot self-certify them.
     """
+    if not isinstance(expected, Q2bExpectedPins):
+        raise PermissionError('complete Q2b expected descriptor/role scope required')
+    conn = _require_catalog_connection(connection)
+    execute = getattr(conn, 'execute', None)
+    if execute is None:
+        raise PermissionError('Q2b catalog connection execute required')
+    params = _connection_params(conn)
+    ssl_in_use = _connection_ssl_in_use(conn)
 
-    def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
-        """Metadata-only catalog read. Refuses incomplete pins and any non-metadata SQL.
+    for statement in READER_SQL_STATEMENTS:
+        require_metadata_only_sql(statement)
 
-        The connection must be a real DB-API connection or a sealed
-        connection capability; duck-typed fakes are denied before any
-        sign. Reads only pg_proc owner/prosecdef/proconfig/ACL, pg_has_role
-        reachability and target identity (host/port/dbname/user + TLS).
-        Never source data, secrets or environment values. Emits UNKNOWN
-        where the catalog holds nothing; invents no fact. Seals the six
-        fact classes with a purpose-tagged MAC issued through the bound
-        internal mint.
-        """
-        if not isinstance(expected, Q2bExpectedPins):
-            raise PermissionError('complete Q2b expected descriptor/role scope required')
-        conn = _require_catalog_connection(connection)
-        execute = getattr(conn, 'execute', None)
-        if execute is None:
-            raise PermissionError('Q2b catalog connection execute required')
-        params = _connection_params(conn)
-        ssl_in_use = _connection_ssl_in_use(conn)
+    function_rows = execute(FUNCTION_CATALOG_SQL, (list(expected.function_signatures),)).fetchall()
+    role_row_raw = execute(ROLE_REACHABILITY_SQL, (expected.expected_owner_role,)).fetchone()
+    identity_row = execute(TARGET_IDENTITY_SQL).fetchone()
 
-        for statement in READER_SQL_STATEMENTS:
-            require_metadata_only_sql(statement)
+    pg_proc_owner, security_definer, search_path, execute_grants = parse_function_catalog(function_rows)
+    role_memberships = parse_role_memberships(role_row_raw)
+    target_identity = parse_target_identity(identity_row, params=params, ssl_in_use=ssl_in_use)
+    receipt = build_receipt(
+        pg_proc_owner=pg_proc_owner,
+        security_definer=security_definer,
+        search_path=search_path,
+        execute_grants=execute_grants,
+        role_memberships=role_memberships,
+        target_identity=target_identity,
+    )
+    return receipt
 
-        function_rows = execute(FUNCTION_CATALOG_SQL, (list(expected.function_signatures),)).fetchall()
-        role_row_raw = execute(ROLE_REACHABILITY_SQL, (expected.expected_owner_role,)).fetchone()
-        identity_row = execute(TARGET_IDENTITY_SQL).fetchone()
+def admit_target_catalog(receipt: Q2bTargetCatalogReceipt,
+                         expected: Q2bExpectedPins, *, admission_mac: str = '') -> Q2bTargetCatalogReceipt:
+    """Verify independent host fact attestation and exact admission authority.
 
-        pg_proc_owner, security_definer, search_path, execute_grants = parse_function_catalog(function_rows)
-        role_memberships = parse_role_memberships(role_row_raw)
-        target_identity = parse_target_identity(identity_row, params=params, ssl_in_use=ssl_in_use)
-        receipt = build_receipt(
-            pg_proc_owner=pg_proc_owner,
-            security_definer=security_definer,
-            search_path=search_path,
-            execute_grants=execute_grants,
-            role_memberships=role_memberships,
-            target_identity=target_identity,
-        )
-        fact_mac = mint(READER_FACT_PURPOSE, _facts_payload(receipt))
-        return receipt.model_copy(update={'fact_mac': fact_mac})
+    Caller-provided observations remain untrusted without a valid host fact
+    signature. Matching pins never mint authority: an independent signature
+    over the same fact payload is required separately for admission.
+    """
+    if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
+        raise PermissionError('Q2b target catalog receipt and complete pins required')
+    if not receipt.fact_mac:
+        raise PermissionError('Q2b reader-produced sealed facts required')
+    verify_mac(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
+    _require_all_pins(receipt, expected)
+    verify_mac(ADMISSION_PURPOSE, admission_mac, _facts_payload(receipt))
+    return receipt.model_copy(update={'admitted': True, 'admission_mac': admission_mac})
 
-    def admit_target_catalog(receipt: Q2bTargetCatalogReceipt,
-                             expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
-        """Sealed admit: reader-seal MAC check, real pin checks, then seal.
+def require_target_catalog(receipt: Q2bTargetCatalogReceipt,
+                           expected: Q2bExpectedPins) -> None:
+    """Use-site gate: signed admission plus real pin checks.
 
-        The receipt must carry a reader-produced ``fact_mac`` — an
-        Ed25519 seal over the six fact classes issued by
-        ``read_target_catalog`` via the isolated signer. Caller-constructed
-        fact dicts are denied even when every value matches the pins:
-        without the reader seal they prove nothing about where the facts
-        came from. Pin checks follow. Only then is admission sealed with
-        ``admission_mac`` — a purpose-tagged signature over the admitted
-        fact payload. The signature is the authority; there is no
-        registry.
-        """
-        if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
-            raise PermissionError('Q2b target catalog receipt and complete pins required')
-        if not receipt.fact_mac:
-            raise PermissionError('Q2b reader-produced sealed facts required')
-        verify(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
-        _require_all_pins(receipt, expected)
-        admission_mac = mint(ADMISSION_PURPOSE, _facts_payload(receipt))
-        return receipt.model_copy(update={'admitted': True, 'admission_mac': admission_mac})
-
-    def require_target_catalog(receipt: Q2bTargetCatalogReceipt,
-                               expected: Q2bExpectedPins) -> None:
-        """Use-site gate: signed admission plus real pin checks.
-
-        The ``admitted`` boolean alone is never believed. The
-        ``admission_mac`` signature over the admitted fact payload is the
-        admission proof; a constructor copy with ``admitted=True`` and no
-        valid signature is denied. The reader-seal MAC is rechecked so
-        damage to the fact fields between admission and use never grants
-        access. Pin checks are redone for the same reason.
-        """
-        if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
-            raise PermissionError('Q2b target catalog receipt and complete pins required')
-        if receipt.admitted is not True or not receipt.admission_mac:
-            raise PermissionError('Q2b target catalog not admitted')
-        verify(ADMISSION_PURPOSE, receipt.admission_mac, _facts_payload(receipt))
-        if not receipt.fact_mac:
-            raise PermissionError('Q2b reader-produced sealed facts required')
-        verify(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
-        _require_all_pins(receipt, expected)
-
-    return read_target_catalog, admit_target_catalog, require_target_catalog
-
-
-# Public catalog API is installed by oracle_brain.seal with bound mint/verify.
-# Importing the seal module runs its factory wire, which calls
-# _install_sealed_catalog_api and assigns the three public names here.
-import oracle_brain.seal  # noqa: E402,F401
+    The ``admitted`` boolean alone is never believed. The
+    ``admission_mac`` signature over the admitted fact payload is the
+    admission proof; a constructor copy with ``admitted=True`` and no
+    valid signature is denied. The reader-seal MAC is rechecked so
+    damage to the fact fields between admission and use never grants
+    access. Pin checks are redone for the same reason.
+    """
+    if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
+        raise PermissionError('Q2b target catalog receipt and complete pins required')
+    if receipt.admitted is not True or not receipt.admission_mac:
+        raise PermissionError('Q2b target catalog not admitted')
+    verify_mac(ADMISSION_PURPOSE, receipt.admission_mac, _facts_payload(receipt))
+    if not receipt.fact_mac:
+        raise PermissionError('Q2b reader-produced sealed facts required')
+    verify_mac(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
+    _require_all_pins(receipt, expected)

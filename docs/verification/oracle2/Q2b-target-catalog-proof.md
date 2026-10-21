@@ -55,36 +55,30 @@ UNKNOWN blocks target execution (`test_unknown_blocks_target_execution`).
 
 ## R8 reader seal and trust model
 
-Authority is the Ed25519 signature alone. There is no mutable in-process
-admission registry.
+The application is verification-only. `read_target_catalog` collects the six
+metadata classes but returns an unsealed, unadmitted receipt. It never invokes
+a signer or knows a private-key path. An independent host authority must attest
+the exact canonical fact payload (`q2b-reader-facts:v1`) and independently
+authorize that same payload (`q2b-admission:v1`). The caller supplies both
+signatures; `admit_target_catalog(..., admission_mac=...)` verifies them and
+rechecks all pins. `require_target_catalog` repeats both signature and pin
+checks. An `admitted` boolean or matching caller-provided facts grant nothing.
 
-`read_target_catalog` accepts only a real DB-API connection
-(`psycopg.Connection` / `psycopg2.extensions.connection`) or a sealed
-connection capability issued by an adapter and carrying a
-`q2b-connection:v1` signature. Duck-typed fake connections are denied
-before any sign.
+The retained host signing executable is separate from the application. Its
+fixed `/etc/oracle2/seal-signer.json` must be root-owned and not group/other
+writable. Configuration pins a signer Unix identity distinct from the
+application identity, a key readable only by that signer, and a separate grant
+authority public key. Every signing request requires an independently signed,
+unexpired grant binding the exact canonical purpose-tagged payload digest and
+host audience. Configuration/key reads reject symlinks and check the opened
+file ownership and permissions. Application environment key paths are ignored.
 
-`read_target_catalog` seals the six fact classes with a purpose-tagged
-Ed25519 signature (`q2b-reader-facts:v1`) issued by the isolated signer
-child process. `admit_target_catalog` denies caller-constructed fact
-dicts even when values match pins — only reader-produced sealed facts
-are admitted. Admission itself is sealed with an `admission_mac`
-signature (`q2b-admission:v1`) over the admitted fact payload; the
-`admitted` boolean alone never grants access. `require_target_catalog`
-re-verifies both signatures plus the pin expectations.
+Canonical JSON arrays preserve every signed field boundary. Participation
+proofs cover every setting and are retained/reverified at use sites.
 
-The signer (`oracle_brain.seal_signer`) signs only structured
-`{"purpose", "fields"}` requests whose purpose is on a fixed allowlist.
-Unknown purpose, free-form payload bytes and malformed requests are
-refused before any key use. Signing runs only as a process entrypoint
-(`python -m oracle_brain.seal_signer`) with a one-shot handshake. The
-verify path (`oracle_brain.seal`) holds only the public key and cannot
-sign. The parent process never holds private key material or
-`ORACLE2_SEAL_PRIVATE_KEY*` environment variables — only the key-file
-path (`ORACLE2_SEAL_SIGNER_KEY_FILE`). The signer child is spawned with
-an explicit scrubbed environment. No secret is committed.
-
-Remaining trust boundary (honest): the key file is readable by the same
-OS user that runs the signer process. Restricting file ACLs or running
-the signer under a separate OS user is a host-wiring concern outside
-this offline leaf and is not claimed here.
+Invented fixture tests simulate the independent host and exercise valid
+admission, forged/tampered evidence refusal, and host grant policy. They do not
+establish installed OS isolation. Actual host identity/configuration/key
+installation and independent authority operation remain unproven and outside
+this offline implementation. Actual target proof remains UNKNOWN; Q2b stays
+OPEN. No host, production, company-data or employee action was performed.

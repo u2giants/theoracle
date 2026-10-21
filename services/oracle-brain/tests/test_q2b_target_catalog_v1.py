@@ -31,6 +31,18 @@ from oracle_brain.operating_model.q2b_target_catalog_v1 import (
 )
 
 
+# The independent fixture host attests observations and authorizes exact facts.
+_application_read = read_target_catalog
+_application_admit = admit_target_catalog
+
+def read_target_catalog(connection, expected):
+    receipt = _application_read(connection, expected)
+    return receipt.model_copy(update={'fact_mac': _test_mac(READER_FACT_PURPOSE, _facts_payload(receipt))})
+
+def admit_target_catalog(receipt, expected):
+    return _application_admit(receipt, expected, admission_mac=_test_mac(ADMISSION_PURPOSE, _facts_payload(receipt)))
+
+
 def _test_mac(purpose, *fields):
     """Produce a purpose-tagged seal via the signer CLI (test host stand-in)."""
     from seal_testkit import sign_seal
@@ -553,3 +565,22 @@ def test_build_receipt_never_sets_admitted_without_separate_admission():
     )
     assert receipt.admitted is False
     assert isinstance(receipt, Q2bTargetCatalogReceipt)
+
+
+def test_application_reader_cannot_mint_fact_or_admission_authority():
+    raw = _application_read(good_connection(), pins())
+    assert raw.fact_mac == ''
+    assert raw.admission_mac == ''
+    assert raw.admitted is False
+    with pytest.raises(PermissionError):
+        _application_admit(raw, pins())
+    attested = raw.model_copy(update={
+        'fact_mac': _test_mac(READER_FACT_PURPOSE, _facts_payload(raw)),
+    })
+    with pytest.raises(PermissionError):
+        _application_admit(attested, pins())
+    with pytest.raises(PermissionError):
+        _application_admit(attested, pins(), admission_mac=attested.fact_mac)
+    admitted = _application_admit(attested, pins(), admission_mac=_test_mac(
+        ADMISSION_PURPOSE, _facts_payload(attested)))
+    require_target_catalog(admitted, pins())

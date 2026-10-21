@@ -143,47 +143,24 @@ def test_seal_signer_import_yields_no_sign_capability():
     assert 'main' not in module_defs
 
 
-def test_signer_cli_entrypoint_signs():
-    """The signer CLI works when invoked as its entrypoint (one-shot handshake).
-
-    The child reads the key file and returns a signature that the
-    verify path accepts. The test process never reads the private key.
-    The request is structured: allowlisted purpose plus plain fields.
-    """
-    from oracle_brain.seal import seal_payload, verify
-    from oracle_brain.seal_wire import SEAL_PURPOSE_ALLOWLIST
-
-    purpose = sorted(SEAL_PURPOSE_ALLOWLIST)[0]
-    fields = ['field-1']
-    payload = seal_payload(purpose, *fields)
-    key_path = os.environ.get('ORACLE2_SEAL_SIGNER_KEY_FILE', '')
-    assert key_path, 'signer key file path must be configured'
-    env = {'ORACLE2_SEAL_SIGNER_KEY_FILE': key_path}
-    for name in ('SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'COMSPEC',
-                 'TMP', 'TEMP', 'HOME', 'USERPROFILE'):
-        value = os.environ.get(name)
-        if value is not None:
-            env[name] = value
-    request = json.dumps({'purpose': purpose, 'fields': fields})
+def test_signer_cli_refuses_application_supplied_key(tmp_path):
+    """An application key path cannot replace fixed host installation/grants."""
+    fake_key = tmp_path / 'app-controlled.key'
+    fake_key.write_text('00' * 32)
     child = subprocess.run(
         [sys.executable, '-m', 'oracle_brain.seal_signer'],
-        input=request.encode('utf-8'),
-        capture_output=True,
-        check=False,
-        env=env,
-    )
-    assert child.returncode == 0, child.stdout.decode('utf-8', 'replace')
-    response = json.loads(child.stdout.decode('utf-8'))
-    signature = response.get('signature')
-    assert isinstance(signature, str) and signature
-    assert verify(payload, signature) is True
+        input=json.dumps({'purpose': 'participation-enable:v1', 'fields': ['x'],
+                          'grant': {}, 'grant_signature': '00'}).encode(),
+        capture_output=True, check=False,
+        env={**os.environ, 'ORACLE2_SEAL_SIGNER_KEY_FILE': str(fake_key),
+             'ORACLE2_SEAL_PRIVATE_KEY_FILE': str(fake_key)})
+    assert child.returncode != 0
+    assert json.loads(child.stdout) == {'error': 'host signer authorization refused'}
 
 
 def test_signer_refuses_unknown_purpose_and_free_form_bytes():
     """Unknown purpose, free-form payload_hex and malformed requests are refused."""
-    key_path = os.environ.get('ORACLE2_SEAL_SIGNER_KEY_FILE', '')
-    assert key_path
-    env = {'ORACLE2_SEAL_SIGNER_KEY_FILE': key_path}
+    env = {}
     for name in ('SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'COMSPEC',
                  'TMP', 'TEMP', 'HOME', 'USERPROFILE'):
         value = os.environ.get(name)
@@ -202,11 +179,11 @@ def test_signer_refuses_unknown_purpose_and_free_form_bytes():
     # Unknown purpose: refused.
     child = _signer_request({'purpose': 'not-a-real-purpose', 'fields': ['x']})
     assert child.returncode != 0
-    assert b'purpose' in child.stdout.lower() or b'not allowed' in child.stdout.lower()
+    assert json.loads(child.stdout) == {'error': 'host signer authorization refused'}
     # Free-form payload bytes: refused.
     child = _signer_request({'payload_hex': '00' * 32})
     assert child.returncode != 0
-    assert b'free-form' in child.stdout.lower() or b'refuses' in child.stdout.lower()
+    assert json.loads(child.stdout) == {'error': 'host signer authorization refused'}
     # Malformed fields: refused.
     child = _signer_request({'purpose': 'participation-enable:v1', 'fields': 'not-a-list'})
     assert child.returncode != 0
@@ -234,22 +211,12 @@ def test_verify_mac_refuses_unknown_purpose():
         verify_mac('made-up-purpose-v1', known, 'm-1')
 
 
-def test_signer_child_env_is_scrubbed():
-    """The signer child never inherits the parent environment wholesale."""
+def test_verification_only_app_has_no_signer_invocation_or_key_path():
     seal = importlib.import_module('oracle_brain.seal')
-    env = seal._signer_child_env('/tmp/fake-key-path')
-    assert env['ORACLE2_SEAL_SIGNER_KEY_FILE'] == '/tmp/fake-key-path'
-    # No ORACLE2_SEAL_PRIVATE_KEY* may appear in the child env from the parent.
-    for name in env:
-        assert not name.startswith('ORACLE2_SEAL_PRIVATE_KEY'), (
-            f'child env must not inherit {name}')
-    # A parent-only secret must not be passed through.
-    os.environ['ORACLE2_SEAL_PARENT_LEAK_CANARY'] = 'leak'
-    try:
-        env2 = seal._signer_child_env('/tmp/fake-key-path')
-        assert 'ORACLE2_SEAL_PARENT_LEAK_CANARY' not in env2
-    finally:
-        os.environ.pop('ORACLE2_SEAL_PARENT_LEAK_CANARY', None)
+    source = inspect.getsource(seal)
+    assert not hasattr(seal, '_signer_child_env')
+    assert 'subprocess' not in source
+    assert 'ORACLE2_SEAL_SIGNER_KEY_FILE' not in source
 
 
 def test_forged_credential_mac_still_denied():
@@ -379,8 +346,8 @@ def test_no_mutable_registry_in_trust_modules():
 def test_verify_rejects_forged_wrong_key_tampered_and_truncated():
     """Denied cases: forged, wrong key, tampered payload, truncated signature.
 
-    The good signature comes from the signer CLI — the test process
-    never reads the private key into memory.
+    The good signature comes from the synthetic test host; no installation
+    or host capability is established.
     """
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (
         Ed25519PrivateKey,
@@ -413,3 +380,132 @@ def test_verify_rejects_forged_wrong_key_tampered_and_truncated():
         verify_mac(purpose, wrong_key, *fields)
     with pytest.raises(PermissionError, match='seal MAC mismatch'):
         verify_mac(purpose, good, 'field-1', 'OTHER')
+
+
+@pytest.fixture
+def synthetic_host_signer(monkeypatch, tmp_path):
+    """Run the real signer under mocked host ownership, never install host files."""
+    import hashlib
+    import io
+    import runpy
+    import stat
+    signer_file = importlib.import_module('oracle_brain.seal_signer').__file__
+    from types import SimpleNamespace
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from oracle_brain.seal_wire import seal_payload
+
+    host_key = Ed25519PrivateKey.generate()
+    grant_key = Ed25519PrivateKey.generate()
+    config = {'signer_uid': 8101, 'application_uid': 8102,
+              'key_file': '/synthetic-host/seal-private.key',
+              'grant_public_key': grant_key.public_key().public_bytes_raw().hex()}
+    state = {'uid': 8101, 'config_mode': stat.S_IFREG | 0o644, 'config_uid': 0,
+             'key_mode': stat.S_IFREG | 0o600, 'key_uid': 8101, 'now': 1000}
+    config_file, key_file = tmp_path / 'host-config.json', tmp_path / 'host-key'
+    original_open, original_fstat = os.open, os.fstat
+    fd_roles = {}
+    open_flags = []
+
+    def open_file(path, flags, *args, **kwargs):
+        if path == '/etc/oracle2/seal-signer.json':
+            config_file.write_text(json.dumps(config))
+            fd = original_open(config_file, flags, *args, **kwargs)
+            fd_roles[fd] = 'config'
+        elif path == config['key_file']:
+            key_file.write_text(host_key.private_bytes_raw().hex())
+            fd = original_open(key_file, flags, *args, **kwargs)
+            fd_roles[fd] = 'key'
+        else:
+            return original_open(path, flags, *args, **kwargs)
+        open_flags.append(flags)
+        return fd
+
+    def fstat(fd):
+        role = fd_roles.get(fd)
+        if role:
+            return SimpleNamespace(st_mode=state[role + '_mode'], st_uid=state[role + '_uid'])
+        return original_fstat(fd)
+
+    def request():
+        payload = seal_payload('participation-enable:v1', 'invented-meeting')
+        grant = {'audience': 'oracle2-host-seal-v1',
+                 'payload_sha256': hashlib.sha256(payload).hexdigest(),
+                 'expires_at': 1100}
+        signature = grant_key.sign(json.dumps(grant, sort_keys=True,
+                                    separators=(',', ':')).encode()).hex()
+        return {'purpose': 'participation-enable:v1', 'fields': ['invented-meeting'],
+                'grant': grant, 'grant_signature': signature}
+
+    def run(value):
+        output = io.StringIO()
+        with monkeypatch.context() as patch:
+            patch.setattr(os, 'open', open_file)
+            patch.setattr(os, 'fstat', fstat)
+            patch.setattr(os, 'geteuid', lambda: state['uid'])
+            import time
+            patch.setattr(time, 'time', lambda: state['now'])
+            patch.setattr(sys, 'stdin', io.StringIO(json.dumps(value)))
+            patch.setattr(sys, 'stdout', output)
+            with pytest.raises(SystemExit) as stopped:
+                runpy.run_path(signer_file, run_name='__main__')
+        return stopped.value.code, json.loads(output.getvalue())
+
+    return SimpleNamespace(run=run, request=request, state=state, config=config,
+                           public_key=host_key.public_key(), open_flags=open_flags, host_key=host_key,
+                           grant_key=grant_key)
+
+
+def test_mock_host_signer_accepts_exact_independent_grant(synthetic_host_signer):
+    from oracle_brain.seal_wire import seal_payload
+    host = synthetic_host_signer
+    code, result = host.run(host.request())
+    assert code == 0
+    assert len(host.open_flags) == 2
+    assert all(flags & os.O_NOFOLLOW for flags in host.open_flags)
+    host.public_key.verify(bytes.fromhex(result['signature']),
+                           seal_payload('participation-enable:v1', 'invented-meeting'))
+
+
+@pytest.mark.parametrize('damage', ['missing', 'expired', 'payload', 'signature',
+                                    'wrong_authority', 'audience', 'nan', 'bool', 'same_key'])
+def test_host_signer_denies_invalid_independent_grant(synthetic_host_signer, damage):
+    host = synthetic_host_signer
+    request = host.request()
+    if damage == 'missing':
+        request.pop('grant')
+    elif damage == 'expired':
+        host.state['now'] = 1200
+    elif damage == 'payload':
+        request['fields'] = ['other-meeting']
+    elif damage == 'signature':
+        request['grant_signature'] = '00' * 64
+    elif damage == 'wrong_authority':
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        host.config['grant_public_key'] = Ed25519PrivateKey.generate().public_key().public_bytes_raw().hex()
+    elif damage == 'nan':
+        request['grant']['expires_at'] = float('nan')
+    elif damage == 'bool':
+        request['grant']['expires_at'] = True
+    elif damage == 'same_key':
+        host.config['grant_public_key'] = host.public_key.public_bytes_raw().hex()
+        request['grant_signature'] = host.host_key.sign(json.dumps(request['grant'], sort_keys=True, separators=(',', ':')).encode()).hex()
+    else:
+        request['grant']['audience'] = 'other-service'
+    assert host.run(request) == (1, {'error': 'host signer authorization refused'})
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('uid', 8102), ('uid', 9000), ('config_uid', 8102),
+    ('config_mode', 0o100666), ('config_mode', 0o120777),
+    ('key_uid', 8102), ('key_mode', 0o100644), ('key_mode', 0o120600),
+])
+def test_host_signer_denies_wrong_identity_or_ownership(synthetic_host_signer, field, value):
+    host = synthetic_host_signer
+    host.state[field] = value
+    assert host.run(host.request()) == (1, {'error': 'host signer authorization refused'})
+
+
+def test_host_signer_denies_same_application_and_signer_identity(synthetic_host_signer):
+    host = synthetic_host_signer
+    host.config['application_uid'] = host.config['signer_uid']
+    assert host.run(host.request()) == (1, {'error': 'host signer authorization refused'})
