@@ -16,8 +16,11 @@
 //   2. pnpm --filter @oracle/web exec playwright install chromium
 //   3. pnpm --filter @oracle/web test:oracle2
 //   Optional: ORACLE2_PREVIEW_URL=http://127.0.0.1:3000 (default localhost:3000)
-// Env gate: only ORACLE2_PREVIEW_URL selects the target server (the standard
-// oracle2 preview pattern). No readiness skip — a missing page/endpoint is a
+// Run the dev server bound to 127.0.0.1, with explicit
+// ORACLE2_REPLACEMENT_FIXTURE_MODE=1, ORACLE2_REPLACEMENT_TOKEN and a separate
+// ORACLE2_REPLACEMENT_FIXTURE_SESSION_KEY (both at least 32 characters).
+// Give the test process the same token and loopback ORACLE2_PREVIEW_URL.
+// No readiness skip — a missing page/endpoint is a
 // failure, which is the point of this spec.
 import { test, expect, type Page } from '@playwright/test';
 
@@ -55,6 +58,22 @@ async function advanceToDraft(page: Page): Promise<void> {
 
 test.describe('replacement journey U3–U5 (offline fixture)', () => {
   test.beforeEach(async ({ page }) => {
+    const token = process.env.ORACLE2_REPLACEMENT_TOKEN;
+    if (!token) throw new Error('ORACLE2_REPLACEMENT_TOKEN required for local fixture login');
+    await page.goto('/consultant/replacement');
+    const status = await page.evaluate(async (fixtureToken) => {
+      const denied = await fetch('/api/consultant/replacement/v1/session', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: 'wrong-fixture-token' }),
+      });
+      if (denied.status !== 401) return denied.status;
+      const response = await fetch('/api/consultant/replacement/v1/session', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: fixtureToken }),
+      });
+      return response.status;
+    }, token);
+    expect(status).toBe(200);
     await page.goto('/consultant/replacement');
     await expect(page.getByTestId('replacement-workspace')).toBeVisible();
   });
@@ -244,6 +263,7 @@ test.describe('replacement journey U3–U5 (offline fixture)', () => {
     const sourceResponse = await page.request.post(
       '/api/consultant/replacement/v1/sources',
       {
+        headers: { origin: new URL(page.url()).origin },
         data: {
           bytesBase64: PNG_BYTES_BASE64,
           filename: 'invented.png',
@@ -257,7 +277,7 @@ test.describe('replacement journey U3–U5 (offline fixture)', () => {
 
     const createResponse = await page.request.post(
       '/api/consultant/replacement/v1/journeys',
-      { data: { sourceIds: [], provider: 'forged' } },
+      { headers: { origin: new URL(page.url()).origin }, data: { sourceIds: [], provider: 'forged' } },
     );
     expect(createResponse.status()).toBe(400);
   });

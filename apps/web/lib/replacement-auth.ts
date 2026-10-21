@@ -12,6 +12,7 @@ import {
 } from './oracle2-pilot-auth';
 import { hasAuthority } from './oracle2-authority';
 import { pilotWorkspaceId } from './oracle2-store';
+import { FIXTURE_ACTOR, fixtureConfig, fixtureRequestAllowed, fixtureSameOrigin, fixtureSession } from './replacement-fixture-auth';
 
 export const REPLACEMENT_COOKIE = 'oracle2_replacement_session';
 export const REPLACEMENT_WORKSPACE_ID = '00000000-0000-4000-8000-0000000000f1';
@@ -136,10 +137,12 @@ function configToken(): string | undefined {
 }
 
 function configActorId(): string {
+  if (fixtureConfig()) return FIXTURE_ACTOR;
   return process.env.ORACLE2_REPLACEMENT_ACTOR ?? pilotActor();
 }
 
 function configRole(): string {
+  if (fixtureConfig()) return REPLACEMENT_ROLE;
   return process.env.ORACLE2_REPLACEMENT_ROLE ?? REPLACEMENT_ROLE;
 }
 
@@ -215,8 +218,15 @@ export async function authorizeReplacementRequest(
 ): Promise<ReplacementAuthResult> {
   // CSRF: cookie-authenticated writes must prove same-origin. Enforced before
   // any session lookup so cross-origin requests are rejected uniformly.
-  if (access === 'write' && !isSameOriginWrite(headers)) {
+  if (access === 'write' && !(fixtureRequestAllowed(headers)
+    ? fixtureSameOrigin(headers) : isSameOriginWrite(headers))) {
     return { ok: false, error: 'cross-origin write denied', status: 403 };
+  }
+  const fixtureId = fixtureSession(headers);
+  if (fixtureId) {
+    return { ok: true, sessionId: fixtureId, principal: {
+      actorId: FIXTURE_ACTOR, workspaceId: REPLACEMENT_WORKSPACE_ID, role: REPLACEMENT_ROLE,
+    } };
   }
   const dedicated = owned.authorize(headers);
   if (dedicated.ok) return dedicated;
