@@ -30,6 +30,7 @@ S03_TESTS = [
     "test_original_pdf_image_views.py",
     "test_graph_evidence_answer.py",
     "test_replacement_original_lifecycle.py", "test_original_qualification_runtime.py",
+    "test_original_response_normalization_v1.py", "test_original_qualification_authority_sql.py",
     "test_replacement_qualification_sql.py", "test_q2b_target_catalog_v1.py",
     "test_q2b_transaction_freshness_sql.py",
     "test_seal_security.py", "test_seal_wire.py",
