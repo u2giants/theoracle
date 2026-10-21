@@ -14,7 +14,7 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
-### Current whole-program obligation ledger — October 21, 2026, 6:04 PM EDT
+### Current whole-program obligation ledger — October 21, 2026, 6:35 PM EDT
 
 Accountable owner of **every open row** below: Codex chat
 `01a16013-c8c6-7113-b307-7d4d516f2bc6` on edge-dev3, adopted on
@@ -63,10 +63,40 @@ build and38 task-gate fixture checks passed; local browser refresh checks passed
 all seven existing invented-fixture journeys. These counts describe separate
 checks, not a combined acceptance count. The first combined review's generated
 type-file drift invalidated its source binding; its retained prose APPROVE is
-**not usable authority**. A clean exact-head independent review and full CI are
-still required before this combined source can land. Installed employee/session,
-platform-clock/capacity, original native processing, Q2b and holistic current
-journey proof remain UNKNOWN; no production caller or new authority is implied.
+**not usable authority**. The clean frozen combined head
+`b1edd93392ecdb5784556104f2bb13629c57c302` subsequently received a valid
+independent APPROVE; the fixed Python success-header increment at
+`27eda02a86f0b5b57d90da743f2b180bfa522e78` received a separate valid
+security APPROVE. Actual Python-to-web conformance then exposed Node locally
+closing the verified TLS socket before peer EOF; a half-close alone also hid
+late extra bytes. The prospective correction preserves the same verified socket,
+observes bounded header bytes and total wire length through actual peer EOF,
+and retains every previous parser/hash/currentness/deadline guard. All151 web
+checks passed, including delayed-extra/double-response/no-EOF refusal. The
+full25MiB browser upload passed through actual private storage/custody using
+recording SQL; that is not actual SQL or installed employee-session proof.
+New phase evidence also reuses the existing mandatory case-evidence verifier:
+actual skipped/setup-failed cases refuse, even when pytest exits zero. Current
+increment review and full exact-head CI remain required before landing.
+Installed employee/session, platform-clock/capacity, original native processing,
+Q2b and holistic current journey proof remain UNKNOWN; no production caller or
+new authority is implied.
+
+Active bounded implementation owners are `/root/coverage` (complete browser
+upload/storage/SQL), `/root/journey` (same canonical compiler/ledger correction,
+qualified history, coherent business-review UI), and `/root/runtime` (durable
+interview/ordinary-chat workflow, original-text linkage, separately appointed
+conversation model consumer). Preparation does not mean these features are
+finished. The raw original paid-factory source and canonical once-only schema
+fixture repair are separately frozen for independent review; SQL017/018/019
+must be reconciled in the canonical migration inventory before combined proof.
+
+**Pending business meaning, asked on the existing #29:** if an approver loses
+authority, do earlier approvals remain effective until explicit withdrawal or
+pause for reapproval? No answer is inferred. Historical acceptance records stay
+immutable; current policy eligibility is UNKNOWN until this rule is settled.
+This question is separate from, and cannot open, the existing company-use and
+business-acceptance hold.
 
 | Outcome / existing card | Observable check and current source/evidence | Next deliverable / dependency / status |
 |---|---|---|
