@@ -197,6 +197,7 @@ def protected_replacement_request_server_v1(intake, peer_profile_path, expected_
                 self.close_connection = True
                 started = True
                 self.send_response(200)
+                self.send_header('Connection', 'close')
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(encoded)))
                 self.send_header('Cache-Control', 'no-store')

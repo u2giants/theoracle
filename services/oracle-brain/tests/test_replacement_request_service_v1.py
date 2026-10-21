@@ -94,6 +94,7 @@ def test_actual_mtls_real_factory_returns_only_control_metadata(tmp_path, monkey
         assert value['remoteStopProven'] is False and value['resultAvailable'] is False
         assert headers['Cache-Control'] == 'no-store' and int(headers['Content-Length']) == len(raw)
         assert headers['Content-Type'] == 'application/json'
+        assert headers['Connection'] == 'close'
 
 
 @pytest.mark.parametrize('identity', ['other', None])

@@ -115,6 +115,7 @@ def test_actual_mtls_fixed_sql_and_fresh_public_seven_metadata_only(tmp_path,cer
     assert status==200 and set(value)==FIELDS and raw==canonical_bytes(value)
     assert value['controlState']=='delivered' and not value['remoteStopProven'] and not value['resultAvailable']
     assert headers['Content-Type']=='application/json' and headers['Cache-Control']=='no-store, private'
+    assert headers['Connection']=='close'
     assert f.attempts==1 and len(f.connections)==1 and f.connections[0].committed and f.connections[0].closed
 
 

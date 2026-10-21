@@ -99,6 +99,7 @@ def protected_replacement_confirmation_server_v1(settings):
                 self.connection.settimeout(max(.001, min((end-datetime.now(timezone.utc)).total_seconds(), monotonic_end-time.monotonic())))
                 started = True
                 self.send_response(200)
+                self.send_header('Connection', 'close')
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(payload)))
                 self.send_header('Cache-Control', 'no-store, private')

@@ -122,6 +122,7 @@ def test_actual_upload_realfactory_private_bytes_and_original_deadline(tmp_path,
         assert result['state'] == 'awaiting_original_reading' and result['qualifiedSourceRef'] is None
         assert result['originalSha256'] == hashlib.sha256(PDF).hexdigest() and result['byteCount'] == len(PDF)
         assert headers['Cache-Control'] == 'no-store'
+        assert headers['Connection'] == 'close'
         assert f.intake_calls == ['reserve', 'finalize'] and f.connects == 2 and f.visible
         assert f.deadlines == [body['caller_deadline']] * 2
         objects = [p for p in private_bytes(f) if p.is_file()]

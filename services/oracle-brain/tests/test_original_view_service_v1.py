@@ -104,6 +104,7 @@ def test_actual_mtls_realfactory_pdf_two_closed_currentness_passes(tmp_path,cert
         status,data,headers=send(server,certificates,wire(f))
     assert status==200 and data==PDF
     assert headers['Content-Type']=='application/pdf' and headers['Cache-Control']=='no-store, private'
+    assert headers['Connection']=='close'
     assert headers['Content-Length']==str(len(PDF)) and headers['X-Content-Type-Options']=='nosniff'
     assert f.caps==4 and len(f.connections)==2 and all(c.closed and c.committed for c in f.connections)
     assert not any('INSERT' in q or 'UPDATE' in q for q,_ in f.queries)

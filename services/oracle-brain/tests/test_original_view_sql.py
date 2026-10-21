@@ -120,6 +120,7 @@ def test_actual_tls_sql_private_pdf_exact_and_viewer_cannot_mutate_or_borrow_rol
     with running(f) as server:
         status,data,headers=send(server,certificates,wire(f))
         assert status==200 and data==f.data and headers['Content-Type']=='application/pdf'
+        assert headers['Connection']=='close'
         assert hashlib.sha256(data).hexdigest()==f.settings.config.sources[0].original_sha256
         assert send(server,certificates,wire(f),headers={'Range':'bytes=0-10'})[:2]==(503,b'')
     url=psycopg.conninfo.make_conninfo(**f.target)

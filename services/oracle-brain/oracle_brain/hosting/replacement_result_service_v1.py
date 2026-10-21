@@ -257,7 +257,7 @@ def protected_replacement_result_server_v1(settings):
                 raw=read_request_body_v1(self,length,absolute_monotonic_deadline=end)
                 result=self.server.owned_result_loop.result(peer,raw,absolute_monotonic_deadline=end)
                 started = True
-                self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store')
+                self.send_response(200);self.send_header('Connection','close');self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store')
                 self.send_header('Content-Length',str(len(result)));self.end_headers();self.wfile.write(result)
             except Exception:
                 if not started:
