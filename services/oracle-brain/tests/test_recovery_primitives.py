@@ -1,18 +1,16 @@
 """S13 offline gate: restored-backup tombstones plus recovery primitives.
 
 Restored-backup tombstone enforcement is real on main (sources.withdrawal).
-Recovery primitives (export/import/rebuild, paused-workflow resume) are absent
-and skipped with the exact gap. This file is additive to test_source_lifecycle.py.
+Non-serving orchestration and observed-effect classification are exercised;
+actual export/import and durable workflow resume remain separate integration.
 Invented/synthetic only.
 """
 from __future__ import annotations
 
-import importlib.util
-
 import pytest
 
 from oracle_brain.sources.revisions import RevisionLedger
-from oracle_brain.sources.withdrawal import DERIVED_STORES, WithdrawalRegistry
+from oracle_brain.sources.withdrawal import DERIVED_STORES, Tombstone, WithdrawalRegistry
 
 
 class RecordingStore:
@@ -58,33 +56,31 @@ def test_restore_tombstones_cover_every_derived_store():
 
 
 def test_recovery_export_import_rebuild_primitives():
-    """Skip-with-reason when operations.recovery is not built."""
-    try:
-        _spec = importlib.util.find_spec("oracle_brain.operations.recovery")
-    except ModuleNotFoundError:
-        _spec = None
-    if _spec is None:
-        pytest.skip(
-            "oracle_brain.operations.recovery absent on main (S13 recovery "
-            "primitives not built; branch s13-recovery-offline has "
-            "test_operations_recovery.py). Named offline gate test registered "
-            "fail-closed until operations.recovery lands with export/import/"
-            "rebuild and paused-workflow resume without duplicate writes."
-        )
-    from oracle_brain.operations import recovery
-    assert hasattr(recovery, "export") or hasattr(recovery, "rebuild")
+    """Exercise actual non-serving orchestration, including all-store denial."""
+    from uuid import uuid4
+    from oracle_brain.operations.recovery import AcceptedEvent,RecoverySnapshot,packet_digest,rebuild
+    workspace,source=uuid4(),uuid4()
+    item=AcceptedEvent(workspace_id=workspace,event_id=uuid4(),source_id=source,
+        sequence=1,revision=1,operation='project',payload_digest='a'*64)
+    packet=RecoverySnapshot(workspace_id=workspace,backup_id=uuid4(),events=(item,),
+        event_packet_digest=packet_digest((item,)))
+    stores={name:RecordingStore() for name in DERIVED_STORES}
+    projected=[]
+    result=rebuild(packet,expected_workspace_id=workspace,stores=stores,
+        backup_tombstones=(),current_tombstones=(Tombstone(str(source),None),),
+        prior_events=(),current_can_read=lambda _:True,project=projected.append)
+    assert result.blocked==(item.event_id,) and projected==[]
+    assert all(store.purged==[(str(source),None)] for store in stores.values())
+    assert result.serving_authorized is False and result.live_proof_required is True
 
 
 def test_paused_workflow_resume_without_duplicate_sends():
-    """Skip-with-reason when workflow resume primitives are not built."""
-    try:
-        _spec = importlib.util.find_spec("oracle_brain.operations.recovery")
-    except ModuleNotFoundError:
-        _spec = None
-    if _spec is None:
-        pytest.skip(
-            "oracle_brain.operations.recovery absent on main; paused-workflow "
-            "resume without duplicate writes/sends cannot be asserted yet."
-        )
-    from oracle_brain.operations import recovery
-    assert hasattr(recovery, "resume") or hasattr(recovery, "replay")
+    """Uncertain observed effects never acquire permission to retry."""
+    from uuid import uuid4
+    from oracle_brain.operations.recovery import DeliveryObservation,resume
+    observed=DeliveryObservation(workspace_id=uuid4(),effect_id=uuid4(),
+        intent_digest='a'*64,state='uncertain')
+    result=resume((observed,),expected_workspace_id=observed.workspace_id,
+        current_allowed=lambda _:True,host_enabled=True,
+        validate_retained_receipt=lambda _:pytest.fail('uncertain send must not be retried'))
+    assert result[0].state=='UNKNOWN'
