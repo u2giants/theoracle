@@ -42,7 +42,7 @@ def test_valid_quote_entails_claim(source_id, source):
         quote="warehouse lead releases the sample kit",
     )
     result = validate_citation(
-        claim="The warehouse lead releases the sample kit.",
+        claim="warehouse lead releases the sample kit",
         citation=citation,
         sources=(source,),
     )
@@ -127,14 +127,14 @@ def test_report_accepts_only_when_all_citations_valid(source_id, source):
         quote="nope",
     )
     report = validate_citations(
-        claim="The warehouse lead releases the sample kit.",
+        claim="warehouse lead releases the sample kit",
         citations=(good,),
         sources=(source,),
     )
     assert report.valid and report.accepted and not report.rejected
 
     mixed = validate_citations(
-        claim="The warehouse lead releases the sample kit.",
+        claim="warehouse lead releases the sample kit",
         citations=(good, bad),
         sources=(source,),
     )
@@ -142,8 +142,9 @@ def test_report_accepts_only_when_all_citations_valid(source_id, source):
     assert len(mixed.accepted) == 1 and len(mixed.rejected) == 1
 
 
-def test_entailment_is_token_subset(source_id):
-    assert quote_entails_claim("signed color proof", "the signed color proof step")
+def test_entailment_requires_exact_extraction(source_id):
+    assert quote_entails_claim("signed color proof", "signed color proof")
+    assert not quote_entails_claim("signed color proof", "the signed color proof step")
     assert not quote_entails_claim("signed color proof", "the sample kit handoff")
     assert not quote_entails_claim("   ", "anything")
     assert "warehouse" in content_tokens("The Warehouse lead")
@@ -163,3 +164,12 @@ def test_empty_claim_raises(source_id, source):
 def test_result_shapes():
     assert issubclass(EntailmentResult, object)
     assert issubclass(EntailmentReport, object)
+
+
+@pytest.mark.parametrize(('claim', 'quote'), [
+    ('The kit was approved.', 'The kit was not approved.'),
+    ('Finance approved the kit.', 'The kit approved Finance.'),
+    ('Ten kits shipped.', 'Two kits shipped.'),
+])
+def test_token_overlap_never_establishes_semantic_entailment(claim, quote):
+    assert not quote_entails_claim(claim, quote)

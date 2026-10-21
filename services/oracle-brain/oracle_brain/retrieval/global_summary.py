@@ -13,7 +13,9 @@ from uuid import UUID
 from pydantic import Field
 
 from ..operating_model.source_receipts import _StrictModel
-from .packing import CoverageBounds
+from .packing import (CoverageBounds, SpanCandidate, SourceDependency, CurrentSourceReader,
+                      current_supported_spans)
+from .planner import AccessBounds
 
 GlobalState = Literal["answered", "abstained"]
 
@@ -23,6 +25,9 @@ class GlobalSupport(_StrictModel):
     schema_version: Literal[1] = 1
     span_id: str = Field(min_length=1, max_length=200)
     source_id: UUID
+    workspace_id: UUID
+    quote: str = Field(min_length=1)
+    roles: tuple[str, ...] = Field(min_length=1)
     revision: int = Field(strict=True, ge=1)
 
 
@@ -32,6 +37,7 @@ class GlobalClaim(_StrictModel):
     claim: str = Field(min_length=1, max_length=4000)
     revision: int = Field(strict=True, ge=1)
     support: tuple[GlobalSupport, ...] = ()
+    dependencies: tuple[SourceDependency, ...] = ()
 
 
 class GlobalSummary(_StrictModel):
@@ -46,12 +52,27 @@ class GlobalSummary(_StrictModel):
     rejected_claims: tuple[str, ...] = ()
 
 
-def _reject_unsupported(
-    claims: tuple[GlobalClaim, ...] | list[GlobalClaim],
-) -> tuple[tuple[GlobalClaim, ...], tuple[str, ...]]:
-    accepted = tuple(claim for claim in claims if claim.support)
-    rejected = tuple(claim.claim for claim in claims if not claim.support)
-    return accepted, rejected
+def _reject_unsupported(claims, access, current_source_reader):
+    accepted, rejected = [], []
+    for index, claim in enumerate(claims):
+        spans = tuple(SpanCandidate(span_id=s.span_id, source_id=s.source_id,
+                                   workspace_id=s.workspace_id, revision=s.revision,
+                                   quote=s.quote, roles=s.roles) for s in claim.support)
+        current = (() if access is None else
+                   current_supported_spans(spans, access, current_source_reader))
+        if not current:
+            # Never echo rejected/denied caller claim text in metadata either.
+            rejected.append(f'claim-{index}')
+            continue
+        accepted.append(GlobalClaim(
+            claim="\n".join(span.quote for span, _ in current),
+            revision=max(span.revision for span, _ in current),
+            support=tuple(GlobalSupport(span_id=span.span_id, source_id=span.source_id,
+                                       workspace_id=span.workspace_id, revision=span.revision,
+                                       quote=span.quote, roles=(access.role,))
+                          for span, _ in current),
+            dependencies=tuple(dep for _, dep in current)))
+    return tuple(accepted), tuple(rejected)
 
 
 def build_global_summary(
@@ -59,6 +80,8 @@ def build_global_summary(
     question: str,
     claims: tuple[GlobalClaim, ...] | list[GlobalClaim],
     coverage: CoverageBounds | None,
+    access: AccessBounds | None = None,
+    current_source_reader: CurrentSourceReader | None = None,
 ) -> GlobalSummary:
     """Assemble a company-wide summary under explicit coverage bounds.
 
@@ -81,7 +104,7 @@ def build_global_summary(
                 "No company-wide claim without explicit coverage bounds.",
                 "Missing evidence must abstain.",
             ),
-            rejected_claims=tuple(claim.claim for claim in claims),
+            rejected_claims=tuple(f'claim-{i}' for i, _ in enumerate(claims)),
         )
 
     labels: list[str] = []
@@ -100,7 +123,7 @@ def build_global_summary(
             f"{coverage.declared_population} in the declared population."
         )
 
-    accepted, rejected = _reject_unsupported(tuple(claims))
+    accepted, rejected = _reject_unsupported(tuple(claims), access, current_source_reader)
 
     if not accepted:
         return GlobalSummary(

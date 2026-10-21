@@ -88,11 +88,12 @@ def align_quote(citation: QuoteCitation, sources: tuple[SourceText, ...] | list[
 
 
 def quote_entails_claim(claim: str, quote: str) -> bool:
-    """Deterministic lexical entailment: every claim content token sits in the quote."""
-    claim_tokens = content_tokens(claim)
-    if not claim_tokens:
-        return False
-    return claim_tokens <= content_tokens(quote)
+    """Only an exact extractive quote is supported without semantic proof.
+
+    Token overlap loses negation, quantities and who performed an action.
+    Normalize whitespace only; never silently invent paraphrase entailment.
+    """
+    return bool(claim.strip()) and " ".join(claim.split()) == " ".join(quote.split())
 
 
 def validate_citation(

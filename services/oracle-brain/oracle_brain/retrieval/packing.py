@@ -7,7 +7,12 @@ and contradictions are carried as labels, never dropped.
 """
 from __future__ import annotations
 
-from typing import Literal
+import hashlib
+import json
+import math
+import time
+from secrets import token_hex
+from typing import Callable, Literal
 from uuid import UUID
 
 from pydantic import Field, model_validator
@@ -28,6 +33,72 @@ class SpanCandidate(_StrictModel):
     roles: tuple[str, ...] = Field(min_length=1)
     supports: tuple[str, ...] = ()
     contradicts: tuple[str, ...] = ()
+
+
+class SourceDependency(_StrictModel):
+    """Immutable exact-content dependency; identifiers alone never prove text."""
+    workspace_id: UUID
+    source_id: UUID
+    revision: int = Field(strict=True, ge=1)
+    span_id: str
+    quote_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+class CurrentSourceAccess(_StrictModel):
+    dependency: SourceDependency
+    actor_id: UUID
+    role: str
+    permitted: bool
+    challenge: str
+    valid_until: float
+    mac: str
+
+
+SOURCE_ACCESS_PURPOSE = 'retrieval-source-current:v1'
+CurrentSourceReader = Callable[[SourceDependency, AccessBounds, str], CurrentSourceAccess]
+
+
+def dependency_for(span: SpanCandidate) -> SourceDependency:
+    return SourceDependency(workspace_id=span.workspace_id, source_id=span.source_id,
+                            revision=span.revision, span_id=span.span_id,
+                            quote_sha256=hashlib.sha256(span.quote.encode()).hexdigest())
+
+
+def current_source_payload(proof: CurrentSourceAccess) -> str:
+    return json.dumps(proof.model_dump(mode='json', exclude={'mac'}),
+                      sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def current_supported_spans(spans, access: AccessBounds,
+                            current_source_reader: CurrentSourceReader | None):
+    """Final independent current-access proof for each retained dependency."""
+    from oracle_brain.seal import verify_mac
+    if current_source_reader is None or access.actor_id is None:
+        return ()
+    retained = []
+    seen = set()
+    for span in filter_by_access(spans, access):
+        dependency = dependency_for(span)
+        identity = (dependency.workspace_id, dependency.source_id,
+                    dependency.revision, dependency.span_id, dependency.quote_sha256)
+        if identity in seen:
+            continue
+        challenge = token_hex(32)
+        try:
+            proof = current_source_reader(dependency, access, challenge)
+            if (type(proof) is not CurrentSourceAccess or proof.dependency != dependency
+                    or proof.actor_id != access.actor_id or proof.role != access.role
+                    or proof.permitted is not True or proof.challenge != challenge
+                    or not math.isfinite(proof.valid_until)
+                    or not time.time() < proof.valid_until <= time.time() + 60):
+                continue
+            verify_mac(SOURCE_ACCESS_PURPOSE, proof.mac, current_source_payload(proof))
+        except Exception:
+            # An unavailable/denied source cannot contribute text or citations.
+            continue
+        retained.append((span, dependency))
+        seen.add(identity)
+    return tuple(retained)
 
 
 class CoverageBounds(_StrictModel):
@@ -52,6 +123,7 @@ class AssembledAnswer(_StrictModel):
     question: str = Field(min_length=1, max_length=4000)
     claim: str | None = None
     citations: tuple[str, ...] = ()
+    dependencies: tuple[SourceDependency, ...] = ()
     coverage: CoverageBounds | None = None
     caveats: tuple[str, ...] = ()
     labels: tuple[str, ...] = ()
@@ -62,8 +134,8 @@ class AssembledAnswer(_StrictModel):
         if self.state == "answered":
             if not self.claim:
                 raise ValueError("answered requires a claim")
-            if not self.citations:
-                raise ValueError("answered requires citations")
+            if not self.citations or not self.dependencies:
+                raise ValueError("answered requires citations and dependencies")
             if self.clarifying_question:
                 raise ValueError("clarifying_question only on needs_clarification")
         elif self.state == "abstained":
@@ -111,6 +183,7 @@ def assemble_answer(
     coverage: CoverageBounds | None = None,
     claim: str | None = None,
     clarifying_question: str | None = None,
+    current_source_reader: CurrentSourceReader | None = None,
 ) -> AssembledAnswer:
     """Assemble a coverage-honest answer from fixture evidence under bounds.
 
@@ -157,6 +230,14 @@ def assemble_answer(
             ),
         )
 
+    current = current_supported_spans(visible, access, current_source_reader)
+    if not current:
+        return AssembledAnswer(
+            state="abstained", mode=mode, question=question,
+            coverage=coverage, caveats=("No currently authorized source support.",),
+        )
+    visible = tuple(span for span, _ in current)
+
     supported = {key for span in visible for key in span.supports}
     contradicted = {key for span in visible for key in span.contradicts}
     conflict_keys = sorted(supported & contradicted)
@@ -165,9 +246,8 @@ def assemble_answer(
     if conflict_keys:
         labels.append("contradiction")
         caveats.append(
-            "Contradictory evidence retained and labeled for: "
-            + ", ".join(conflict_keys)
-            + "."
+            "Contradictory evidence retained and labeled; candidate relation "
+            "labels do not establish an unsupported claim."
         )
 
     caveats.append(
@@ -195,10 +275,13 @@ def assemble_answer(
             coverage=coverage, caveats=tuple(caveats), labels=tuple(labels),
         )
 
+    # The caller's claim is a query/selector, never returned evidence. Build
+    # extractive text only from exact current-accessible source quotes.
     return AssembledAnswer(
         state="answered", mode=mode, question=question,
-        claim=claim,
-        citations=tuple(span.span_id for span in visible),
+        claim="\n".join(span.quote for span, _ in current),
+        citations=tuple(span.span_id for span, _ in current),
+        dependencies=tuple(dependency for _, dependency in current),
         coverage=coverage,
         caveats=tuple(caveats),
         labels=tuple(labels),

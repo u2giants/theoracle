@@ -39,6 +39,7 @@ _LOCAL_MARKERS = (
 class AccessBounds(_StrictModel):
     """Role and workspace bounds every candidate span must satisfy."""
     role: str = Field(min_length=1, max_length=200)
+    actor_id: UUID | None = None
     workspace_id: UUID
     allowed_workspace_ids: tuple[UUID, ...] = Field(min_length=1)
 
