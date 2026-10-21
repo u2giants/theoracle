@@ -91,12 +91,25 @@ finished. The raw original paid-factory source and canonical once-only schema
 fixture repair are separately frozen for independent review; SQL017/018/019
 must be reconciled in the canonical migration inventory before combined proof.
 
-**Pending business meaning, asked on the existing #29:** if an approver loses
-authority, do earlier approvals remain effective until explicit withdrawal or
-pause for reapproval? No answer is inferred. Historical acceptance records stay
-immutable; current policy eligibility is UNKNOWN until this rule is settled.
-This question is separate from, and cannot open, the existing company-use and
-business-acceptance hold.
+**Owner business ruling, October 21, 2026, 6:43 PM EDT:** Albert answered the
+approval-longevity question directly: “Remain in force until withdrawn”.
+[The exact question, answer and implementation scope are recorded on #29](https://github.com/u2giants/theoracle/issues/29#issuecomment-6328199563).
+Earlier valid decisions therefore survive the approver's later loss of authority
+until explicit withdrawal; new decisions/replays still require current authority.
+Each decision remains bound to its exact version/assertions/scope. No earlier
+approval transfers to a corrected new version, supplies current source/access
+rights, or confirms the entire model. This ruling cannot open the separate
+company-use or business-acceptance hold.
+
+**Gate incident, October 21, 2026 EDT:** a sub-agent command batch failed to
+stop after the protected database gate refused. Its synthetic setup was
+interrupted before fixture yield, new migration or tests; root independently
+verified exact owned containers/networks/volumes absent. That attempt is invalid,
+not a passing gated proof. Future dependent commands explicitly check exit status.
+A separate current-upstream source-only proof may proceed only after its own
+actual stronger-class gate allows; omitted deployment artifacts confer no release
+or installation authority. Protected packet and source-proof obligations stay
+distinct. Incident and cleanup evidence remain retained.
 
 | Outcome / existing card | Observable check and current source/evidence | Next deliverable / dependency / status |
 |---|---|---|

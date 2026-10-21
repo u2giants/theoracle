@@ -174,7 +174,7 @@ def run_phase_tests(python: Path, tests: list[str]) -> tuple[int, dict, str]:
     Private fresh evidence prevents a prior run's report from satisfying this run.
     """
     sys.path.insert(0, str(ROOT))
-    from scripts.oracle2.verify_workflow_integrity import aggregate_evidence
+    from scripts.oracle2.contract_test_evidence import aggregate_evidence
 
     with tempfile.TemporaryDirectory(prefix="oracle-phase-evidence-") as temporary:
         directory = Path(temporary)

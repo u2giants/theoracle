@@ -292,3 +292,26 @@ def test_canonical_consolidation_is_required_once_with_017_before_018():
         assert S03_TESTS.count('test_' + name + '.py') == 1
         assert S05_TESTS.count('test_' + name + '.py') == 1
     assert verifier.SYNTHETIC_MIGRATIONS[-2:] == ('017_processing_model_history.sql', '018_original_review_reading_input.sql')
+
+
+def test_phase_frontdoor_needs_no_worker_database_or_process_dependencies(tmp_path):
+    import subprocess
+    import sys
+    case = tmp_path / 'test_locked_runtime.py'
+    case.write_text('def test_actual(): assert True\n')
+    wrapper = """import builtins,runpy,sys
+from pathlib import Path
+original=builtins.__import__
+def guarded(name,*args,**kwargs):
+    if name.split('.')[0] in ('psutil','psycopg'):
+        raise AssertionError('phase frontdoor imported worker-only dependencies')
+    return original(name,*args,**kwargs)
+builtins.__import__=guarded
+phase=runpy.run_path(sys.argv[1])
+code,evidence,_=phase['run_phase_tests'](Path(sys.argv[2]),[sys.argv[3]])
+assert code==0 and evidence['tests']==1 and evidence['failures']==evidence['skipped']==0
+"""
+    result = subprocess.run([sys.executable, '-I', '-c', wrapper,
+        str(Path(__file__).parents[3] / 'scripts/oracle2/verify_phase.py'),
+        sys.executable, str(case)], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
