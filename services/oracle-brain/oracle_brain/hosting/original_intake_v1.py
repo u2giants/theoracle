@@ -43,15 +43,19 @@ class OriginalIntakeAppointmentV1(StrictRecord):
     storage_profile_hash:str=Field(pattern=HASH)
     issuer_actor:UUID;reviewer_actor:UUID
     operations:tuple[Literal['create','replace'],...]=Field(min_length=1,max_length=2)
+    media_types:tuple[Literal['application/pdf','text/plain'],...]=('application/pdf',)
     valid_from:AwareDatetime;original_horizon:AwareDatetime;expires_at:AwareDatetime
     @model_validator(mode='after')
     def independent(self):
-        if self.issuer_actor==self.reviewer_actor or self.principal_id in (self.issuer_actor,self.reviewer_actor) or self.valid_from>=self.expires_at or len(set(self.operations))!=len(self.operations):raise ValueError('independent finite appointment required')
+        if self.issuer_actor==self.reviewer_actor or self.principal_id in (self.issuer_actor,self.reviewer_actor) or self.valid_from>=self.expires_at or len(set(self.operations))!=len(self.operations) or not self.media_types or len(set(self.media_types))!=len(self.media_types):raise ValueError('independent finite appointment required')
         return self
 class OriginalIntakeRequestV1(StrictRecord):
     source_id:UUID|None;expected_head:int=Field(ge=0,le=9007199254740991)
     idempotency_key:UUID;filename:str=Field(min_length=1,max_length=255)
     original_sha256:str=Field(pattern=HASH);byte_count:int=Field(ge=1,le=MAX_BYTES)
+    # Selected only by the two fixed protected factory methods. Keep inherited
+    # legacy PDF upload wire bytes unchanged; callers cannot choose text there.
+    media_type:Literal['application/pdf','text/plain']=Field(default='application/pdf',exclude=True)
     @model_validator(mode='after')
     def shape(self):
         if (self.source_id is None)!=(self.expected_head==0) or any(x in self.filename for x in ('/','\\')) or any(ord(x)<32 for x in self.filename):raise ValueError('exact bounded source selector/filename required')
@@ -71,7 +75,12 @@ def _pinned(path,seal,limit=65536):
 
 def _parse(cls,raw):
     value=cls.model_validate_json(raw)
-    if canonical_bytes(value.model_dump(mode='json'))!=raw:raise ValueError('canonical protected record required')
+    if canonical_bytes(value.model_dump(mode='json'))!=raw:
+        # Only the newly optional media admission may be absent in retained PDF
+        # appointments. Preserve its original byte/hash pin; never rewrite it.
+        legacy=(cls is OriginalIntakeAppointmentV1 and 'media_types' not in json.loads(raw)
+            and canonical_bytes(value.model_dump(mode='json',exclude={'media_types'}))==raw)
+        if not legacy:raise ValueError('canonical protected record required')
     return value
 
 @dataclass(frozen=True)
@@ -81,6 +90,8 @@ class OriginalIntakeSettingsV1:
     config_path:Path;config_sha256:str;appointment_path:Path;appointment_sha256:str
     expected_issuer_actor:UUID;expected_reviewer_actor:UUID
     def current(self):
+        from ._protected_control_listener_v1 import request_remaining_v1
+        request_remaining_v1(required=False)
         c=_parse(OriginalIntakeConfigV1,_pinned(self.config_path,self.config_sha256))
         a=_parse(OriginalIntakeAppointmentV1,_pinned(self.appointment_path,self.appointment_sha256))
         if c!=self.config or a!=self.appointment or a.config_sha256!=self.config_sha256 or a.issuer_actor!=self.expected_issuer_actor or a.reviewer_actor!=self.expected_reviewer_actor:raise PermissionError('intake startup changed')
@@ -105,8 +116,9 @@ def reservation_original_ref_v1(settings:OriginalIntakeSettingsV1,request:Origin
     if datetime.now(timezone.utc)>=deadline or (request.source_id is not None and reservation.source_id!=request.source_id) or reservation.revision!=request.expected_head+1:raise PermissionError('reservation identity/horizon differs')
     if type(data) is not bytes or len(data)!=request.byte_count or hashlib.sha256(data).hexdigest()!=request.original_sha256:raise ValueError('original bytes differ')
     operation='create' if request.source_id is None else 'replace'
+    if request.media_type not in settings.appointment.media_types:raise PermissionError('original media not independently appointed')
     if operation not in settings.appointment.operations:raise PermissionError('intake operation not appointed')
-    original=OriginalObjectRefV1(settings.config.workspace_id,reservation.source_id,reservation.revision,request.original_sha256,request.byte_count,'application/pdf',settings.config.storage_profile_hash)
+    original=OriginalObjectRefV1(settings.config.workspace_id,reservation.source_id,reservation.revision,request.original_sha256,request.byte_count,request.media_type,settings.config.storage_profile_hash)
     ref=ReservationOriginalObjectRefV1(original,reservation.reservation_id)
     if reservation.private_object_key!=ref.key:raise PermissionError('SQL reservation key differs')
     return ref,deadline
@@ -121,7 +133,7 @@ class ReserveEnvelopeV1(StrictRecord):
 from .replacement_public_view_v1 import Public
 class OriginalIntakeSnapshotV1(Public):
     sourceId:UUID;revision:int=Field(ge=1);originalSha256:str=Field(pattern=HASH)
-    byteCount:int=Field(ge=1,le=MAX_BYTES);mediaType:Literal['application/pdf'];filename:str
+    byteCount:int=Field(ge=1,le=MAX_BYTES);mediaType:Literal['application/pdf','text/plain'];filename:str
     state:Literal['awaiting_original_reading','reading_failed','qualified']
     qualifiedSourceRef:object
     @model_validator(mode='after')
@@ -160,7 +172,10 @@ def _intake_current_deadline(settings,deadline,context=None):
     now=datetime.now(timezone.utc)
     if not now<deadline<=settings.config.original_horizon or now>=min(bound,deadline):
         raise PermissionError('original intake deadline elapsed or excessive')
-    return (min(bound,deadline)-now).total_seconds()
+    remaining=(min(bound,deadline)-now).total_seconds()
+    from ._protected_control_listener_v1 import request_remaining_v1
+    original=request_remaining_v1(required=False)
+    return min(remaining,original) if original is not None else remaining
 
 
 class OriginalIntakeFactoryV1:
@@ -213,28 +228,44 @@ class OriginalIntakeFactoryV1:
             conn.commit()
         _intake_current_deadline(s,deadline,value.context)
         return value
-    def intake_pdf_v1(self,*,source_id,expected_head,idempotency_key,filename,original_sha256,data:bytes,caller_deadline=None):
+    def intake_pdf_v1(self,**kwargs):
+        return self._intake_v1(media_type='application/pdf',**kwargs)
+    def intake_text_v1(self,**kwargs):
+        data=kwargs.get('data')
+        if type(data) is not bytes or not 1<=len(data)<=32768:raise ValueError('bounded exact UTF8 original required')
+        text=data.decode('utf-8',errors='strict')
+        if not text.strip() or '\x00' in text or text.encode('utf-8')!=data:raise ValueError('exact nonempty UTF8 original required')
+        return self._intake_v1(media_type='text/plain',**kwargs)
+    def _intake_v1(self,*,source_id,expected_head,idempotency_key,filename,original_sha256,data:bytes,media_type,caller_deadline=None):
         from uuid import uuid4
         if type(data) is not bytes:raise TypeError('exact original bytes required')
-        q=OriginalIntakeRequestV1(source_id=source_id,expected_head=expected_head,idempotency_key=idempotency_key,filename=filename,original_sha256=original_sha256,byte_count=len(data))
+        q=OriginalIntakeRequestV1(source_id=source_id,expected_head=expected_head,idempotency_key=idempotency_key,filename=filename,original_sha256=original_sha256,byte_count=len(data),media_type=media_type)
         if hashlib.sha256(data).hexdigest()!=q.original_sha256:raise ValueError('original byte hash differs')
         s=self.settings;bound=s.current();written=None
+        if q.media_type not in s.appointment.media_types:raise PermissionError('original media not independently appointed')
         original_deadline=bound if caller_deadline is None else caller_deadline
         _intake_current_deadline(s,original_deadline)
         if original_deadline>bound:raise PermissionError('caller intake deadline exceeds existing appointment')
-        reserved=self.reserve_pdf_v1(q, caller_deadline=original_deadline)
-        return self.finalize_reserved_pdf_v1(q, reserved, data, caller_deadline=original_deadline)
+        reserved=self._reserve_original_v1(q, caller_deadline=original_deadline)
+        return self._finalize_reserved_original_v1(q, reserved, data, caller_deadline=original_deadline)
 
     def reserve_pdf_v1(self,q,*,caller_deadline):
+        if type(q) is not OriginalIntakeRequestV1 or q.media_type!='application/pdf':raise TypeError('exact PDF intake request required')
+        return self._reserve_original_v1(q,caller_deadline=caller_deadline)
+    def _reserve_original_v1(self,q,*,caller_deadline):
         """Fresh actual SQL context for the immutable original reservation."""
         if type(q) is not OriginalIntakeRequestV1:raise TypeError('exact intake request required')
         s=self.settings;original_deadline=caller_deadline
+        if q.media_type not in s.appointment.media_types:raise PermissionError('original media not independently appointed')
         _intake_current_deadline(s,original_deadline)
         if original_deadline>s.current():raise PermissionError('caller intake deadline exceeds existing appointment')
-        intake=dict(source_id=str(q.source_id) if q.source_id else None,filename=q.filename,media_type='application/pdf',byte_count=q.byte_count,caller_deadline=original_deadline.isoformat())
+        intake=dict(source_id=str(q.source_id) if q.source_id else None,filename=q.filename,media_type=q.media_type,byte_count=q.byte_count,caller_deadline=original_deadline.isoformat())
         return self._call('reserve',(q.expected_head,json.dumps(intake),q.idempotency_key),ReserveEnvelopeV1,caller_deadline=original_deadline)
 
     def finalize_reserved_pdf_v1(self,q,reserved,data,*,caller_deadline):
+        if type(q) is not OriginalIntakeRequestV1 or q.media_type!='application/pdf':raise TypeError('exact PDF intake request required')
+        return self._finalize_reserved_original_v1(q,reserved,data,caller_deadline=caller_deadline)
+    def _finalize_reserved_original_v1(self,q,reserved,data,*,caller_deadline):
         """Reuse existing custody/finalizer; never reserves another source."""
         if type(q) is not OriginalIntakeRequestV1 or type(reserved) is not ReserveEnvelopeV1 or type(data) is not bytes:raise TypeError('exact reserved original required')
         s=self.settings;original_deadline=caller_deadline;written=None
@@ -262,7 +293,7 @@ class OriginalIntakeFactoryV1:
             _intake_current_deadline(s,original_deadline,final.context)
             if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake original finalization deadline elapsed')
             snapshot=final.snapshot
-            if snapshot.sourceId!=ref.original.source_id or snapshot.revision!=ref.original.revision or snapshot.originalSha256!=q.original_sha256 or snapshot.byteCount!=q.byte_count or snapshot.filename!=q.filename:raise PermissionError('finalized original identity differs')
+            if snapshot.sourceId!=ref.original.source_id or snapshot.revision!=ref.original.revision or snapshot.originalSha256!=q.original_sha256 or snapshot.byteCount!=q.byte_count or snapshot.filename!=q.filename or snapshot.mediaType!=q.media_type:raise PermissionError('finalized original identity differs')
             return snapshot
         except BaseException as error:
             if written is not None:

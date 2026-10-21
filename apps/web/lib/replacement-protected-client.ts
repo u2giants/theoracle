@@ -3,8 +3,9 @@
 import * as https from 'node:https';
 import * as tls from 'node:tls';
 import { performance } from 'node:perf_hooks';
-import { canonicalHash, canonicalJson, canonicalUuid, instant, matchesIdentity, parseClosedJson, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding,readInstalledModelReviewBinding, MAX_ORIGINAL_BYTES, sha256, type InstalledBinding, type ProtectedBinding, type ViewerSourcePin } from './replacement-server-binding';
-import { readControlWindow, unavailableControl, privateControlHeaders } from './replacement-control-window';
+import { canonicalHash, canonicalJson, canonicalUuid, instant, matchesIdentity, parseClosedJson, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding,readInstalledModelReviewBinding,readInstalledConversationBinding, MAX_ORIGINAL_BYTES, sha256, type InstalledBinding, type ProtectedBinding, type ViewerSourcePin } from './replacement-server-binding';
+import { isConversationPath,readControlWindow, unavailableControl, privateControlHeaders } from './replacement-control-window';
+import { parseConversationResponse,validateConversationRequest,type ConversationPacket } from './replacement-conversation-contract';
 if (typeof window !== 'undefined') throw new Error('Replacement control unavailable');
 const failure = (): never => { throw new Error('Replacement control unavailable'); };
 const exact = (v: unknown, fields: readonly string[]): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === fields.length && fields.every(k => Object.hasOwn(v,k));
@@ -56,7 +57,7 @@ async function identity(binding: Readonly<ProtectedBinding>, window: Window): Pr
   remaining(window);
 }
 function current(initial: InstalledBinding<ProtectedBinding>, window: Window): void {
-  const again = initial.profile.purpose==='replacement-model-review-web-binding-v1'?readInstalledModelReviewBinding():initial.profile.purpose==='replacement-upload-web-binding-v1'?readInstalledUploadBinding():initial.profile.purpose==='replacement-original-web-binding-v1'?readInstalledViewerBinding():readInstalledBinding();
+  const again = initial.profile.purpose==='employee-conversation-web-binding-v1'?readInstalledConversationBinding():initial.profile.purpose==='replacement-model-review-web-binding-v1'?readInstalledModelReviewBinding():initial.profile.purpose==='replacement-upload-web-binding-v1'?readInstalledUploadBinding():initial.profile.purpose==='replacement-original-web-binding-v1'?readInstalledViewerBinding():readInstalledBinding();
   if (canonicalJson(again.profile) !== canonicalJson(initial.profile)) return failure();
   window.end = Math.min(window.end,instant(again.profile.expires_at),instant(again.profile.original_horizon));
   remaining(window);
@@ -102,7 +103,7 @@ export function validateControlRequest(bytes: Uint8Array): Readonly<Record<strin
   return Object.freeze(p);
 }
 
-async function transport(installed: InstalledBinding<ProtectedBinding>, body: Buffer, window: Window,pin?:Readonly<ViewerSourcePin>): Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket> {
+async function transport(installed: InstalledBinding<ProtectedBinding>, body: Buffer, window: Window,pin?:Readonly<ViewerSourcePin>): Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|ConversationPacket> {
   const p = installed.profile; const url = new URL(p.backend_origin);
   let socket: tls.TLSSocket | undefined; let request: ReturnType<typeof https.request> | undefined;
   const abort = () => { request?.destroy(); socket?.destroy(); };
@@ -129,7 +130,7 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
     // Keep observing the same verified socket after Node detaches its HTTP
     // parser. Count bytes only; HTTPS remains the sole semantic HTTP parser.
     const review=p.purpose==='replacement-model-review-web-binding-v1';
-    const headerLimit=16384,bodyLimit=review?262144:pin?MAX_ORIGINAL_BYTES:16384;
+    const headerLimit=16384,bodyLimit=p.purpose==='employee-conversation-web-binding-v1'?4194304:review?262144:pin?MAX_ORIGINAL_BYTES:16384;
     let wireSize=0,headerPrefix=Buffer.alloc(0),headerLength:number|undefined,expectedWireSize:number|undefined,wireFailed=false;
     let rejectWire:(()=>void)|undefined;
     const wireRefuse=()=>{wireFailed=true;rejectWire?.();abort();};
@@ -148,18 +149,18 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
     const agent = new https.Agent({keepAlive:false,maxSockets:1});
     agent.createConnection = () => connected;
     try {
-      const response = new Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket>((resolve,reject) => {
-        let metadata: Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|undefined; let ended = false; let peerEnded = false; let responseCount = 0;
+      const response = new Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|ConversationPacket>((resolve,reject) => {
+        let metadata: Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|ConversationPacket|undefined; let ended = false; let peerEnded = false; let responseCount = 0;
         const refuse = () => reject(new Error('Replacement control unavailable'));
         rejectWire=refuse;
         connected.once('end',() => { peerEnded = true; });
         connected.once('close',(hadError) => { if (hadError || !peerEnded || !ended || !metadata || wireFailed || headerLength===undefined || expectedWireSize===undefined || wireSize!==expectedWireSize) refuse(); else resolve(metadata); });
-        request = https.request({protocol:'https:',hostname:p.server_dns,port:url.port || 443,path:p.purpose==='replacement-model-review-web-binding-v1'?p.review_path:p.purpose==='replacement-upload-web-binding-v1'?p.upload_path:p.purpose==='replacement-original-web-binding-v1'?p.original_path:p.control_path,method:'POST',agent,headers:{'Content-Type':'application/json','Content-Length':String(body.length),'Connection':'close'}},res => {
+        request = https.request({protocol:'https:',hostname:p.server_dns,port:url.port || 443,path:p.purpose==='employee-conversation-web-binding-v1'?p.conversation_path:p.purpose==='replacement-model-review-web-binding-v1'?p.review_path:p.purpose==='replacement-upload-web-binding-v1'?p.upload_path:p.purpose==='replacement-original-web-binding-v1'?p.original_path:p.control_path,method:'POST',agent,headers:{'Content-Type':'application/json','Content-Length':String(body.length),'Connection':'close'}},res => {
           responseCount++; if (responseCount !== 1 || res.statusCode !== 200 || res.headers['content-type'] !== (pin?(pin.media_type==='application/pdf'?'application/pdf':'text/plain; charset=utf-8'):'application/json') || res.headers['content-encoding'] !== undefined || res.headers['transfer-encoding'] !== undefined || res.headers.connection !== 'close') { refuse(); abort(); return; }
           const seen = new Set<string>();
           for (let i = 0; i < res.rawHeaders.length; i += 2) { const h = res.rawHeaders[i]!.toLowerCase(); if (seen.has(h)) { refuse(); abort(); return; } seen.add(h); }
           const len = res.headers['content-length'];
-          if (typeof len !== 'string' || !/^[1-9][0-9]{0,7}$/.test(len) || Number(len) > (review?262144:pin?MAX_ORIGINAL_BYTES:p.purpose==='replacement-upload-web-binding-v1'?16384:4096) || (pin!==undefined&&Number(len)!==pin.byte_count)) { refuse(); abort(); return; }
+          if (typeof len !== 'string' || !/^[1-9][0-9]{0,7}$/.test(len) || Number(len) > (p.purpose==='employee-conversation-web-binding-v1'?4194304:review?262144:pin?MAX_ORIGINAL_BYTES:p.purpose==='replacement-upload-web-binding-v1'?16384:4096) || (pin!==undefined&&Number(len)!==pin.byte_count)) { refuse(); abort(); return; }
           if(headerLength===undefined){wireRefuse();return;}expectedWireSize=headerLength+Number(len);
           if(wireSize>expectedWireSize){wireRefuse();return;}
           let lease:string|undefined;
@@ -177,7 +178,7 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
             catch { refuse(); abort(); }
           });
           res.once('aborted',refuse); res.once('error',refuse);
-          res.once('end',() => { try { remaining(window); if (!res.complete || size !== Number(len) || res.trailers && Object.keys(res.trailers).length) return refuse(); if(pin&&original&&lease){if(sha256(original)!==pin.original_sha256)throw new Error();if(pin.media_type==='application/pdf'){if(!original.subarray(0,5).equals(Buffer.from('%PDF-')))throw new Error();}else{const text=original.toString('utf8');if(text.includes('\0')||!Buffer.from(text,'utf8').equals(original))throw new Error();}remaining(window);metadata={data:original,validUntil:lease};}else if(review&&lease)metadata={review:parseModelReviewResponse(Buffer.concat(chunks,size)),validUntil:lease};else metadata = p.purpose==='replacement-upload-web-binding-v1'?parseUploadResponse(Buffer.concat(chunks,size)):parseControlMetadata(Buffer.concat(chunks,size)); ended = true; } catch { refuse(); abort(); } });
+          res.once('end',() => { try { remaining(window); if (!res.complete || size !== Number(len) || res.trailers && Object.keys(res.trailers).length) return refuse(); if(pin&&original&&lease){if(sha256(original)!==pin.original_sha256)throw new Error();if(pin.media_type==='application/pdf'){if(!original.subarray(0,5).equals(Buffer.from('%PDF-')))throw new Error();}else{const text=original.toString('utf8');if(text.includes('\0')||!Buffer.from(text,'utf8').equals(original))throw new Error();}remaining(window);metadata={data:original,validUntil:lease};}else if(review&&lease)metadata={review:parseModelReviewResponse(Buffer.concat(chunks,size)),validUntil:lease};else metadata = p.purpose==='employee-conversation-web-binding-v1'?parseConversationResponse(Buffer.concat(chunks,size)):p.purpose==='replacement-upload-web-binding-v1'?parseUploadResponse(Buffer.concat(chunks,size)):parseControlMetadata(Buffer.concat(chunks,size)); ended = true; } catch { refuse(); abort(); } });
         });
         request.once('error',refuse);
         request.setTimeout(remaining(window),() => { refuse(); abort(); });
@@ -377,5 +378,27 @@ export async function authenticatedModelReviewPageModel():Promise<string|undefin
  try{
   const installed=readInstalledModelReviewBinding();window.end=Math.min(window.end,instant(installed.profile.expires_at),instant(installed.profile.original_horizon));
   current(installed,window);await identity(installed.profile,window);current(installed,window);return installed.profile.model_id;
+ }catch{return undefined;}
+}
+
+/** Same sole verified identity/clock/socket owner, separate installed purpose. */
+export async function requestEmployeeConversation(request:Request):Promise<ConversationPacket|undefined>{
+ const wall=Date.now(),mono=performance.now();const window:Window={wall,mono,end:wall+30000,signal:request.signal,proxyMonoEnd:process.hrtime.bigint()+30000000000n};
+ try{
+  const url=new URL(request.url);if(!isConversationPath(url.pathname)||url.search)return undefined;
+  const proxyWindow=readControlWindow(request.headers);window.end=Math.min(window.end,proxyWindow.wall_end);window.proxyMonoEnd=BigInt(proxyWindow.mono_end);
+  const installed=readInstalledConversationBinding();window.end=Math.min(window.end,instant(installed.profile.expires_at),instant(installed.profile.original_horizon));
+  origin(request,installed.profile);remaining(window);await identity(installed.profile,window);
+  const body=await readBody(request,window);const q=validateConversationRequest(body);const deadline=instant(q.caller_deadline);
+  if(deadline<=Date.now()||deadline>window.end||deadline>wall+30000)return undefined;window.end=Math.min(window.end,deadline);
+  if(url.pathname!=='/api/consultant/interviews'&&q.thread_id!==url.pathname.split('/')[4])return undefined;
+  if(url.pathname==='/api/consultant/interviews'&&q.operation!==undefined&&!['list','status'].includes(String(q.operation)))return undefined;
+  current(installed,window);await identity(installed.profile,window);current(installed,window);
+  const response=await transport(installed,body,window);
+  if('runId'in response||'data'in response||!('schema_version'in response))return undefined;
+  const result=response as ConversationPacket;
+  if('principal_id'in result&&(result.principal_id!==installed.profile.principal_id||result.workspace_id!==installed.profile.workspace_id))return undefined;
+  if(q.thread_id&&'thread_id'in result&&result.thread_id!==q.thread_id)return undefined;
+  current(installed,window);await identity(installed.profile,window);current(installed,window);return result;
  }catch{return undefined;}
 }

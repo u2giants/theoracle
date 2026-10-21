@@ -6,7 +6,7 @@ from typing import Literal
 import psycopg
 from oracle_brain.knowledge.authority import _lock, _has_authority_conn
 import json
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field,field_validator,model_validator
 from oracle_brain.provider_policy import authorize, ProcessingRequest, ProcessingApproval
 from oracle_brain.provider_transport import transport_options
 from .contracts import StrictRecord, digest
@@ -22,6 +22,39 @@ class Pricing(StrictRecord):
     max_output_tokens: int = Field(strict=True, gt=0)
     expires_at: AwareDatetime
     admitted_register_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+class ConversationTextPricingV1(Pricing):
+    """Closed externally pinned text-only bound, never a route/spend grant."""
+    quote_schema:Literal['employee-conversation-text-pricing-v1']='employee-conversation-text-pricing-v1'
+    provider:Literal['openrouter']='openrouter'
+    model:Literal['openai/gpt-6.1-sol','openai/gpt-6-astra']
+    input_cache_write_per_million_usd:Decimal=Field(ge=0,allow_inf_nan=False)
+    per_request_fee_usd:Decimal=Field(ge=0,allow_inf_nan=False)
+    input_tokens_upper_bound:int=Field(strict=True,gt=0)
+    model_context_tokens:int=Field(strict=True,gt=0)
+    pricing_policy_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    catalogue_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    model_capability_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    account:str=Field(min_length=1,max_length=200)
+    key_fingerprint:str=Field(pattern=r'^[0-9a-f]{64}$')
+    ledger_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    terms_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    valid_from:AwareDatetime
+
+    @field_validator('schema_version',mode='before')
+    @classmethod
+    def exact_text_quote_version(cls,value):
+        if type(value) is not int or value!=1:raise ValueError('exact text quote version required')
+        return value
+    @model_validator(mode='after')
+    def finite_complete_text_bound(self):
+        if (not self.valid_from<self.expires_at or self.account!='key-sha256:'+self.key_fingerprint
+            or not 1<=self.max_output_tokens<=8192
+            or self.input_tokens_upper_bound+self.max_output_tokens>self.model_context_tokens
+            or any(not getattr(self,k).is_finite() for k in ('input_per_million_usd','output_per_million_usd','input_cache_write_per_million_usd','per_request_fee_usd'))):
+            raise ValueError('complete finite text quote required')
+        return self
+
 
 class AdmittedAllocationLimitV2(StrictRecord):
     """Trusted externally qualified cap projection; fields alone grant nothing.
@@ -49,8 +82,9 @@ class Budget:
         self.admitted_allocation=admitted_allocation
     def reserve(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 maximum: Decimal,pricing_hash: str, account_remaining: Decimal | None = None, correction_hash: str | None = None) -> UUID:
-        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance','source-original-reading','source-original-review'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
+        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance','source-original-reading','source-original-review','employee-conversation'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
             raise PermissionError('private dispatch purpose/attempt/cost not admitted')
+        if purpose=='employee-conversation' and attempt!=1:raise PermissionError('conversation UNKNOWN never grants another attempt')
         # Historical keyword account_remaining denotes this one Oracle key,
         # not unrelated application keys or the provider's whole account.
         if account_remaining is not None and (not account_remaining.is_finite() or account_remaining<0):raise PermissionError('invalid exact Oracle-key allowance')
@@ -160,6 +194,14 @@ class AdmittedProvider:
             raise ValueError('input reservation does not cover the complete dispatch payload')
 
     def _reservation_maximum(self, *, input_tokens_upper_bound):
+        if self.request.purpose=='employee-conversation':
+            if type(self.pricing) is not ConversationTextPricingV1 or input_tokens_upper_bound!=self.pricing.input_tokens_upper_bound:
+                raise PermissionError('closed full text quote required; generic price unavailable')
+            from decimal import localcontext
+            with localcontext() as context:
+                context.prec=200
+                return (Decimal(input_tokens_upper_bound)*max(self.pricing.input_per_million_usd,self.pricing.input_cache_write_per_million_usd)
+                    +Decimal(self.pricing.max_output_tokens)*self.pricing.output_per_million_usd)/Decimal(1000000)+self.pricing.per_request_fee_usd
         return (Decimal(input_tokens_upper_bound)*self.pricing.input_per_million_usd + Decimal(self.pricing.max_output_tokens)*self.pricing.output_per_million_usd)/Decimal(1_000_000)
 
     def extract(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
@@ -188,12 +230,24 @@ class AdmittedProvider:
             else:
                 response,actual=self.sender(messages=messages,model=self.pricing.model,max_output_tokens=self.pricing.max_output_tokens,store=False,**opts)
         except Exception as error:
-            self.budget.finish(rid,actual_usd=maximum,failed=True,response_hash=None,failure_kind='quota_exhausted' if isinstance(error,ProviderQuotaError) else 'transport_failure')
+            liability=maximum
+            if purpose=='employee-conversation':
+                from oracle_brain.hosting.conversation_native_v1 import conversation_wire_liability_lower_bound_v1
+                liability=max(maximum,conversation_wire_liability_lower_bound_v1(getattr(getattr(self.sender,'__self__',None),'last_response_text',None)))
+            self.budget.finish(rid,actual_usd=liability,failed=True,response_hash=None,failure_kind='quota_exhausted' if isinstance(error,ProviderQuotaError) else 'transport_failure')
             raise RuntimeError('admitted extraction dispatch failed; private response not logged') from None
         valid=True
         if response_validator is not None:
             try:response_validator(response)
             except (ValueError,TypeError,KeyError):valid=False
+            except Exception as error:
+                if purpose!='employee-conversation':raise
+                observed=getattr(error,'observed_actual_usd',actual)
+                if type(observed) is not Decimal or not observed.is_finite() or observed<0:observed=actual
+                from oracle_brain.hosting.conversation_native_v1 import conversation_wire_liability_lower_bound_v1
+                retained=conversation_wire_liability_lower_bound_v1(getattr(getattr(self.sender,'__self__',None),'last_response_text',None))
+                self.budget.finish(rid,actual_usd=max(actual,observed,retained,maximum),failed=True,response_hash=None,failure_kind='transport_failure')
+                raise RuntimeError('conversation outcome UNKNOWN; receipt retained; no automatic resend') from None
         if self.operation=='embedding':
             import hashlib
             raw=getattr(getattr(self.sender,'__self__',None),'last_response_text',None)

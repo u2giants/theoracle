@@ -37,3 +37,6 @@ export function unavailableControl(status:503|405=503):Response {
 }
 
 export const ORIGINAL_UPLOAD_PATH='/api/consultant/replacement/v1/protected/upload';
+
+export const CONVERSATION_PATH='/api/consultant/interviews';
+export function isConversationPath(path:string):boolean{return path===CONVERSATION_PATH||/^\/api\/consultant\/interviews\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/turns$/.test(path);}

@@ -75,6 +75,11 @@ S05_TESTS = [
 ]
 # S06 — interviews and ordinary chat learning.
 S06_TESTS = [
+    "test_durable_interview_sql.py", "test_conversation_contract_v1.py",
+    "test_conversation_service_sql.py", "test_conversation_processing_sql.py",
+    "test_conversation_original_sql.py", "test_conversation_browser_sql.py",
+    "test_conversation_native_sql.py", "test_conversation_text_pricing_v1.py",
+    "test_conversation_fence_v1.py", "test_conversation_registration_sql.py",
     "test_interview_resume.py",
     "test_question_selection.py",
     "test_chat_learning.py",

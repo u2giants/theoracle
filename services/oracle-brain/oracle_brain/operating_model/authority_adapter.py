@@ -167,7 +167,7 @@ class ProcessingSourceResolver:
             with psycopg.connect(self.url, connect_timeout=5) as conn:
                 yield conn
 
-    def _check(self, conn):
+    def _check_role_and_catalog(self, conn):
         # Same identity/ACL facts as the historical multi-statement check, proved
         # in one current catalogue round-trip. No fact is cached or skipped.
         b = self.binding
@@ -224,6 +224,9 @@ class ProcessingSourceResolver:
                 or (session_row['current_user'] == group and not entry['set'])):
             raise PermissionError('actual processing inherit/SET entry differs')
         self._check_function_signatures(conn,self._signatures)
+    def _check(self, conn):
+        self._check_role_and_catalog(conn)
+        b=self.binding
         if b.profile != 'gateway-metadata':
             from .source_binding import SourceRoleBinding
             SourceRoleBinding(b.runtime_hash,b.source_registry_hash,synthetic=b.synthetic).check(conn)

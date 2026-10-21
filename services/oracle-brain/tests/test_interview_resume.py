@@ -27,3 +27,20 @@ def test_dont_know_correction_and_assistant_exclusion_in_recap():
     assert select_need(FIELDS, s.known, asked=s.asked, declined=s.declined).key == 'example:approver'
     r = build_recap(s, [f.name for f in FIELDS])
     assert r.learned == (('approver', 'New Lead'),) and r.unconfirmed == ('cutoff_day',)
+
+
+# Serialization remains a pure legacy helper. This named phase suite now also
+# proves the operational owner survives a new controller with exact SQL history.
+from test_durable_interview_sql import conversation,create,command
+from test_replacement_source_intake_sql import requester
+from oracle_brain.hosting.conversation_control_v1 import ConversationControlV1
+from uuid import UUID
+
+def test_actual_owned_store_resume_uses_same_pending_question_and_original(conversation):
+    x=conversation;_,s=create(x);_,s=command(x,s);_,s=command(x,s,'pause')
+    new=ConversationControlV1(x['control'].settings)
+    saved=new.snapshot_v1(UUID(s['thread_id']))
+    assert saved['events']==s['events'] and saved['state']=='paused'
+    assert saved['events'][1]['original_text']=='不允许未经复核就发货。仅限样品。'
+    x['control']=new;_,resumed=command(x,saved,'resume')
+    assert resumed['pending_question_id']==saved['pending_question_id'] and resumed['question_count']==2

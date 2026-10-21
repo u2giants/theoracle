@@ -42,9 +42,9 @@ def _object(value,allowed):
     _require(type(value) is dict and set(value)<=allowed)
 
 
-def _pricing(value,*,required=True):
+def _pricing(value,*,required=True,required_keys=None):
     _object(value,_PRICES|{'overrides'})
-    if required:_require({'prompt','completion','image','request','input_cache_write'}<=set(value))
+    if required:_require(({'prompt','completion','image','request','input_cache_write'} if required_keys is None else required_keys)<=set(value))
     for key,amount in value.items():
         if key=='overrides':continue
         _require(type(amount) is str)
@@ -83,6 +83,12 @@ class RawEndpointSafetyInventoryV1:
 
 
 def raw_endpoint_safety_inventory_v1(models_wire,endpoints_wire,*,model):
+    return _endpoint_safety_inventory_v1(models_wire,endpoints_wire,model=model,raw=True)
+
+def text_endpoint_safety_inventory_v1(models_wire,endpoints_wire,*,model):
+    return _endpoint_safety_inventory_v1(models_wire,endpoints_wire,model=model,raw=False)
+
+def _endpoint_safety_inventory_v1(models_wire,endpoints_wire,*,model,raw):
     import json
     def decode(raw):
         _require(type(raw) is bytes and len(raw)<=16*1024*1024)
@@ -100,11 +106,11 @@ def raw_endpoint_safety_inventory_v1(models_wire,endpoints_wire,*,model):
     m=selected[0];_object(m,_MODEL_KEYS)
     _object(m.get('architecture'),_ARCH_KEYS);_object(m.get('top_provider'),_TOP_KEYS)
     modes=m['architecture'].get('input_modalities')
-    _require(type(modes) is list and all(type(x) is str for x in modes) and {'text','image'}<=set(modes))
+    _require(type(modes) is list and all(type(x) is str for x in modes) and ({'text','image'} if raw else {'text'})<=set(modes))
     for k in ('context_length','max_completion_tokens'):_require(type(m['top_provider'].get(k)) is int and m['top_provider'][k]>0)
     _require(type(m.get('supported_parameters')) is list and all(type(x) is str for x in m['supported_parameters']))
     _require(type(m.get('context_length')) is int and m['context_length']>0)
-    _pricing(m.get('pricing'))
+    _pricing(m.get('pricing'),required_keys=None if raw else {'prompt','completion','request','input_cache_write'})
     _object(endpoints,{'data'});d=endpoints.get('data');_object(d,_DATA_KEYS)
     _require(d.get('id')==model and d.get('architecture')==m['architecture'] and type(d.get('endpoints')) is list)
     chosen=[]
@@ -115,13 +121,13 @@ def raw_endpoint_safety_inventory_v1(models_wire,endpoints_wire,*,model):
         _require(e.get('model_id')==model and e.get('tag')=='openai' and type(e.get('status')) is int and e['status']==0)
         for k in ('context_length','max_prompt_tokens','max_completion_tokens'):_require(type(e.get(k)) is int and e[k]>0)
         _require(type(e.get('supported_parameters')) is list and all(type(x) is str for x in e['supported_parameters']))
-        _pricing(e.get('pricing'))
+        _pricing(e.get('pricing'),required_keys=None if raw else {'prompt','completion','request','input_cache_write'})
         chosen.append({k:v for k,v in e.items() if k not in _EXCLUDED_ENDPOINT})
     _require(bool(chosen));chosen.sort(key=canonical_bytes)  # Duplicate records remain present.
     kept={k:v for k,v in m.items() if k not in _EXCLUDED_MODEL}
-    inventory={'schema_version':1,'purpose':'raw-openrouter-endpoint-safety-inventory-v1',
+    inventory={'schema_version':1,'purpose':'raw-openrouter-endpoint-safety-inventory-v1' if raw else 'text-openrouter-endpoint-safety-inventory-v1',
         'model':kept,'provider_endpoints':chosen}
-    capability={'schema_version':1,'purpose':'raw-openrouter-endpoint-capability-v1',
+    capability={'schema_version':1,'purpose':'raw-openrouter-endpoint-capability-v1' if raw else 'text-openrouter-endpoint-capability-v1',
         'model_id':model,'architecture':m['architecture'],'context_length':m['context_length'],
         'top_provider':m['top_provider'],'supported_parameters':m.get('supported_parameters'),
         'provider_endpoints':[{k:v for k,v in e.items() if k!='pricing'} for e in chosen]}
@@ -244,33 +250,9 @@ def compare_raw_endpoint_quote_v1(models_wire,endpoints_wire,*,quote,expected_qu
         inventory=raw_endpoint_safety_inventory_v1(models_wire,endpoints_wire,model=q.model)
         _require(q.catalogue_sha256==inventory.catalogue_sha256
             and q.model_capability_sha256==inventory.model_capability_sha256)
-        data=json.loads(inventory.canonical_inventory);m=data['model'];endpoints=data['provider_endpoints']
-        outputs=m['architecture'].get('output_modalities')
-        _require(type(outputs) is list and outputs==['text'])
-        for item in (m,*endpoints):
-            params=item['supported_parameters']
-            _require({'max_tokens','response_format'}<=set(params))
-        context=min(m['context_length'],m['top_provider']['context_length'],*(e['context_length'] for e in endpoints))
-        prompt=min(e['max_prompt_tokens'] for e in endpoints)
-        completion=min(m['top_provider']['max_completion_tokens'],*(e['max_completion_tokens'] for e in endpoints))
-        limits=m.get('per_request_limits')
-        if limits is not None:
-            _object(limits,{'prompt_tokens','completion_tokens'})
-            for key,value in limits.items():
-                _require(type(value) is int and value>0)
-                if key=='prompt_tokens':prompt=min(prompt,value)
-                else:completion=min(completion,value)
-        total_input=q.text_input_tokens_upper_bound+q.vision_input_tokens_upper_bound
-        _require(q.model_context_tokens==context and total_input+q.max_output_tokens<=context
-            and total_input<=prompt and q.max_output_tokens<=completion)
-        prices=[]
-        for endpoint in endpoints:
-            price=endpoint['pricing'];prices.append(price);prices.extend(price.get('overrides',[]))
-        maxima={key:max(Decimal(p[key]) for p in prices if key in p)
-            for key in ('prompt','input_cache_write','completion','image','request')}
-        cache_ceiling=max(maxima['prompt'],maxima['input_cache_write'])
-        _require(all(Decimal(price['input_cache_read'])<=cache_ceiling for price in prices
-            if 'input_cache_read' in price))
+        data=json.loads(inventory.canonical_inventory)
+        context,maxima=_endpoint_quote_limits_v1(data,total_input=q.text_input_tokens_upper_bound+q.vision_input_tokens_upper_bound,max_output_tokens=q.max_output_tokens)
+        _require(q.model_context_tokens==context)
         _require(q.input_per_million_usd==_per_million_exact(maxima['prompt'])
             and q.input_cache_write_per_million_usd==_per_million_exact(maxima['input_cache_write'])
             and q.output_per_million_usd==_per_million_exact(maxima['completion'])
@@ -283,3 +265,84 @@ def compare_raw_endpoint_quote_v1(models_wire,endpoints_wire,*,quote,expected_qu
             'models_wire_sha256':inventory.models_wire_sha256,'endpoints_wire_sha256':inventory.endpoints_wire_sha256})
     except (ValueError,TypeError,KeyError,ArithmeticError):
         raise PermissionError('unproven raw endpoint quote/billing comparison') from None
+
+
+def _endpoint_quote_limits_v1(data,*,total_input,max_output_tokens):
+    m=data['model'];endpoints=data['provider_endpoints']
+    outputs=m['architecture'].get('output_modalities')
+    _require(type(outputs) is list and outputs==['text'])
+    for item in (m,*endpoints):
+        params=item['supported_parameters']
+        _require({'max_tokens','response_format'}<=set(params))
+    context=min(m['context_length'],m['top_provider']['context_length'],*(e['context_length'] for e in endpoints))
+    prompt=min(e['max_prompt_tokens'] for e in endpoints)
+    completion=min(m['top_provider']['max_completion_tokens'],*(e['max_completion_tokens'] for e in endpoints))
+    limits=m.get('per_request_limits')
+    if limits is not None:
+        _object(limits,{'prompt_tokens','completion_tokens'})
+        for key,value in limits.items():
+            _require(type(value) is int and value>0)
+            if key=='prompt_tokens':prompt=min(prompt,value)
+            else:completion=min(completion,value)
+    _require(total_input+max_output_tokens<=context
+        and total_input<=prompt and max_output_tokens<=completion)
+    prices=[]
+    for endpoint in endpoints:
+        price=endpoint['pricing'];prices.append(price);prices.extend(price.get('overrides',[]))
+    maxima={key:max(Decimal(p[key]) for p in prices if key in p)
+        for key in ('prompt','input_cache_write','completion','image','request') if any(key in p for p in prices)}
+    cache_ceiling=max(maxima['prompt'],maxima['input_cache_write'])
+    _require(all(Decimal(price['input_cache_read'])<=cache_ceiling for price in prices
+        if 'input_cache_read' in price))
+    return context,maxima
+
+
+def text_worst_case_policy_hash_v1():
+    return digest({'schema_version':1,'purpose':'employee-conversation-text-worst-case-v1',
+        'raw_parser_policy_sha256':raw_worst_case_policy_hash_v1(),'input_modalities':['text'],
+        'output_modalities':['text'],'image_count':0,'route':'shared-only',
+        'token_input_rule':'maximum-prompt-or-cache-write','request_fee':'one-maximum-per-request',
+        'upstream_rule':'explicit-all-zero-external-evidence','metadata_max_age_seconds':120})
+
+
+def compare_conversation_text_quote_v1(models_wire,endpoints_wire,*,quote,billing_bounds,
+        expected_quote_sha256,expected_billing_evidence_sha256,current_account,current_key_fingerprint,
+        current_ledger_registry_hash,current_terms_hash,current_register_hash,
+        models_observed_at,endpoints_observed_at,now):
+    """Same strict metadata/endpoint maxima, no fabricated image/view fields.
+
+    Pure comparison only. Protected startup must bind the original quote and
+    prospective external route evidence; actual wire route is checked separately.
+    """
+    import json,re
+    from .provider_adapter import ConversationTextPricingV1
+    try:
+        _require(type(quote) is ConversationTextPricingV1 and type(billing_bounds) is RawBillingBoundsV1)
+        q=ConversationTextPricingV1.model_validate_json(quote.model_dump_json())
+        b=RawBillingBoundsV1.model_validate_json(billing_bounds.model_dump_json())
+        for pin in (expected_quote_sha256,expected_billing_evidence_sha256,current_key_fingerprint,current_ledger_registry_hash,current_terms_hash,current_register_hash):
+            _require(type(pin) is str and re.fullmatch(_HASH,pin) is not None)
+        _require(digest(q.model_dump(mode='json'))==expected_quote_sha256 and digest(b.model_dump(mode='json'))==expected_billing_evidence_sha256)
+        expected=(current_account,current_key_fingerprint,current_ledger_registry_hash,current_terms_hash)
+        _require(current_account=='key-sha256:'+current_key_fingerprint
+            and (q.account,q.key_fingerprint,q.ledger_registry_hash,q.terms_hash)==expected
+            and (b.account,b.key_fingerprint,b.ledger_registry_hash,b.terms_hash)==expected
+            and q.admitted_register_hash==current_register_hash and q.model==b.model
+            and b.route=='shared-only' and all(getattr(b,k)==0 for k in ('upstream_input_per_million_usd','upstream_output_per_million_usd','upstream_per_image_fee_usd','upstream_per_request_fee_usd')))
+        for value in (now,models_observed_at,endpoints_observed_at):
+            _require(type(value) is datetime and value.tzinfo is not None and value.utcoffset() is not None)
+        _require(q.pricing_policy_sha256==text_worst_case_policy_hash_v1() and q.valid_from<=now<q.expires_at<=b.expires_at and b.valid_from<=now)
+        for observed in (models_observed_at,endpoints_observed_at):
+            _require(q.valid_from<=observed<=now and timedelta(0)<=now-observed<=timedelta(seconds=120))
+        inventory=text_endpoint_safety_inventory_v1(models_wire,endpoints_wire,model=q.model)
+        _require((q.catalogue_sha256,q.model_capability_sha256)==(inventory.catalogue_sha256,inventory.model_capability_sha256))
+        context,maxima=_endpoint_quote_limits_v1(json.loads(inventory.canonical_inventory),total_input=q.input_tokens_upper_bound,max_output_tokens=q.max_output_tokens)
+        _require(q.model_context_tokens==context and q.input_per_million_usd==_per_million_exact(maxima['prompt'])
+            and q.input_cache_write_per_million_usd==_per_million_exact(maxima['input_cache_write'])
+            and q.output_per_million_usd==_per_million_exact(maxima['completion']) and q.per_request_fee_usd==maxima['request'])
+        return canonical_bytes({'schema_version':1,'purpose':'employee-conversation-text-quote-comparison-v1',
+            'comparison_only':True,'dispatch_authorized':False,'billing_route_authenticated':False,
+            'quote_sha256':expected_quote_sha256,'billing_evidence_sha256':expected_billing_evidence_sha256,
+            'models_wire_sha256':inventory.models_wire_sha256,'endpoints_wire_sha256':inventory.endpoints_wire_sha256})
+    except (ValueError,TypeError,KeyError,ArithmeticError):
+        raise PermissionError('unproven complete conversation text pricing/billing') from None
