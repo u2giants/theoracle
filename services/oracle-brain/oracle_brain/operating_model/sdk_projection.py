@@ -272,9 +272,23 @@ class SDKProjection:
         projects=(await self.connection.query('MATCH (r:OperatingModelRecord)-[:PROJECTS]->(e:__Entity__) RETURN r.id,e.id')).result_set
         expected_projects={(o['observation_id'],o['observation_id']) for o in payload.get('observations',[])}
         if len(projects)!=len(expected_projects) or {tuple(r) for r in projects}!=expected_projects:raise ValueError('projection lost observation lineage edges')
-        supports=(await self.connection.query('MATCH (f:OperatingModelRecord)-[r:SUPPORTED_BY]->(d:Document) RETURN f.id,d.id,r.payload_hash')).result_set
-        expected_supports={(f['finding_id'],self.document_id(e['ref'],payload),digest(e)) for f in payload.get('findings',[]) for e in f['evidence_refs']}
-        if len(supports)!=len(expected_supports) or {tuple(r) for r in supports}!=expected_supports:raise ValueError('projection lost finding lineage edges')
+        supports=(await self.connection.query('MATCH (f:OperatingModelRecord)-[r:SUPPORTED_BY]->(d:Document) RETURN f.id,d.id,r.payload_hash,r.polarity,r.reading_start,r.reading_end,r.original_source_ref')).result_set
+        expected_supports={(f['finding_id'],self.document_id(e['ref'],payload),digest(e),None,None,None,None) for f in payload.get('findings',[]) for e in f['evidence_refs']}
+        if 'consolidation_core' in payload:
+            from .consolidation_contracts_v1 import ConsolidationCoreV1
+            core=ConsolidationCoreV1.model_validate_json(canonical_bytes(payload['consolidation_core']))
+            observations={o['observation_id']:o for o in payload.get('observations',[])}
+            findings={f['finding_id']:f for f in payload.get('findings',[])}
+            for assertion in core.assertions:
+                identifier='assertion:'+str(assertion.assertion_id)+':'+str(assertion.revision)
+                for polarity,ids in (('supporting',assertion.supporting_observations),('opposing',assertion.opposing_observations),('valid-time',assertion.temporal_observations),('unknown',assertion.unknown_finding_ids)):
+                    for item in ids:
+                        evidence=findings[item]['evidence_refs'] if polarity=='unknown' else observations[item]['evidence']
+                        for quote in evidence:
+                            expected_supports.add((identifier,self.document_id(quote['ref'],payload),digest(quote),polarity,quote['start'],quote['end'],canonical_bytes(quote['ref']).decode()))
+        # The complete edge census stays closed: no ignored extra edge, changed
+        # polarity, source revision or quote offsets can pass graph verification.
+        if len(supports)!=len(expected_supports) or {tuple(r) for r in supports}!=expected_supports:raise ValueError('projection lost finding lineage edges or assertion evidence')
         documents=(await self.connection.query('MATCH (d:Document) RETURN d.id,d.content_hash')).result_set
         expected_docs=self.document_hashes(payload)
         if {r[0]:r[1] for r in documents}!=expected_docs:raise ValueError('SDK source manifest mismatch')

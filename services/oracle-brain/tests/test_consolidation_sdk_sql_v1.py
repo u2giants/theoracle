@@ -70,6 +70,11 @@ def test_actual_consolidation_sql_paid_sdk_graph_keeps_assertions_and_rebuilds_w
                         sealed=(await projection.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.finalized')).result_set
                         assert sealed==[[manifest.content_hash,True]]
                         await projection.verify(payload)
+                        # The completed graph must still reject lost/changed
+                        # assertion evidence, even while every node seal remains.
+                        await projection.connection.query("MATCH (:ReportedAssertionRecord)-[r:SUPPORTED_BY]->() SET r.polarity='invented'")
+                        with pytest.raises(ValueError,match='assertion evidence'):
+                            await projection.verify(payload)
                         built_graphs.append(projection.graph_name)
                     finally:await projection.close()
                     # A fresh reader cannot adopt a completed graph or a local
