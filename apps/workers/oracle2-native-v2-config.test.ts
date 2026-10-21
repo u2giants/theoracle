@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { readPrivateTarget, targetPins } from '../../dev/oracle2/private-target-profile.mjs';
+import { readPrivateTarget, targetPins, defaultTargetProfile } from '../../dev/oracle2/private-target-profile.mjs';
 const PROJECT=readPrivateTarget('native_trigger_project');
 const LEGACY=readPrivateTarget('legacy_trigger_project');
 const cwd=fileURLToPath(new URL('.',import.meta.url));
@@ -45,7 +45,7 @@ import {after,before} from 'node:test';
 const indexScratch=mkdtempSync(join(tmpdir(),'oracle-v2-index-child-'));
 let cliModules:string;
 const image=process.env.ORACLE2_INDEX_TEST_IMAGE??'node:24-bookworm-slim';
-const minimal=()=>Object.fromEntries(['PATH','HOME','USER','LOGNAME','TMPDIR','LANG'].flatMap(k=>process.env[k]===undefined?[]:[[k,process.env[k]!]]));
+const minimal=()=>Object.fromEntries(['PATH','HOME','USER','LOGNAME','TMPDIR','LANG','ORACLE_TARGET_PROFILE_PATH'].flatMap(k=>process.env[k]===undefined?[]:[[k,process.env[k]!]]));
 before(()=>{
  const executable=execFileSync('npx',['--yes','--package','trigger.dev@4.5.15','--','which','trigger'],{encoding:'utf8',env:minimal()}).trim();
  const cli=resolve(dirname(realpathSync(executable)),'../..');
@@ -59,7 +59,13 @@ before(()=>{
   const build=await buildWorker({target:'deploy',environment:'prod',destination:process.argv[3],resolvedConfig,rewritePaths:true,envVars:{PYTHON_BIN_PATH:'/opt/venv/bin/python'},forcedExternals:[]});
   if(build.config.project!==${JSON.stringify(PROJECT)})throw Error('fixed project changed');
  `);
- const built=spawnSync(process.execPath,[join(indexScratch,'build.mjs'),cwd,join(indexScratch,'bundle')],{cwd,env:minimal(),encoding:'utf8',timeout:60000});
+ // Fresh CI controller HOME has no default profile. Only the protected temporary
+ // selector is forwarded; the official container child below receives no profile.
+ const controllerHome=join(indexScratch,'controller-home');mkdirSync(controllerHome,{mode:0o700});
+ const ciProfileDir=join(indexScratch,'ci-profile');mkdirSync(ciProfileDir,{mode:0o700});
+ const ciProfile=join(ciProfileDir,'targets.json');writeFileSync(ciProfile,readFileSync(defaultTargetProfile()),{mode:0o600});
+ const controllerEnv={...minimal(),HOME:controllerHome,RUNNER_TEMP:indexScratch,ORACLE_TARGET_PROFILE_PATH:ciProfile};
+ const built=spawnSync(process.execPath,[join(indexScratch,'build.mjs'),cwd,join(indexScratch,'bundle')],{cwd,env:controllerEnv,encoding:'utf8',timeout:60000});
  assert.equal(built.status,0,built.stderr);
  mkdirSync(join(indexScratch,'bundle/node_modules'),{recursive:true});
  writeFileSync(join(indexScratch,'index.mjs'),`
