@@ -107,8 +107,15 @@ def test_exported_uri_retained_checkpoint_bootstrap(tmp_path,monkeypatch):
    assert connection.info.get_parameters()['sslmode']=='verify-full'
   spec=importlib.util.spec_from_file_location('retained_checkpoint_bootstrap',ROOT/'scripts/oracle2/init_local_stores.py')
   retained=importlib.util.module_from_spec(spec);spec.loader.exec_module(retained)
-  monkeypatch.setenv('ORACLE2_TEST_ADMIN_URL',uri)
-  retained.main()
+  # This test owns a fresh isolated database, not the fixed Compose database
+  # selected by main(). Exercise retained checkpoint setup on the same open
+  # connection whose exact fresh target and TLS transport are proven here.
+  from psycopg.rows import dict_row
+  with psycopg.connect(uri,autocommit=True,prepare_threshold=0,row_factory=dict_row) as connection:
+   assert connection.pgconn.ssl_in_use
+   assert connection.info.get_parameters()['sslmode']=='verify-full'
+   assert connection.execute('SELECT current_database() AS name').fetchone()['name']==dbname
+   retained.setup_checkpoint_tables(connection)
   with psycopg.connect(uri) as connection:
    assert all(connection.execute('SELECT to_regclass(%s)',('public.'+table,)).fetchone()[0] for table in ('checkpoints','checkpoint_blobs','checkpoint_writes'))
  finally:

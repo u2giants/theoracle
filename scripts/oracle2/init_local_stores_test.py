@@ -39,26 +39,27 @@ def run_bootstrap(monkeypatch, *, fail=None):
     events = []
 
     class Connection:
+        closed = False
+        autocommit = True
         def execute(self, statement):
             events.append(statement)
             if fail and fail in statement:
                 raise PermissionError("reviewed unreachable processing owner required")
 
     @contextmanager
-    def connect(url):
+    def connect(url, **kwargs):
         assert url == VALID_URL
         events.append("connect")
         yield Connection()
 
-    @contextmanager
-    def saver(url):
-        assert url == VALID_URL
+    def saver(connection):
+        assert isinstance(connection, Connection)
         events.append("checkpoint")
-        yield type("Saver", (), {"setup": lambda self: events.append("setup")})()
+        return type("Saver", (), {"setup": lambda self: events.append("setup")})()
 
     monkeypatch.setenv("ORACLE2_TEST_ADMIN_URL", VALID_URL)
     with patch.object(bootstrap.psycopg, "connect", connect), patch.object(
-        bootstrap.PostgresSaver, "from_conn_string", saver
+        bootstrap, "PostgresSaver", saver
     ):
         if fail:
             with pytest.raises(PermissionError, match="reviewed unreachable"):
@@ -77,7 +78,7 @@ def test_canonical_prerequisites_precede_checkpoints(monkeypatch):
         for name in bootstrap.SYNTHETIC_MIGRATIONS
     ]
     assert events[:len(expected) + 1] == ["connect", *expected]
-    assert events[len(expected) + 1:len(expected) + 3] == ["checkpoint", "setup"]
+    assert events[len(expected) + 1:len(expected) + 4] == ["connect", "checkpoint", "setup"]
     assert events[-3:] == [
         f"GRANT SELECT,INSERT,UPDATE,DELETE ON public.{name} TO oracle2_checkpoint"
         for name in ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
@@ -200,3 +201,37 @@ def test_shared_owned_fixture_validator_preserves_exact_target(monkeypatch, fail
         with pytest.raises(PermissionError): tls.owned_postgres_fixture("a" * 64, url)
     else:
         assert tls.owned_postgres_fixture("a" * 64, url) is not None
+
+
+def test_filepath_import_has_no_sibling_path_requirement():
+    import importlib.util
+    import init_local_stores as bootstrap
+    spec = importlib.util.spec_from_file_location("retained_filepath_bootstrap", bootstrap.ROOT / "scripts/oracle2/init_local_stores.py")
+    value = importlib.util.module_from_spec(spec)
+    with patch.object(sys, "path", [str(bootstrap.ROOT), *[p for p in sys.path if not p.endswith("scripts/oracle2")]]):
+        spec.loader.exec_module(value)
+    assert callable(value.setup_checkpoint_tables)
+    assert value.SYNTHETIC_MIGRATIONS == bootstrap.SYNTHETIC_MIGRATIONS
+
+
+def test_checkpoint_helper_uses_only_supplied_open_connection():
+    import init_local_stores as bootstrap
+    from unittest.mock import Mock
+    connection = Mock(closed=False, autocommit=True)
+    with patch.object(bootstrap, "PostgresSaver") as saver, patch.object(bootstrap.psycopg, "connect") as connect:
+        bootstrap.setup_checkpoint_tables(connection)
+        saver.assert_called_once_with(connection)
+        saver.return_value.setup.assert_called_once_with()
+        connect.assert_not_called()
+        assert connection.execute.call_count == 3
+
+
+@pytest.mark.parametrize("connection", ["postgresql://arbitrary", None])
+def test_checkpoint_helper_cannot_choose_uri_target(connection):
+    import init_local_stores as bootstrap
+    from unittest.mock import Mock
+    if connection is None: connection = Mock(closed=True, autocommit=True)
+    with patch.object(bootstrap, "PostgresSaver") as saver, patch.object(bootstrap.psycopg, "connect") as connect:
+        with pytest.raises(PermissionError): bootstrap.setup_checkpoint_tables(connection)
+        saver.assert_not_called()
+        connect.assert_not_called()

@@ -12,10 +12,21 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 import psycopg
+from psycopg.rows import dict_row
 from langgraph.checkpoint.postgres import PostgresSaver
-from verify_workflow_integrity import ROOT, SYNTHETIC_MIGRATIONS
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+from scripts.oracle2.verify_workflow_integrity import SYNTHETIC_MIGRATIONS
 from dev.oracle2.test_tls_bootstrap import postgres_uri, owned_postgres_fixture
+
+
+def setup_checkpoint_tables(connection: psycopg.Connection) -> None:
+    """Use the caller's already validated open connection; never select a target."""
+    if isinstance(connection, str) or connection.closed or not connection.autocommit:
+        raise PermissionError("open autocommit checkpoint connection required")
+    PostgresSaver(connection).setup()
+    for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes"):
+        connection.execute(f"GRANT SELECT,INSERT,UPDATE,DELETE ON public.{table} TO oracle2_checkpoint")
 
 
 def main() -> None:
@@ -60,11 +71,8 @@ def main() -> None:
     with psycopg.connect(url) as connection:
         for migration in SYNTHETIC_MIGRATIONS:
             connection.execute((ROOT / "services/oracle-brain/sql" / migration).read_text())
-    with PostgresSaver.from_conn_string(url) as saver:
-        saver.setup()
-    with psycopg.connect(url) as connection:
-        for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes"):
-            connection.execute(f"GRANT SELECT,INSERT,UPDATE,DELETE ON public.{table} TO oracle2_checkpoint")
+    with psycopg.connect(url, autocommit=True, prepare_threshold=0, row_factory=dict_row) as connection:
+        setup_checkpoint_tables(connection)
 
 
 if __name__ == "__main__":
