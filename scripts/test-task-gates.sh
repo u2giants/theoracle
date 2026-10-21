@@ -110,14 +110,21 @@ pass 'private tooling admits the sealed synthetic-fixture review route'
 # Isolate the private declaration's contribution; other classes cannot mask it.
 cp "$fixture/.ai-devops/task-gates.json" "$TMP/compliance-policy.json"
 jq '.gates |= with_entries(if .key == "private-tooling" then . else .value.required |= map(select(. != "repository-workflow-compliance")) end)' "$TMP/compliance-policy.json" > "$fixture/.ai-devops/task-gates.json"
-if (cd "$fixture" && ai-task-gates explain --json | jq -e '.required_gates|index("repository-workflow-compliance")!=null' >/dev/null); then
-  pass 'private declaration alone requires repository workflow compliance'
+isolated_private="$(cd "$fixture" && ai-task-gates explain --json)"
+if printf '%s\n' "$isolated_private" | jq -e '.observed_class=="reviewer-safety" and (.changes|any(.class=="reviewer-safety" and .path==".ai-devops/task-gates.json"))' >/dev/null; then
+  pass 'uncommitted policy edit remains observed reviewer-safety'
 else
-  fail 'private declaration lost its own workflow requirement'
+  fail 'uncommitted policy edit lost protected-path classification'
+fi
+# explain reports manual obligations separately from mechanically enforced gates.
+if printf '%s\n' "$isolated_private" | jq -e '(.unchecked_gates|index("repository-workflow-compliance")!=null) and (.required_gates|index("repository-workflow-compliance")==null)' >/dev/null; then
+  pass 'private declaration alone retains the manual workflow obligation'
+else
+  fail 'manual private workflow obligation is missing or mislabeled enforced'
 fi
 jq '.gates["private-tooling"].required |= map(select(. != "repository-workflow-compliance"))' "$fixture/.ai-devops/task-gates.json" > "$TMP/without-compliance.json"
 cp "$TMP/without-compliance.json" "$fixture/.ai-devops/task-gates.json"
-if (cd "$fixture" && ai-task-gates explain --json | jq -e '.required_gates|index("repository-workflow-compliance")==null' >/dev/null); then
+if (cd "$fixture" && ai-task-gates explain --json | jq -e '(.required_gates|index("repository-workflow-compliance")==null) and (.unchecked_gates|index("repository-workflow-compliance")==null)' >/dev/null); then
   pass 'removing private compliance defeats the isolated assertion'
 else
   fail 'another requirement masks the private declaration assertion'
