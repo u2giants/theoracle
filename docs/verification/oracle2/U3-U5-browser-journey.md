@@ -88,11 +88,12 @@ Never reuse company credentials or place test secrets in committed files.
 ## Current offline verification
 
 The authenticated invented-data browser journey passes all seven cases
-(12.8 seconds, zero skips). This supersedes the historical unauthenticated
+(22.7 seconds, zero skips). This supersedes the historical unauthenticated
 journey claim, which failed with HTTP 401 after R8 authentication enforcement.
 The original 38 replacement-contract tests and two new fixture-authentication
-tests pass (40 total, zero failures/skips). Both files are registered in
-`.github/workflows/oracle2-contracts.yml`.
+tests pass along with 18 actual session-route checks (58 total, zero
+failures/skips). The three-file workflow registration is independently gated
+and tracked on the same issue #27.
 
 The local fixture's full application typecheck remains unverified because its
 external minimal dependency setup lacks unrelated application dependencies and

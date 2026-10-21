@@ -65,7 +65,10 @@ rechecks all pins. `require_target_catalog` repeats both signature and pin
 checks. Both admission and every use require a new catalog read on an exact
 trusted DB-API connection and compare the current facts with the host-attested
 payload. Attestations include a signed observation time and at most a 60-second
-validity window; absent connection or expired/currently changed facts deny. A
+validity window; absent connection or expired/currently changed facts deny.
+The exact driver must be idle with autocommit enabled before any catalog SQL;
+preexisting repeatable-read/serializable snapshots and nonautocommit connections
+are denied rather than reusing stale permission evidence. A
 sealed connection wrapper cannot substitute a fake underlying driver.
 
 An `admitted` boolean or matching caller-provided facts grant nothing.
