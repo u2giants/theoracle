@@ -22,6 +22,7 @@ S02_TESTS = [
     "test_preview_settings.py", "test_worker_guard_parity.py",
 ]
 S03_TESTS = [
+    "test_owned_worker_database.py",
     "test_provider_policy.py", "test_pilot_journey.py", "test_authority.py",
     "test_review_concurrency.py", "test_holistic_graphrag.py",
     "test_holistic_graphrag_integration.py",

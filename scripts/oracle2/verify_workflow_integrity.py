@@ -67,6 +67,7 @@ DOCUMENTARY += ('native_trigger_v1',)
 # Parent24 source delivery owns these actual implementations and adversarial
 # suites. They are mandatory source checks, never live/business acceptance.
 DOCUMENTARY += ('replacement_requester_v1','replacement_requester_sql',
+    'owned_worker_database',
     'operations_recovery','recovery_primitives',
     'legacy_mapping','migration_reconcile','migration_resume','migration_delta',
     'legacy_routes_retired','legacy_citation_redirect','retired_writer_denial',
