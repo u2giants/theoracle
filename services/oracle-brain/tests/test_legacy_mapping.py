@@ -8,6 +8,7 @@ from oracle_brain.migration.inventory import (
     LegacyInventory,
     LegacyPermission,
     LegacySourceRecord,
+    TranslationLineage,
 )
 from oracle_brain.migration.legacy_mapping import (
     build_manifest,
@@ -58,6 +59,18 @@ def test_ai_summary_is_never_a_primary_source():
     entry = map_record(record(kind="summary", is_ai_summary=True))
     assert entry.decision == "excluded_ai_summary"
     assert entry.target.target_kind == "excluded"
+
+
+@pytest.mark.parametrize("lineage", [(), (TranslationLineage(
+    source_legacy_id="original-1", source_language="zh", target_language="en"),)])
+def test_confirmed_translation_never_maps_as_original_even_with_lineage(lineage):
+    translated = record(kind="translation", translation_lineage=lineage)
+    entry = map_record(translated)
+    assert entry.decision == "quarantined"
+    assert entry.target.target_kind == "quarantine"
+    assert entry.target.attribution_legacy_id == translated.legacy_id
+    manifest = build_manifest(inventory(translated), mapping_id=uuid4())
+    assert manifest.entries == (entry,)
 
 
 def test_missing_original_is_legacy_unverified():

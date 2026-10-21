@@ -24,7 +24,9 @@ from test_replacement_source_intake_sql import requester, call, reserve, custody
 
 @pytest.fixture
 def admin_url(admin_url):
-    # Guard the reused fixture before it performs any setup writes.
+    # Guard the imported requester fixture's writes. The session admin fixture
+    # has already applied foundation migrations; the canonical worker fixture
+    # owns and verifies that synthetic cluster before those setup writes.
     owned_postgres_fixture(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'], admin_url)
     return admin_url
 

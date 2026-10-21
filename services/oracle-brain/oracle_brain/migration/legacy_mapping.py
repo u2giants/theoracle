@@ -134,6 +134,8 @@ class MappingManifest(StrictRecord):
 
 def map_record(record: LegacySourceRecord) -> LegacyMappingEntry:
     """Propose legacy mapping eligibility; never admit source or truth authority."""
+    if record.kind == "translation":
+        return quarantine_record(record, "derived translation must retain original lineage; never an original source")
     if record.is_ai_summary:
         return LegacyMappingEntry(
             legacy_id=record.legacy_id,
