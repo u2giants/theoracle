@@ -34,6 +34,7 @@ S03_TESTS = [
     "test_q2b_transaction_freshness_sql.py",
     "test_seal_security.py", "test_seal_wire.py",
     "test_replacement_journey_control.py", "test_replacement_job_authority.py",
+    "test_raw_endpoint_inventory_v1.py", "test_raw_endpoint_quote_v1.py", "test_raw_native_metadata_v1.py",
 ]
 # S04 — complete source ingestion, revisions and withdrawal
 # (plan_oracle_consultant_overhaul.md §S04 gate list).
