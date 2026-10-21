@@ -94,6 +94,7 @@ S10_TESTS = [
 ]
 # S11 — consulting recommendations and feedback.
 S11_TESTS = [
+    "test_report_v2_codec.py", "test_report_v2_workflow.py", "test_report_v2_store.py",
     "test_recommendation_contract.py",
     "test_recommendation_identity.py",
     "test_scenario_math.py",
