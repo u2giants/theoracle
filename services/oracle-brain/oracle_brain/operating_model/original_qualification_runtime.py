@@ -24,10 +24,11 @@ from uuid import UUID, uuid4
 
 from pydantic import Field, model_validator
 
-from .contracts import StrictRecord, canonical_bytes
+from .contracts import StrictRecord, canonical_bytes, digest
 from .original_qualification_v1 import parse_original_response_commit_v1
 from .raw_multimodal_pricing_v1 import RawMultimodalPricingQuoteV1
 from .raw_original_native_provider_v1 import (
+    RawOriginalNativeProviderV1,
     open_raw_original_native_v1,
     verify_raw_png_parts_v1,
 )
@@ -331,23 +332,52 @@ def run_raw_to_source_ref_v1(*, data: bytes, quote: RawMultimodalPricingQuoteV1,
         raise QualificationDenied('late distinct reviewer required')
     if reader_model == reviewer_model:
         raise QualificationDenied('late distinct reviewer model required')
+    for provider, purpose, model in (
+            (reading_provider, 'source-original-reading', reader_model),
+            (review_provider, 'source-original-review', reviewer_model)):
+        if (type(provider) is not RawOriginalNativeProviderV1
+                or type(provider.quote) is not RawMultimodalPricingQuoteV1
+                or provider.quote.model != model
+                or digest(provider.quote.model_dump(mode='json')) != provider.expected_quote_sha256
+                or provider.quote.view_manifest_hash != view_manifest_sha256
+                or provider.processing_request.purpose != purpose):
+            raise QualificationDenied('actual original phase provider/model binding required')
+    if canonical_bytes(quote.model_dump(mode='json')) != canonical_bytes(
+            reading_provider.quote.model_dump(mode='json')):
+        raise QualificationDenied('actual reading provider quote binding required')
     original_sha256 = hashlib.sha256(data).hexdigest()
+    # Freeze the two closed commitment bodies before either paid phase. Their
+    # model-content seals must bind exact returned UTF-8 bytes, not caller prose.
+    reading_commit_bytes = seal_response_body_v1(reading_body)
+    review_commit_bytes = seal_response_body_v1(review_body)
+    reading_commit = parse_original_response_commit_v1(reading_commit_bytes, phase='reading')
+    review_commit = parse_original_response_commit_v1(review_commit_bytes, phase='review')
+    if (reading_commit.transport != 'paid-native-v1'
+            or review_commit.transport != 'paid-native-v1'):
+        raise QualificationDenied('actual paid original phase commitments required')
     # 1. Genuine complete PNG parts for both phases, before any private dispatch.
-    verify_raw_png_parts_v1(reading_messages, quote)
-    verify_raw_png_parts_v1(review_messages, quote)
+    verify_raw_png_parts_v1(reading_messages, reading_provider.quote)
+    verify_raw_png_parts_v1(review_messages, review_provider.quote)
     # 2. Same Budget/native wire for the reading phase.
     reading_response, reading_actual, _reading_sizes = build_raw_dispatch_v1(
         provider=reading_provider, workspace_id=workspace_id, artifact_id=source_id,
         batch_id=workspace_id, purpose='source-original-reading',
         messages=reading_messages, now=now)
+    if (type(reading_response) is not str or not reading_response
+            or hashlib.sha256(reading_response.encode('utf-8')).hexdigest()
+            != reading_commit.model_content_hash):
+        raise QualificationDenied('actual reading response content differs from commitment')
     # 3. Independent review phase on its own provider/purpose binding.
     review_response, review_actual, _review_sizes = build_raw_dispatch_v1(
         provider=review_provider, workspace_id=workspace_id, artifact_id=source_id,
         batch_id=workspace_id, purpose='source-original-review',
         messages=review_messages, now=now)
-    # 4. Response commits (closed canonical transports only).
-    reading_commit_bytes = seal_response_body_v1(reading_body)
-    review_commit_bytes = seal_response_body_v1(review_body)
+    if (type(review_response) is not str or not review_response
+            or hashlib.sha256(review_response.encode('utf-8')).hexdigest()
+            != review_commit.model_content_hash):
+        raise QualificationDenied('actual review response content differs from commitment')
+    # 4. Commit only the frozen bodies bound to both actual phase responses.
+    # Native wire custody and Budget settlement survive every denial above.
     reading_seal = commit_reading_response_v1(
         store, commit_bytes=reading_commit_bytes, principal_id=reader_principal,
         session_role=reader_role, model_id=reader_model, workspace_id=workspace_id,

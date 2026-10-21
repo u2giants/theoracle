@@ -1,31 +1,10 @@
-"""Offline gate test retained from the building-block branch. Invented/synthetic only.
-
-Import guard: oracle_brain.research.rights is required; skip with reason when absent.
-"""
+"""Pure rights and destination checks. Invented/synthetic only; no I/O."""
 from __future__ import annotations
 
 # Invented address fixtures: preserve private-network refusal coverage, never real topology.
 def _synthetic_ipv4(*octets):
     assert len(octets) == 4 and all(type(n) is int and 0 <= n <= 255 for n in octets)
     return '.'.join(map(str, octets))
-
-
-import importlib.util
-
-import pytest
-
-_REQUIRED = 'oracle_brain.research.rights'
-try:
-    _spec = importlib.util.find_spec(_REQUIRED)
-except ModuleNotFoundError:
-    _spec = None
-if _spec is None:
-    pytest.skip(
-        'S10 research rights implementation absent on main (held PR #140 / branch s10-industry-expertise). Named offline gate test retained with the branch assertions; activates when research.rights lands.',
-        allow_module_level=True,
-    )
-
-"""Pure rights and destination-policy checks. No network, no transport, no credentials."""
 
 
 import pytest
@@ -139,3 +118,64 @@ def test_parse_register_rejects_duplicate_ids_and_bad_flags():
     truthy = '{"sources": [{"source_id": "a", "publisher": "P", "url": "https://p.example/a", "jurisdiction": "US", "scope": "s", "access": "public", "cadence": "weekly", "rights_confirmed": 1}]}'
     with pytest.raises(ValueError, match='rights_confirmed must be a bool'):
         parse_register(truthy)
+
+
+@pytest.mark.parametrize('field', ['source_id', 'publisher', 'url', 'jurisdiction', 'scope', 'access', 'cadence'])
+@pytest.mark.parametrize('bad', ['', '  ', None, 1, False, []])
+def test_source_requires_typed_nonempty_fields(field, bad):
+    row = dict(source_id='s', publisher='P', url='https://p.example/x', jurisdiction='US',
+               scope='retail', access='public', cadence='weekly')
+    row[field] = bad
+    with pytest.raises(ValueError, match=f'{field} must be a nonempty string'):
+        Source(**row)
+
+
+@pytest.mark.parametrize('field', ['enabled', 'rights_confirmed'])
+@pytest.mark.parametrize('bad', [1, 0, 'true', 'false', None, [], {}])
+def test_source_flags_cannot_be_truthy_or_falsey_substitutes(field, bad):
+    with pytest.raises(ValueError, match=f'{field} must be a bool'):
+        Source('s', 'P', 'https://p.example/x', 'US', 'retail', 'licensed', 'weekly', **{field: bad})
+
+
+@pytest.mark.parametrize('url', [
+    'http://p.example/', 'https://', 'https://u:p@p.example/', 'https://p.example:8443/',
+    'https://p.example:bad/', 'https://[broken/', 'https://p.example/\nprivate',
+    'https://p.example/\tprivate', ' https://p.example/', 'https://p.example/\x7f',
+])
+def test_source_rejects_malformed_or_credentialed_destination(url):
+    with pytest.raises(ValueError, match='uncredentialed https destination'):
+        Source('s', 'P', url, 'US', 'retail', 'public', 'weekly')
+
+
+@pytest.mark.parametrize('raw', ['null', '[]', '{}', '{"sources": null}',
+    '{"sources": {}}', '{"sources": [null]}', '{"sources": [1]}',
+    '{"sources": [[]]}', '{"sources": [{}]}', '{"sources": [], "unknown": 1}'])
+def test_register_refuses_malformed_shapes(raw):
+    from oracle_brain.research.registry import parse_register
+    with pytest.raises(ValueError):
+        parse_register(raw)
+
+
+@pytest.mark.parametrize('raw', [
+    '64:ff9b::a00:1', '64:ff9b:1::a00:1', '2002:0a00:0001::1',
+    '2001:0000:4136:e378:8000:63bf:f5ff:fffe', '::a00:1',
+    '::ffff:' + _synthetic_ipv4(10, 0, 0, 1), 'fec0::1', 'ff0e::1',
+    _synthetic_ipv4(100, 64, 0, 1),
+    '2001:db8::1', '8.8.8.8%zone', None, 134744072,
+])
+def test_public_address_gate_refuses_transition_and_non_unicast_candidates(raw):
+    with pytest.raises(RightsError):
+        require_public_addresses(['8.8.8.8', raw])
+
+
+def test_approved_rights_never_turn_on_a_disabled_source():
+    source = Source('s', 'P', 'https://p.example/', 'US', 'retail', 'licensed', 'weekly',
+                    enabled=False, rights_confirmed=True)
+    assert source.authorized is False
+    assert coverage_gaps([source]) == (CoverageGap('s', 'licensed', 'disabled'),)
+
+
+@pytest.mark.parametrize('addresses', [iter(['8.8.8.8']), iter([]), {'8.8.8.8'}, None])
+def test_address_gate_requires_an_indexable_explicit_candidate_population(addresses):
+    with pytest.raises(RightsError, match='sequence'):
+        require_public_addresses(addresses)

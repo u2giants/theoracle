@@ -1,9 +1,9 @@
 """Guarded fetch: rejects private/link-local destinations and unsafe redirects. Transport is injected."""
 from dataclasses import dataclass
-import ipaddress
 import socket
 from typing import Callable
 from urllib.parse import urljoin, urlsplit
+from .rights import RightsError, require_public_addresses
 
 MAX_REDIRECTS = 5
 
@@ -27,26 +27,20 @@ def system_resolver(host: str) -> list[str]:
     return [info[4][0] for info in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)]
 
 
-def _unsafe_ip(raw: str) -> bool:
-    ip = ipaddress.ip_address(raw.split('%')[0])
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
-    return not ip.is_global or ip.is_multicast
-
-
 def check_destination(url: str, resolver: Resolver) -> str:
-    parts = urlsplit(url)
-    if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password:
-        raise UnsafeDestination(f'refused url {url!r}')
-    if parts.port not in (None, 443):
-        raise UnsafeDestination(f'refused port {parts.port}')
-    addresses = resolver(parts.hostname)
-    if not addresses:
-        raise UnsafeDestination(f'no address for {parts.hostname}')
-    for address in addresses:
-        if _unsafe_ip(address):
-            raise UnsafeDestination(f'refused non-public address {address} for {parts.hostname}')
-    return addresses[0]
+    try:
+        if type(url) is not str or any(ord(c) <= 32 or ord(c) == 127 for c in url):
+            raise ValueError('invalid destination')
+        parts = urlsplit(url)
+        if (parts.scheme != 'https' or not parts.hostname or parts.username
+                or parts.password or parts.port not in (None, 443)):
+            raise ValueError('invalid destination')
+    except ValueError:
+        raise UnsafeDestination('refused HTTPS destination') from None
+    try:
+        return require_public_addresses(resolver(parts.hostname))
+    except RightsError as error:
+        raise UnsafeDestination(str(error)) from None
 
 
 def guarded_fetch(url: str, transport: Transport, resolver: Resolver = system_resolver) -> Response:

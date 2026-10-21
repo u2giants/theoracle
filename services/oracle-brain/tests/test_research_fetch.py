@@ -49,3 +49,35 @@ def test_refuses_redirect_to_private_address():
 def test_redirect_loop_is_bounded():
     with pytest.raises(UnsafeDestination, match='too many'):
         guarded_fetch('https://pub.example/', lambda u, ip: Response(301, location='/again'), resolver)
+
+
+@pytest.mark.parametrize('addresses', [
+    ['64:ff9b::a00:1'], ['64:ff9b:1::a00:1'], ['2002:0a00:0001::1'],
+    ['2001:0000:4136:e378:8000:63bf:f5ff:fffe'], ['::a00:1'],
+    ['::ffff:8.8.8.8'], ['8.8.8.8%zone'], ['not-an-address'],
+    ['8.8.8.8', '64:ff9b::a00:1'], [], '8.8.8.8', None,
+])
+def test_fetch_uses_shared_strict_address_gate_before_transport(addresses):
+    with pytest.raises(UnsafeDestination):
+        guarded_fetch('https://pub.example/',
+                      lambda *_: pytest.fail('transport must not run'),
+                      lambda _: addresses)
+
+
+@pytest.mark.parametrize('url', [None, 1, 'https://pub.example:bad/',
+    'https://[broken/', 'https://pub.example/\nother', 'https://pub.example/ a'])
+def test_malformed_destination_is_typed_denial_without_network(url):
+    with pytest.raises(UnsafeDestination):
+        guarded_fetch(url, lambda *_: pytest.fail('transport must not run'),
+                      lambda _: pytest.fail('resolver must not run'))
+
+
+def test_redirect_requalifies_transition_address_before_second_transport():
+    calls = []
+    def transport(url, pinned):
+        calls.append((url, pinned))
+        return Response(302, location='https://transition.example/')
+    with pytest.raises(UnsafeDestination):
+        guarded_fetch('https://pub.example/', transport,
+                      lambda host: ['8.8.8.8'] if host == 'pub.example' else ['64:ff9b::a00:1'])
+    assert calls == [('https://pub.example/', '8.8.8.8')]
