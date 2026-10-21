@@ -44,6 +44,25 @@ _FUTURE = datetime(2030, 1, 1, tzinfo=timezone.utc)
 _PAST = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
+from meeting_testkit import SETTINGS_EXPIRY, host_current
+from oracle_brain.meetings.participation import record_settings as _raw_record_settings
+
+
+def record_settings(**fields):
+    if fields.get('enabled'):
+        fields.setdefault('generation', 1)
+        fields.setdefault('valid_until', SETTINGS_EXPIRY)
+    return _raw_record_settings(**fields)
+
+
+from oracle_brain.workflows.meeting_turn import evaluate_turn as _raw_evaluate
+
+
+def evaluate_turn(settings, *args, **fields):
+    fields.setdefault('current_state_reader', host_current)
+    return _raw_evaluate(settings, *args, **fields)
+
+
 def _test_mac(purpose, *fields):
     """Produce a purpose-tagged seal via the signer CLI (test host stand-in).
 
@@ -63,12 +82,28 @@ def _enable_mac(meeting_id, **configuration):
     """Host-authorized participation enable proof."""
     from oracle_brain.meetings.participation import settings_authority_payload
     return _test_mac(ENABLE_PROOF_PURPOSE, settings_authority_payload(
-        meeting_id=meeting_id, recorded_at='2026-10-16T12:00:00Z', **configuration))
+        meeting_id=meeting_id, recorded_at='2026-10-16T12:00:00Z',
+        generation=1, valid_until=SETTINGS_EXPIRY, **configuration))
 
 
-def _action_mac(intent_id, status, timestamp):
-    """Host-issued delivery-action signature over the exact action payload."""
-    return _test_mac(DELIVERY_ACTION_PURPOSE, intent_id, status, timestamp)
+def _action_mac(intent_id, status, timestamp, *, ledger=None, receipt_id='',
+                provider_message_id=''):
+    """Synthetic host authorizes the full immutable action and bounded nonce."""
+    import time
+    from uuid import uuid4
+    from oracle_brain.meetings.delivery import DeliveryActionProof, delivery_action_payload
+    expiry, nonce = time.time() + 60, uuid4().hex
+    if ledger is None:
+        # Intentionally legacy/incomplete proof used only by denied-case tests.
+        payload = intent_id
+    else:
+        intent = next(value for value in ledger._intents_by_key.values()
+                      if value.intent_id == intent_id)
+        payload = delivery_action_payload(
+            ledger_id=ledger.ledger_id, intent=intent, status=status, timestamp=timestamp,
+            receipt_id=receipt_id, channel=intent.channel,
+            provider_message_id=provider_message_id, expires_at=expiry, nonce=nonce)
+    return DeliveryActionProof(expiry, nonce, _test_mac(DELIVERY_ACTION_PURPOSE, payload))
 
 
 def _credential(*, role='delivery_sender', expires_at=None, principal_id='principal-1'):
@@ -114,7 +149,7 @@ def test_replay_returns_prior_receipt_and_never_second_send():
                             channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
                             provider_message_id='m-1',
                             action_mac=_action_mac(intent.intent_id, 'sent',
-                                                   '2026-10-16T12:05:00Z'))
+                                                   '2026-10-16T12:05:00Z', ledger=ledger, receipt_id='dr-2', provider_message_id='m-1'))
     again = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-3',
                              channel='meeting_text', sent_at='2026-10-16T12:06:00Z',
                              provider_message_id='m-2',
@@ -164,7 +199,7 @@ def test_failed_send_is_visible_and_silence_is_not_a_send():
     failed = ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
                                 channel='meeting_text', failed_at='2026-10-16T12:05:00Z',
                                 action_mac=_action_mac(intent.intent_id, 'failed',
-                                                       '2026-10-16T12:05:00Z'))
+                                                       '2026-10-16T12:05:00Z', ledger=ledger, receipt_id='dr-f'))
     assert failed.status == 'failed' and failed.sent_at is None
     assert ledger.replay(intent.idempotency_key).status == 'failed'
 
@@ -229,7 +264,8 @@ def test_forged_action_signature_denied_for_mark_sent():
     sent = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-s',
                             channel='meeting_text', sent_at=sent_at,
                             provider_message_id='m-1',
-                            action_mac=_action_mac(intent.intent_id, 'sent', sent_at))
+                            action_mac=_action_mac(intent.intent_id, 'sent', sent_at, ledger=ledger,
+                                                   receipt_id='dr-s', provider_message_id='m-1'))
     assert sent.status == 'sent'
     again = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-s2',
                              channel='meeting_text', sent_at='2026-10-16T12:06:00Z',
@@ -273,7 +309,8 @@ def test_unauthorized_mark_failed_denied():
     # Legitimate signed action: allowed.
     failed = ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f2',
                                 channel='meeting_text', failed_at=failed_at,
-                                action_mac=_action_mac(intent.intent_id, 'failed', failed_at))
+                                action_mac=_action_mac(intent.intent_id, 'failed', failed_at, ledger=ledger,
+                                                     receipt_id='dr-f2'))
     assert failed.status == 'failed'
 
 
@@ -456,7 +493,7 @@ def test_wrong_secret_mac_denied_for_credential_proof():
 
 def test_caller_built_settings_enable_denied():
     """Enabling participation without a host-authorized MAC is refused."""
-    from oracle_brain.meetings.participation import record_settings as rs
+    rs = record_settings
     try:
         rs(meeting_id='m-1', enabled=True,
            recorded_at='2026-10-16T12:00:00Z')
@@ -596,3 +633,91 @@ def test_evaluate_turn_rechecks_host_settings_before_recording_intent():
                       MembershipView(determined=True, shared_access=frozenset({'p-1'})),
                       DeliveryLedger(), receipt_id='r-1', intent_id='i-1',
                       answer_body='invented answer', recorded_at='now')
+
+
+@pytest.mark.parametrize(('field', 'changed'), [
+    ('receipt_id', 'other-receipt'), ('channel', 'meeting_chat'),
+    ('provider_message_id', 'other-provider'), ('sent_at', 'different-timestamp'),
+])
+def test_delivery_signature_binds_complete_receipt(field, changed):
+    ledger, intent = DeliveryLedger(), _intent()
+    ledger.record_intent(intent)
+    args = dict(receipt_id='r', channel='meeting_text', sent_at='now',
+                provider_message_id='provider')
+    proof = _action_mac(intent.intent_id, 'sent', 'now', ledger=ledger,
+                        receipt_id='r', provider_message_id='provider')
+    args[field] = changed
+    with pytest.raises(PermissionError):
+        ledger.mark_sent(intent.idempotency_key, action_mac=proof, **args)
+    assert ledger.replay(intent.idempotency_key).status == 'recorded'
+
+
+@pytest.mark.parametrize('other', [dict(), dict(meeting_id='other-meeting'),
+                                  dict(turn_id='other-turn'), dict(body='other answer')])
+def test_delivery_signature_never_crosses_ledger_or_intent_identity(other):
+    source, target = DeliveryLedger(), DeliveryLedger()
+    original, different = _intent(), _intent(**other)
+    source.record_intent(original)
+    target.record_intent(different)
+    proof = _action_mac(original.intent_id, 'sent', 'now', ledger=source,
+                        receipt_id='r', provider_message_id='provider')
+    with pytest.raises(PermissionError):
+        target.mark_sent(different.idempotency_key, receipt_id='r', channel='meeting_text',
+                         sent_at='now', provider_message_id='provider', action_mac=proof)
+    assert target.replay(different.idempotency_key).status == 'recorded'
+
+
+def test_delivery_action_expiry_checked_at_consumption(monkeypatch):
+    import oracle_brain.meetings.delivery as delivery
+    ledger, intent = DeliveryLedger(), _intent()
+    ledger.record_intent(intent)
+    proof = _action_mac(intent.intent_id, 'sent', 'now', ledger=ledger,
+                        receipt_id='r', provider_message_id='provider')
+    monkeypatch.setattr(delivery.time, 'time', lambda: proof.expires_at + 1)
+    with pytest.raises(PermissionError, match='expired'):
+        ledger.mark_sent(intent.idempotency_key, receipt_id='r', channel='meeting_text',
+                         sent_at='now', provider_message_id='provider', action_mac=proof)
+
+
+def test_delivery_nonce_cannot_be_consumed_twice():
+    ledger, intent = DeliveryLedger(), _intent()
+    ledger.record_intent(intent)
+    proof = _action_mac(intent.intent_id, 'failed', 'now', ledger=ledger, receipt_id='r')
+    assert ledger.mark_failed(intent.idempotency_key, receipt_id='r',
+                              channel='meeting_text', failed_at='now', action_mac=proof).status == 'failed'
+    with pytest.raises(PermissionError, match='nonce reused'):
+        ledger.mark_failed(intent.idempotency_key, receipt_id='r', channel='meeting_text',
+                           failed_at='now', action_mac=proof)
+
+
+def test_host_disable_stops_old_enabled_turn_without_intent():
+    settings = record_settings(meeting_id='m-1', enabled=True,
+                               recorded_at='2026-10-16T12:00:00Z',
+                               enable_proof_mac=_enable_mac('m-1'))
+    turn = InboundTurn(turn_id='t', meeting_id='m-1', speaker_id='p',
+                       text='Oracle?', addresses_oracle=True)
+    ledger = DeliveryLedger()
+    with pytest.raises(PermissionError):
+        _raw_evaluate(settings, turn, MembershipView(True, frozenset({'p'})), ledger,
+                      receipt_id='r', intent_id='i', answer_body='invented answer',
+                      recorded_at='now', current_state_reader=lambda meeting, nonce:
+                      host_current(meeting, nonce, generation=2, enabled=False))
+    assert not ledger._by_key
+
+
+@pytest.mark.parametrize(('field', 'changed'), [
+    ('meeting_id', 'other-meeting'), ('turn_id', 'other-turn'),
+    ('intent_id', 'other-intent'), ('body', 'other answer'),
+    ('idempotency_key', 'other-key'), ('created_at', 'other-created-at'),
+])
+def test_delivery_signature_rechecks_every_immutable_intent_field(field, changed):
+    ledger, intent = DeliveryLedger(), _intent()
+    key = intent.idempotency_key
+    ledger.record_intent(intent)
+    proof = _action_mac(intent.intent_id, 'sent', 'now', ledger=ledger,
+                        receipt_id='r', provider_message_id='provider')
+    object.__setattr__(intent, field, changed)
+    with pytest.raises(PermissionError):
+        ledger.mark_sent(key, receipt_id='r', channel='meeting_text', sent_at='now',
+                         provider_message_id='provider', action_mac=proof)
+    assert ledger.replay(key).status == 'recorded'

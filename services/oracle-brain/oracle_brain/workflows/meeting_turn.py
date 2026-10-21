@@ -12,7 +12,7 @@ from typing import Literal, Optional
 
 from oracle_brain.meetings.delivery import DeliveryLedger, OutboundIntent, create_intent
 from oracle_brain.meetings.participation import (
-    ParticipationReceipt, ParticipationSettings, decide_addressed, verify_settings_authority,
+    ParticipationReceipt, ParticipationSettings, CurrentSettingsReader, decide_addressed, verify_settings_authority,
 )
 
 Decision = Literal['respond', 'silence', 'decline']
@@ -68,13 +68,14 @@ class TurnOutcome:
 def evaluate_turn(settings: ParticipationSettings, turn: InboundTurn,
                   membership: MembershipView, ledger: DeliveryLedger, *,
                   receipt_id: str, intent_id: Optional[str] = None,
-                  answer_body: str = '', recorded_at: str = '') -> TurnOutcome:
+                  answer_body: str = '', recorded_at: str = '',
+                  current_state_reader: Optional[CurrentSettingsReader] = None) -> TurnOutcome:
     """Decide one bounded turn and, when responding, record an outbound intent.
 
     The ledger only records the intent; sending is a separate authorized act
     with its own provider idempotency receipt.
     """
-    verify_settings_authority(settings)
+    verify_settings_authority(settings, current_state_reader)
     if turn.meeting_id != settings.meeting_id:
         raise ValueError('turn does not belong to this meeting')
     if turn.origin != 'participant':
@@ -83,7 +84,8 @@ def evaluate_turn(settings: ParticipationSettings, turn: InboundTurn,
         return TurnOutcome(
             'silence', 'none', _quiet(settings, turn, receipt_id, recorded_at))
     receipt = decide_addressed(
-        settings, turn_id=turn.turn_id, receipt_id=receipt_id, recorded_at=recorded_at)
+        settings, turn_id=turn.turn_id, receipt_id=receipt_id, recorded_at=recorded_at,
+        current_state_reader=current_state_reader)
     if receipt.status == 'suppressed':
         return TurnOutcome('silence', 'none', receipt)
     if not membership.determined:

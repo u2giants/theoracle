@@ -5,14 +5,18 @@ attach a delivery receipt. Replay of an existing idempotency key returns the
 prior receipt and must not produce a second provider call.
 
 Authority is the Ed25519 signature alone. ``mark_sent``/``mark_failed``
-verify a host-issued signature over the exact action payload (intent id,
-status, timestamp, purpose). There is no mutable in-process mint registry:
+verify a host-issued signature over ledger identity, the complete immutable
+intent, receipt/provider outcome, expiry and a single-use nonce. There is no mutable in-process mint registry:
 forged capability objects and ``__closure__`` registry mutation attempts
 are irrelevant because no registry exists to mutate.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+import math
+import time
+from uuid import uuid4
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Optional
@@ -129,18 +133,6 @@ def _deny_role_claim(sender_role: str) -> None:
         raise PermissionError('sender role claim is not proof; present an action signature')
 
 
-def _verify_action(action_mac: str, intent_id: str, status: str,
-                   timestamp: str) -> None:
-    """Verify the host-issued signature over the exact action payload.
-
-    The action payload is (intent_id, status, timestamp) under
-    ``DELIVERY_ACTION_PURPOSE``. A missing, forged or wrong-purpose
-    signature is refused. This check replaces the old mint registry.
-    """
-    if not action_mac:
-        raise PermissionError('action signature required to mark delivery')
-    verify_mac(DELIVERY_ACTION_PURPOSE, action_mac,
-               intent_id, status, timestamp)
 
 
 @dataclass(frozen=True)
@@ -160,6 +152,24 @@ class OutboundIntent:
             raise ValueError('outbound intent requires complete identity and body')
         if self.channel not in ('meeting_text', 'meeting_chat'):
             raise ValueError('unsupported outbound channel')
+
+
+@dataclass(frozen=True)
+class DeliveryActionProof:
+    """Short-lived exact-action seal; nonce is consumed by one ledger only."""
+    expires_at: float
+    nonce: str
+    mac: str
+
+
+def delivery_action_payload(*, ledger_id: str, intent: OutboundIntent,
+                            status: str, timestamp: str, receipt_id: str,
+                            channel: str, provider_message_id: str,
+                            expires_at: float, nonce: str) -> str:
+    return json.dumps(['delivery-action:v2', ledger_id, asdict(intent), status,
+                      timestamp, receipt_id, channel, provider_message_id,
+                      expires_at, nonce], sort_keys=True, separators=(',', ':'),
+                      allow_nan=False)
 
 
 @dataclass(frozen=True)
@@ -189,13 +199,43 @@ class DeliveryLedger:
     """
     _by_key: dict = field(default_factory=dict)
     _body_by_key: dict = field(default_factory=dict)
+    _intents_by_key: dict = field(default_factory=dict)
+    _used_nonces: set = field(default_factory=set)
+    _ledger_id: str = field(default_factory=lambda: uuid4().hex, init=False)
+
+    @property
+    def ledger_id(self) -> str:
+        return self._ledger_id
+
+    def _verify_action(self, proof, *, intent: OutboundIntent, status: str,
+                       timestamp: str, receipt_id: str, channel: str,
+                       provider_message_id: str = '') -> None:
+        if type(proof) is not DeliveryActionProof:
+            raise PermissionError('exact delivery action proof required')
+        if (type(proof.expires_at) not in (int, float)
+                or not math.isfinite(proof.expires_at)
+                or not time.time() < proof.expires_at <= time.time() + 300
+                or not isinstance(proof.nonce, str) or len(proof.nonce) < 32
+                or proof.nonce in self._used_nonces):
+            raise PermissionError('delivery action expired or nonce reused')
+        if not timestamp or not receipt_id:
+            raise PermissionError('complete delivery receipt identity required')
+        if channel != intent.channel:
+            raise PermissionError('delivery channel differs from immutable intent')
+        verify_mac(DELIVERY_ACTION_PURPOSE, proof.mac,
+                   delivery_action_payload(
+                       ledger_id=self.ledger_id, intent=intent, status=status,
+                       timestamp=timestamp, receipt_id=receipt_id, channel=channel,
+                       provider_message_id=provider_message_id,
+                       expires_at=proof.expires_at, nonce=proof.nonce))
+        self._used_nonces.add(proof.nonce)
 
     def record_intent(self, intent: OutboundIntent) -> DeliveryReceipt:
         """Record intent only. Status stays 'recorded' until a separate send."""
         existing = self._by_key.get(intent.idempotency_key)
         if existing is not None:
             prior_body = self._body_by_key.get(intent.idempotency_key)
-            if prior_body != intent.body:
+            if prior_body != intent.body or self._intents_by_key.get(intent.idempotency_key) != intent:
                 raise ValueError('conflicting outbound body under idempotency key')
             return existing
         receipt = DeliveryReceipt(
@@ -203,15 +243,16 @@ class DeliveryLedger:
             idempotency_key=intent.idempotency_key, status='recorded')
         self._by_key[intent.idempotency_key] = receipt
         self._body_by_key[intent.idempotency_key] = intent.body
+        self._intents_by_key[intent.idempotency_key] = intent
         return receipt
 
     def mark_sent(self, idempotency_key: str, *, receipt_id: str, channel: str,
                   sent_at: str, provider_message_id: str,
-                  action_mac: str = '', sender_role: str = '') -> DeliveryReceipt:
+                  action_mac: Optional[DeliveryActionProof] = None, sender_role: str = '') -> DeliveryReceipt:
         """Attach a delivery receipt for a send a separate authorized actor performed.
 
-        Authority is ``action_mac``: a host-issued Ed25519 signature over
-        (intent_id, 'sent', sent_at) under ``DELIVERY_ACTION_PURPOSE``.
+        Authority is ``action_mac``: a short-lived host-issued signature over
+        the ledger, immutable intent, complete receipt and single-use nonce.
         A claimed ``sender_role`` is never proof and is denied. Replay is
         idempotent: a prior sent receipt is returned unchanged.
         """
@@ -223,7 +264,9 @@ class DeliveryLedger:
             raise ValueError('unknown idempotency key')
         if prior.status == 'sent':
             return prior
-        _verify_action(action_mac, prior.intent_id, 'sent', sent_at)
+        self._verify_action(action_mac, intent=self._intents_by_key[idempotency_key],
+                            status='sent', timestamp=sent_at, receipt_id=receipt_id,
+                            channel=channel, provider_message_id=provider_message_id)
         receipt = DeliveryReceipt(
             receipt_id, prior.intent_id, idempotency_key, 'sent',
             channel=channel, sent_at=sent_at, provider_message_id=provider_message_id)
@@ -231,12 +274,12 @@ class DeliveryLedger:
         return receipt
 
     def mark_failed(self, idempotency_key: str, *, receipt_id: str, channel: str,
-                    failed_at: str = '', action_mac: str = '',
+                    failed_at: str = '', action_mac: Optional[DeliveryActionProof] = None,
                     sender_role: str = '') -> DeliveryReceipt:
         """Attach a failure receipt. Same signed-action boundary as mark_sent.
 
-        Authority is ``action_mac`` over (intent_id, 'failed', failed_at)
-        under ``DELIVERY_ACTION_PURPOSE``.
+        Authority is ``action_mac`` over the ledger, immutable intent,
+        complete failed receipt, enforced expiry and single-use nonce.
         """
         _deny_role_claim(sender_role)
         if not channel:
@@ -246,7 +289,9 @@ class DeliveryLedger:
             raise ValueError('unknown idempotency key')
         if prior.status == 'sent':
             return prior
-        _verify_action(action_mac, prior.intent_id, 'failed', failed_at)
+        self._verify_action(action_mac, intent=self._intents_by_key[idempotency_key],
+                            status='failed', timestamp=failed_at, receipt_id=receipt_id,
+                            channel=channel)
         receipt = DeliveryReceipt(
             receipt_id, prior.intent_id, idempotency_key, 'failed', channel=channel)
         self._by_key[idempotency_key] = receipt

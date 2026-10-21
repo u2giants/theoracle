@@ -15,6 +15,7 @@ import importlib
 import inspect
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -152,7 +153,8 @@ def test_signer_cli_refuses_application_supplied_key(tmp_path):
         input=json.dumps({'purpose': 'participation-enable:v1', 'fields': ['x'],
                           'grant': {}, 'grant_signature': '00'}).encode(),
         capture_output=True, check=False,
-        env={**os.environ, 'ORACLE2_SEAL_SIGNER_KEY_FILE': str(fake_key),
+        env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1]),
+             'ORACLE2_SEAL_SIGNER_KEY_FILE': str(fake_key),
              'ORACLE2_SEAL_PRIVATE_KEY_FILE': str(fake_key)})
     assert child.returncode != 0
     assert json.loads(child.stdout) == {'error': 'host signer authorization refused'}
@@ -160,7 +162,7 @@ def test_signer_cli_refuses_application_supplied_key(tmp_path):
 
 def test_signer_refuses_unknown_purpose_and_free_form_bytes():
     """Unknown purpose, free-form payload_hex and malformed requests are refused."""
-    env = {}
+    env = {'PYTHONPATH': str(Path(__file__).resolve().parents[1])}
     for name in ('SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'COMSPEC',
                  'TMP', 'TEMP', 'HOME', 'USERPROFILE'):
         value = os.environ.get(name)
