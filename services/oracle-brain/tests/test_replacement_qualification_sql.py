@@ -119,9 +119,16 @@ def request_for(x):
 
 
 def ready_model(x,requester,processing,tmp_path,run):
-    """Build a real SQL qualified-model/paid-ACK control over this raw source."""
+    """Host-prepare a separate legacy artifact/paid-ACK confirmation control.
+
+    Original qualification alone retains processing state. This control installs
+    the pre-existing legacy draft, blocks and role admissions independently; it
+    does not claim an intake-to-compiler production bridge.
+    """
     f=processing();ref=x['ref'];reading=x['reading_text']
     with psycopg.connect(x['admin']) as c:
+        assert c.execute('SELECT status FROM oracle2.sources WHERE workspace_id=%s AND source_id=%s AND revision=%s',(x['workspace'],ref.source_id,ref.revision)).fetchone()==('processing',)
+        assert c.execute("UPDATE oracle2.sources SET status='draft' WHERE workspace_id=%s AND source_id=%s AND revision=%s AND status='processing'",(x['workspace'],ref.source_id,ref.revision)).rowcount==1
         c.execute("INSERT INTO oracle2.drafts(draft_id,source_id,workspace_id,created_by,process_name,status) VALUES(%s,%s,%s,%s,'invented generated draft','draft')",(uuid4(),ref.source_id,x['workspace'],requester['actor']))
         metadata=dict(original_hash=ref.original_sha256,content_hash=x['body']['reading_sha256'],parser_identity='4'*64,content_type='text/plain',evidence_kind='native_text',page_count=1,review_receipt='c'*64)
         for index,(kind,text) in enumerate([('original',reading),('original-metadata',json.dumps(metadata))]):
