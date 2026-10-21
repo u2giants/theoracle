@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import date, datetime
 from typing import Literal
+import re
 from urllib.parse import urlsplit
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
@@ -141,6 +142,14 @@ def assess_applicability(context:DecisionContext,reference:ExternalReference,*,
         wanted,actual=getattr(context,name),getattr(reference,name)
         if not _unknown(wanted) and not _unknown(actual) and wanted!=actual:
             return result('INAPPLICABLE',name+'_mismatch')
+    # Legacy register scope is free text. Only exact product-token equality
+    # supports a comparison: never infer containment, global scope or a channel
+    # from that text. Unstructured register metadata remains UNKNOWN below.
+    for registered, declared, label in ((source.jurisdiction, reference.jurisdiction, 'jurisdiction'),
+            (source.scope, reference.product_scope, 'product_scope')):
+        if (not _unknown(registered) and re.fullmatch(TOKEN, registered)
+                and not _unknown(declared) and registered != declared):
+            return result('INAPPLICABLE','registered_'+label+'_mismatch')
     if reference.publication_date is not None and reference.publication_date>now.date():
         return result('INAPPLICABLE','not_yet_published')
     if reference.effective_date is not None and reference.effective_date>now.date():
@@ -153,6 +162,9 @@ def assess_applicability(context:DecisionContext,reference:ExternalReference,*,
     if reference.refresh_due is not None and reference.refresh_due<=now:
         return result('INAPPLICABLE','expired_refresh')
     missing=[]
+    for value,label in ((source.jurisdiction,'jurisdiction'),(source.scope,'product_scope')):
+        if _unknown(value) or re.fullmatch(TOKEN,value) is None:
+            missing.append('registered_'+label+'_unknown')
     if current is None or _unknown(current.source_version):missing.append('current_source_revision_unknown')
     for name in ('source_version','content_sha256','original_url','publisher','license_permission',
                  'publication_date','effective_date','retrieved_at','reviewed_at','refresh_due','review_due'):

@@ -41,6 +41,20 @@ def test_explicit_relevant_reference_is_comparison_only_no_grants():
     assert result.serving_authorized is False and len(result.reference_digest)==64
 
 
+@pytest.mark.parametrize('change,reason', [({'jurisdiction':'CA'},'registered_jurisdiction_mismatch'),
+    ({'scope':'apparel'},'registered_product_scope_mismatch')])
+def test_reference_cannot_override_registered_source_scope(change,reason):
+    result=assess(source=replace(SOURCE,**change))
+    assert result.state=='INAPPLICABLE' and result.reasons==(reason,)
+
+
+@pytest.mark.parametrize('change', [{'jurisdiction':'US and CA'}, {'scope':'toys and apparel'},
+    {'scope':'global'}, {'jurisdiction':'UNKNOWN'}])
+def test_freeform_or_unknown_registered_scope_never_infers_a_match(change):
+    result=assess(source=replace(SOURCE,**change))
+    assert result.state=='UNKNOWN' and any('registered_' in reason for reason in result.reasons)
+
+
 @pytest.mark.parametrize('field',['jurisdiction','product_scope','channel_scope'])
 def test_explicit_mismatch_is_inapplicable_not_fuzzy(field):
     result=assess(reference(**{field:'different'}))
