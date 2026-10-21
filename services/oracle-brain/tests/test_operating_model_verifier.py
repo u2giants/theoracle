@@ -91,7 +91,7 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
         '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
         '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-        '014_replacement_source_custody.sql','018_original_review_reading_input.sql')
+        '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql')
 
 
 def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
@@ -199,7 +199,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
-    assert verifier.SYNTHETIC_MIGRATIONS[-2:]==('014_replacement_source_custody.sql','018_original_review_reading_input.sql')
+    assert verifier.SYNTHETIC_MIGRATIONS[-3:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql')
 
 
 @pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])
@@ -283,3 +283,12 @@ def test_actual_python_web_peer_conformance_is_mandatory_not_a_skipped_browser_p
     from scripts.oracle2.verify_phase import S03_TESTS
     assert verifier.required_suites('W10').count('protected_web_python_conformance_v1') == 1
     assert S03_TESTS.count('test_protected_web_python_conformance_v1.py') == 1
+
+
+def test_canonical_consolidation_is_required_once_with_017_before_018():
+    from scripts.oracle2.verify_phase import S03_TESTS, S05_TESTS
+    for name in ('consolidation_contracts_v1', 'consolidation_sql_v1'):
+        assert verifier.required_suites('W10').count(name) == 1
+        assert S03_TESTS.count('test_' + name + '.py') == 1
+        assert S05_TESTS.count('test_' + name + '.py') == 1
+    assert verifier.SYNTHETIC_MIGRATIONS[-2:] == ('017_processing_model_history.sql', '018_original_review_reading_input.sql')

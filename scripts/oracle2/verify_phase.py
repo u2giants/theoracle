@@ -23,6 +23,7 @@ S02_TESTS = [
     "test_preview_settings.py", "test_worker_guard_parity.py",
 ]
 S03_TESTS = [
+    "test_consolidation_contracts_v1.py", "test_consolidation_sql_v1.py",
     "test_replacement_request_service_v1.py", "test_protected_web_python_conformance_v1.py",
     "test_owned_worker_database.py", "test_replacement_upload_service_v1.py",
     "test_replacement_upload_sql.py",
@@ -57,6 +58,7 @@ S04_TESTS = [
 ]
 # S05 — confirmed temporal operating model and corrections.
 S05_TESTS = [
+    "test_consolidation_contracts_v1.py", "test_consolidation_sql_v1.py",
     "test_replacement_confirmation_settings_v1.py", "test_replacement_confirmation_service_v1.py", "test_replacement_confirmation_sql.py",
     "test_identity_resolution.py",
     "test_temporal_facts.py",
