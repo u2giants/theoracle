@@ -89,6 +89,14 @@ container, published port, invented identity and prior TLS qualification/CA
 are re-proved before migrations. Focused mocked tests retain valid setup and
 prove denied targets make no database requests. No manual database writes are
 performed on that deployment-class source; cold CI is its runtime proof.
+The first cold run of `882393fe` passed the owned bootstrap and all 44 focused
+checks, then reported W10 2787 passed/one failed, zero skips/timeouts/cleanup
+errors, slowest worker 102.33 seconds. Its retained checkpoint fixture imported
+the script by filename and exposed an import-context regression. Checkpoint
+setup is now a separate routine over an already validated open connection,
+with no target selection or migrations; the retained test preserves its fresh
+isolated database. Full migration entry still requires the exact owned
+`oracle2` target. A fresh cold run remains required for the repaired source.
 
 Actual host installation/isolation, Q2b target owner/caller/TLS proof,
 W10/R7 native timing, native/hosted/browser production proof, stage acceptance
