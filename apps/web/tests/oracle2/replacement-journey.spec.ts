@@ -67,6 +67,11 @@ test.describe('replacement journey U3–U5 (offline fixture)', () => {
         body: JSON.stringify({ token: 'wrong-fixture-token' }),
       });
       if (denied.status !== 401) return denied.status;
+      const identityDenied = await fetch('/api/consultant/replacement/v1/session', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: fixtureToken, actorId: 'caller-selected', workspaceId: 'caller-selected' }),
+      });
+      if (identityDenied.status !== 401) return identityDenied.status;
       const response = await fetch('/api/consultant/replacement/v1/session', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token: fixtureToken }),
