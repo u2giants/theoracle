@@ -88,5 +88,5 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
   await page.getByRole('button',{name:'Refresh',exact:true}).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toHaveCount(0);
-  expect((await page.request.get(`${url}/api/consultant/source`)).status()).toBe(401);
+  expect((await browserRequest(page,`${url}/api/consultant/source`)).status()).toBe(401);
 });
