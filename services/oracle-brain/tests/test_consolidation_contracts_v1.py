@@ -209,3 +209,21 @@ def test_successor_rejects_relabelled_predecessor_original(context):
     raw['correction_source_ids']=[str(core.model.source_refs[0].source_id)]
     with pytest.raises(ValueError,match='new qualified original'):
         validate_successor(core,ConsolidationCoreV1.model_validate_json(json.dumps(raw)))
+
+
+def test_qualified_sdk_embedding_context_preserves_core_and_refuses_legacy_or_model_mismatch(qualified_v3):
+    from copy import deepcopy
+    from oracle_brain.operating_model.purpose_profiles_v2 import DerivedEmbeddingContextV2
+    from test_paid_sdk_embeddings_v3 import paid_case_for
+    q=temporal_qualified_fixture(qualified_v3)
+    case=paid_case_for(q['payload'],q['manifest'])
+    context=case['private'].embedding
+    assert context.qualified_payload['consolidation_core']==q['payload']['consolidation_core']
+    raw={k:v for k,v in context.model_dump(mode='python').items() if k!='inventory'}|{'schema_version':2}
+    with pytest.raises(PermissionError,match='explicit qualified consolidation SDK context'):
+        DerivedEmbeddingContextV2.model_validate(raw)
+    changed=deepcopy(q['payload']);changed['consolidation_core']['model']['model_id']=str(uuid4())
+    with pytest.raises(PermissionError,match='differs'):
+        paid_case_for(changed,q['manifest'])
+    with pytest.raises(PermissionError,match='differs from exact SDK artifact'):
+        type(context).model_validate(context.model_dump(mode='python')|{'qualified_artifact_id':uuid4()})
