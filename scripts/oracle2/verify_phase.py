@@ -23,6 +23,8 @@ S02_TESTS = [
 ]
 S03_TESTS = [
     "test_replacement_request_service_v1.py",
+    "test_owned_worker_database.py", "test_replacement_upload_service_v1.py",
+    "test_replacement_upload_sql.py",
     "test_provider_policy.py", "test_pilot_journey.py", "test_authority.py",
     "test_review_concurrency.py", "test_holistic_graphrag.py",
     "test_holistic_graphrag_integration.py",

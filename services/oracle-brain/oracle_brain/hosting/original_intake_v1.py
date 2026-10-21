@@ -153,62 +153,96 @@ def _context_horizon(s,context):
     if not context.checked_at<=now<context.valid_until or context.checked_at>=context.valid_until:raise PermissionError('SQL current context elapsed')
     return min(s.current(),context.valid_until)
 
+def _intake_current_deadline(settings,deadline,context=None):
+    if type(deadline) is not datetime or deadline.tzinfo is None or deadline.utcoffset() is None:
+        raise PermissionError('exact aware original intake deadline required')
+    bound=settings.current() if context is None else _context_horizon(settings,context)
+    now=datetime.now(timezone.utc)
+    if not now<deadline<=settings.config.original_horizon or now>=min(bound,deadline):
+        raise PermissionError('original intake deadline elapsed or excessive')
+    return (min(bound,deadline)-now).total_seconds()
+
+
 class OriginalIntakeFactoryV1:
     """Protected per-principal backend only. Actual SQL, not the settings type, authorizes."""
     def __init__(self,settings):
         if type(settings) is not OriginalIntakeSettingsV1:raise TypeError('fixed intake settings required')
         settings.current();self.settings=settings
-    def _call(self,name,arguments,record):
+    def _call(self,name,arguments,record,*,caller_deadline=None):
         import psycopg
         from psycopg.conninfo import conninfo_to_dict
-        s=self.settings;c=s.config;s.current()
+        s=self.settings;c=s.config
+        deadline=s.current() if caller_deadline is None else caller_deadline
+        remaining=_intake_current_deadline(s,deadline)
+        if remaining<1:raise PermissionError('original intake connection window elapsed')
+        connect_seconds=min(5,int(remaining))
         raw=_pinned(c.database_url.path,c.database_url.sha256,16384).decode('utf-8')
         _pinned(c.database_ca.path,c.database_ca.sha256,131072)
         target=conninfo_to_dict(raw)
         if set(target)-{'host','hostaddr','port','dbname','user','password','sslmode','sslrootcert','connect_timeout'} or target.get('sslmode')!='verify-full' or target.get('sslrootcert')!=c.database_ca.path or target.get('user')!=c.expected_session_role or not target.get('host') or not target.get('dbname'):raise PermissionError('fixed intake SQL target required')
-        with psycopg.connect(raw,connect_timeout=5) as conn:
+        remaining=_intake_current_deadline(s,deadline)
+        if remaining<1:raise PermissionError('original intake connection window elapsed')
+        connect_seconds=min(5,int(remaining))
+        with psycopg.connect(raw,connect_timeout=connect_seconds) as conn:
             actual=conn.info
             if not conn.pgconn.ssl_in_use or actual.host!=target['host'] or actual.dbname!=target['dbname'] or actual.user!=target['user'] or actual.port!=int(target.get('port',5432)) or (target.get('hostaddr') and actual.hostaddr!=target['hostaddr']):raise PermissionError('actual intake SQL target differs')
+            _intake_current_deadline(s,deadline)
             with conn.cursor() as cur:
-                cur.execute("SELECT set_config('statement_timeout','5000',true),set_config('lock_timeout','2000',true)")
+                def limits():
+                    milliseconds=int(_intake_current_deadline(s,deadline)*1000)
+                    if milliseconds<1:raise PermissionError('original intake statement window elapsed')
+                    cur.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",
+                        (str(min(5000,milliseconds)),str(min(2000,milliseconds))))
+                limits()
                 cur.execute("SELECT SESSION_USER::text,CURRENT_USER::text,(SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='oracle2')")
                 if cur.fetchone()!=(c.expected_session_role,c.expected_session_role,c.expected_owner_role):raise PermissionError('actual intake SQL role differs')
                 cur.execute("SELECT pg_get_userbyid(proowner),prosecdef FROM pg_proc WHERE oid IN (to_regprocedure('oracle2.reserve_source_revision_v1(integer,jsonb,uuid)'),to_regprocedure('oracle2.finalize_source_revision_v1(uuid,integer,jsonb)'))")
                 owners=cur.fetchall()
                 if len(owners)!=2 or any(owner!=(c.expected_owner_role,True) for owner in owners):raise PermissionError('actual intake function owner differs')
-                s.current()
+                limits()
                 if name=='reserve':cur.execute('SELECT oracle2.reserve_source_revision_v1(%s,%s::jsonb,%s)',arguments)
                 elif name=='finalize':cur.execute('SELECT oracle2.finalize_source_revision_v1(%s,%s,%s::jsonb)',arguments)
                 else:raise PermissionError('fixed intake function required')
                 value=record.model_validate_json(json.dumps(cur.fetchone()[0]))
-                _context_horizon(s,value.context)
-            # Context comparison occurs before transaction commit as well as after.
+                _intake_current_deadline(s,deadline,value.context)
+            # No subsequent commit after the original caller horizon. A late
+            # commit/close is uncertain, never a successful upload or retry.
+            _intake_current_deadline(s,deadline,value.context)
             conn.commit()
-        _context_horizon(s,value.context)
+        _intake_current_deadline(s,deadline,value.context)
         return value
-    def intake_pdf_v1(self,*,source_id,expected_head,idempotency_key,filename,original_sha256,data:bytes):
+    def intake_pdf_v1(self,*,source_id,expected_head,idempotency_key,filename,original_sha256,data:bytes,caller_deadline=None):
         from uuid import uuid4
         if type(data) is not bytes:raise TypeError('exact original bytes required')
         q=OriginalIntakeRequestV1(source_id=source_id,expected_head=expected_head,idempotency_key=idempotency_key,filename=filename,original_sha256=original_sha256,byte_count=len(data))
         if hashlib.sha256(data).hexdigest()!=q.original_sha256:raise ValueError('original byte hash differs')
-        s=self.settings;original_deadline=s.current();written=None
+        s=self.settings;bound=s.current();written=None
+        original_deadline=bound if caller_deadline is None else caller_deadline
+        _intake_current_deadline(s,original_deadline)
+        if original_deadline>bound:raise PermissionError('caller intake deadline exceeds existing appointment')
         intake=dict(source_id=str(q.source_id) if q.source_id else None,filename=q.filename,media_type='application/pdf',byte_count=q.byte_count,caller_deadline=original_deadline.isoformat())
-        reserved=self._call('reserve',(q.expected_head,json.dumps(intake),q.idempotency_key),ReserveEnvelopeV1)
+        reserved=self._call('reserve',(q.expected_head,json.dumps(intake),q.idempotency_key),ReserveEnvelopeV1,caller_deadline=original_deadline)
         ref,deadline=reservation_original_ref_v1(s,q,reserved.reservation,data)
         deadline=min(original_deadline,deadline,_context_horizon(s,reserved.context))
         try:
+            _intake_current_deadline(s,original_deadline,reserved.context)
             if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake write horizon elapsed')
             # No SQL connection or lock remains open during storage I/O.
             store=FileBlobStore._from_provisioned_original_root(Path(s.config.storage_root),(s.config.storage_device,s.config.storage_inode,s.config.storage_uid));store._put_original_bytes(ref,data);written=ref
+            _intake_current_deadline(s,original_deadline,reserved.context)
+            if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake write completed after original horizon')
             if store._read_original_bytes(ref)!=data:raise ValueError('private original readback differs')
+            _intake_current_deadline(s,original_deadline,reserved.context)
             if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake readback horizon elapsed')
             observation=dict(schema_version=1,purpose='original-intake-byte-custody-v1',reservation_id=str(ref.reservation_id),source_id=str(ref.original.source_id),workspace_id=str(ref.original.workspace_id),revision=ref.original.revision,private_object_key=ref.key,original_sha256=ref.original_sha256,byte_count=ref.byte_count,storage_profile_hash=ref.original.storage_profile_hash)
             seal=digest(observation)
+            _intake_current_deadline(s,original_deadline,reserved.context)
             _write_private_at(store.root,['intake-observations',str(ref.reservation_id),'custody.json'],canonical_bytes(observation),expected_root=(s.config.storage_device,s.config.storage_inode,s.config.storage_uid))
-            s.current()
+            _intake_current_deadline(s,original_deadline,reserved.context)
             if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake finalization horizon elapsed')
-            custody=dict(original_sha256=q.original_sha256,byte_count=q.byte_count,custody_seal_sha256=seal,expected_context=_expected_context(s),caller_deadline=deadline.isoformat())
-            final=self._call('finalize',(ref.reservation_id,q.expected_head,json.dumps(custody)),FinalizeEnvelopeV1)
+            custody=dict(original_sha256=q.original_sha256,byte_count=q.byte_count,custody_seal_sha256=seal,expected_context=_expected_context(s),caller_deadline=original_deadline.isoformat())
+            final=self._call('finalize',(ref.reservation_id,q.expected_head,json.dumps(custody)),FinalizeEnvelopeV1,caller_deadline=original_deadline)
+            _intake_current_deadline(s,original_deadline,final.context)
             if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake original finalization deadline elapsed')
             snapshot=final.snapshot
             if snapshot.sourceId!=ref.original.source_id or snapshot.revision!=ref.original.revision or snapshot.originalSha256!=q.original_sha256 or snapshot.byteCount!=q.byte_count or snapshot.filename!=q.filename:raise PermissionError('finalized original identity differs')

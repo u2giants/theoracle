@@ -112,3 +112,14 @@ def test_provisioned_private_store_never_recreates_root_and_detects_open_race(tm
     root.rmdir()
     with pytest.raises(FileNotFoundError):FileBlobStore._from_provisioned_original_root(root,identity)
     assert not root.exists()
+
+
+@pytest.mark.parametrize('kind',['naive','string','expired','excessive'])
+def test_caller_absolute_deadline_cannot_extend_existing_intake_scope(tmp_path,kind):
+    from oracle_brain.hosting.original_intake_v1 import _intake_current_deadline
+    s=settings(tmp_path);value=datetime.now(timezone.utc)+timedelta(seconds=5)
+    if kind=='naive':value=value.replace(tzinfo=None)
+    elif kind=='string':value=value.isoformat()
+    elif kind=='expired':value=datetime.now(timezone.utc)-timedelta(seconds=1)
+    else:value=s.config.original_horizon+timedelta(seconds=1)
+    with pytest.raises(PermissionError):_intake_current_deadline(s,value)

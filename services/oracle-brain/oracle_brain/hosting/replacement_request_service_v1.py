@@ -109,14 +109,21 @@ class _PeerSettings:
         return min(bound, p.expires_at)
 
 
-def protected_replacement_request_server_v1(intake, peer_profile_path, expected_peer_profile_sha256):
-    """Only startup selects the fixed peer, TLS material and existing factory."""
+def load_requester_peer_settings_v1(intake, peer_profile_path, expected_peer_profile_sha256):
+    """Consume the same exact externally selected peer profile; issues no scope."""
     if type(intake) is not OriginalIntakeSettingsV1:
         raise TypeError('existing exact intake settings required')
     raw = _pinned(peer_profile_path, expected_peer_profile_sha256)
     profile = RequesterPeerProfileV1.model_validate_json(raw)
     settings = _PeerSettings(intake, profile, str(peer_profile_path), expected_peer_profile_sha256)
     settings.current()
+    return settings
+
+
+def protected_replacement_request_server_v1(intake, peer_profile_path, expected_peer_profile_sha256):
+    """Only startup selects the fixed peer, TLS material and existing factory."""
+    settings = load_requester_peer_settings_v1(intake, peer_profile_path, expected_peer_profile_sha256)
+    profile = settings.profile
     factory = ReplacementRequesterFactoryV1(intake)
     tls = server_tls(certfile=profile.server_certificate_file, keyfile=profile.server_key_file,
                      cafile=profile.client_ca_file)

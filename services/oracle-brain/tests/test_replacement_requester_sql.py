@@ -12,7 +12,7 @@ from psycopg import sql
 from psycopg.types.json import Jsonb
 import pytest
 
-from dev.oracle2.test_tls_bootstrap import owned_postgres_fixture
+from dev.oracle2.test_worker_postgres_fixture import owned_worker_database
 from oracle_brain.operating_model.contracts import canonical_bytes, digest
 from oracle_brain.hosting.original_intake_v1 import load_original_intake_settings_v1
 from oracle_brain.hosting.replacement_requester_v1 import (
@@ -23,20 +23,19 @@ from test_replacement_source_intake_sql import requester, call, reserve, custody
 
 
 @pytest.fixture
-def admin_url(admin_url):
-    # Guard the imported requester fixture's writes. The session admin fixture
-    # has already applied foundation migrations; the canonical worker fixture
-    # owns and verifies that synthetic cluster before those setup writes.
-    owned_postgres_fixture(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'], admin_url)
-    return admin_url
+def admin_url():
+    # Do not depend on the unguarded parent fixture's foundation DDL.
+    url=os.environ['ORACLE2_TEST_ADMIN_URL']
+    owned_worker_database(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'],url)
+    return url
 
 
 @contextmanager
 def owned_admin(x):
-    owned_postgres_fixture(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'], x['admin'])
+    owned_worker_database(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'], x['admin'])
     with psycopg.connect(x['admin']) as connection:
         assert connection.pgconn.ssl_in_use
-        assert connection.execute('SELECT SESSION_USER,current_database()').fetchone() == ('oracle2_admin', 'oracle2')
+        assert connection.execute('SELECT SESSION_USER,current_database()').fetchone() == ('oracle2_admin', psycopg.conninfo.conninfo_to_dict(x['admin'])['dbname'])
         yield connection
 
 
