@@ -1,9 +1,45 @@
 import { test, expect } from '@playwright/test';
+import { createServer } from 'node:http';
 
 const sourceId = process.env.ORACLE2_HOLISTIC_FIXTURE_SOURCE_ID;
 const draftId = process.env.ORACLE2_HOLISTIC_FIXTURE_DRAFT_ID;
 const token = process.env.ORACLE2_PILOT_TOKEN ?? 'synthetic-browser-token';
 const sourceIds = JSON.parse(process.env.ORACLE2_HOLISTIC_FIXTURE_SOURCE_IDS ?? '[]') as string[];
+
+test('local browser forwards a Secure fixture cookie and denies anonymous access', async ({ browser }) => {
+  const server = createServer((req, res) => {
+    if (req.url === '/login') {
+      res.setHeader('Set-Cookie', 'invented_browser_probe=present; HttpOnly; Secure; SameSite=Lax; Path=/');
+    } else if (req.url === '/logout') {
+      res.setHeader('Set-Cookie', 'invented_browser_probe=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0');
+    } else if (req.url === '/protected') {
+      res.statusCode = req.headers.cookie?.split(';').some((value) => value.trim() === 'invented_browser_probe=present') ? 200 : 401;
+    }
+    res.end('invented-only');
+  });
+  const context = await browser.newContext();
+  const anonymous = await browser.newContext();
+  try {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('loopback probe unavailable');
+    const origin = `http://127.0.0.1:${address.port}`;
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.evaluate(() => fetch('/login', { method: 'POST', credentials: 'same-origin' }));
+    expect((await context.cookies()).find((cookie) => cookie.name === 'invented_browser_probe')?.secure).toBe(true);
+    expect(await page.evaluate(() => fetch('/protected', { method: 'POST', credentials: 'same-origin' }).then((response) => response.status))).toBe(200);
+    const denied = await anonymous.newPage();
+    await denied.goto(origin);
+    expect(await denied.evaluate(() => fetch('/protected', { method: 'POST', credentials: 'same-origin' }).then((response) => response.status))).toBe(401);
+    await page.evaluate(() => fetch('/logout', { method: 'POST', credentials: 'same-origin' }));
+    expect(await page.evaluate(() => fetch('/protected', { method: 'POST', credentials: 'same-origin' }).then((response) => response.status))).toBe(401);
+  } finally {
+    await context.close();
+    await anonymous.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 test.describe('synthetic holistic connected answer', () => {
   test.beforeEach(async ({ page }) => {
@@ -15,21 +51,40 @@ test.describe('synthetic holistic connected answer', () => {
       sessionStorage.setItem('oracle2-draft-id', draft);
     }, { source: sourceId!, draft: draftId! });
     await page.goto('/consultant');
+    const denied = await page.evaluate(async () => {
+      const missing = await fetch('/api/consultant/questions', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' }, body: '{}',
+      });
+      const wrong = await fetch('/api/consultant/session', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: 'invented-invalid-holistic-token' }),
+      });
+      return { missing: missing.status, wrong: wrong.status };
+    });
+    expect(denied).toEqual({ missing: 401, wrong: 401 });
     await page.getByTestId('pilot-token').fill(token);
     await page.getByTestId('pilot-login-btn').click();
     await expect(page.getByTestId('pilot-actor')).toBeVisible();
+    const cookie = (await page.context().cookies()).find((entry) => entry.name === 'oracle2_pilot_session');
+    expect(cookie?.secure).toBe(true);
   });
 
   test('dispatches opaque question and renders two-source holistic evidence', async ({ page }) => {
-    const response = await page.request.post('/api/consultant/questions', {
-      data: {
+    const response = await page.evaluate(async (data) => {
+      const result = await fetch('/api/consultant/questions', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify(data),
+      });
+      return { status: result.status, receipt: await result.json() };
+    }, {
         question: 'How does intake hand off to review, including the incomplete-packet exception?',
         sourceId,
         draftId,
-      },
     });
-    expect(response.status()).toBe(202);
-    const receipt = await response.json();
+    expect(response.status).toBe(202);
+    const receipt = response.receipt;
     expect(receipt.runId).toMatch(/^[0-9a-f-]{36}$/i);
 
     await page.evaluate((runId) => sessionStorage.setItem('oracle2-run-id', runId), receipt.runId);

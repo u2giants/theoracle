@@ -43,15 +43,18 @@ def has_authority(database_url: str, *, workspace_id: UUID, actor_id: UUID,
         row = connection.execute(
             """WITH RECURSIVE lineage AS (
                  SELECT a.appointment_id AS start_id,a.appointment_id,a.parent_id,
-                        a.revoked_at,a.expires_at,a.scope,a.actor_id,a.workspace_id,1 AS depth
+                        a.revoked_at,a.expires_at,a.scope,a.actor_id,a.granted_by,
+                        a.workspace_id,1 AS depth
                  FROM oracle2.appointments a
                  WHERE a.workspace_id=%s AND a.actor_id=%s
                    AND a.scope IN (%s,'root')
                  UNION ALL
                  SELECT l.start_id,p.appointment_id,p.parent_id,p.revoked_at,p.expires_at,
-                        p.scope,p.actor_id,p.workspace_id,l.depth+1
+                        p.scope,p.actor_id,p.granted_by,p.workspace_id,l.depth+1
                  FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id
                  WHERE l.depth<16 AND p.workspace_id=l.workspace_id
+                   AND l.granted_by=p.actor_id
+                   AND p.scope IN (%s,'root')
                )
                SELECT EXISTS (
                  SELECT 1 FROM lineage GROUP BY start_id
@@ -59,7 +62,7 @@ def has_authority(database_url: str, *, workspace_id: UUID, actor_id: UUID,
                                  (expires_at IS NULL OR expires_at>%s))
                     AND bool_or(scope='root' AND parent_id IS NULL)
                )""",
-            (workspace_id, actor_id, scope, at),
+            (workspace_id, actor_id, scope, scope, at),
         ).fetchone()
         return bool(row[0])
 
@@ -73,22 +76,25 @@ def delegate(database_url: str, *, workspace_id: UUID, grantor_id: UUID,
         parent = connection.execute(
             """WITH RECURSIVE lineage AS (
                  SELECT a.appointment_id AS start_id,a.appointment_id,a.parent_id,
-                        a.revoked_at,a.expires_at,a.scope,a.workspace_id,1 AS depth
+                        a.revoked_at,a.expires_at,a.scope,a.actor_id,a.granted_by,
+                        a.workspace_id,1 AS depth
                  FROM oracle2.appointments a
                  WHERE a.workspace_id=%s AND a.actor_id=%s
                    AND a.scope IN (%s,'root')
                  UNION ALL
                  SELECT l.start_id,p.appointment_id,p.parent_id,p.revoked_at,
-                        p.expires_at,p.scope,p.workspace_id,l.depth+1
+                        p.expires_at,p.scope,p.actor_id,p.granted_by,p.workspace_id,l.depth+1
                  FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id
                  WHERE l.depth<16 AND p.workspace_id=l.workspace_id
+                   AND l.granted_by=p.actor_id
+                   AND p.scope IN (%s,'root')
                )
                SELECT start_id FROM lineage GROUP BY start_id
                HAVING bool_and(revoked_at IS NULL AND
                                (expires_at IS NULL OR expires_at>now()))
                   AND bool_or(scope='root' AND parent_id IS NULL)
                ORDER BY start_id LIMIT 1""",
-            (workspace_id, grantor_id, scope),
+            (workspace_id, grantor_id, scope, scope),
         ).fetchone()
         if parent is None:
             raise PermissionError("grantor lacks an active authority lineage")

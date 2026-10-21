@@ -521,7 +521,7 @@ def test_replacement_request_server_identity_only():
             "forged_actor": str(uuid4())}))
 
     # Path-traversal filename is never a locator.
-    with pytest.raises(ValueError, match="display name"):
+    with pytest.raises(ValueError, match="exact bounded source selector/filename required"):
         OriginalIntakeRequestV1(
             source_id=None, expected_head=0, idempotency_key=uuid4(),
             filename="../escape.pdf", original_sha256="a" * 64, byte_count=1)
@@ -548,7 +548,10 @@ def test_replacement_request_server_identity_only():
         pass
 
     class _Settings:
-        config = type("C", (), expected)()
+        config = type("C", (), {"principal_id": principal, "workspace_id": workspace,
+                                 "expected_session_role": expected["session_role"],
+                                 "runtime_hash": expected["runtime_hash"],
+                                 "registry_hash": expected["source_registry_hash"]})()
         def current(self):
             return now + timedelta(seconds=5)
 

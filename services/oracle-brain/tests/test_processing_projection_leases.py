@@ -16,9 +16,15 @@ from test_assembly_qualification import qualified
 from oracle_brain.operating_model.processing_projection import lease_processing_projection
 
 
-def projectable(f,tmp_path):
+def projectable(f,tmp_path,*,workflow_id=None):
     ledger,parent,_=persist_extraction(f,tmp_path)
-    args,m,_=bundle(f,kind='processing_qualified_model_v1',dependencies=(('artifact',str(parent.artifact_id),'1'),))
+    payload=None
+    if workflow_id is not None:
+        from test_source_processing_qualification import resolver
+        ref=resolver(f).current_for_processing(f['workspace'],f['source']).ref
+        payload={'source_refs':[ref.model_dump(mode='json')],'findings':[],
+            'workflows':[{'workflow_id':workflow_id,'status':'reported'}]}
+    args,m,_=bundle(f,kind='processing_qualified_model_v1',payload=payload,dependencies=(('artifact',str(parent.artifact_id),'1'),))
     commit(f,args)
     return ledger,m
 

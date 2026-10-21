@@ -119,10 +119,24 @@ export function sessionCookieName(): string {
   return SESSION_COOKIE;
 }
 
+/**
+ * Secure is on by default. The only exception is an explicit opt-out flag
+ * combined with a non-production NODE_ENV — production posture is never
+ * weakened by configuration that is merely "convenient".
+ */
+export function sessionCookieAttributes(): string {
+  const insecureLocalDev =
+    process.env.ORACLE2_INSECURE_LOCAL_COOKIES === '1' &&
+    process.env.NODE_ENV !== 'production';
+  return insecureLocalDev
+    ? 'HttpOnly; SameSite=Lax'
+    : 'HttpOnly; Secure; SameSite=Lax';
+}
+
 export function sessionCookie(sessionId: string): string {
-  return `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax`;
+  return `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; ${sessionCookieAttributes()}`;
 }
 
 export function clearSessionCookie(): string {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  return `${SESSION_COOKIE}=; Path=/; ${sessionCookieAttributes()}; Max-Age=0`;
 }

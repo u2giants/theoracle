@@ -304,31 +304,39 @@ GRANT EXECUTE ON FUNCTION oracle2.hosting_projection_embedding_seal_v2(uuid,uuid
 
 -- Immutable ACK readback only. SQL authenticates current ledger custody and
 -- original access, not the graph, paid wire, HMAC or semantic admission.
-CREATE OR REPLACE FUNCTION oracle2._processing_projection_delivery_v3(
- workspace uuid,artifact uuid,ver integer,principal uuid,runtime text,registry text)
- RETURNS TABLE(receipt jsonb,signature text,source_refs jsonb,valid_until timestamptz,checked_at timestamptz)
+-- One exact immutable paid-V3 ACK protocol, reused after each caller's own
+-- authorization. Owner-only: this helper grants no source or execution rights.
+CREATE OR REPLACE FUNCTION oracle2._processing_projection_receipt_v3(
+ workspace uuid,artifact uuid,ver integer,manifest jsonb)
+ RETURNS TABLE(receipt jsonb,signature text)
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
-DECLARE q record; e record; s record; ref jsonb; until_at timestamptz:='infinity';
+DECLARE e record;
  keys text[]:=ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until','projection_schema','projection_digest','embedding_protocol','embedding_inventory_hash','embedding_context_hash','embedding_native_receipt_hash','embedding_wire_hash','embedding_commit_hash','embedding_vectors_hash','embedding_coverage_hash'];
  hashes text[]:=ARRAY['record_digest','projection_digest','embedding_inventory_hash','embedding_context_hash','embedding_native_receipt_hash','embedding_wire_hash','embedding_commit_hash','embedding_vectors_hash','embedding_coverage_hash'];
 BEGIN
- PERFORM oracle2._purpose_deadlines_v2();
- SELECT * INTO STRICT q FROM oracle2._processing_artifact_metadata(workspace,artifact,ver,principal,runtime,registry);
- IF q.manifest->>'kind' IS DISTINCT FROM 'processing_qualified_model_v1' OR q.manifest->>'state' IS DISTINCT FROM 'ready'
- OR ver IS DISTINCT FROM (SELECT max(a.version) FROM oracle2.artifact_manifests a WHERE a.workspace_id=workspace AND a.artifact_id=artifact AND a.kind='processing_qualified_model_v1' AND a.state='ready') THEN RAISE insufficient_privilege; END IF;
+ IF current_setting('transaction_isolation')<>'read committed' THEN
+  RAISE insufficient_privilege USING MESSAGE='fresh read-committed projection snapshot required';
+ END IF;
+ IF manifest IS DISTINCT FROM (SELECT a.manifest FROM oracle2.artifact_manifests a
+  WHERE a.workspace_id=workspace AND a.artifact_id=artifact AND a.version=ver AND a.state='ready'
+   AND a.kind='processing_qualified_model_v1')
+ OR ver IS DISTINCT FROM (SELECT max(a.version) FROM oracle2.artifact_manifests a
+  WHERE a.workspace_id=workspace AND a.artifact_id=artifact AND a.kind='processing_qualified_model_v1' AND a.state='ready') THEN
+  RAISE insufficient_privilege USING MESSAGE='exact current qualified model required';
+ END IF;
  SELECT o.event_id,o.delivered_at,o.processing_lease_role,o.processing_lease_token,o.attempts,r.payload AS body,r.signature AS seal INTO STRICT e
  FROM oracle2.outbox o JOIN oracle2.operating_projection_receipts r ON r.event_id=o.event_id
  AND r.workspace_id=o.workspace_id AND r.artifact_id=o.assertion_id AND r.version=o.revision
  WHERE o.workspace_id=workspace AND o.assertion_id=artifact AND o.revision=ver AND o.operation='project'
- AND o.payload=jsonb_build_object('namespace','oracle_processing_v1','manifest',q.manifest) AND o.delivered_at IS NOT NULL;
+ AND o.payload=jsonb_build_object('namespace','oracle_processing_v1','manifest',manifest) AND o.delivered_at IS NOT NULL FOR SHARE OF o,r;
  IF jsonb_typeof(e.body) IS DISTINCT FROM 'object' OR NOT e.body ?& keys OR (e.body-keys)<>'{}'::jsonb
  OR e.body->'schema_version' IS DISTINCT FROM '3'::jsonb OR e.body->>'schema_version' IS DISTINCT FROM '3'
  OR EXISTS(SELECT 1 FROM unnest(keys) k WHERE k NOT IN ('schema_version','version','lease_attempt') AND jsonb_typeof(e.body->k) IS DISTINCT FROM 'string')
  OR jsonb_typeof(e.body->'version') IS DISTINCT FROM 'number' OR jsonb_typeof(e.body->'lease_attempt') IS DISTINCT FROM 'number'
  OR e.body->>'event_id' IS DISTINCT FROM e.event_id::text OR e.body->>'workspace_id' IS DISTINCT FROM workspace::text
  OR e.body->>'artifact_id' IS DISTINCT FROM artifact::text OR e.body->>'version' IS DISTINCT FROM ver::text
- OR e.body->>'content_hash' IS DISTINCT FROM q.manifest->>'content_hash' OR e.body->>'source_digest' IS DISTINCT FROM q.manifest->>'source_digest'
- OR e.body->>'permission_digest' IS DISTINCT FROM q.manifest->>'permission_digest'
+ OR e.body->>'content_hash' IS DISTINCT FROM manifest->>'content_hash' OR e.body->>'source_digest' IS DISTINCT FROM manifest->>'source_digest'
+ OR e.body->>'permission_digest' IS DISTINCT FROM manifest->>'permission_digest'
  OR e.body->>'projection_schema' IS DISTINCT FROM 'qualified-evidence-projection-v1' OR e.body->>'sdk_version' IS DISTINCT FROM '1.4.0'
  OR e.body->>'embedding_protocol' IS DISTINCT FROM 'paid-sdk-embedding-v3'
  OR EXISTS(SELECT 1 FROM unnest(hashes) k WHERE e.body->>k !~ '^[0-9a-f]{64}$')
@@ -338,6 +346,26 @@ BEGIN
  OR NOT isfinite((e.body->>'lease_until')::timestamptz) OR e.delivered_at>=(e.body->>'lease_until')::timestamptz
  OR e.body->>'graph_name' !~ ('^oracle_processing_v1_'||replace(workspace::text,'-','')||'_'||replace(artifact::text,'-','')||'_'||ver::text||'_[0-9a-f]{32}$') THEN
  RAISE insufficient_privilege USING MESSAGE='exact delivered paid V3 receipt required'; END IF;
+ RETURN QUERY SELECT e.body,e.seal;
+EXCEPTION WHEN no_data_found OR too_many_rows OR invalid_text_representation OR numeric_value_out_of_range THEN
+ RAISE insufficient_privilege USING MESSAGE='paid projection delivery unavailable';
+END $$;
+REVOKE ALL ON FUNCTION oracle2._processing_projection_receipt_v3(uuid,uuid,integer,jsonb) FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+
+CREATE OR REPLACE FUNCTION oracle2._processing_projection_delivery_v3(
+ workspace uuid,artifact uuid,ver integer,principal uuid,runtime text,registry text)
+ RETURNS TABLE(receipt jsonb,signature text,source_refs jsonb,valid_until timestamptz,checked_at timestamptz)
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE q record; e record; s record; ref jsonb; until_at timestamptz:='infinity';
+
+BEGIN
+ PERFORM oracle2._purpose_deadlines_v2();
+ SELECT * INTO STRICT q FROM oracle2._processing_artifact_metadata(workspace,artifact,ver,principal,runtime,registry);
+ IF q.manifest->>'kind' IS DISTINCT FROM 'processing_qualified_model_v1' OR q.manifest->>'state' IS DISTINCT FROM 'ready'
+ OR ver IS DISTINCT FROM (SELECT max(a.version) FROM oracle2.artifact_manifests a WHERE a.workspace_id=workspace AND a.artifact_id=artifact AND a.kind='processing_qualified_model_v1' AND a.state='ready') THEN RAISE insufficient_privilege; END IF;
+ SELECT r.receipt AS body,r.signature AS seal INTO STRICT e
+ FROM oracle2._processing_projection_receipt_v3(workspace,artifact,ver,q.manifest) r;
  FOR ref IN SELECT value FROM jsonb_array_elements(q.source_refs) LOOP
   SELECT * INTO STRICT s FROM oracle2.hosting_current_source_identity(workspace,(ref->>'source_id')::uuid,principal,runtime,registry);
   IF (s.revision,s.original_hash,s.reading_hash,s.parser_id) IS DISTINCT FROM ((ref->>'revision')::integer,ref->>'original_sha256',ref->>'reading_sha256',ref->>'parser_id') THEN RAISE insufficient_privilege; END IF;

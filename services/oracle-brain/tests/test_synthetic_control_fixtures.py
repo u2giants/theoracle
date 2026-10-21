@@ -94,7 +94,8 @@ def test_exported_uri_retained_checkpoint_bootstrap(tmp_path,monkeypatch):
  admin=os.environ.get('ORACLE2_TEST_ADMIN_URL')
  rootcert=os.environ.get('ORACLE2_TEST_TLS_ROOT')
  if not admin or not rootcert:pytest.fail('actual proper-leaf TLS/SCRAM fixture required')
- dbname='oracle_operating_model_test_uri_'+uuid4().hex
+ dbname='oracle_uri_test_'+uuid4().hex
+ assert len(dbname.encode('utf-8'))<=63
  with psycopg.connect(admin,autocommit=True) as connection:
   created_role=connection.execute("SELECT 1 FROM pg_roles WHERE rolname='oracle2_checkpoint'").fetchone() is None
   if created_role:connection.execute('CREATE ROLE oracle2_checkpoint NOLOGIN NOSUPERUSER NOBYPASSRLS')
@@ -107,8 +108,15 @@ def test_exported_uri_retained_checkpoint_bootstrap(tmp_path,monkeypatch):
    assert connection.info.get_parameters()['sslmode']=='verify-full'
   spec=importlib.util.spec_from_file_location('retained_checkpoint_bootstrap',ROOT/'scripts/oracle2/init_local_stores.py')
   retained=importlib.util.module_from_spec(spec);spec.loader.exec_module(retained)
-  monkeypatch.setenv('ORACLE2_TEST_ADMIN_URL',uri)
-  retained.main()
+  # This test owns a fresh isolated database, not the fixed Compose database
+  # selected by main(). Exercise retained checkpoint setup on the same open
+  # connection whose exact fresh target and TLS transport are proven here.
+  from psycopg.rows import dict_row
+  with psycopg.connect(uri,autocommit=True,prepare_threshold=0,row_factory=dict_row) as connection:
+   assert connection.pgconn.ssl_in_use
+   assert connection.info.get_parameters()['sslmode']=='verify-full'
+   assert connection.execute('SELECT current_database() AS name').fetchone()['name']==dbname
+   retained.setup_checkpoint_tables(connection)
   with psycopg.connect(uri) as connection:
    assert all(connection.execute('SELECT to_regclass(%s)',('public.'+table,)).fetchone()[0] for table in ('checkpoints','checkpoint_blobs','checkpoint_writes'))
  finally:

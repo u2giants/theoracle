@@ -6,6 +6,15 @@ from pathlib import Path
 import psycopg
 import pytest
 
+# Configure the invented host before pytest imports application modules during
+# collection. Real verifier startup cannot depend on a later session fixture.
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+_previous_public_key = os.environ.get('ORACLE2_SEAL_PUBLIC_KEY')
+_fixture_host_key = Ed25519PrivateKey.generate()
+os.environ['ORACLE2_SEAL_PUBLIC_KEY'] = _fixture_host_key.public_key().public_bytes_raw().hex()
+import seal_testkit
+seal_testkit._fixture_key = _fixture_host_key
+
 # Windows: directories always report mode 0o777, so FileBlobStore's Unix
 # mode-bit check cannot pass. ACLs govern privacy here; keep the production
 # check for POSIX test hosts.
@@ -19,6 +28,17 @@ if _sys.platform == "win32":
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     _ast.FileBlobStore.__init__ = _win_blob_init
+
+
+@pytest.fixture(scope="session", autouse=True)
+def seal_keys():
+    """Keep collection-time synthetic host active; never install a real host."""
+    yield
+    seal_testkit._fixture_key = None
+    if _previous_public_key is None:
+        os.environ.pop('ORACLE2_SEAL_PUBLIC_KEY', None)
+    else:
+        os.environ['ORACLE2_SEAL_PUBLIC_KEY'] = _previous_public_key
 
 
 @pytest.fixture(scope="session")

@@ -35,6 +35,13 @@ from oracle_brain.retrieval.packing import (
     filter_by_history,
 )
 from oracle_brain.retrieval.planner import AccessBounds, HistorySpan
+from retrieval_testkit import ACTOR, host_reader
+from oracle_brain.retrieval.packing import assemble_answer as _raw_assemble
+
+
+def assemble_answer(**fields):
+    fields.setdefault("current_source_reader", host_reader(fields["spans"]))
+    return _raw_assemble(**fields)
 
 
 def _span(
@@ -61,7 +68,7 @@ def workspace() -> UUID:
 @pytest.fixture()
 def access(workspace: UUID) -> AccessBounds:
     return AccessBounds(
-        role="analyst", workspace_id=workspace,
+        role="analyst", actor_id=ACTOR, workspace_id=workspace,
         allowed_workspace_ids=(workspace,),
     )
 
@@ -77,7 +84,7 @@ def test_access_filter_drops_other_workspace_and_other_role(workspace, access):
 def test_access_filter_allows_second_workspace_when_bounds_permit(workspace):
     second = uuid4()
     bounds = AccessBounds(
-        role="analyst", workspace_id=workspace,
+        role="analyst", actor_id=ACTOR, workspace_id=workspace,
         allowed_workspace_ids=(workspace, second),
     )
     spans = (_span("a", workspace=workspace), _span("b", workspace=second),
@@ -223,3 +230,121 @@ def test_answered_requires_citations(access):
             state="answered", mode="local", question="q", claim="c",
             citations=(),
         )
+
+
+def test_denied_claim_text_cannot_be_laundered_by_unrelated_allowed_span(access, workspace):
+    allowed = _span('allowed', workspace=workspace)
+    hidden = _span('hidden', workspace=uuid4())
+    answer = _raw_assemble(question='What evidence is available?', mode='local',
+                           spans=(allowed, hidden), access=access,
+                           claim='DENIED SECRET DERIVED CLAIM',
+                           current_source_reader=host_reader((allowed, hidden)))
+    assert answer.state == 'answered'
+    assert answer.claim == allowed.quote and answer.citations == ('allowed',)
+    assert len(answer.dependencies) == 1
+    assert answer.dependencies[0].source_id == allowed.source_id
+    assert 'DENIED SECRET' not in answer.model_dump_json()
+
+
+def test_final_current_access_prunes_revoked_span_but_keeps_allowed_answer(access, workspace):
+    allowed = _span('allowed', workspace=workspace)
+    revoked = _span('revoked', workspace=workspace, contradicts=('hidden-sensitive-label',))
+    answer = _raw_assemble(question='What evidence is available?', mode='connected',
+                           spans=(allowed, revoked), access=access, claim='untrusted cached claim',
+                           current_source_reader=host_reader((allowed, revoked),
+                                                              denied_sources={revoked.source_id}))
+    assert answer.claim == allowed.quote
+    assert answer.citations == ('allowed',)
+    assert 'revoked' not in answer.model_dump_json()
+    assert 'hidden-sensitive-label' not in answer.model_dump_json()
+
+
+def test_missing_current_proof_abstains_even_with_accessible_candidate(access, workspace):
+    answer = _raw_assemble(question='Question?', mode='local', spans=(_span('s', workspace=workspace),),
+                           access=access, claim='caller statement')
+    assert answer.state == 'abstained' and answer.claim is None
+
+
+@pytest.mark.parametrize('damage', ['quote', 'workspace', 'revision', 'actor', 'forged', 'replay', 'expired'])
+def test_content_identity_and_principal_current_proofs_are_required(access, workspace, damage):
+    from oracle_brain.retrieval.packing import CurrentSourceAccess
+    import time
+    original = _span('s', workspace=workspace)
+    candidate = original
+    reader = host_reader((original,))
+    if damage == 'quote':
+        candidate = original.model_copy(update={'quote': 'fabricated inaccessible information'})
+    elif damage == 'workspace':
+        candidate = original.model_copy(update={'workspace_id': uuid4()})
+    elif damage == 'revision':
+        candidate = original.model_copy(update={'revision': 2})
+    else:
+        valid_reader = reader
+        def reader(dep, bounds, challenge):
+            proof = valid_reader(dep, bounds, challenge)
+            if damage == 'actor':
+                return proof.model_copy(update={'actor_id': uuid4()})
+            if damage == 'forged':
+                return proof.model_copy(update={'mac': '00' * 64})
+            if damage == 'replay':
+                return proof.model_copy(update={'challenge': 'prior-challenge'})
+            return proof.model_copy(update={'valid_until': time.time() - 1})
+    answer = _raw_assemble(question='Question?', mode='local', spans=(candidate,), access=access,
+                           claim='caller claim', current_source_reader=reader)
+    assert answer.state == 'abstained' and not answer.dependencies
+
+
+def test_current_proof_is_requested_for_every_retained_dependency(access, workspace):
+    first, second = _span('one', workspace=workspace), _span('two', workspace=workspace)
+    requests = []
+    current = host_reader((first, second))
+    def reader(dep, bounds, challenge):
+        requests.append((dep, challenge))
+        return current(dep, bounds, challenge)
+    answer = _raw_assemble(question='Question?', mode='connected', spans=(first, second),
+                           access=access, claim='caller claim', current_source_reader=reader)
+    assert answer.claim == first.quote + '\n' + second.quote
+    assert tuple(dep for dep, _ in requests) == answer.dependencies
+    assert len({challenge for _, challenge in requests}) == 2
+
+
+def test_untrusted_relation_labels_cannot_echo_denied_claim_text(access, workspace):
+    first = _span('one', workspace=workspace, supports=('DENIED SECRET',))
+    second = _span('two', workspace=workspace, supports=(), contradicts=('DENIED SECRET',))
+    answer = _raw_assemble(question='Available evidence?', mode='connected', spans=(first, second),
+                           access=access, claim='DENIED SECRET',
+                           current_source_reader=host_reader((first, second)))
+    assert answer.state == 'answered' and 'contradiction' in answer.labels
+    assert 'DENIED SECRET' not in answer.model_dump_json()
+
+
+@pytest.mark.parametrize('denial', ['workspace', 'current_revocation'])
+def test_prefilter_complete_coverage_becomes_unknown_partial_after_pruning(access, workspace, denial):
+    allowed = _span('allowed', workspace=workspace)
+    denied = _span('denied', workspace=workspace if denial == 'current_revocation' else uuid4())
+    reader = host_reader((allowed, denied), denied_sources={denied.source_id})
+    answer = _raw_assemble(question='Global source evidence?', mode='global',
+                           spans=(allowed, denied), access=access, claim='untrusted prose',
+                           coverage=CoverageBounds(declared_population=2, represented=2, complete=True),
+                           current_source_reader=reader)
+    assert answer.state == 'answered' and answer.claim == allowed.quote
+    assert answer.coverage.declared_population == 2
+    assert answer.coverage.represented is None and answer.coverage.complete is False
+    assert 'partial_coverage' in answer.labels
+    assert any('UNKNOWN' in caveat for caveat in answer.caveats)
+
+
+def test_fully_authorized_evidence_preserves_declared_population_bounds(access, workspace):
+    span = _span('source', workspace=workspace)
+    coverage = CoverageBounds(declared_population=3, represented=3, complete=True)
+    answer = _raw_assemble(question='Global source evidence?', mode='global', spans=(span,),
+                           access=access, claim='untrusted prose', coverage=coverage,
+                           current_source_reader=host_reader((span,)))
+    assert answer.state == 'answered' and answer.coverage == coverage
+    assert 'partial_coverage' not in answer.labels
+
+
+def test_complete_coverage_cannot_use_unknown_represented_population():
+    with pytest.raises(ValueError, match='complete coverage'):
+        CoverageBounds(declared_population=2, represented=None, complete=True)
+    assert CoverageBounds(declared_population=2, represented=None, complete=False).represented is None

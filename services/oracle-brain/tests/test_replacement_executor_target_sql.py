@@ -12,7 +12,7 @@ from oracle_brain.operating_model.processing_projection import lease_processing_
 
 @pytest.fixture
 def target(admin_url,processing,tmp_path):
-    f=processing();ledger,m=projectable(f,tmp_path);lease=lease_processing_projection(ledger,f['workspace'])
+    f=processing();ledger,m=projectable(f,tmp_path,workflow_id='invented-flow');lease=lease_processing_projection(ledger,f['workspace'])
     receipt=paid_attestation(lease);sql_ack(f,lease,receipt)
     reader,grant=delivery_reader(admin_url,processing,f)
     with psycopg.connect(admin_url) as c:
@@ -77,7 +77,7 @@ def test_current_confirmation_requires_exact_current_leaf(admin_url,target,chang
     with psycopg.connect(admin_url) as c:
         owner=c.execute('SELECT actor_id FROM oracle2.appointments WHERE appointment_id=%s',(f['root'],)).fetchone()[0]
         c.execute("INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,'process-confirm',%s,%s,%s)",(leaf,f['workspace'],f['actor'],owner,f['root'],f['expiry']))
-        payload={'workflow_id':'invented-flow','version':1,'content_hash':m.content_hash}
+        payload={'workflow_id':'invented-flow','model_id':str(m.artifact_id),'ack_event_id':str(c.execute('SELECT current_ack_event_id FROM oracle2.processing_journey_runs_v1 WHERE run_id=%s',(run,)).fetchone()[0]),'version':1,'content_hash':m.content_hash}
         c.execute("INSERT INTO oracle2.replacement_journey_events(event_id,run_id,workspace_id,journey_revision,actor_id,action,payload_sha256,payload,idempotency_key) VALUES(%s,%s,%s,2,%s,'confirm',%s,%s,%s)",(event,run,f['workspace'],f['actor'],digest(payload),Jsonb(payload),uuid4()))
         if change=='revoke':c.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(leaf,))
         elif change=='held':c.execute('UPDATE oracle2.processing_journey_runs_v1 SET answer_hold=true WHERE run_id=%s',(run,))
