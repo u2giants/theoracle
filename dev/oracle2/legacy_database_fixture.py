@@ -92,7 +92,7 @@ def validate_legacy_database(url, receipt_path, receipt_hash):
     details = owned_postgres_fixture(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'], base)
     receipt = _read_receipt(receipt_path, receipt_hash)
     name = receipt.get('database', '')
-    if not re.fullmatch(r'oracle_legacy_[0-9a-f]{32}', name) or len(name.encode()) > 63:
+    if not re.fullmatch(r'oracle_operating_model_test_[0-9a-f]{32}', name) or len(name.encode()) > 63:
         raise PermissionError('exact fresh legacy database required')
     expected = {**parts, 'dbname': name}
     actual = postgres_uri(url, sslrootcert=parts['sslrootcert'])
@@ -126,7 +126,7 @@ def owned_legacy_database():
     base = owned_fixture_admin_url()
     parts = psycopg.conninfo.conninfo_to_dict(base)
     details = owned_postgres_fixture(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'], base)
-    name, nonce = 'oracle_legacy_' + uuid4().hex, uuid4().hex
+    name, nonce = 'oracle_operating_model_test_' + uuid4().hex, uuid4().hex
     ca_hash = hashlib.sha256(Path(parts['sslrootcert']).read_bytes()).hexdigest()
     private = Path(tempfile.mkdtemp(prefix='oracle-legacy-db-', dir=os.environ.get('TMPDIR')))
     private.chmod(0o700)

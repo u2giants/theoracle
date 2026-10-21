@@ -59,7 +59,7 @@ def test_fresh_profile_child_proof_and_exact_cleanup(host):
     with fixture.owned_legacy_database() as handle:
         proof = json.loads(Path(handle.receipt_path).read_text())
         assert len(proof['database'].encode()) <= 63
-        assert proof['database'].startswith('oracle_legacy_')
+        assert re.fullmatch(r'oracle_operating_model_test_[0-9a-f]{32}', proof['database']) is not None
         assert proof['database'] in host.state
         assert fixture.validate_legacy_database(handle.url, handle.receipt_path, handle.receipt_hash) == handle.url
         assert Path(handle.receipt_path).stat().st_mode & 0o777 == 0o600
@@ -243,3 +243,23 @@ def test_normal_body_error_survives_diagnostic_io_failure_and_cleans(host, monke
     assert caught.value is original
     assert not host.state
     assert len([event for event in host.events if event.startswith('DROP DATABASE')]) == 1
+
+
+@pytest.mark.parametrize('synthetic,database,accepted', [
+    (True, 'oracle_operating_model_test_' + 'a' * 32, True),
+    (False, 'oracle_operating_model_test_' + 'a' * 32, False),
+    (True, 'unrelated_database', False),
+])
+def test_existing_source_adapter_contract_is_not_widened(synthetic, database, accepted):
+    from oracle_brain.operating_model.authority_adapter import PostgresSources
+    adapter = object.__new__(PostgresSources)
+    adapter.source_binding = None
+    adapter.synthetic = synthetic
+    connection = SimpleNamespace(
+        info=SimpleNamespace(get_parameters=lambda: {'host': '127.0.0.1', 'dbname': database}),
+        execute=lambda *args: SimpleNamespace(fetchall=lambda: []))
+    if accepted:
+        adapter._check(connection)
+    else:
+        with pytest.raises(PermissionError, match='externally issued'):
+            adapter._check(connection)
