@@ -30,3 +30,11 @@ def test_new_threads_do_not_borrow_request_fence():
 def test_no_coerced_or_nonfinite_fence(value):
  with pytest.raises(PermissionError):
   with m._request_fence_v1(value):pass
+
+
+def test_hosting_forwarders_share_the_single_core_fence_without_importing_transport():
+ from oracle_brain.operating_model import request_deadline_v1 as core
+ assert m.request_remaining_v1 is core.request_remaining_v1
+ assert m._request_fence_v1 is core._request_fence_v1
+ with m._request_fence_v1(float(time.monotonic()+1)):
+  assert core.request_remaining_v1()>0

@@ -9,8 +9,8 @@ export type ConversationPacket=ConversationSnapshot|ConversationIndex|{schema_ve
 export function validateConversationRequest(bytes:Uint8Array):Readonly<Record<string,unknown>>{
  const q=parseClosedJson(bytes,65536);if(!q||typeof q!=='object'||Array.isArray(q))return fail();const v=q as Record<string,unknown>;
  if(v.schema_version!==1||typeof v.caller_deadline!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|\+00:00)$/.test(v.caller_deadline)||canonicalJson(v)!==Buffer.from(bytes).toString('utf8'))return fail();
- const op=v.operation;let keys=['schema_version','caller_deadline'];
- if(op===undefined){keys.push('command_id','mode','topic','language');if(!['ordinary','interview'].includes(String(v.mode))||typeof v.topic!=='string'||!v.topic.trim()||[...v.topic].length>1000)return fail();}
+ const op=v.operation;if(op!==undefined&&typeof op!=='string')return fail();let keys=['schema_version','caller_deadline'];
+ if(op===undefined){keys.push('command_id','mode','topic','language');if((typeof v.mode!=='string'||!['ordinary','interview'].includes(v.mode))||typeof v.topic!=='string'||!v.topic.trim()||[...v.topic].length>1000)return fail();}
  else if(op==='list'){keys.push('operation');}
  else if(op==='status'){keys.push('operation','command_id');}
  else if(op==='snapshot'){keys.push('operation','thread_id');}
@@ -28,7 +28,8 @@ export function validateConversationRequest(bytes:Uint8Array):Readonly<Record<st
 export function parseConversationResponse(bytes:Uint8Array):ConversationPacket{
  const q=parseClosedJson(bytes,4194304);if(!q||typeof q!=='object'||Array.isArray(q)||canonicalJson(q)!==Buffer.from(bytes).toString('utf8'))return fail();const v=q as Record<string,unknown>;
  if(v.schema_version!==1)return fail();
- if(['UNKNOWN','DENIED','CONFLICT'].includes(String(v.state))){if(!exact(v,['schema_version','state','resend_authorized'])||v.resend_authorized!==false)return fail();return v as unknown as ConversationPacket;}
+ if(typeof v.state!=='string')return fail();
+ if(['UNKNOWN','DENIED','CONFLICT'].includes(v.state)){if(!exact(v,['schema_version','state','resend_authorized'])||v.resend_authorized!==false)return fail();return v as unknown as ConversationPacket;}
  if(v.state==='committed'){if(!exact(v,['schema_version','state','thread_id','sequence','command_sha256','resend_authorized'])||!canonicalUuid(v.thread_id)||!Number.isSafeInteger(v.sequence)||!canonicalHash(v.command_sha256)||v.resend_authorized!==false)return fail();return v as unknown as ConversationPacket;}
  if(!canonicalUuid(v.workspace_id)||!canonicalUuid(v.principal_id)||v.company_policy_confirmed!==false||v.source_qualified!==false)return fail();
  if(v.state==='index'){
@@ -37,8 +38,8 @@ export function parseConversationResponse(bytes:Uint8Array):ConversationPacket{
   return v as unknown as ConversationIndex;
  }
  const fields=['schema_version','thread_id','workspace_id','principal_id','mode','revision','topic','language','state','question_count','pending_question_id','segment_started_at','segment_deadline','events','recap','recap_sha256','reviewed_revision','reviewed_sha256','company_policy_confirmed','source_qualified','question','question_id','answer_first','offer_start_interview','qualification_state','account_acknowledgement_only','original_registration_state'];
- if(!exact(v,fields)||!canonicalUuid(v.thread_id)||!Number.isSafeInteger(v.revision)||!Number.isSafeInteger(v.question_count)||(v.question_count as number)<0||(v.question_count as number)>8||!Array.isArray(v.events)||!canonicalHash(v.recap_sha256)||v.qualification_state!=='pending'||v.account_acknowledgement_only!==true||!['not_registered','registered','UNKNOWN'].includes(String(v.original_registration_state)))return fail();
- for(const e of v.events){if(!exact(e,['event_id','sequence','operation','origin','turn_id','original_text','original_language','original_sha256','corrects_event_id','question_id','need','response_kind','payload','created_at'])||!canonicalUuid(e.event_id)||!Number.isSafeInteger(e.sequence)||!['employee','control','display'].includes(String(e.origin)))return fail();if(e.origin==='employee'&&(typeof e.original_text!=='string'||!canonicalHash(e.original_sha256)||!canonicalUuid(e.turn_id)))return fail();}
+ if(!exact(v,fields)||!canonicalUuid(v.thread_id)||!Number.isSafeInteger(v.revision)||!Number.isSafeInteger(v.question_count)||(v.question_count as number)<0||(v.question_count as number)>8||!Array.isArray(v.events)||!canonicalHash(v.recap_sha256)||v.qualification_state!=='pending'||v.account_acknowledgement_only!==true||(typeof v.original_registration_state!=='string'||!['not_registered','registered','UNKNOWN'].includes(v.original_registration_state)))return fail();
+ for(const e of v.events){if(!exact(e,['event_id','sequence','operation','origin','turn_id','original_text','original_language','original_sha256','corrects_event_id','question_id','need','response_kind','payload','created_at'])||!canonicalUuid(e.event_id)||!Number.isSafeInteger(e.sequence)||(typeof e.origin!=='string'||!['employee','control','display'].includes(e.origin)))return fail();if(e.origin==='employee'&&(typeof e.original_text!=='string'||!canonicalHash(e.original_sha256)||!canonicalUuid(e.turn_id)))return fail();}
  if((v.question!==null&&typeof v.question!=='string')||(v.answer_first!==null&&typeof v.answer_first!=='string')||typeof v.offer_start_interview!=='boolean')return fail();
  return v as unknown as ConversationSnapshot;
 }

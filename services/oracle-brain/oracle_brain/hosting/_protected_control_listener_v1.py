@@ -9,32 +9,7 @@ import threading,time,socket,ipaddress
 from .gateway import MutualTLSServer,server_tls
 from .replacement_transport_v1 import fixed_request_length_v1,read_request_body_v1,peer_der_v1
 
-from contextvars import ContextVar
-from contextlib import contextmanager
-import math
-_request_end_v1=ContextVar('oracle_protected_control_original_end_v1',default=None)
-
-def request_remaining_v1(*,required=True):
-    """Same original listener fence; no UTC rollback or nested renewal."""
-    end=_request_end_v1.get()
-    if end is None:
-        if required:raise PermissionError('original protected request fence required')
-        return None
-    remaining=end-time.monotonic()
-    if remaining<=0:raise PermissionError('original protected request fence elapsed')
-    return remaining
-
-@contextmanager
-def _request_fence_v1(original_monotonic_end):
-    # Private trusted startup/test owner only, never a wire/HTTP field. Threads
-    # do not inherit this ContextVar; explicit trusted carry is required.
-    if type(original_monotonic_end) is not float or not math.isfinite(original_monotonic_end):
-        raise PermissionError('exact original monotonic fence required')
-    prior=_request_end_v1.get()
-    token=_request_end_v1.set(min(prior,original_monotonic_end) if prior is not None else original_monotonic_end)
-    try:
-        request_remaining_v1();yield
-    finally:_request_end_v1.reset(token)
+from ..operating_model.request_deadline_v1 import request_remaining_v1,_request_fence_v1
 
 
 def _protected_control_listener_v1(settings,factory,*,path,parse_request,encode_response,maximum_request_bytes=65536,maximum_response_bytes=4096):

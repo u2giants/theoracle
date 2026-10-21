@@ -82,7 +82,7 @@ class OriginalSourceResolverV1:
         return ProcessingSourceResolver._connection(self,connection)
 
     def _check(self,c):
-        from oracle_brain.hosting._protected_control_listener_v1 import request_remaining_v1
+        from .request_deadline_v1 import request_remaining_v1
         request_remaining_v1(required=False)
         b=self.binding
         if datetime.now(timezone.utc)>=b.expires_at:raise PermissionError('original caller binding expired')
