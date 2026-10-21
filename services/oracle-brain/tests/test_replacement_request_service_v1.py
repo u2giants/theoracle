@@ -254,3 +254,28 @@ def test_idle_untrusted_tcp_does_not_hold_sql_or_block_valid_tls(tmp_path, monke
             assert send(server, certificates, body(f))[0] == 200
             assert f.connects == 1
         finally: idle.close()
+
+
+def test_partial_success_write_closes_without_appending_second_http_response(tmp_path, monkeypatch, certificates):
+    import socketserver
+    original_write = socketserver._SocketWriter.write
+    def interrupted_write(writer, data):
+        if data.startswith(b'{'):
+            original_write(writer, data[:8])
+            raise OSError('invented partial transport write')
+        return original_write(writer, data)
+    monkeypatch.setattr(socketserver._SocketWriter, 'write', interrupted_write)
+    with running(tmp_path, monkeypatch, certificates) as (f, _, _, server):
+        connection = client(server, certificates)
+        connection._create_connection = lambda address, timeout, source_address: socket.create_connection(
+            ('127.0.0.1', address[1]), timeout, source_address)
+        try:
+            connection.request('POST', '/v1/replacement/control', body=body(f), headers={'Content-Type':'application/json'})
+            response = connection.getresponse()
+            assert response.status == 200
+            with pytest.raises(http.client.IncompleteRead) as failure:
+                response.read()
+            assert failure.value.partial.startswith(b'{')
+            assert b'HTTP/' not in failure.value.partial
+        finally:
+            connection.close()

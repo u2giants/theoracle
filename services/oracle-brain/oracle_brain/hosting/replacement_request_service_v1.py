@@ -157,6 +157,8 @@ def protected_replacement_request_server_v1(intake, peer_profile_path, expected_
             self._deny(404)
 
         def do_POST(self):
+            started = False
+            self.close_connection = True
             try:
                 if self.server.closing or self.headers.get_all('Content-Encoding', []) != []:
                     raise PermissionError('fixed requester lifecycle/framing required')
@@ -193,6 +195,7 @@ def protected_replacement_request_server_v1(intake, peer_profile_path, expected_
                     raise PermissionError('control metadata cannot grant result or remote stop')
                 self.connection.settimeout(max(.001, min(5, original_end - time.monotonic())))
                 self.close_connection = True
+                started = True
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(encoded)))
@@ -200,7 +203,8 @@ def protected_replacement_request_server_v1(intake, peer_profile_path, expected_
                 self.end_headers()
                 self.wfile.write(encoded)
             except Exception:
-                self._deny()
+                if not started:
+                    self._deny()
 
     class RequesterServer(MutualTLSServer):
         daemon_threads = False

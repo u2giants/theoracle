@@ -130,6 +130,19 @@ def test_actual_tls_sql_private_pdf_exact_and_viewer_cannot_mutate_or_borrow_rol
         with psycopg.connect(url) as conn,pytest.raises(psycopg.errors.InsufficientPrivilege):conn.execute(query,params)
 
 
+def test_actual_sql_admission_narrows_authenticated_delivery_header(actual_viewer, certificates):
+    f = actual_viewer
+    until = datetime.now(timezone.utc) + timedelta(seconds=5)
+    with owned_admin(f.x) as connection:
+        connection.execute('UPDATE oracle2.hosting_original_source_admissions SET expires_at=%s WHERE role_name=%s',
+            (until, f.login))
+    with running(f) as server:
+        status, data, headers = send(server, certificates, wire(f, seconds=10))
+    assert status == 200 and data == f.data
+    assert headers['X-Oracle-Original-Valid-Until'] == until.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
+
+
 @pytest.mark.parametrize('fault',['revoked','expired','runtime','withdrawn','historical','extra_role','owner','wrong_login','no_tls'])
 def test_actual_current_permission_and_target_denials(actual_viewer,certificates,fault):
     f=actual_viewer;x=f.x;restore=None
