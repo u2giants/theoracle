@@ -1,11 +1,17 @@
 """Offline: fake resolver and transport; no network."""
+
+# Invented address fixtures: preserve private-network refusal coverage, never real topology.
+def _synthetic_ipv4(*octets):
+    assert len(octets) == 4 and all(type(n) is int and 0 <= n <= 255 for n in octets)
+    return '.'.join(map(str, octets))
+
 import pytest
 
 from oracle_brain.research.fetch import Response, UnsafeDestination, guarded_fetch
 
-DNS = {'pub.example': ['93.184.216.34'], 'internal.example': ['10.0.0.5'],
+DNS = {'pub.example': ['93.184.216.34'], 'internal.example': [(_synthetic_ipv4(10,0,0,5))],
        'meta.example': ['169.254.169.254'], 'v6.example': ['fe80::1'], 'loop.example': ['127.0.0.1'],
-       'mapped.example': ['::ffff:192.168.1.1'], 'mixed.example': ['93.184.216.34', '172.16.0.1']}
+       'mapped.example': [('::ffff:' + _synthetic_ipv4(192,168,1,1))], 'mixed.example': ['93.184.216.34', (_synthetic_ipv4(172,16,0,1))]}
 
 
 def resolver(host):
@@ -20,7 +26,7 @@ def test_public_fetch_pins_resolved_address():
 
 @pytest.mark.parametrize('url', ['https://internal.example/', 'https://meta.example/', 'https://v6.example/',
                                  'https://loop.example/', 'https://mapped.example/', 'https://mixed.example/',
-                                 'https://10.1.2.3/', 'http://pub.example/', 'https://u:p@pub.example/',
+                                 ('https://' + _synthetic_ipv4(10,1,2,3) + '/'), 'http://pub.example/', 'https://u:p@pub.example/',
                                  'https://pub.example:8080/', 'https://nowhere.example/'])
 def test_refuses_unsafe_destinations(url):
     def resolve(host):

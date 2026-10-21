@@ -13,6 +13,16 @@ def docker(*args):
     return subprocess.check_output(["docker", *args], text=True).strip()
 
 
+def private_controlplane():
+    import sys
+    from pathlib import Path
+    from urllib.parse import urlsplit
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'services' / 'oracle-brain'))
+    from oracle_brain.private_targets import read_private_target
+    endpoint = urlsplit(read_private_target('coolify_api_base_url'))
+    return endpoint.hostname, endpoint.port or (443 if endpoint.scheme == 'https' else 80)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--owner", required=True)
@@ -71,8 +81,9 @@ s.on('timeout',()=>{console.log('DENIED:timeout');s.destroy()});s.on('error',e=>
             time.sleep(.05)
         assert positive == "CONNECTED", positive
         result["allowed_internal_peer"] = positive
-        for label, hostname, port in [("shared_controlplane", "100.66.37.58", "8000"),
-                                       ("shared_ssh", "100.66.37.58", "22"),
+        controlplane_host, controlplane_port = private_controlplane()
+        for label, hostname, port in [("shared_controlplane", controlplane_host, str(controlplane_port)),
+                                       ("shared_ssh", controlplane_host, "22"),
                                        ("internet_v4", "1.1.1.1", "443"),
                                        ("internet_v6", "2606:4700:4700::1111", "443")]:
             response = docker("exec", client, "node", "-e", probe, hostname, port)

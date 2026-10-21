@@ -30,6 +30,7 @@ jobs:
       ORACLE2_TEST_CONFIRMED_URL: redis://:oracle2_confirmed_local_only@127.0.0.1:57680
       ORACLE2_TEST_BLOB_ENDPOINT: http://127.0.0.1:57666
       ORACLE2_TEST_FALKORDB_URL: redis://:oracle2_candidate_local_only@127.0.0.1:57679
+      ORACLE_TARGET_PROFILE_PATH: ${{ runner.temp }}/oracle-target-${{ github.run_id }}-${{ github.run_attempt }}/targets.json
       GRAPHITI_TELEMETRY_ENABLED: 'false'
       ORACLE2_TELEMETRY_MODE: 'off'
     steps:
@@ -50,6 +51,18 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Require trusted metadata context
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo 'Required pinned metadata is unavailable to fork workflows.' >&2
+          exit 1
+      - name: Prepare private pinned target metadata
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          ORACLE_TARGET_PROFILE_JSON: ${{ secrets.ORACLE_TARGET_PROFILE_JSON }}
+        run: node dev/oracle2/prepare-ci-target-profile.mjs
+      - name: Verify private metadata custody and refusal paths
+        run: node --test dev/oracle2/private-target-profile.test.mjs dev/oracle2/prepare-ci-target-profile.test.mjs
       - name: Install TypeScript contracts
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify TypeScript contract fixtures
@@ -199,3 +212,6 @@ jobs:
         run: |
           docker rm -f oracle2-ci-restored-${{ github.run_id }} 2>/dev/null || true
           docker compose -f dev/oracle2/compose.yaml down --volumes
+      - name: Remove private target metadata
+        if: always()
+        run: node dev/oracle2/prepare-ci-target-profile.mjs --cleanup

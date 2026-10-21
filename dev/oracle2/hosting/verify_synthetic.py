@@ -12,6 +12,16 @@ import time
 from uuid import uuid4
 
 
+def private_controlplane():
+    import sys
+    from pathlib import Path
+    from urllib.parse import urlsplit
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'services' / 'oracle-brain'))
+    from oracle_brain.private_targets import read_private_target
+    endpoint = urlsplit(read_private_target('coolify_api_base_url'))
+    return endpoint.hostname, endpoint.port or (443 if endpoint.scheme == 'https' else 80)
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--directory',required=True);args=parser.parse_args(argv)
     root=Path(args.directory).resolve()
@@ -67,6 +77,7 @@ print(json.dumps({'metadata_tls_verified':True,'private_reads_writes_denied':Tru
     result=subprocess.check_output(['docker','exec','-i',services['gateway']['Id'],'python','-'],input=gateway_code.encode())
     checks.update(json.loads(result))
     confirmed_ip=services['confirmed']['NetworkSettings']['Networks'][project+'_confirmed']['IPAddress']
+    controlplane_host, controlplane_port = private_controlplane()
     executor_code='''import pathlib,psycopg,json,socket,redis
 url=pathlib.Path('/run/oracle-auth/database-url').read_text().strip()
 with psycopg.connect(url) as conn:
@@ -75,13 +86,13 @@ with psycopg.connect(url) as conn:
  assert conn.execute("SELECT * FROM oracle2.hosting_source_runtime_binding()").fetchone() is not None
 graph=pathlib.Path('/run/oracle-auth/graph-url').read_text().strip()
 assert redis.Redis.from_url(graph).ping()
-for host,port in [('1.1.1.1',443),('100.66.37.58',8000),('100.66.37.58',22),('2606:4700:4700::1111',443),(CONFIRMED,6379)]:
+for host,port in [('1.1.1.1',443),(CONTROLPLANE,CONTROLPLANE_PORT),(CONTROLPLANE,22),('2606:4700:4700::1111',443),(CONFIRMED,6379)]:
  try:
   sock=socket.create_connection((host,port),timeout=1);sock.close()
  except OSError:pass
  else:raise AssertionError('executor forbidden route opened')
 print(json.dumps({'executor_application_tls_verified':True,'candidate_authenticated':True,'executor_external_host_confirmed_denied':True}))
-'''.replace('CONFIRMED',repr(confirmed_ip))
+'''.replace('CONFIRMED',repr(confirmed_ip)).replace('CONTROLPLANE_PORT',repr(controlplane_port)).replace('CONTROLPLANE',repr(controlplane_host))
     result=subprocess.check_output(['docker','exec','-i',services['executor']['Id'],'python','-'],input=executor_code.encode())
     checks.update(json.loads(result))
     checks['project']=project;checks['image']=marker['image']

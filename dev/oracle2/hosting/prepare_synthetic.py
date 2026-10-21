@@ -51,7 +51,7 @@ def main(argv=None):
     WORKSPACE,ACTOR=(scenario.workspace,scenario.actor)
     ipv4=ipaddress.ip_network(args.ledger_ipv4_subnet,strict=True)
     ipv6=ipaddress.ip_network(args.ledger_ipv6_subnet,strict=True)
-    if ipv4.version!=4 or ipv4.prefixlen!=24 or not any(ipv4.subnet_of(ipaddress.ip_network(n)) for n in ('10.0.0.0/8','172.16.0.0/12','192.168.0.0/16')):
+    if ipv4.version!=4 or ipv4.prefixlen!=24 or not any(ipv4.subnet_of(n) for n in (ipaddress.ip_network('10.0.0.0/8'),ipaddress.ip_network('172.16.0.0/12'),ipaddress.ip_network('192.168.0.0/16'))):
         raise ValueError('reviewed private IPv4 /24 required')
     if ipv6.version!=6 or ipv6.prefixlen!=64 or not ipv6.subnet_of(ipaddress.ip_network('fc00::/7')):
         raise ValueError('reviewed private IPv6 /64 required')

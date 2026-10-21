@@ -5,7 +5,7 @@ One outcome: genuine restart with pre/post StartedAt proof from docker inspect.
 Reads use the read-only token; the single mutation uses the read/write token.
 No authority renewal, no job replay, no freshness weakening.
 
-Transport note: Coolify API is HTTP on Tailscale CGNAT 100.66.37.58:8000.
+Transport note: Coolify uses its exact privately pinned API endpoint.
 That address is reachable only over the encrypted Tailscale overlay; the
 owner explicitly issued the read/write token for this managed-platform route
 (Albert, 2026-10-14). SSH metadata uses BatchMode key auth to vps2.
@@ -15,7 +15,12 @@ Without --confirm-restart the script only reads metadata and exits 0.
 """
 import json, os, sys, urllib.request, urllib.error, datetime, hashlib, time, subprocess
 
-BASE = "http://100.66.37.58:8000/api/v1"
+# Metadata resolution never grants restart authority.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'services' / 'oracle-brain'))
+from oracle_brain.private_targets import read_private_target
+BASE = read_private_target('coolify_api_base_url')
 APP_UUID = "vhmcdkdk23dgvjvcvhyhcjzd"
 APP_NAME = "oracle-public-invented-native-pr102"
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",

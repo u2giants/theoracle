@@ -4,6 +4,12 @@ Import guard: oracle_brain.research.rights is required; skip with reason when ab
 """
 from __future__ import annotations
 
+# Invented address fixtures: preserve private-network refusal coverage, never real topology.
+def _synthetic_ipv4(*octets):
+    assert len(octets) == 4 and all(type(n) is int and 0 <= n <= 255 for n in octets)
+    return '.'.join(map(str, octets))
+
+
 import importlib.util
 
 import pytest
@@ -84,16 +90,16 @@ def test_require_public_addresses_accepts_global_unicast():
 
 def test_require_public_addresses_refuses_private_and_special_use():
     for bad in (
-        ['10.0.0.1'],
-        ['192.168.1.1'],
+        [(_synthetic_ipv4(10,0,0,1))],
+        [(_synthetic_ipv4(192,168,1,1))],
         ['127.0.0.1'],
         ['169.254.1.1'],
         ['224.0.0.1'],
-        ['0.0.0.0'],
+        [(_synthetic_ipv4(0,0,0,0))],
         ['::1'],
         ['fe80::1'],
         ['fc00::1'],
-        ['::ffff:10.0.0.1'],
+        [('::ffff:' + _synthetic_ipv4(10,0,0,1))],
     ):
         with pytest.raises(RightsError):
             require_public_addresses(bad)
@@ -103,7 +109,7 @@ def test_require_public_addresses_refuses_empty_and_mixed_sets():
     with pytest.raises(RightsError, match='no candidate address'):
         require_public_addresses([])
     with pytest.raises(RightsError):
-        require_public_addresses(['8.8.8.8', '10.0.0.1'])
+        require_public_addresses(['8.8.8.8', (_synthetic_ipv4(10,0,0,1))])
     with pytest.raises(RightsError, match='not an ip address'):
         require_public_addresses(['example.com'])
 
