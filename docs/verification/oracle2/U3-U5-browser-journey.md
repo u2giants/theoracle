@@ -5,7 +5,7 @@ record covers the offline replacement UI/API surface and its fixture-backed
 Playwright/contract coverage only. No native pipeline, hosted preview, paid
 provider, real original, or business acceptance is claimed here.
 
-Date: 2026-11-16 (America/New_York, EST). Worktree `impl-u35`, branch
+Date: 2026-10-20 (America/New_York, EDT). Worktree `impl-u35`, branch
 `mimo/u3-u5-browser`, base `origin/main @ f809258`. Synthetic/invented data
 only — no company data, no employees.
 

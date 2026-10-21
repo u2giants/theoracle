@@ -31,7 +31,13 @@ remain separate from compiler/executor roles; compiler-derived workflow IDs
 and existing immutable paid-V3 ACK validation bind confirmation. Twenty-five
 real-role SQL cases are prepared but NOT executed on this successor until its
 assigned exact-head approval opens the database gate. Source/static syntax
-checks pass; earlier SQL runtime receipts do not establish this new path.
+checks pass; earlier SQL runtime receipts do not establish this new path. The
+first admitted successor run passed ten cases and stopped fifteen controls
+before their assertions because separate legacy host setup omitted its exact
+source draft state. The bounded fixture repair asserts qualification alone
+retains processing state, then prepares the existing legacy draft/blocks/role
+control independently. It does not implement or claim a production
+raw-intake-to-legacy-compiler bridge. Fresh runtime proof remains required.
 
 Retrieval returns only permitted current source quotes with immutable exact
 source dependencies and actor-bound current-access signatures. Mixed denied
@@ -45,7 +51,7 @@ unauthorized, stale or forged audiences deny; legitimate broadcast works.
 The combined meeting/signature focused checkpoint passes 112 cases.
 
 The full required W10 inventory initially reported 2760 tests, five failures
-and five skips, with no worker timeout (maximum 49.8 seconds) and zero cleanup
+and five skips, with no worker timeout (maximum 100.56 seconds) and zero cleanup
 errors. Exact helper registration/stale assertions and isolated
 object-store/Node/graph-alias setup were repaired without dropping tests or
 changing the 120-second deadline. Passing unit and read-only evidence accompany
