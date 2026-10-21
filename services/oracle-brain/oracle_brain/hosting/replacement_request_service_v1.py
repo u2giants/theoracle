@@ -83,7 +83,7 @@ class _PeerSettings:
 
     def current(self):
         raw = _pinned(self.path, self.sha256)
-        value = RequesterPeerProfileV1.model_validate_json(raw)
+        value = type(self.profile).model_validate_json(raw)
         if canonical_bytes(value.model_dump(mode='json')) != raw or value != self.profile:
             raise PermissionError('requester peer profile changed')
         c = self.intake.config
@@ -111,10 +111,15 @@ class _PeerSettings:
 
 def load_requester_peer_settings_v1(intake, peer_profile_path, expected_peer_profile_sha256):
     """Consume the same exact externally selected peer profile; issues no scope."""
+    return _load_peer_settings_v1(intake, peer_profile_path, expected_peer_profile_sha256, RequesterPeerProfileV1)
+
+
+def _load_peer_settings_v1(intake, peer_profile_path, expected_peer_profile_sha256, profile_type):
+    """Internal exact server-selected profile type; never selected by a request."""
     if type(intake) is not OriginalIntakeSettingsV1:
         raise TypeError('existing exact intake settings required')
     raw = _pinned(peer_profile_path, expected_peer_profile_sha256)
-    profile = RequesterPeerProfileV1.model_validate_json(raw)
+    profile = profile_type.model_validate_json(raw)
     settings = _PeerSettings(intake, profile, str(peer_profile_path), expected_peer_profile_sha256)
     settings.current()
     return settings

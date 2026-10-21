@@ -39,7 +39,7 @@ def header(body):
 def recording_intake(f, monkeypatch):
     f.source = uuid4(); f.reservation = uuid4(); f.intake_calls = []; f.deadlines = []
     f.finalize_error = False; f.finalize_close_error = False; f.visible = False
-    f.finalize_commit = None
+    f.finalize_commit = None; f.connection_options = []
     class Cursor:
         def __enter__(self): return self
         def __exit__(self, *args): pass
@@ -69,7 +69,7 @@ def recording_intake(f, monkeypatch):
         pgconn = property(lambda self: SimpleNamespace(ssl_in_use=True))
         def __enter__(self): return self
         def __exit__(self, *args):
-            if self.cur.query.startswith('SELECT oracle2.finalize_source_revision_v1') and f.finalize_close_error:
+            if getattr(self.cur,'query','').startswith('SELECT oracle2.finalize_source_revision_v1') and f.finalize_close_error:
                 raise RuntimeError('invented uncertain SQL close')
         def cursor(self): return self.cur
         def commit(self):
@@ -79,7 +79,10 @@ def recording_intake(f, monkeypatch):
                 if f.finalize_commit: f.finalize_commit()
     def connect(*args, **kwargs):
         f.connects += 1
+        f.connection_options.append(dict(kwargs))
         assert 1 <= kwargs['connect_timeout'] <= 5
+        assert type(kwargs['tcp_user_timeout']) is int and kwargs['tcp_user_timeout'] >= 1
+        assert kwargs['options']==f"-c statement_timeout={min(5000,kwargs['tcp_user_timeout'])} -c lock_timeout={min(2000,kwargs['tcp_user_timeout'])}"
         return Connection()
     monkeypatch.setattr('psycopg.connect', connect)
 

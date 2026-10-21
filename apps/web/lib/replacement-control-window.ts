@@ -34,3 +34,5 @@ export const privateControlHeaders=Object.freeze({'Cache-Control':'private, no-s
 export function unavailableControl(status:503|405=503):Response {
   return Response.json({error:'Replacement control unavailable'},{status,headers:status===405?{...privateControlHeaders,Allow:'POST'}:privateControlHeaders});
 }
+
+export const ORIGINAL_UPLOAD_PATH='/api/consultant/replacement/v1/protected/upload';

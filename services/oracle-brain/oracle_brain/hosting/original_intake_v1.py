@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime,timezone
 from pathlib import Path
 from typing import Literal
-from uuid import UUID
+from uuid import UUID,uuid4
 import hashlib,json,os,stat
 from pydantic import AwareDatetime,Field,model_validator
 from oracle_brain.operating_model.contracts import StrictRecord,canonical_bytes,digest
@@ -183,7 +183,9 @@ class OriginalIntakeFactoryV1:
         remaining=_intake_current_deadline(s,deadline)
         if remaining<1:raise PermissionError('original intake connection window elapsed')
         connect_seconds=min(5,int(remaining))
-        with psycopg.connect(raw,connect_timeout=connect_seconds) as conn:
+        milliseconds=int(remaining*1000)
+        with psycopg.connect(raw,connect_timeout=connect_seconds,tcp_user_timeout=milliseconds,
+                options=f'-c statement_timeout={min(5000,milliseconds)} -c lock_timeout={min(2000,milliseconds)}') as conn:
             actual=conn.info
             if not conn.pgconn.ssl_in_use or actual.host!=target['host'] or actual.dbname!=target['dbname'] or actual.user!=target['user'] or actual.port!=int(target.get('port',5432)) or (target.get('hostaddr') and actual.hostaddr!=target['hostaddr']):raise PermissionError('actual intake SQL target differs')
             _intake_current_deadline(s,deadline)
@@ -220,8 +222,23 @@ class OriginalIntakeFactoryV1:
         original_deadline=bound if caller_deadline is None else caller_deadline
         _intake_current_deadline(s,original_deadline)
         if original_deadline>bound:raise PermissionError('caller intake deadline exceeds existing appointment')
+        reserved=self.reserve_pdf_v1(q, caller_deadline=original_deadline)
+        return self.finalize_reserved_pdf_v1(q, reserved, data, caller_deadline=original_deadline)
+
+    def reserve_pdf_v1(self,q,*,caller_deadline):
+        """Fresh actual SQL context for the immutable original reservation."""
+        if type(q) is not OriginalIntakeRequestV1:raise TypeError('exact intake request required')
+        s=self.settings;original_deadline=caller_deadline
+        _intake_current_deadline(s,original_deadline)
+        if original_deadline>s.current():raise PermissionError('caller intake deadline exceeds existing appointment')
         intake=dict(source_id=str(q.source_id) if q.source_id else None,filename=q.filename,media_type='application/pdf',byte_count=q.byte_count,caller_deadline=original_deadline.isoformat())
-        reserved=self._call('reserve',(q.expected_head,json.dumps(intake),q.idempotency_key),ReserveEnvelopeV1,caller_deadline=original_deadline)
+        return self._call('reserve',(q.expected_head,json.dumps(intake),q.idempotency_key),ReserveEnvelopeV1,caller_deadline=original_deadline)
+
+    def finalize_reserved_pdf_v1(self,q,reserved,data,*,caller_deadline):
+        """Reuse existing custody/finalizer; never reserves another source."""
+        if type(q) is not OriginalIntakeRequestV1 or type(reserved) is not ReserveEnvelopeV1 or type(data) is not bytes:raise TypeError('exact reserved original required')
+        s=self.settings;original_deadline=caller_deadline;written=None
+        _intake_current_deadline(s,original_deadline,reserved.context)
         ref,deadline=reservation_original_ref_v1(s,q,reserved.reservation,data)
         deadline=min(original_deadline,deadline,_context_horizon(s,reserved.context))
         try:
