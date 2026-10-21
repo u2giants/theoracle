@@ -94,8 +94,12 @@ def protected_original_view_server_v1(settings):
                 if not datetime.now(timezone.utc) < request.caller_deadline <= transport_end:
                     raise PermissionError('original absolute viewer deadline required')
                 monotonic_end = self.original_monotonic_start + (request.caller_deadline-self.original_start).total_seconds()
-                result = factory.read_pdf_v1(request.source_id, request.revision, caller_deadline=request.caller_deadline)
-                if type(result) is not ViewedOriginalV1 or type(result.data) is not bytes:
+                pins = [r for r in settings.config.sources if (r.source_id,r.revision)==(request.source_id,request.revision)]
+                if len(pins)!=1:raise PermissionError('exact installed original media required')
+                pin=pins[0]
+                read = factory.read_pdf_v1 if pin.media_type=='application/pdf' else factory.read_original_v1
+                result = read(request.source_id, request.revision, caller_deadline=request.caller_deadline)
+                if type(result) is not ViewedOriginalV1 or type(result.data) is not bytes or result.media_type!=pin.media_type:
                     raise PermissionError('actual original bytes required')
                 end = min(request.caller_deadline, result.valid_until, self._current_peer(), settings.current())
                 monotonic_end = min(monotonic_end, self.original_monotonic_start + (end-self.original_start).total_seconds())
@@ -106,9 +110,9 @@ def protected_original_view_server_v1(settings):
                 self.send_response(200)
                 self.send_header('X-Oracle-Original-Valid-Until', end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
                 self.send_header('Connection', 'close')
-                self.send_header('Content-Type', 'application/pdf')
+                self.send_header('Content-Type', 'application/pdf' if pin.media_type=='application/pdf' else 'text/plain; charset=utf-8')
                 self.send_header('Content-Length', str(len(result.data)))
-                self.send_header('Content-Disposition', 'inline; filename="original.pdf"')
+                self.send_header('Content-Disposition', 'inline; filename="original.pdf"' if pin.media_type=='application/pdf' else 'inline; filename="original.txt"')
                 self.send_header('Cache-Control', 'no-store, private')
                 self.send_header('X-Content-Type-Options', 'nosniff')
                 self.end_headers()

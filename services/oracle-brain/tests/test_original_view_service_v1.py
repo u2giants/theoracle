@@ -365,3 +365,36 @@ def test_header_narrows_to_current_peer_or_settings_after_factory(tmp_path, cert
         status, data, headers = send(server, certificates, wire(f))
     assert status == 200 and data == PDF
     assert headers['X-Oracle-Original-Valid-Until'] == lease.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
+
+def test_actual_mtls_text_preserves_original_chinese_and_html_as_plain_text(tmp_path,certificates,monkeypatch):
+    raw='<script>original only</script>\n员工：先检查，再交接。\n'.encode('utf-8')
+    f=configured_viewer(tmp_path,certificates,data=raw,media_type='text/plain');recording_sql(f,monkeypatch)
+    with running(f) as server:status,data,headers=send(server,certificates,wire(f))
+    assert status==200 and data==raw
+    assert headers['Content-Type']=='text/plain; charset=utf-8'
+    assert headers['Content-Disposition']=='inline; filename="original.txt"'
+    assert headers['X-Content-Type-Options']=='nosniff' and headers['Cache-Control']=='no-store, private'
+    assert f.caps==4 and len(f.connections)==2 and all(c.closed for c in f.connections)
+
+
+@pytest.mark.parametrize('raw',[b'\xff',b'\xc0\xaf',b'valid\x00hidden'])
+def test_text_original_invalid_utf8_or_nul_never_delivered(tmp_path,certificates,monkeypatch,raw):
+    f=configured_viewer(tmp_path,certificates,data=raw,media_type='text/plain');recording_sql(f,monkeypatch)
+    with running(f) as server:assert send(server,certificates,wire(f))[:2]==(503,b'')
+
+
+def test_retained_pdf_only_factory_rejects_installed_text_without_sql(tmp_path,certificates,monkeypatch):
+    f=configured_viewer(tmp_path,certificates,data='原文'.encode(),media_type='text/plain');recording_sql(f,monkeypatch)
+    r=f.settings.config.sources[0]
+    with pytest.raises(OriginalViewerUnavailable):OriginalViewerFactoryV1(f.settings).read_pdf_v1(r.source_id,r.revision,caller_deadline=datetime.now(timezone.utc)+timedelta(seconds=5))
+    assert not f.connections
+
+
+def test_text_original_current_media_mismatch_denied_before_private_bytes(tmp_path,certificates,monkeypatch):
+    f=configured_viewer(tmp_path,certificates,data=b'plain original',media_type='text/plain');recording_sql(f,monkeypatch)
+    f.cap_changes={'media_type':'application/pdf'}
+    def forbidden(*args):raise AssertionError('no source bytes before actual matching current SQL')
+    monkeypatch.setattr(FileBlobStore,'_read_original_bytes',forbidden)
+    with running(f) as server:assert send(server,certificates,wire(f))[:2]==(503,b'')
+    assert f.caps==1

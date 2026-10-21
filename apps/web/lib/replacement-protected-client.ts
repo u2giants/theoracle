@@ -154,7 +154,7 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
         connected.once('end',() => { peerEnded = true; });
         connected.once('close',(hadError) => { if (hadError || !peerEnded || !ended || !metadata || wireFailed || headerLength===undefined || expectedWireSize===undefined || wireSize!==expectedWireSize) refuse(); else resolve(metadata); });
         request = https.request({protocol:'https:',hostname:p.server_dns,port:url.port || 443,path:p.purpose==='replacement-upload-web-binding-v1'?p.upload_path:p.purpose==='replacement-original-web-binding-v1'?p.original_path:p.control_path,method:'POST',agent,headers:{'Content-Type':'application/json','Content-Length':String(body.length),'Connection':'close'}},res => {
-          responseCount++; if (responseCount !== 1 || res.statusCode !== 200 || res.headers['content-type'] !== (pin?'application/pdf':'application/json') || res.headers['content-encoding'] !== undefined || res.headers['transfer-encoding'] !== undefined || res.headers.connection !== 'close') { refuse(); abort(); return; }
+          responseCount++; if (responseCount !== 1 || res.statusCode !== 200 || res.headers['content-type'] !== (pin?(pin.media_type==='application/pdf'?'application/pdf':'text/plain; charset=utf-8'):'application/json') || res.headers['content-encoding'] !== undefined || res.headers['transfer-encoding'] !== undefined || res.headers.connection !== 'close') { refuse(); abort(); return; }
           const seen = new Set<string>();
           for (let i = 0; i < res.rawHeaders.length; i += 2) { const h = res.rawHeaders[i]!.toLowerCase(); if (seen.has(h)) { refuse(); abort(); return; } seen.add(h); }
           const len = res.headers['content-length'];
@@ -176,7 +176,7 @@ async function transport(installed: InstalledBinding<ProtectedBinding>, body: Bu
             catch { refuse(); abort(); }
           });
           res.once('aborted',refuse); res.once('error',refuse);
-          res.once('end',() => { try { remaining(window); if (!res.complete || size !== Number(len) || res.trailers && Object.keys(res.trailers).length) return refuse(); if(pin&&original&&lease){if(!original.subarray(0,5).equals(Buffer.from('%PDF-'))||sha256(original)!==pin.original_sha256)throw new Error();remaining(window);metadata={data:original,validUntil:lease};}else metadata = p.purpose==='replacement-upload-web-binding-v1'?parseUploadResponse(Buffer.concat(chunks,size)):parseControlMetadata(Buffer.concat(chunks,size)); ended = true; } catch { refuse(); abort(); } });
+          res.once('end',() => { try { remaining(window); if (!res.complete || size !== Number(len) || res.trailers && Object.keys(res.trailers).length) return refuse(); if(pin&&original&&lease){if(sha256(original)!==pin.original_sha256)throw new Error();if(pin.media_type==='application/pdf'){if(!original.subarray(0,5).equals(Buffer.from('%PDF-')))throw new Error();}else{const text=original.toString('utf8');if(text.includes('\0')||!Buffer.from(text,'utf8').equals(original))throw new Error();}remaining(window);metadata={data:original,validUntil:lease};}else metadata = p.purpose==='replacement-upload-web-binding-v1'?parseUploadResponse(Buffer.concat(chunks,size)):parseControlMetadata(Buffer.concat(chunks,size)); ended = true; } catch { refuse(); abort(); } });
         });
         request.once('error',refuse);
         request.setTimeout(remaining(window),() => { refuse(); abort(); });
@@ -250,7 +250,7 @@ export async function requestReplacementOriginal(request:Request):Promise<Respon
       pull(c){try{current(installed,window);remaining(window);const end=Math.min(offset+65536,result.data.length);c.enqueue(result.data.subarray(offset,end));offset=end;if(offset===result.data.length){c.close();release();}}catch{abort();}},
       cancel(){release();},
     },{highWaterMark:0});
-    handedOff=true;return new Response(stream,{status:200,headers:{...privateControlHeaders,'Content-Type':'application/pdf','Content-Length':String(result.data.length),'Content-Disposition':'inline; filename="original.pdf"'}});
+    handedOff=true;return new Response(stream,{status:200,headers:{...privateControlHeaders,'Content-Type':pins[0]!.media_type==='application/pdf'?'application/pdf':'text/plain; charset=utf-8','Content-Length':String(result.data.length),'Content-Disposition':pins[0]!.media_type==='application/pdf'?'inline; filename="original.pdf"':'inline; filename="original.txt"'}});
   }catch{return unavailableControl();}
   finally{if(!handedOff)viewerBusy=false;}
 }

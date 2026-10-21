@@ -128,7 +128,7 @@ function validateCommonBinding(v: Record<string,unknown>):void {
   if (!(from < expires && expires <= horizon)) return unavailable();
 }
 export const MAX_ORIGINAL_BYTES=25*1024*1024;
-export interface ViewerSourcePin { readonly schema_version:1; readonly source_id:string; readonly revision:number; readonly original_sha256:string; readonly byte_count:number; readonly media_type:'application/pdf'; readonly reservation_id:string; readonly custody_seal_sha256:string; }
+export interface ViewerSourcePin { readonly schema_version:1; readonly source_id:string; readonly revision:number; readonly original_sha256:string; readonly byte_count:number; readonly media_type:'application/pdf'|'text/plain'; readonly reservation_id:string; readonly custody_seal_sha256:string; }
 export interface ViewerBinding extends Omit<ServerBinding,'purpose'|'intake_appointment_sha256'|'peer_profile_sha256'|'control_path'> {
   readonly purpose:'replacement-original-web-binding-v1'; readonly original_path:'/v1/replacement/original';
   readonly viewer_config_sha256:string; readonly viewer_appointment_sha256:string; readonly viewer_peer_profile_sha256:string; readonly storage_profile_hash:string;
@@ -142,7 +142,7 @@ export function validateViewerBinding(value:unknown):Readonly<ViewerBinding> {
   if(!Array.isArray(value.sources)||value.sources.length<1||value.sources.length>64)return unavailable();
   const seen=new Set<string>();
   for(const pin of value.sources){
-    if(!exact(pin,['schema_version','source_id','revision','original_sha256','byte_count','media_type','reservation_id','custody_seal_sha256'])||pin.schema_version!==1||!canonicalUuid(pin.source_id)||typeof pin.revision!=='number'||!Number.isSafeInteger(pin.revision)||pin.revision<1||!canonicalHash(pin.original_sha256)||typeof pin.byte_count!=='number'||!Number.isSafeInteger(pin.byte_count)||pin.byte_count<1||pin.byte_count>MAX_ORIGINAL_BYTES||pin.media_type!=='application/pdf'||!canonicalUuid(pin.reservation_id)||!canonicalHash(pin.custody_seal_sha256))return unavailable();
+    if(!exact(pin,['schema_version','source_id','revision','original_sha256','byte_count','media_type','reservation_id','custody_seal_sha256'])||pin.schema_version!==1||!canonicalUuid(pin.source_id)||typeof pin.revision!=='number'||!Number.isSafeInteger(pin.revision)||pin.revision<1||!canonicalHash(pin.original_sha256)||typeof pin.byte_count!=='number'||!Number.isSafeInteger(pin.byte_count)||pin.byte_count<1||pin.byte_count>MAX_ORIGINAL_BYTES||(pin.media_type!=='application/pdf'&&pin.media_type!=='text/plain')||!canonicalUuid(pin.reservation_id)||!canonicalHash(pin.custody_seal_sha256))return unavailable();
     const key=pin.source_id+':'+pin.revision;if(seen.has(key))return unavailable();seen.add(key);Object.freeze(pin);
   }
   Object.freeze(value.sources);return Object.freeze(value) as unknown as Readonly<ViewerBinding>;

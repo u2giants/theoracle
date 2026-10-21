@@ -41,7 +41,9 @@ let proxyModule:typeof import('../proxy');
 let peerRequests=0, peerMode='valid', lastBodyReads=0;
 const pdf=Buffer.from('%PDF-1.7\nInvented original only\n%%EOF');
 const large=Buffer.alloc(MAX_ORIGINAL_BYTES,32);pdf.copy(large);
-let reply=pdf, leaseDelay=0;
+let reply=pdf, leaseDelay=0, replyMedia='application/pdf';
+const textOriginals=[Buffer.from('<script>original only</script>\n员工：先检查，再交接。\n'),Buffer.from([255]),Buffer.from('valid\0hidden')];
+const textIds=['77777777-7777-4777-8777-777777777777','88888888-8888-4888-8888-888888888888','99999999-9999-4999-8999-999999999999'];
 const seenBodies:Buffer[]=[];
 const f=(name:string)=>join(dir,name);
 const read=(name:string)=>readFileSync(f(name));
@@ -77,7 +79,7 @@ before(async()=>{
       if(peerMode==='short')lease=new Date(Date.now()+100).toISOString().replace(/([0-9]{3})Z$/,'$1000Z');
       if(peerMode==='malformed')lease=new Date().toISOString();
       const bytes=peerMode==='wronghash'?Buffer.from(reply.map(b=>b^1)):reply;
-      let headers='HTTP/1.1 '+(peerMode==='partial'?'206 Partial Content':'200 OK')+'\r\nContent-Type: application/pdf\r\nContent-Length: '+(peerMode==='overlarge'?MAX_ORIGINAL_BYTES+1:bytes.length)+'\r\nConnection: close\r\nCache-Control: no-store, private\r\nX-Content-Type-Options: nosniff\r\n';
+      let headers='HTTP/1.1 '+(peerMode==='partial'?'206 Partial Content':'200 OK')+'\r\nContent-Type: '+replyMedia+'\r\nContent-Length: '+(peerMode==='overlarge'?MAX_ORIGINAL_BYTES+1:bytes.length)+'\r\nConnection: close\r\nCache-Control: no-store, private\r\nX-Content-Type-Options: nosniff\r\n';
       if(peerMode!=='missing')headers+='X-Oracle-Original-Valid-Until: '+lease+'\r\n';
       if(peerMode==='duplicate')headers+='X-Oracle-Original-Valid-Until: '+lease+'\r\n';
       if(peerMode==='encoding')headers+='Content-Encoding: gzip\r\n';
@@ -105,7 +107,7 @@ before(async()=>{
     res.writeHead(result.status,Object.fromEntries(result.headers));
     try{res.end(Buffer.from(await result.arrayBuffer()));}catch{res.destroy();}
   });await listen(web);
-  binding={schema_version:1,purpose:'replacement-original-web-binding-v1',project_url:identity.project,auth_issuer:identity.project+'/auth/v1',auth_user_id:id,employee_id:employee,principal_id:'33333333-3333-4333-8333-333333333333',workspace_id:'44444444-4444-4444-8444-444444444444',runtime_hash:hash,registry_hash:hash,viewer_config_sha256:hash,viewer_appointment_sha256:hash,viewer_peer_profile_sha256:hash,storage_profile_hash:hash,web_origin:'https://localhost.localdomain:'+port(web),backend_origin:'https://localhost.localdomain:'+port(backend),original_path:'/v1/replacement/original',sources:[pdf,large].map((bytes,i)=>({schema_version:1,source_id:i?employee:id,revision:1,original_sha256:sha256(bytes),byte_count:bytes.length,media_type:'application/pdf',reservation_id:id,custody_seal_sha256:hash})),server_dns:'localhost.localdomain',server_certificate_der_sha256:sha256(new X509Certificate(read('server.crt')).raw),server_ca_file:f('ca.crt'),server_ca_sha256:pin('ca.crt'),client_certificate_file:f('client.crt'),client_certificate_sha256:pin('client.crt'),client_certificate_der_sha256:sha256(new X509Certificate(read('client.crt')).raw),client_uri:'spiffe://oracle/invented-web',client_key_file:f('client.key'),client_key_sha256:pin('client.key'),issuer_actor:'independent-route-issuer',reviewer_actor:'independent-route-reviewer',valid_from:new Date(Date.now()-10000).toISOString(),expires_at:new Date(Date.now()+180000).toISOString(),original_horizon:new Date(Date.now()+180000).toISOString()};
+  binding={schema_version:1,purpose:'replacement-original-web-binding-v1',project_url:identity.project,auth_issuer:identity.project+'/auth/v1',auth_user_id:id,employee_id:employee,principal_id:'33333333-3333-4333-8333-333333333333',workspace_id:'44444444-4444-4444-8444-444444444444',runtime_hash:hash,registry_hash:hash,viewer_config_sha256:hash,viewer_appointment_sha256:hash,viewer_peer_profile_sha256:hash,storage_profile_hash:hash,web_origin:'https://localhost.localdomain:'+port(web),backend_origin:'https://localhost.localdomain:'+port(backend),original_path:'/v1/replacement/original',sources:[...([pdf,large].map((bytes,i)=>({schema_version:1 as const,source_id:i?employee:id,revision:1,original_sha256:sha256(bytes),byte_count:bytes.length,media_type:'application/pdf' as const,reservation_id:id,custody_seal_sha256:hash}))),...textOriginals.map((bytes,i)=>({schema_version:1 as const,source_id:textIds[i]!,revision:1,original_sha256:sha256(bytes),byte_count:bytes.length,media_type:'text/plain' as const,reservation_id:id,custody_seal_sha256:hash}))],server_dns:'localhost.localdomain',server_certificate_der_sha256:sha256(new X509Certificate(read('server.crt')).raw),server_ca_file:f('ca.crt'),server_ca_sha256:pin('ca.crt'),client_certificate_file:f('client.crt'),client_certificate_sha256:pin('client.crt'),client_certificate_der_sha256:sha256(new X509Certificate(read('client.crt')).raw),client_uri:'spiffe://oracle/invented-web',client_key_file:f('client.key'),client_key_sha256:pin('client.key'),issuer_actor:'independent-route-issuer',reviewer_actor:'independent-route-reviewer',valid_from:new Date(Date.now()-10000).toISOString(),expires_at:new Date(Date.now()+180000).toISOString(),original_horizon:new Date(Date.now()+180000).toISOString()};
   writeFileSync(f('binding.json'),canonicalJson(binding),{mode:0o600});
   process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_FILE=f('binding.json');process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_SHA256=pin('binding.json');process.env.NEXT_PUBLIC_SUPABASE_URL=identity.project;process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY='invented-anon-key';
 });
@@ -113,7 +115,7 @@ after(async()=>{
   hooks.deregister();await Promise.all([new Promise<void>(resolve=>web.close(()=>resolve())),new Promise<void>(resolve=>backend.close(()=>resolve()))]);
   rmSync(dir,{recursive:true,force:true});delete (globalThis as unknown as Record<string,unknown>).__routeAuthFixture;
 });
-const requestBody=(extra:Record<string,unknown>={})=>Buffer.from(canonicalJson({schema_version:1,source_id:id,revision:1,caller_deadline:new Date(Date.now()+5000).toISOString().replace(/([0-9]{3})Z$/,'$1000Z'),...extra}));
+const requestBody=(extra:Record<string,unknown>={})=>Buffer.from(canonicalJson({schema_version:1,source_id:id,revision:1,caller_deadline:new Date(Date.now()+5000).toISOString().replace('.000Z','Z').replace(/([0-9]{3})Z$/,'$1000Z'),...extra}));
 interface HttpResult{status:number;headers:Readonly<Record<string,string|string[]|undefined>>;body:Buffer;}
 const invoke=(bytes=requestBody(),headers:Record<string,string>={},method='POST')=>new Promise<HttpResult>((resolve,reject)=>{
   const req=https.request(binding.web_origin+'/api/consultant/replacement/v1/protected/original',{method,ca:read('ca.crt'),agent:false,headers:{origin:binding.web_origin,'Content-Type':'application/json','Content-Length':String(bytes.length),...headers}},res=>{
@@ -144,7 +146,7 @@ test('hash count truncation encoding uncertain close and partial response refuse
  for(peerMode of ['wronghash','overlarge','truncated','encoding','uncertain','partial'])unavailable(await invoke());peerMode='valid';
 });
 test('source revision and authority selectors never escape closed source wire',async()=>{
- const n=peerRequests;for(const patch of [{revision:2},{source_id:'99999999-9999-4999-8999-999999999999'},{actor:id},{role:'admin'},{url:binding.backend_origin},{resultAvailable:true},{schema_version:true}])unavailable(await invoke(requestBody(patch)));assert.equal(peerRequests,n);
+ const n=peerRequests;for(const patch of [{revision:2},{source_id:'66666666-6666-4666-8666-666666666666'},{actor:id},{role:'admin'},{url:binding.backend_origin},{resultAvailable:true},{schema_version:true}])unavailable(await invoke(requestBody(patch)));assert.equal(peerRequests,n);
 });
 test('original conditional and Next bypass headers refuse before auth body or peer',async()=>{
  for(const header of [...CONTROL_BYPASS_HEADERS,'range','if-range','if-match','if-none-match','if-modified-since','if-unmodified-since','content-encoding']){const n=peerRequests,calls=identity.proxyCalls;unavailable(await invoke(requestBody(),{[header]:'invented'}));assert.equal(lastBodyReads,0);assert.equal(peerRequests,n);assert.equal(identity.proxyCalls,calls);}
@@ -163,7 +165,7 @@ test('pinned actual peer mismatch refuses before any HTTP request',async()=>{
  const n=peerRequests;backend.setSecureContext({key:read('alternate.key'),cert:read('alternate.crt'),ca:read('ca.crt')});try{unavailable(await invoke());assert.equal(peerRequests,n);}finally{backend.setSecureContext({key:read('server.key'),cert:read('server.crt'),ca:read('ca.crt')});}
 });
 test('strict profile pins deny duplicate swapped invalid bounds and competing authority fields',()=>{
- for(const patch of [{sources:[binding.sources[0],binding.sources[0]]},{sources:[{...binding.sources[0],byte_count:MAX_ORIGINAL_BYTES+1}]},{sources:[{...binding.sources[0],revision:true}]},{sources:[{...binding.sources[0],media_type:'text/plain'}]},{purpose:'replacement-web-binding-v1'},{control_path:'/v1/replacement/control'},{sources:[]}])assert.throws(()=>validateViewerBinding({...binding,...patch}));
+ for(const patch of [{sources:[binding.sources[0],binding.sources[0]]},{sources:[{...binding.sources[0],byte_count:MAX_ORIGINAL_BYTES+1}]},{sources:[{...binding.sources[0],revision:true}]},{sources:[{...binding.sources[0],media_type:'text/html'}]},{sources:[{...binding.sources[0],media_type:['text/plain']}]},{purpose:'replacement-web-binding-v1'},{control_path:'/v1/replacement/control'},{sources:[]}])assert.throws(()=>validateViewerBinding({...binding,...patch}));
 });
 test('identical explicit replay retains exact original deadline and sends only once per invocation',async()=>{
  const bytes=requestBody(),n=peerRequests;assert.equal((await invoke(bytes)).status,200);assert.equal((await invoke(bytes)).status,200);assert.equal(peerRequests,n+2);assert.deepEqual(seenBodies.at(-1),seenBodies.at(-2));
@@ -192,6 +194,19 @@ test('direct handler refuses absent or foreign clock-domain propagation',async()
 test('narrowing deadline cannot renew server window and invalid canonical selectors have no peer effect',async()=>{
  const n=peerRequests;for(const patch of [{caller_deadline:new Date(Date.now()+31000).toISOString().replace(/([0-9]{3})Z$/,'$1000Z')},{caller_deadline:new Date(Date.now()-1000).toISOString().replace(/([0-9]{3})Z$/,'$1000Z')},{source_id:'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'}])unavailable(await invoke(requestBody(patch)));assert.equal(peerRequests,n);
 });
+test('actual route preserves independently pinned UTF8 original as nosniff text and refuses invalid text or wrong media',async()=>{
+  try{
+    replyMedia='text/plain; charset=utf-8';reply=textOriginals[0]!;
+    const good=await invoke(requestBody({source_id:textIds[0]}));
+    assert.equal(good.status,200);assert.deepEqual(good.body,reply);
+    assert.equal(good.headers['content-type'],'text/plain; charset=utf-8');
+    assert.equal(good.headers['content-disposition'],'inline; filename="original.txt"');
+    assert.equal(good.headers['x-content-type-options'],'nosniff');
+    for(const i of [1,2]){reply=textOriginals[i]!;unavailable(await invoke(requestBody({source_id:textIds[i]})));}
+    reply=textOriginals[0]!;replyMedia='application/pdf';unavailable(await invoke(requestBody({source_id:textIds[0]})));
+  }finally{reply=pdf;replyMedia='application/pdf';}
+});
+
 test('viewer binding drift after verification stops browser stream and releases bounded slot',async()=>{
  const response=await directOriginal();assert.equal(response.status,200);const original=read('binding.json');writeFileSync(f('binding.json'),canonicalJson({...binding,registry_hash:'b'.repeat(64)}));try{await assert.rejects(response.arrayBuffer());}finally{writeFileSync(f('binding.json'),original);}unavailable(await invoke());
 });

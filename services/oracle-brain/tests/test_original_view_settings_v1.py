@@ -27,7 +27,7 @@ def pinned(path, data):
     return dict(path=str(path), sha256=hashlib.sha256(data).hexdigest())
 
 
-def configured_viewer(tmp_path, certificates, *, data=PDF, original=None, sql_target=None, owner='oracle2_owner',
+def configured_viewer(tmp_path, certificates, *, data=PDF, media_type='application/pdf', original=None, sql_target=None, owner='oracle2_owner',
                       login='invented_viewer', principal=None, workspace=None, runtime='a'*64, registry='b'*64,
                       config_changes=None, appointment_changes=None, peer_changes=None, storage_root=None):
     now = datetime.now(timezone.utc)
@@ -38,7 +38,7 @@ def configured_viewer(tmp_path, certificates, *, data=PDF, original=None, sql_ta
     if original is None:
         source, reservation = uuid4(), uuid4()
         ref = ReservationOriginalObjectRefV1(OriginalObjectRefV1(workspace, source, 1,
-            hashlib.sha256(data).hexdigest(), len(data), 'application/pdf', 'c'*64), reservation)
+            hashlib.sha256(data).hexdigest(), len(data), media_type, 'c'*64), reservation)
         store = FileBlobStore._from_provisioned_original_root(root, (root.stat().st_dev, root.stat().st_ino, root.stat().st_uid))
         store._put_original_bytes(ref, data)
         observation = dict(schema_version=1, purpose='original-intake-byte-custody-v1', reservation_id=str(reservation),
@@ -48,7 +48,7 @@ def configured_viewer(tmp_path, certificates, *, data=PDF, original=None, sql_ta
         _write_private_at(root, ['intake-observations', str(reservation), 'custody.json'], raw,
                           expected_root=(root.stat().st_dev, root.stat().st_ino, root.stat().st_uid))
         original = dict(source_id=str(source), revision=1, original_sha256=ref.original_sha256,
-            byte_count=ref.byte_count, media_type='application/pdf', reservation_id=str(reservation),
+            byte_count=ref.byte_count, media_type=media_type, reservation_id=str(reservation),
             custody_seal_sha256=hashlib.sha256(raw).hexdigest())
     dbca = pinned(tmp_path/'db-ca', (certificates/'ca.pem').read_bytes())
     target = sql_target or dict(host='127.0.0.1', port='5432', dbname='invented_viewer_db', user=login,

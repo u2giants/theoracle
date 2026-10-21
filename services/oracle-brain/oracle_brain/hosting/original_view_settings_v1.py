@@ -32,7 +32,7 @@ class ViewerSourceV1(StrictRecord):
     revision: int = Field(strict=True, ge=1, le=9007199254740991)
     original_sha256: str = Field(pattern=HASH)
     byte_count: int = Field(strict=True, ge=1, le=MAX_BYTES)
-    media_type: Literal['application/pdf']
+    media_type: Literal['application/pdf','text/plain']
     reservation_id: UUID
     custody_seal_sha256: str = Field(pattern=HASH)
 
