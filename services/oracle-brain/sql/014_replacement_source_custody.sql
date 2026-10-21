@@ -551,6 +551,14 @@ BEGIN
   AND jsonb_typeof(x.receipt->'reading')='string' AND length(btrim(x.receipt->>'reading'))>0
   AND encode(sha256(convert_to(x.receipt->>'reading','UTF8')),'hex')=q.reading_sha256);
  IF qualified THEN
+  BEGIN
+   PERFORM oracle2._replacement_population_v1(a.workspace_id,
+    jsonb_build_array(jsonb_build_object('source_id',source,'revision',s.revision,
+     'original_sha256',o.original_sha256)),true);
+  EXCEPTION WHEN insufficient_privilege THEN qualified:=false;
+  END;
+ END IF;
+ IF qualified THEN
   ref:=jsonb_build_object('workspaceId',a.workspace_id,'sourceId',source,'revision',s.revision,'originalSha256',q.original_sha256,
    'readingSha256',q.reading_sha256,'parserId',q.parser_id);
  ELSE ref:='null'::jsonb; END IF;

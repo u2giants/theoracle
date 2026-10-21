@@ -124,6 +124,7 @@ def test_actual_raw_reservation_then_atomic_qualified_promotion(qualified_pair):
         call(r,'compare_and_advance_replacement_journey',run,2,Jsonb({'target_state':'delivered'}),uuid4())
     reading,review=x['commit_pair']()
     result=call(x['review_x'],'finalize_original_reading_qualification_v1',reading,review,x['reading_text']);assert result['qualified'] is True
+    assert call(r,'replacement_source_head_v1',x['ref'].source_id)['qualifiedSourceRef'] is not None
     promoted=call(r,'compare_and_advance_replacement_journey',run,2,Jsonb({'target_state':'delivered'}),uuid4());assert promoted['state']=='delivered'
     with psycopg.connect(x['admin']) as c:
         refs,raw,raw_hash,pop_hash=c.execute('SELECT original_population,reserved_raw_population,reserved_raw_sha256,population_sha256 FROM oracle2.processing_journey_runs_v1 WHERE run_id=%s',(run,)).fetchone()
