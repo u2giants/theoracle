@@ -75,22 +75,28 @@ page/endpoint is a test failure, not a skip.
 6. `original viewer serves PNG page parts from the fixture`
 7. `unknown fields and unsupported intents fail closed`
 
-### How to run
+### Local fixture authentication
 
-```bash
-pnpm --filter @oracle/web dev            # local preview on :3000
-pnpm --filter @oracle/web exec playwright install chromium
-pnpm --filter @oracle/web test:oracle2   # or with ORACLE2_PREVIEW_URL set
-pnpm --filter @oracle/web exec tsx --test lib/replacement-contract.test.ts
-```
+Browser tests require explicit development/test fixture mode, a replacement
+token of at least 32 characters, and a distinct fixture session key of at least
+32 characters. Missing secrets fail closed. Run the preview bound to loopback;
+the browser spec logs in through the fixture-only session route. Both request
+URL and Host must be local HTTP on the same port; Origin must match Host.
+Production, nonlocal, cross-origin, wrong-token and expired-cookie paths deny.
+Never reuse company credentials or place test secrets in committed files.
 
-## Results (this session)
+## Current offline verification
 
-| Check | Result |
-|---|---|
-| `tsx --test lib/replacement-contract.test.ts` | **11/11 pass** (state literals, snapshot fail-closed rules, CAS transitions, correction→new revision, cancel liability/no-replay, native1..N attempts, invalidation clears current, stale seed never current, stale confirmation refused, answer requires confirmation). Registered in `.github/workflows/oracle2-contracts.yml`. |
-| `tsc --noEmit` (`@oracle/web` typecheck) | **clean** |
-| Playwright `replacement-journey.spec.ts` | **7/7 pass** (12.9s) against local `next dev` on :3000 — State 13 render/transition, correction→new revision (no body edit), control/cancel liability+no-replay, native1..N visibility, `actual_native_pipeline_after_refresh`, original viewer PNG, unknown-field fail-closed. No skips. |
+The authenticated invented-data browser journey passes all seven cases
+(12.8 seconds, zero skips). This supersedes the historical unauthenticated
+journey claim, which failed with HTTP 401 after R8 authentication enforcement.
+The original 38 replacement-contract tests and two new fixture-authentication
+tests pass (40 total, zero failures/skips). Both files are registered in
+`.github/workflows/oracle2-contracts.yml`.
+
+The local fixture's full application typecheck remains unverified because its
+external minimal dependency setup lacks unrelated application dependencies and
+types. No clean full-typecheck claim is made by this evidence.
 
 ## Explicitly out of scope / still open
 
