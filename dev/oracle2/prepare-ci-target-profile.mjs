@@ -16,8 +16,18 @@ function targetPath(env) {
 try {
   const path = targetPath(process.env);
   if (process.argv.includes('--cleanup')) {
-    try { unlinkSync(path); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-    try { rmdirSync(dirname(path)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    let parent;
+    try { parent = lstatSync(dirname(path)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    if (parent) {
+      if (!parent.isDirectory() || parent.isSymbolicLink() || parent.uid !== process.getuid() || (parent.mode & 0o077)) fail();
+      let leaf;
+      try { leaf = lstatSync(path); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      if (leaf) {
+        if (!leaf.isFile() || leaf.isSymbolicLink() || leaf.nlink !== 1 || leaf.uid !== process.getuid() || (leaf.mode & 0o077)) fail();
+        unlinkSync(path);
+      }
+      rmdirSync(dirname(path));
+    }
   } else {
     const raw = process.env.ORACLE_TARGET_PROFILE_JSON;
     if (typeof raw !== 'string' || Buffer.byteLength(raw) > 16384
