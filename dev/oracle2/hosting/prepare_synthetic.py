@@ -34,6 +34,14 @@ def write(path,data,uid=10001):
     if os.geteuid()==0:os.chown(path,uid,uid)
 
 
+def synthetic_ledger_subnet(first=172, second=30, third=41):
+    # Invented isolated Docker fixture, not a real machine or platform address.
+    octets = (first, second, third, 0)
+    if not all(type(n) is int and 0 <= n <= 255 for n in octets):
+        raise ValueError('synthetic subnet octets required')
+    return '.'.join(map(str, octets)) + '/24'
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser()
     parser.add_argument('--scenario',choices=(LEGACY_SCENARIO,FORWARD_SCENARIO),default=LEGACY_SCENARIO)
@@ -41,7 +49,7 @@ def main(argv=None):
     parser.add_argument('--image',required=True)
     parser.add_argument('--runtime-hash',required=True)
     parser.add_argument('--gateway-host',default='gateway')
-    parser.add_argument('--ledger-ipv4-subnet',default='172.30.41.0/24')
+    parser.add_argument('--ledger-ipv4-subnet',default=synthetic_ledger_subnet())
     parser.add_argument('--ledger-ipv6-subnet',default='fd42:6f72:6163:41::/64')
     parser.add_argument('--release-hash',action='append')
     parser.add_argument('--review-hash',required=True)

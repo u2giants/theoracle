@@ -138,7 +138,7 @@
    "pids_limit": 32,
    "ports": [
     {
-     "host_ip": "100.66.37.58",
+     "host_ip": "PRIVATE_HOST_SHA256_69e08d69438f83a96aefc4a9f82450e9244100f6db11b1e2cae8f3b956f054ae",
      "mode": "ingress",
      "protocol": "tcp",
      "published": "6391",

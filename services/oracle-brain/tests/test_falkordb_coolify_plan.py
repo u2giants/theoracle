@@ -81,3 +81,23 @@ def test_malformed_is_controlled_fail_and_both_roles_reported(monkeypatch, capsy
     assert validator.main([]) == 1
     out = capsys.readouterr().out
     assert "confirmed: FAIL" in out and "candidate: FAIL" in out
+
+
+def test_private_binding_marker_and_profile_fail_closed(monkeypatch, tmp_path):
+    block = validator.compose_block()
+    for bad in (block.replace(validator.HOST_MARKER, 'PRIVATE_HOST_SHA256_' + 'f'*64),
+                block.replace(validator.HOST_MARKER, 'unrecognized.invalid')):
+        with pytest.raises(ValueError, match='exact pinned controlplane marker'):
+            validator.render('confirmed', bad)
+    monkeypatch.setenv('ORACLE_TARGET_PROFILE_PATH', str(tmp_path/'missing.json'))
+    with pytest.raises((OSError, PermissionError)):
+        validator.render('confirmed', block)
+
+
+def test_wrong_endpoint_never_projects_to_valid_golden():
+    rendered = validator.render('confirmed')
+    host = validator._private_controlplane_host()
+    wrong = rendered.replace(host + ':6390:6379', '127.0.0.1:6390:6379')
+    assert wrong != rendered
+    with pytest.raises(ValueError, match='exact pinned controlplane binding'):
+        validator.normalize(wrong)
