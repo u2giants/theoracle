@@ -22,11 +22,13 @@ if _spec is None:
 """Outbound never auto-sends; provider idempotency makes replay safe. No meeting joined."""
 from datetime import datetime, timezone
 
+import inspect
+
 import pytest
 
 from oracle_brain.meetings.delivery import (
-    DeliveryLedger, SenderAuthority, SenderCredentialProof, SenderPrincipal,
-    SENDER_CREDENTIAL_PURPOSE, create_intent, issue_sender_authority,
+    DELIVERY_ACTION_PURPOSE, DeliveryLedger, SenderCredentialProof,
+    SENDER_CREDENTIAL_PURPOSE, create_intent,
     issue_sender_credential_proof, provider_idempotency_key,
     verify_sender_principal,
 )
@@ -62,19 +64,18 @@ def _enable_mac(meeting_id):
     return _test_mac(ENABLE_PROOF_PURPOSE, meeting_id)
 
 
+def _action_mac(intent_id, status, timestamp):
+    """Host-issued delivery-action signature over the exact action payload."""
+    return _test_mac(DELIVERY_ACTION_PURPOSE, intent_id, status, timestamp)
+
+
 def _credential(*, role='delivery_sender', expires_at=None, principal_id='principal-1'):
-    """Real verified principal fixture from the authz credential boundary."""
+    """Real verified signed credential fixture from the authz boundary."""
     exp = expires_at if expires_at is not None else _FUTURE
     proof = issue_sender_credential_proof(
         principal_id=principal_id, role=role, expires_at=exp,
         mac=_credential_mac(principal_id, role, exp))
     return verify_sender_principal(proof)
-
-
-def _sender(role='delivery_sender', principal=None):
-    """Stand in for the authenticated delivery boundary allowed to mint."""
-    return issue_sender_authority(
-        role, principal if principal is not None else _credential(role=role))
 
 
 def _intent(**kw):
@@ -109,10 +110,14 @@ def test_replay_returns_prior_receipt_and_never_second_send():
     assert replayed is first
     sent = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-2',
                             channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                            provider_message_id='m-1', sender=_sender())
+                            provider_message_id='m-1',
+                            action_mac=_action_mac(intent.intent_id, 'sent',
+                                                   '2026-10-16T12:05:00Z'))
     again = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-3',
                              channel='meeting_text', sent_at='2026-10-16T12:06:00Z',
-                             provider_message_id='m-2', sender=_sender())
+                             provider_message_id='m-2',
+                             action_mac=_action_mac(intent.intent_id, 'sent',
+                                                    '2026-10-16T12:06:00Z'))
     assert again is sent and again.provider_message_id == 'm-1'
     assert ledger.replay(intent.idempotency_key).status == 'sent'
 
@@ -135,7 +140,7 @@ def test_sent_receipt_requires_complete_fields_and_unknown_key_denied():
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
                          channel='meeting_text', sent_at='', provider_message_id='m',
-                         sender=_sender())
+                         action_mac=_action_mac(intent.intent_id, 'sent', ''))
     except ValueError:
         pass
     else:
@@ -143,7 +148,7 @@ def test_sent_receipt_requires_complete_fields_and_unknown_key_denied():
     try:
         ledger.mark_sent('nope', receipt_id='dr-y', channel='meeting_text',
                          sent_at='2026-10-16T12:05:00Z', provider_message_id='m',
-                         sender=_sender())
+                         action_mac=_action_mac('oi-1', 'sent', '2026-10-16T12:05:00Z'))
     except ValueError:
         pass
     else:
@@ -155,77 +160,80 @@ def test_failed_send_is_visible_and_silence_is_not_a_send():
     intent = _intent()
     ledger.record_intent(intent)
     failed = ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
-                                channel='meeting_text', sender=_sender())
+                                channel='meeting_text', failed_at='2026-10-16T12:05:00Z',
+                                action_mac=_action_mac(intent.intent_id, 'failed',
+                                                       '2026-10-16T12:05:00Z'))
     assert failed.status == 'failed' and failed.sent_at is None
     assert ledger.replay(intent.idempotency_key).status == 'failed'
 
 
-def test_forged_sender_role_denied_for_mark_sent():
+def test_forged_action_signature_denied_for_mark_sent():
+    """Unsigned, forged, wrong-purpose and wrong-key action signatures are denied."""
     ledger = DeliveryLedger()
     intent = _intent()
     ledger.record_intent(intent)
-    # No sender capability: denied.
+    sent_at = '2026-10-16T12:05:00Z'
+    # No action signature: denied.
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
-                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
+                         channel='meeting_text', sent_at=sent_at,
                          provider_message_id='m-1')
     except PermissionError:
         pass
     else:
-        raise AssertionError('mark-sent without sender authority must be denied')
+        raise AssertionError('mark-sent without action signature must be denied')
     # Forged sender_role claim of an authorized role name: denied.
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
-                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                         provider_message_id='m-1', sender_role='delivery_sender')
+                         channel='meeting_text', sent_at=sent_at,
+                         provider_message_id='m-1', sender_role='delivery_sender',
+                         action_mac=_action_mac(intent.intent_id, 'sent', sent_at))
     except PermissionError:
         pass
     else:
         raise AssertionError('mark-sent with forged sender_role must be denied')
-    # Forged sender string claiming a role: denied.
+    # Garbage signature: denied.
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
-                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                         provider_message_id='m-1', sender='delivery_sender')
+                         channel='meeting_text', sent_at=sent_at,
+                         provider_message_id='m-1', action_mac='0' * 64)
     except PermissionError:
         pass
     else:
-        raise AssertionError('mark-sent with forged sender role string must be denied')
-    # Unknown/rogue role name: denied.
+        raise AssertionError('mark-sent with forged action signature must be denied')
+    # Wrong purpose (credential mac presented as action mac): denied.
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
-                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                         provider_message_id='m-1', sender_role='random_caller')
+                         channel='meeting_text', sent_at=sent_at,
+                         provider_message_id='m-1',
+                         action_mac=_credential_mac(intent.intent_id, 'sent', sent_at))
     except PermissionError:
         pass
     else:
-        raise AssertionError('mark-sent with unauthorized role must be denied')
-    # Forged capability instance (direct construction is sealed): denied.
-    try:
-        SenderAuthority('delivery_sender')
-    except PermissionError:
-        pass
-    else:
-        raise AssertionError('SenderAuthority direct construction must be denied')
-    forged = object.__new__(SenderAuthority)
-    forged._role = 'delivery_sender'
+        raise AssertionError('mark-sent with wrong-purpose signature must be denied')
+    # Signature over a different timestamp: denied.
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
-                         channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                         provider_message_id='m-1', sender=forged)
+                         channel='meeting_text', sent_at=sent_at,
+                         provider_message_id='m-1',
+                         action_mac=_action_mac(intent.intent_id, 'sent',
+                                                '2026-10-16T12:06:00Z'))
     except PermissionError:
         pass
     else:
-        raise AssertionError('mark-sent with forged SenderAuthority must be denied')
+        raise AssertionError('mark-sent with signature for other fields must be denied')
     assert ledger.replay(intent.idempotency_key).status == 'recorded'
-    # Minted capability: allowed and idempotent.
+    # Legitimate signed action: allowed and idempotent.
     sent = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-s',
-                            channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                            provider_message_id='m-1', sender=_sender())
+                            channel='meeting_text', sent_at=sent_at,
+                            provider_message_id='m-1',
+                            action_mac=_action_mac(intent.intent_id, 'sent', sent_at))
     assert sent.status == 'sent'
     again = ledger.mark_sent(intent.idempotency_key, receipt_id='dr-s2',
                              channel='meeting_text', sent_at='2026-10-16T12:06:00Z',
-                             provider_message_id='m-2', sender=_sender())
+                             provider_message_id='m-2',
+                             action_mac=_action_mac(intent.intent_id, 'sent',
+                                                    '2026-10-16T12:06:00Z'))
     assert again is sent and again.provider_message_id == 'm-1'
 
 
@@ -233,89 +241,86 @@ def test_unauthorized_mark_failed_denied():
     ledger = DeliveryLedger()
     intent = _intent()
     ledger.record_intent(intent)
-    # No sender capability: denied.
+    failed_at = '2026-10-16T12:05:00Z'
+    # No action signature: denied.
     try:
         ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
                            channel='meeting_text')
     except PermissionError:
         pass
     else:
-        raise AssertionError('mark-failed without sender authority must be denied')
-    # Forged sender_role claim of an authorized role name: denied.
+        raise AssertionError('mark-failed without action signature must be denied')
+    # Forged sender_role claim: denied.
     try:
         ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
-                           channel='meeting_text', sender_role='delivery_sender')
+                           channel='meeting_text', sender_role='delivery_sender',
+                           action_mac=_action_mac(intent.intent_id, 'failed', failed_at))
     except PermissionError:
         pass
     else:
         raise AssertionError('mark-failed with forged sender_role must be denied')
-    # Forged sender string claiming a role: denied.
+    # Garbage signature: denied.
     try:
         ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f',
-                           channel='meeting_text', sender='oracle_sender')
+                           channel='meeting_text', action_mac='0' * 64)
     except PermissionError:
         pass
     else:
-        raise AssertionError('mark-failed with forged sender role string must be denied')
+        raise AssertionError('mark-failed with forged action signature must be denied')
     assert ledger.replay(intent.idempotency_key).status == 'recorded'
-    # Minted capability: allowed.
+    # Legitimate signed action: allowed.
     failed = ledger.mark_failed(intent.idempotency_key, receipt_id='dr-f2',
-                                channel='meeting_text', sender=_sender())
+                                channel='meeting_text', failed_at=failed_at,
+                                action_mac=_action_mac(intent.intent_id, 'failed', failed_at))
     assert failed.status == 'failed'
 
 
-def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
-    """No importable mint credential; look-alikes and unverified claims are denied."""
+def test_no_mutable_registry_and_lookalikes_cannot_mark():
+    """No in-process mint registry exists; closure mutation is irrelevant.
+
+    Authority is the Ed25519 signature alone. Forged credential
+    look-alikes carry no valid signature and are denied. There is no
+    WeakSet or id-registry anywhere in the delivery module for a caller
+    to mutate through ``func.__closure__``.
+    """
     import oracle_brain.meetings.delivery as delivery_mod
 
-    # A mint secret must not be reachable as any module attribute.
+    # No mint secret or mutable registry may be a module attribute.
     for name in ('_MINT_TOKEN', 'MINT_TOKEN', '_mint_token', 'mint_token',
                  '_MINTED', 'minted', '_VERIFIED', 'verified',
-                 '_PROOF_TOKEN', 'proof_token', '_PROOFS', 'proofs'):
+                 '_PROOF_TOKEN', 'proof_token', '_PROOFS', 'proofs',
+                 'require_proven_sender', 'issue_sender_authority',
+                 'SenderAuthority', 'SenderPrincipal'):
         try:
             getattr(delivery_mod, name)
         except AttributeError:
             pass
         else:
             raise AssertionError(
-                f'mint credential/registry must not be module attribute {name}')
-    # Direct import of a mint token must fail.
-    try:
-        from oracle_brain.meetings.delivery import _MINT_TOKEN  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        raise AssertionError('importing a mint token must fail')
-    # The authorizer takes no mint-token argument at all.
-    try:
-        issue_sender_authority('delivery_sender', mint_token=object())
-    except TypeError:
-        pass
-    else:
-        raise AssertionError('issue_sender_authority must not accept a mint token')
-    # Bare role string, with or without a role-as-credential: denied.
-    try:
-        issue_sender_authority('delivery_sender')
-    except PermissionError:
-        pass
-    else:
-        raise AssertionError('bare role string mint must be denied')
-    try:
-        issue_sender_authority('delivery_sender', 'delivery_sender')
-    except PermissionError:
-        pass
-    else:
-        raise AssertionError('role string is not a verified credential')
-    # Forged/absent credential material at the authz boundary: denied.
-    for bad in (None, 'delivery_sender', {'role': 'delivery_sender'},
-                object.__new__(SenderPrincipal)):
-        try:
-            verify_sender_principal(bad)
-        except PermissionError:
-            pass
-        else:
-            raise AssertionError('forged sender credential proof must be denied')
-    # Forged proof construction is sealed: denied.
+                f'mint credential/registry/capability must not be module attribute {name}')
+    # WeakSet / identity-registry patterns are gone from the source.
+    source = inspect.getsource(delivery_mod)
+    assert 'WeakSet' not in source
+    assert 'from weakref' not in source
+    # Exported functions must not close over a mutable add-able registry.
+    for fn in (issue_sender_credential_proof, verify_sender_principal):
+        for cell in (fn.__closure__ or ()):
+            obj = getattr(cell, 'cell_contents', None)
+            if isinstance(obj, (set, dict, list)):
+                try:
+                    obj.add(object())
+                except AttributeError:
+                    try:
+                        obj[object()] = object()
+                    except Exception:
+                        continue
+                    else:
+                        raise AssertionError(
+                            f'{fn.__name__} closes over a mutable registry')
+                else:
+                    raise AssertionError(
+                        f'{fn.__name__} closes over a mutable registry')
+    # Direct construction of a credential proof is sealed: denied.
     for attempt in (
         lambda: SenderCredentialProof(
             principal_id='p-1', role='delivery_sender', expires_at=_FUTURE),
@@ -327,19 +332,20 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
             pass
         else:
             raise AssertionError('SenderCredentialProof direct construction must be denied')
-    # object.__new__ look-alike is not in the sealed proof registry: denied.
+    # object.__new__ look-alike has no valid signature: denied at verify.
     forged_proof = object.__new__(SenderCredentialProof)
     forged_proof._principal_id = 'p-1'
     forged_proof._role = 'delivery_sender'
     forged_proof._expires_at = _FUTURE
-    forged_proof._purpose = 'meeting-delivery-sender'
+    forged_proof._purpose = SENDER_CREDENTIAL_PURPOSE
+    forged_proof._mac = ''
     try:
         verify_sender_principal(forged_proof)
     except PermissionError:
         pass
     else:
         raise AssertionError('forged sender credential proof look-alike must be denied')
-    # Unauthorized role in a sealed proof: denied at verify.
+    # Unauthorized role in a real sealed proof: denied at verify.
     bad_role_proof = issue_sender_credential_proof(
         principal_id='p-1', role='not_a_sender', expires_at=_FUTURE,
         mac=_credential_mac('p-1', 'not_a_sender', _FUTURE))
@@ -349,23 +355,6 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
         pass
     else:
         raise AssertionError('unauthorized role credential must be denied')
-    # Forged principal (direct construction is sealed): denied.
-    try:
-        SenderPrincipal()
-    except PermissionError:
-        pass
-    else:
-        raise AssertionError('SenderPrincipal direct construction must be denied')
-    forged_principal = object.__new__(SenderPrincipal)
-    forged_principal._principal_id = 'principal-1'
-    forged_principal._role = 'delivery_sender'
-    forged_principal._expires_at = _FUTURE
-    try:
-        issue_sender_authority('delivery_sender', forged_principal)
-    except PermissionError:
-        pass
-    else:
-        raise AssertionError('forged sender principal must not mint authority')
     # Expired sealed credential: denied at verify (real expiry check).
     expired_proof = issue_sender_credential_proof(
         principal_id='p-expired', role='delivery_sender', expires_at=_PAST,
@@ -376,49 +365,30 @@ def test_mint_secret_unreachable_and_lookalikes_cannot_mark():
         pass
     else:
         raise AssertionError('expired sender credential must be denied at verify')
-    # Credential valid at verify but expired at mint: denied at mint.
-    stale_proof = issue_sender_credential_proof(
-        principal_id='p-stale', role='delivery_sender', expires_at=_FUTURE,
-        mac=_credential_mac('p-stale', 'delivery_sender', _FUTURE))
-    stale_principal = verify_sender_principal(stale_proof)
-    try:
-        issue_sender_authority(
-            'delivery_sender', stale_principal,
-            now=datetime(2031, 1, 1, tzinfo=timezone.utc))
-    except PermissionError:
-        pass
-    else:
-        raise AssertionError('expired sender principal must not mint authority')
-    # Credential for a different role cannot mint this role.
-    try:
-        issue_sender_authority(
-            'oracle_sender', _credential(role='delivery_sender'))
-    except PermissionError:
-        pass
-    else:
-        raise AssertionError('sender principal role mismatch must be denied')
-    # Legitimate verified credential fixture still mints.
-    proven = _sender()
-    assert isinstance(proven, SenderAuthority)
+    # Credential for a different role cannot pass as this role.
+    other = _credential(role='oracle_sender')
+    assert other.role == 'oracle_sender'
+    # Legitimate verified credential fixture still verifies.
+    proven = _credential()
+    assert isinstance(proven, SenderCredentialProof)
+    assert proven.role == 'delivery_sender'
 
     ledger = DeliveryLedger()
     intent = _intent()
     ledger.record_intent(intent)
-    forged = object.__new__(SenderAuthority)
-    forged._role = 'delivery_sender'
-    # Look-alike cannot mark sent.
+    # Look-alike credential is not an action signature: cannot mark sent.
     try:
         ledger.mark_sent(intent.idempotency_key, receipt_id='dr-x',
                          channel='meeting_text', sent_at='2026-10-16T12:05:00Z',
-                         provider_message_id='m-1', sender=forged)
+                         provider_message_id='m-1', action_mac=forged_proof.mac)
     except PermissionError:
         pass
     else:
         raise AssertionError('look-alike must not mark sent')
-    # Look-alike cannot mark failed.
+    # Look-alike cannot mark failed either.
     try:
         ledger.mark_failed(intent.idempotency_key, receipt_id='dr-x',
-                           channel='meeting_text', sender=forged)
+                           channel='meeting_text', action_mac=forged_proof.mac)
     except PermissionError:
         pass
     else:
@@ -470,7 +440,7 @@ def test_wrong_secret_mac_denied_for_credential_proof():
     )
     from oracle_brain.seal import seal_payload
     wrong = Ed25519PrivateKey.generate().sign(
-        seal_payload('meeting-delivery-sender', 'p-1', 'delivery_sender')
+        seal_payload(SENDER_CREDENTIAL_PURPOSE, 'p-1', 'delivery_sender', _FUTURE)
     ).hex()
     try:
         issue_sender_credential_proof(

@@ -10,6 +10,8 @@ import pytest
 
 from oracle_brain.operating_model import q2b_target_catalog_v1 as q2b
 from oracle_brain.operating_model.q2b_target_catalog_v1 import (
+    ADMISSION_PURPOSE,
+    CONNECTION_PURPOSE,
     EXPECTED_PROCONFIG,
     FACT_CLASSES,
     Q2bExecuteGrant,
@@ -17,6 +19,7 @@ from oracle_brain.operating_model.q2b_target_catalog_v1 import (
     Q2bTargetCatalogReceipt,
     admit_target_catalog,
     build_receipt,
+    issue_catalog_connection,
     parse_function_catalog,
     parse_role_memberships,
     parse_target_identity,
@@ -134,6 +137,13 @@ class FakeConnection:
 
 
 def good_connection(**overrides):
+    """Synthetic catalog connection sealed by the test host adapter.
+
+    Duck-typed raw fakes are denied by the reader; tests wrap the fake in
+    a sealed ``q2b-connection:v1`` capability, which is the only offline
+    stand-in for a real DB-API connection. Callers that need the raw log
+    list should build ``FakeConnection`` directly and wrap it.
+    """
     options = dict(
         function_rows=function_rows(),
         role_row=(SESSION, SESSION, {'rolname': OWNER, 'member': False, 'set': False, 'usage': False},
@@ -143,7 +153,18 @@ def good_connection(**overrides):
         ssl_in_use=True,
     )
     options.update(overrides)
-    return FakeConnection(**options)
+    return sealed_connection(FakeConnection(**options))
+
+
+def sealed_connection(connection, identity='test-catalog-connection-v1'):
+    """Wrap a synthetic connection in a sealed capability (host stand-in).
+
+    The capability carries a host-issued ``q2b-connection:v1`` signature
+    over the identity. Duck-typed raw fakes are denied by the reader; only
+    real DB-API types or sealed capabilities pass the connection gate.
+    """
+    mac = _test_mac(CONNECTION_PURPOSE, identity)
+    return issue_catalog_connection(connection, identity=identity, connection_mac=mac)
 
 
 # --- reader emits the exact fact classes -----------------------------------
@@ -212,14 +233,18 @@ def test_receipt_admitted_false_until_separate_admission():
     # Sealed admission after real pin checks.
     admitted = admit_target_catalog(receipt, pins())
     require_target_catalog(admitted, pins())
-    # Copied receipt with admitted=True is not sealed and must not pass.
-    forged = admitted.model_copy(update={'admitted': True})
+    # Copy that strips the admission signature is not admitted.
+    forged = admitted.model_copy(update={'admitted': True, 'admission_mac': ''})
     with pytest.raises(PermissionError, match='not admitted'):
         require_target_catalog(forged, pins())
+    # Copy with a forged admission signature is denied.
+    forged_mac = admitted.model_copy(update={'admission_mac': '0' * 64})
+    with pytest.raises(PermissionError, match='MAC mismatch'):
+        require_target_catalog(forged_mac, pins())
 
 
 def test_copied_receipt_with_admitted_true_is_denied():
-    """Constructor copies with admitted=True must not pass the gate."""
+    """Constructor copies with admitted=True and no valid signature are denied."""
     receipt = read_target_catalog(good_connection(), pins())
     forged = receipt.model_copy(update={'admitted': True})
     assert forged.admitted is True
@@ -448,9 +473,24 @@ def test_reader_refuses_incomplete_descriptor_before_any_sql():
     assert log == []
 
 
-def test_reader_refuses_connection_without_execute():
-    with pytest.raises(PermissionError, match='execute required'):
+def test_reader_refuses_duck_typed_connection_before_any_sign():
+    """Fake connection objects are denied before any fact seal is minted."""
+    # Duck-typed object with an execute method: still denied (not DB-API,
+    # not a sealed capability).
+    fake = SimpleNamespace(
+        info=None, pgconn=None, execute=lambda *a, **k: None)
+    with pytest.raises(PermissionError, match='real DB-API connection'):
+        read_target_catalog(fake, pins())
+    # Bare object without execute: denied at the same gate.
+    with pytest.raises(PermissionError, match='real DB-API connection'):
         read_target_catalog(SimpleNamespace(info=None, pgconn=None), pins())
+    # Forged CatalogConnection look-alike with no valid signature: denied.
+    forged_cap = object.__new__(q2b.CatalogConnection)
+    forged_cap._connection = good_connection
+    forged_cap._identity = 'test-catalog-connection-v1'
+    forged_cap._connection_mac = '0' * 64
+    with pytest.raises(PermissionError):
+        read_target_catalog(forged_cap, pins())
 
 
 # --- reader SQL text contains no source-data SELECTs ------------------------

@@ -1,8 +1,14 @@
 """Meeting outbound intents, provider idempotency keys and durable receipts.
 
-Recording an intent never sends. Only a separate authorized send actor may
+Recording an intent never sends. Only a separate authorized send action may
 attach a delivery receipt. Replay of an existing idempotency key returns the
 prior receipt and must not produce a second provider call.
+
+Authority is the Ed25519 signature alone. ``mark_sent``/``mark_failed``
+verify a host-issued signature over the exact action payload (intent id,
+status, timestamp, purpose). There is no mutable in-process mint registry:
+forged capability objects and ``__closure__`` registry mutation attempts
+are irrelevant because no registry exists to mutate.
 """
 from __future__ import annotations
 
@@ -10,71 +16,37 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Optional
-from weakref import WeakSet
 
 from oracle_brain.seal import verify_mac
 
 INTENT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
 RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed'})
-# Only these sender roles may mark an intent sent or failed. Recording an
-# intent is open to the ledger; attaching a delivery receipt is a separate
-# authorized act. A role name is never believed on its own — the caller must
-# present a sealed SenderAuthority capability.
+# Only these sender roles may be named in a sealed sender credential.
+# Recording an intent is open to the ledger; attaching a delivery receipt
+# requires a host-issued action signature, never a role string.
 AUTHORIZED_SENDER_ROLES = frozenset({'delivery_sender', 'oracle_sender'})
-# Purpose pin on sender credentials, matching the appointment/admission
-# records used by processing authority proofs and original intake.
-SENDER_CREDENTIAL_PURPOSE = 'meeting-delivery-sender'
-
-class SenderAuthority:
-    """Capability proving the holder is an authorized delivery sender.
-
-    Instances exist only via ``issue_sender_authority``. Direct construction
-    is refused, and a look-alike built with ``object.__new__`` is denied at
-    the use site because it is not in the sealed mint registry.
-    """
-    __slots__ = ('_role', '__weakref__')
-
-    def __init__(self, *args, **kwargs) -> None:
-        raise PermissionError('sender authority cannot be forged')
-
-
-class SenderPrincipal:
-    """Verified principal credential for an authenticated delivery sender.
-
-    Instances exist only via ``verify_sender_principal``. Direct construction
-    is refused, and a look-alike built with ``object.__new__`` is denied at
-    the use site because it is not in the sealed verified-principal registry.
-    """
-    __slots__ = ('_principal_id', '_role', '_expires_at', '__weakref__')
-
-    def __init__(self, *args, **kwargs) -> None:
-        raise PermissionError('sender principal cannot be forged')
-
-    @property
-    def principal_id(self) -> str:
-        return self._principal_id
-
-    @property
-    def role(self) -> str:
-        return self._role
-
-    @property
-    def expires_at(self) -> datetime:
-        return self._expires_at
+# Purpose pin on sender credentials. The credential's authority is its
+# Ed25519 signature over (principal_id, role, expires_at) — never a
+# registry membership.
+SENDER_CREDENTIAL_PURPOSE = 'sender-credential:v1'
+# Purpose pin on delivery actions. ``mark_sent``/``mark_failed`` verify a
+# signature over the exact action payload under this purpose.
+DELIVERY_ACTION_PURPOSE = 'delivery-action:v1'
 
 
 class SenderCredentialProof:
-    """Credential material presented by the authz/authority layer.
+    """Signed credential material presented by the authz/authority layer.
 
-    Same admission shape as processing authority proofs and original-intake
-    appointments: principal identity, expected role, and a finite validity
-    window. Instances exist only via ``issue_sender_credential_proof``.
-    Direct construction is refused, and a look-alike built with
-    ``object.__new__`` is denied at verify time because it is not in the
-    sealed proof registry. Holding this record is not authority; it is input
-    to ``verify_sender_principal`` only.
+    Authority is the Ed25519 ``mac`` over (principal_id, role, expires_at)
+    issued by the isolated signer under ``SENDER_CREDENTIAL_PURPOSE``.
+    Instances are built by ``issue_sender_credential_proof`` after the mac
+    verifies; direct construction is refused. A look-alike built with
+    ``object.__new__`` carries no valid signature and is denied at verify
+    time. Holding this record is not send authority by itself: delivery
+    actions are separately signed.
     """
-    __slots__ = ('_principal_id', '_role', '_expires_at', '_purpose', '__weakref__')
+    __slots__ = ('_principal_id', '_role', '_expires_at', '_purpose', '_mac',
+                 '__weakref__')
 
     def __init__(self, *args, **kwargs) -> None:
         raise PermissionError('sender credential proof cannot be forged')
@@ -95,140 +67,80 @@ class SenderCredentialProof:
     def purpose(self) -> str:
         return self._purpose
 
+    @property
+    def mac(self) -> str:
+        return self._mac
 
-def _install_sealed_authority_api():
-    """Create the mint path with closure-local secrets and registries.
 
-    The proof secret, mint secret, principal secret and all three registries
-    are locals of this factory, captured only inside the returned callables.
-    None is a module attribute, so no import or getattr can reach a mint
-    credential.
+def issue_sender_credential_proof(*, principal_id: str, role: str,
+                                  expires_at: datetime,
+                                  mac: str) -> SenderCredentialProof:
+    """Sealed authz/authority boundary: present signed credential material.
+
+    ``mac`` must be a host-identity-service Ed25519 seal over
+    (principal_id, role, expires_at, purpose) issued by the isolated
+    signer. Without a valid seal the call is denied — caller-chosen
+    fields alone never mint a proof. The proof carries the signature;
+    there is no registry membership to forge or mutate.
     """
-    proof_secret = object()
-    proofs: WeakSet = WeakSet()
-    mint_secret = object()
-    minted: WeakSet = WeakSet()
-    principal_secret = object()
-    verified: WeakSet = WeakSet()
-
-    def _mint_proof(principal_id: str, role: str, expires_at: datetime,
-                    secret: object) -> SenderCredentialProof:
-        if secret is not proof_secret:
-            raise PermissionError('sender credential proof cannot be forged')
-        proof = object.__new__(SenderCredentialProof)
-        proof._principal_id = principal_id
-        proof._role = role
-        proof._expires_at = expires_at
-        proof._purpose = SENDER_CREDENTIAL_PURPOSE
-        proofs.add(proof)
-        return proof
-
-    def _mint(role: str, secret: object) -> SenderAuthority:
-        if secret is not mint_secret:
-            raise PermissionError('sender authority cannot be forged')
-        authority = object.__new__(SenderAuthority)
-        authority._role = role
-        minted.add(authority)
-        return authority
-
-    def _mint_principal(proof: SenderCredentialProof,
-                        secret: object) -> SenderPrincipal:
-        if secret is not principal_secret:
-            raise PermissionError('sender principal cannot be forged')
-        principal = object.__new__(SenderPrincipal)
-        principal._principal_id = proof.principal_id
-        principal._role = proof.role
-        principal._expires_at = proof.expires_at
-        verified.add(principal)
-        return principal
-
-    def issue_sender_credential_proof(*, principal_id: str, role: str,
-                                      expires_at: datetime,
-                                      mac: str) -> SenderCredentialProof:
-        """Sealed authz/authority boundary: present credential material.
-
-        ``mac`` must be a host-identity-service Ed25519 seal over
-        (principal_id, role, expires_at, purpose) issued by the isolated
-        signer. Without a valid seal the call is denied —
-        caller-chosen fields alone never mint a proof. Direct construction
-        and ``object.__new__`` look-alikes are refused at verify time by
-        registry membership. The proof secret lives only in this closure
-        and is never a parameter.
-        """
-        if not principal_id or not role:
-            raise ValueError('sender credential identity and role required')
-        if (not isinstance(expires_at, datetime)
-                or expires_at.tzinfo is None
-                or expires_at.utcoffset() is None):
-            raise ValueError('sender credential expiry must be timezone-aware')
-        verify_mac(SENDER_CREDENTIAL_PURPOSE, mac,
-                   principal_id, role, expires_at)
-        return _mint_proof(principal_id, role, expires_at, proof_secret)
-
-    def verify_sender_principal(proof) -> SenderPrincipal:
-        """Authz boundary: verify credential material, mint a sealed principal.
-
-        ``proof`` must be a real sealed ``SenderCredentialProof`` minted by
-        ``issue_sender_credential_proof``. Registry membership is checked —
-        a freely constructed stand-in or ``object.__new__`` look-alike is
-        refused. Real checks (purpose, authorized role, unexpired window)
-        follow; a field echo is never proof.
-        """
-        if not isinstance(proof, SenderCredentialProof) or proof not in proofs:
-            raise PermissionError('sender credential proof required')
-        if proof.purpose != SENDER_CREDENTIAL_PURPOSE:
-            raise PermissionError('sender credential purpose mismatch')
-        if proof.role not in AUTHORIZED_SENDER_ROLES:
-            raise PermissionError('sender role not authorized')
-        at = datetime.now(timezone.utc)
-        if proof.expires_at <= at:
-            raise PermissionError('sender credential expired')
-        return _mint_principal(proof, principal_secret)
-
-    def issue_sender_authority(role: str, principal=None,
-                               *, now: Optional[datetime] = None) -> SenderAuthority:
-        """Sealed authorizer: mint a sender capability for a verified principal.
-
-        Requires a sealed ``SenderPrincipal`` whose role matches and whose
-        validity window is still open. Missing credentials, bare role strings,
-        forged principals, expired principals, and role mismatches are all
-        refused. The mint secret lives only in this closure and is never a
-        parameter.
-        """
-        if not isinstance(principal, SenderPrincipal) or principal not in verified:
-            raise PermissionError('verified sender principal required')
-        if role not in AUTHORIZED_SENDER_ROLES:
-            raise PermissionError('sender role not authorized')
-        if principal.role != role:
-            raise PermissionError('sender principal role mismatch')
-        at = now or datetime.now(timezone.utc)
-        if at.tzinfo is None or at.utcoffset() is None:
-            raise ValueError('mint time must be timezone-aware')
-        if principal.expires_at <= at:
-            raise PermissionError('sender principal expired')
-        return _mint(role, mint_secret)
-
-    def require_proven_sender(sender) -> SenderAuthority:
-        """Deny unless the caller presents a minted SenderAuthority.
-
-        Unproven claims — None, a role string, a forged instance — are refused.
-        """
-        if not isinstance(sender, SenderAuthority) or sender not in minted:
-            raise PermissionError('sender authority required to mark delivery')
-        return sender
-
-    return (issue_sender_credential_proof, verify_sender_principal,
-            issue_sender_authority, require_proven_sender)
+    if not principal_id or not role:
+        raise ValueError('sender credential identity and role required')
+    if (not isinstance(expires_at, datetime)
+            or expires_at.tzinfo is None
+            or expires_at.utcoffset() is None):
+        raise ValueError('sender credential expiry must be timezone-aware')
+    verify_mac(SENDER_CREDENTIAL_PURPOSE, mac,
+               principal_id, role, expires_at)
+    proof = object.__new__(SenderCredentialProof)
+    proof._principal_id = principal_id
+    proof._role = role
+    proof._expires_at = expires_at
+    proof._purpose = SENDER_CREDENTIAL_PURPOSE
+    proof._mac = mac
+    return proof
 
 
-issue_sender_credential_proof, verify_sender_principal, issue_sender_authority, _require_proven_sender = (
-    _install_sealed_authority_api())
+def verify_sender_principal(proof) -> SenderCredentialProof:
+    """Authz boundary: verify the signed credential material.
+
+    ``proof`` must carry a valid ``SENDER_CREDENTIAL_PURPOSE`` signature
+    over its own fields. Real checks (signature, purpose, authorized role,
+    unexpired window) follow; a field echo is never proof. A look-alike
+    built with ``object.__new__`` has no valid signature and is refused.
+    No registry is consulted — the signature is the authority.
+    """
+    if not isinstance(proof, SenderCredentialProof):
+        raise PermissionError('sender credential proof required')
+    if proof.purpose != SENDER_CREDENTIAL_PURPOSE:
+        raise PermissionError('sender credential purpose mismatch')
+    verify_mac(SENDER_CREDENTIAL_PURPOSE, proof.mac,
+               proof.principal_id, proof.role, proof.expires_at)
+    if proof.role not in AUTHORIZED_SENDER_ROLES:
+        raise PermissionError('sender role not authorized')
+    at = datetime.now(timezone.utc)
+    if proof.expires_at <= at:
+        raise PermissionError('sender credential expired')
+    return proof
 
 
 def _deny_role_claim(sender_role: str) -> None:
     """A caller-supplied role claim is never proof of who sent."""
     if sender_role:
-        raise PermissionError('sender role claim is not proof; present a sender authority')
+        raise PermissionError('sender role claim is not proof; present an action signature')
+
+
+def _verify_action(action_mac: str, intent_id: str, status: str,
+                   timestamp: str) -> None:
+    """Verify the host-issued signature over the exact action payload.
+
+    The action payload is (intent_id, status, timestamp) under
+    ``DELIVERY_ACTION_PURPOSE``. A missing, forged or wrong-purpose
+    signature is refused. This check replaces the old mint registry.
+    """
+    if not action_mac:
+        raise PermissionError('action signature required to mark delivery')
+    verify_mac(DELIVERY_ACTION_PURPOSE, action_mac,
+               intent_id, status, timestamp)
 
 
 @dataclass(frozen=True)
@@ -295,15 +207,15 @@ class DeliveryLedger:
 
     def mark_sent(self, idempotency_key: str, *, receipt_id: str, channel: str,
                   sent_at: str, provider_message_id: str,
-                  sender=None, sender_role: str = '') -> DeliveryReceipt:
+                  action_mac: str = '', sender_role: str = '') -> DeliveryReceipt:
         """Attach a delivery receipt for a send a separate authorized actor performed.
 
-        Only the holder of a sealed SenderAuthority may mark sent. A claimed
-        ``sender_role`` is never proof and is denied. Replay by an authorized
-        sender is idempotent: a prior sent receipt is returned unchanged.
+        Authority is ``action_mac``: a host-issued Ed25519 signature over
+        (intent_id, 'sent', sent_at) under ``DELIVERY_ACTION_PURPOSE``.
+        A claimed ``sender_role`` is never proof and is denied. Replay is
+        idempotent: a prior sent receipt is returned unchanged.
         """
         _deny_role_claim(sender_role)
-        _require_proven_sender(sender)
         if not all((channel, sent_at, provider_message_id)):
             raise ValueError('sent receipt requires channel, sent_at and provider_message_id')
         prior = self._by_key.get(idempotency_key)
@@ -311,6 +223,7 @@ class DeliveryLedger:
             raise ValueError('unknown idempotency key')
         if prior.status == 'sent':
             return prior
+        _verify_action(action_mac, prior.intent_id, 'sent', sent_at)
         receipt = DeliveryReceipt(
             receipt_id, prior.intent_id, idempotency_key, 'sent',
             channel=channel, sent_at=sent_at, provider_message_id=provider_message_id)
@@ -318,10 +231,14 @@ class DeliveryLedger:
         return receipt
 
     def mark_failed(self, idempotency_key: str, *, receipt_id: str, channel: str,
-                    sender=None, sender_role: str = '') -> DeliveryReceipt:
-        """Attach a failure receipt. Same authorized-sender boundary as mark_sent."""
+                    failed_at: str = '', action_mac: str = '',
+                    sender_role: str = '') -> DeliveryReceipt:
+        """Attach a failure receipt. Same signed-action boundary as mark_sent.
+
+        Authority is ``action_mac`` over (intent_id, 'failed', failed_at)
+        under ``DELIVERY_ACTION_PURPOSE``.
+        """
         _deny_role_claim(sender_role)
-        _require_proven_sender(sender)
         if not channel:
             raise ValueError('failed receipt requires channel')
         prior = self._by_key.get(idempotency_key)
@@ -329,6 +246,7 @@ class DeliveryLedger:
             raise ValueError('unknown idempotency key')
         if prior.status == 'sent':
             return prior
+        _verify_action(action_mac, prior.intent_id, 'failed', failed_at)
         receipt = DeliveryReceipt(
             receipt_id, prior.intent_id, idempotency_key, 'failed', channel=channel)
         self._by_key[idempotency_key] = receipt

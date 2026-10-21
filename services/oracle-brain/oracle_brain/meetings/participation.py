@@ -18,8 +18,9 @@ CHANNELS = frozenset({'meeting_text', 'meeting_chat'})
 RECEIPT_STATUSES = frozenset({'recorded', 'sent', 'failed', 'suppressed'})
 # Purpose tag for the host-authorized enable seal. Enabling participation
 # for a meeting requires an Ed25519 signature over (meeting_id) issued
-# under this purpose.
-ENABLE_PROOF_PURPOSE = 'participation-enable-v1'
+# under this purpose. The signature is the authority — there is no
+# in-process enable registry to mutate.
+ENABLE_PROOF_PURPOSE = 'participation-enable:v1'
 
 
 @dataclass(frozen=True)

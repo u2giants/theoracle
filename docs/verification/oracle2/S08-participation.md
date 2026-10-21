@@ -24,16 +24,25 @@ offline requires ORACLE2_TEST_ADMIN_URL / ORACLE2_TEST_CONFIRMED_URL (isolated
 Postgres/FalkorDB); those were absent so the phase script could not run. Pure
 pytest run covers both named files.
 
-R8 seal boundary: credential proofs and participation enable require a
-host-issued Ed25519 seal over the purpose-tagged field wire. The verify
-path (`oracle_brain.seal`) holds only the public key and cannot sign.
-Signing lives in `oracle_brain.seal_signer`, which signs only when
-launched as a process entrypoint (`python -m oracle_brain.seal_signer`)
-with a one-shot stdin/stdout handshake. The parent process never holds
-private key material or `ORACLE2_SEAL_PRIVATE_KEY*` environment
-variables — only the key-file path (`ORACLE2_SEAL_SIGNER_KEY_FILE`).
-The signer child is spawned with an explicit scrubbed environment.
-Tests produce host-issued seals via the signer CLI (`tests/seal_testkit.py`).
+R8 trust model: authority is the Ed25519 signature alone — no mutable
+in-process mint registry. Credential proofs
+(`sender-credential:v1`), delivery actions (`delivery-action:v1`) and
+participation enable (`participation-enable:v1`) each require a
+host-issued Ed25519 seal over the purpose-tagged field wire.
+`mark_sent`/`mark_failed` verify a signature over the exact action
+payload (intent id, status, timestamp) — registry membership is not
+proof and no WeakSet/id-registry remains to mutate through
+`__closure__`. The signer (`oracle_brain.seal_signer`) signs only
+structured `{"purpose", "fields"}` requests whose purpose is on a fixed
+allowlist; unknown purpose, free-form payload bytes and malformed
+requests are refused before any key use. Signing runs only as a process
+entrypoint (`python -m oracle_brain.seal_signer`) with a one-shot
+stdin/stdout handshake. The verify path (`oracle_brain.seal`) holds only
+the public key and cannot sign. The parent process never holds private
+key material or `ORACLE2_SEAL_PRIVATE_KEY*` environment variables —
+only the key-file path (`ORACLE2_SEAL_SIGNER_KEY_FILE`). The signer
+child is spawned with an explicit scrubbed environment. Tests produce
+host-issued seals via the signer CLI (`tests/seal_testkit.py`).
 
 Remaining trust boundary (honest): the key file is readable by the same
 OS user that runs the signer process. Restricting file ACLs or running

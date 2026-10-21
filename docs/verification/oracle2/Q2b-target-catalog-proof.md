@@ -53,17 +53,33 @@ UNKNOWN blocks target execution (`test_unknown_blocks_target_execution`).
 - Q2b: OPEN. This stub does not satisfy Q2b and does not authorize installation or any live target action.
 - No substitute owner/admin path is created. UNKNOWN must not cause one.
 
-## R8 reader seal
+## R8 reader seal and trust model
+
+Authority is the Ed25519 signature alone. There is no mutable in-process
+admission registry.
+
+`read_target_catalog` accepts only a real DB-API connection
+(`psycopg.Connection` / `psycopg2.extensions.connection`) or a sealed
+connection capability issued by an adapter and carrying a
+`q2b-connection:v1` signature. Duck-typed fake connections are denied
+before any sign.
 
 `read_target_catalog` seals the six fact classes with a purpose-tagged
-Ed25519 signature (`q2b-reader-facts-v1`) issued by the isolated signer
+Ed25519 signature (`q2b-reader-facts:v1`) issued by the isolated signer
 child process. `admit_target_catalog` denies caller-constructed fact
 dicts even when values match pins — only reader-produced sealed facts
-are admitted. The verify path (`oracle_brain.seal`) holds only the
-public key and cannot sign. Signing lives in `oracle_brain.seal_signer`,
-which signs only when launched as a process entrypoint
+are admitted. Admission itself is sealed with an `admission_mac`
+signature (`q2b-admission:v1`) over the admitted fact payload; the
+`admitted` boolean alone never grants access. `require_target_catalog`
+re-verifies both signatures plus the pin expectations.
+
+The signer (`oracle_brain.seal_signer`) signs only structured
+`{"purpose", "fields"}` requests whose purpose is on a fixed allowlist.
+Unknown purpose, free-form payload bytes and malformed requests are
+refused before any key use. Signing runs only as a process entrypoint
 (`python -m oracle_brain.seal_signer`) with a one-shot handshake. The
-parent process never holds private key material or
+verify path (`oracle_brain.seal`) holds only the public key and cannot
+sign. The parent process never holds private key material or
 `ORACLE2_SEAL_PRIVATE_KEY*` environment variables — only the key-file
 path (`ORACLE2_SEAL_SIGNER_KEY_FILE`). The signer child is spawned with
 an explicit scrubbed environment. No secret is committed.

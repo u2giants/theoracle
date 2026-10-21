@@ -3,8 +3,10 @@
 Proves: the verify path holds no private key and no sign capability,
 no MAC/sign helper is importable or getattr-able from the verify module,
 the parent process environment carries no private key material, the
-signer entrypoint signs only as a process, and forged / wrong-key /
-tampered / truncated seals stay denied.
+signer entrypoint signs only as a process, the signer refuses unknown
+purposes and free-form payload bytes, forged / wrong-key / tampered /
+truncated seals stay denied, duck-typed catalog connections are denied,
+and forged registry mutation attempts are irrelevant (no registry).
 """
 from __future__ import annotations
 
@@ -146,10 +148,14 @@ def test_signer_cli_entrypoint_signs():
 
     The child reads the key file and returns a signature that the
     verify path accepts. The test process never reads the private key.
+    The request is structured: allowlisted purpose plus plain fields.
     """
     from oracle_brain.seal import seal_payload, verify
+    from oracle_brain.seal_wire import SEAL_PURPOSE_ALLOWLIST
 
-    payload = seal_payload('seal-signer-cli-entrypoint', 'field-1')
+    purpose = sorted(SEAL_PURPOSE_ALLOWLIST)[0]
+    fields = ['field-1']
+    payload = seal_payload(purpose, *fields)
     key_path = os.environ.get('ORACLE2_SEAL_SIGNER_KEY_FILE', '')
     assert key_path, 'signer key file path must be configured'
     env = {'ORACLE2_SEAL_SIGNER_KEY_FILE': key_path}
@@ -158,7 +164,7 @@ def test_signer_cli_entrypoint_signs():
         value = os.environ.get(name)
         if value is not None:
             env[name] = value
-    request = json.dumps({'payload_hex': payload.hex()})
+    request = json.dumps({'purpose': purpose, 'fields': fields})
     child = subprocess.run(
         [sys.executable, '-m', 'oracle_brain.seal_signer'],
         input=request.encode('utf-8'),
@@ -171,6 +177,61 @@ def test_signer_cli_entrypoint_signs():
     signature = response.get('signature')
     assert isinstance(signature, str) and signature
     assert verify(payload, signature) is True
+
+
+def test_signer_refuses_unknown_purpose_and_free_form_bytes():
+    """Unknown purpose, free-form payload_hex and malformed requests are refused."""
+    key_path = os.environ.get('ORACLE2_SEAL_SIGNER_KEY_FILE', '')
+    assert key_path
+    env = {'ORACLE2_SEAL_SIGNER_KEY_FILE': key_path}
+    for name in ('SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'COMSPEC',
+                 'TMP', 'TEMP', 'HOME', 'USERPROFILE'):
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+
+    def _signer_request(request: dict) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, '-m', 'oracle_brain.seal_signer'],
+            input=json.dumps(request).encode('utf-8'),
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+
+    # Unknown purpose: refused.
+    child = _signer_request({'purpose': 'not-a-real-purpose', 'fields': ['x']})
+    assert child.returncode != 0
+    assert b'purpose' in child.stdout.lower() or b'not allowed' in child.stdout.lower()
+    # Free-form payload bytes: refused.
+    child = _signer_request({'payload_hex': '00' * 32})
+    assert child.returncode != 0
+    assert b'free-form' in child.stdout.lower() or b'refuses' in child.stdout.lower()
+    # Malformed fields: refused.
+    child = _signer_request({'purpose': 'participation-enable:v1', 'fields': 'not-a-list'})
+    assert child.returncode != 0
+    child = _signer_request({'purpose': 'participation-enable:v1', 'fields': [1, 2]})
+    assert child.returncode != 0
+    # Non-object JSON: refused.
+    child = subprocess.run(
+        [sys.executable, '-m', 'oracle_brain.seal_signer'],
+        input=b'["not", "an", "object"]',
+        capture_output=True, check=False, env=env,
+    )
+    assert child.returncode != 0
+
+
+def test_verify_mac_refuses_unknown_purpose():
+    """verify_mac refuses a purpose outside the fixed allowlist before any check."""
+    from oracle_brain.seal import verify_mac
+    from seal_testkit import sign_seal
+
+    with pytest.raises(PermissionError, match='purpose not allowed'):
+        verify_mac('not-a-real-purpose', '0' * 64, 'x')
+    # Even a real signature under a known purpose cannot satisfy an unknown one.
+    known = sign_seal('participation-enable:v1', 'm-1')
+    with pytest.raises(PermissionError, match='purpose not allowed'):
+        verify_mac('made-up-purpose-v1', known, 'm-1')
 
 
 def test_signer_child_env_is_scrubbed():
@@ -260,6 +321,61 @@ def test_forged_reader_fact_mac_still_denied():
         admit_target_catalog(caller_built, pins)
 
 
+def test_duck_typed_catalog_connection_denied():
+    """Fake connection objects are denied before any sign."""
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.q2b_target_catalog_v1 import (
+        Q2bExpectedPins, read_target_catalog,
+    )
+
+    pins = Q2bExpectedPins(
+        function_signatures=('oracle2.invented_helper_alpha(integer)',),
+        expected_owner_role='invented_ledger_owner',
+        expected_session_role='invented_session_role',
+        expected_host='invented-target.example.test',
+        expected_port=5432,
+        expected_dbname='invented_db',
+        expected_user='invented_user',
+        expected_sslmode='verify-full',
+        expected_execute_grants=(('oracle2.invented_helper_alpha(integer)', ()),),
+        role_scope=('invented_ledger_owner', 'invented_session_role'),
+    )
+    fake = SimpleNamespace(
+        info=None, pgconn=None, execute=lambda *a, **k: None)
+    with pytest.raises(PermissionError, match='real DB-API connection'):
+        read_target_catalog(fake, pins)
+
+
+def test_no_mutable_registry_in_trust_modules():
+    """No WeakSet/id-registry patterns remain; closure mutation is irrelevant."""
+    for mod_name in ('oracle_brain.meetings.delivery',
+                     'oracle_brain.operating_model.q2b_target_catalog_v1'):
+        mod = importlib.import_module(mod_name)
+        source = inspect.getsource(mod)
+        assert 'WeakSet' not in source, f'{mod_name} must not use WeakSet'
+        assert 'from weakref' not in source, f'{mod_name} must not import weakref'
+        # Exported installers must not close over a mutable add-able registry.
+        for name, obj in vars(mod).items():
+            if not callable(obj) or not hasattr(obj, '__closure__'):
+                continue
+            for cell in (obj.__closure__ or ()):
+                contents = getattr(cell, 'cell_contents', None)
+                if isinstance(contents, (set, dict)):
+                    try:
+                        contents.add(object())
+                    except AttributeError:
+                        try:
+                            contents[object()] = object()
+                        except Exception:
+                            continue
+                        else:
+                            raise AssertionError(
+                                f'{mod_name}.{name} closes over a mutable registry')
+                    else:
+                        raise AssertionError(
+                            f'{mod_name}.{name} closes over a mutable registry')
+
+
 def test_verify_rejects_forged_wrong_key_tampered_and_truncated():
     """Denied cases: forged, wrong key, tampered payload, truncated signature.
 
@@ -270,10 +386,12 @@ def test_verify_rejects_forged_wrong_key_tampered_and_truncated():
         Ed25519PrivateKey,
     )
     from oracle_brain.seal import seal_payload, verify, verify_mac
-    from seal_testkit import sign_payload
+    from seal_testkit import sign_seal
 
-    payload = seal_payload('seal-security-denied-cases', 'field-1', 'field-2')
-    good = sign_payload(payload)
+    purpose = 'participation-enable:v1'
+    fields = ['field-1', 'field-2']
+    payload = seal_payload(purpose, *fields)
+    good = sign_seal(purpose, *fields)
     assert verify(payload, good) is True
 
     # Forged signature (garbage bytes of the right length).
@@ -292,6 +410,6 @@ def test_verify_rejects_forged_wrong_key_tampered_and_truncated():
     assert verify(payload, good[:-2]) is False
 
     with pytest.raises(PermissionError, match='seal MAC mismatch'):
-        verify_mac('seal-security-denied-cases', wrong_key, 'field-1', 'field-2')
+        verify_mac(purpose, wrong_key, *fields)
     with pytest.raises(PermissionError, match='seal MAC mismatch'):
-        verify_mac('seal-security-denied-cases', good, 'field-1', 'OTHER')
+        verify_mac(purpose, good, 'field-1', 'OTHER')

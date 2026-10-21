@@ -10,7 +10,11 @@ The sealed factory wire receives a bound mint that delegates to that
 helper across a process boundary, so the parent never loads the private
 key. Verification-side ``verify_mac`` is the admission check at every use
 site. Both are purpose-tagged so a signature issued for one purpose never
-satisfies another.
+satisfies another. The signer refuses any purpose outside the fixed
+allowlist and refuses free-form payload bytes.
+
+Authority is the Ed25519 signature alone. There is no mutable in-process
+mint registry anywhere on this path.
 
 Key env vars (UNKNOWN until host wiring):
 
@@ -33,6 +37,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from oracle_brain.seal_wire import (
+    SEAL_PURPOSE_ALLOWLIST,
+    require_allowed_purpose,
+    seal_payload,
+    wire_fields,
+)
+
 # Documented runtime provider name. Production/host wiring sets this
 # environment variable to the real public key; tests inject via the
 # fixture before first seal use. The signer key file path is read only
@@ -40,18 +51,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 SEAL_PUBLIC_KEY_ENV = 'ORACLE2_SEAL_PUBLIC_KEY'
 SEAL_SIGNER_KEY_FILE_ENV = 'ORACLE2_SEAL_SIGNER_KEY_FILE'
 
-__all__ = ('SEAL_PUBLIC_KEY_ENV', 'seal_payload', 'verify', 'verify_mac')
-
-
-def seal_payload(purpose: str, *fields) -> bytes:
-    """Canonical purpose-tagged message bytes for sign and verify."""
-    if not purpose or not isinstance(purpose, str):
-        raise ValueError('seal purpose required')
-    parts = [purpose]
-    for f in fields:
-        iso = getattr(f, 'isoformat', None)
-        parts.append(iso() if callable(iso) else str(f))
-    return '|'.join(parts).encode('utf-8')
+__all__ = (
+    'SEAL_PUBLIC_KEY_ENV',
+    'SEAL_PURPOSE_ALLOWLIST',
+    'seal_payload',
+    'verify',
+    'verify_mac',
+)
 
 
 def _signer_child_env(key_path: str) -> dict:
@@ -95,17 +101,20 @@ def _install_seal_api():
             _holder.append(Ed25519PublicKey.from_public_bytes(raw))
         return _holder[0]
 
-    def _sign_via_helper(payload: bytes) -> str:
+    def _sign_via_helper(purpose: str, fields: list) -> str:
         """Mint through the isolated signer child. Sealed factories only.
 
-        Lives only inside this closure. The child loads the private key
+        Lives only inside this closure. The request is structured: an
+        allowlisted purpose plus plain-string fields. Free-form payload
+        bytes never cross this boundary. The child loads the private key
         from its key file; this parent process never reads that file and
         never holds key material. The child is spawned with an explicit
         clean environment — never the parent environment — so no secret
         in the parent env is inherited. Not returned, not a module
         attribute, not importable and not getattr-able from outside.
         """
-        request = json.dumps({'payload_hex': bytes(payload).hex()})
+        require_allowed_purpose(purpose)
+        request = json.dumps({'purpose': purpose, 'fields': list(fields)})
         key_path = os.environ.get(SEAL_SIGNER_KEY_FILE_ENV, '')
         if not key_path:
             raise PermissionError(
@@ -135,7 +144,7 @@ def _install_seal_api():
         Lives only inside this closure. Not returned, not a module
         attribute, not importable and not getattr-able from outside.
         """
-        return _sign_via_helper(seal_payload(purpose, *fields))
+        return _sign_via_helper(purpose, wire_fields(*fields))
 
     def verify(payload: bytes, signature: str) -> bool:
         """Local public-key verify. Never signs. True only on a real seal."""
@@ -154,7 +163,12 @@ def _install_seal_api():
         return True
 
     def verify_mac(purpose: str, mac: str, *fields) -> None:
-        """Verify a purpose-tagged seal. Fail closed on any mismatch."""
+        """Verify a purpose-tagged seal. Fail closed on any mismatch.
+
+        Unknown purposes are refused before any signature check so a
+        signature can never be replayed under a new purpose name.
+        """
+        require_allowed_purpose(purpose)
         if not isinstance(mac, str) or not mac:
             raise PermissionError('seal MAC required')
         if not verify(seal_payload(purpose, *fields), mac):

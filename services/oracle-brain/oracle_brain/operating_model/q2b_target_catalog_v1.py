@@ -8,9 +8,13 @@ target execution and must not cause a substitute owner or admin path.
 This module is pure SQL text plus parse/validate. It never reads source data,
 secrets or environment values, never issues grants or roles, and never claims
 Q2b. Receipts it emits keep ``admitted`` false until ``admit_target_catalog``
-seals admission after real pin checks. The seal is identity registry
-membership — the ``admitted`` boolean alone never grants access. The expected
-search_path is fixed here and cannot be weakened by a caller-supplied pin.
+seals admission after real pin checks. The seal is a purpose-tagged Ed25519
+signature over the admitted fact payload — the ``admitted`` boolean alone
+never grants access. The expected search_path is fixed here and cannot be
+weakened by a caller-supplied pin.
+
+Authority is the Ed25519 signature alone. There is no mutable in-process
+admission registry to forge or mutate through ``__closure__``.
 """
 from __future__ import annotations
 
@@ -37,7 +41,11 @@ UNKNOWN: Literal['UNKNOWN'] = 'UNKNOWN'
 
 # Purpose tag for the reader-seal signature over the six fact classes.
 # A signature issued under a different purpose never satisfies admission.
-READER_FACT_PURPOSE = 'q2b-reader-facts-v1'
+READER_FACT_PURPOSE = 'q2b-reader-facts:v1'
+# Purpose tag for the admission seal produced after real pin checks.
+ADMISSION_PURPOSE = 'q2b-admission:v1'
+# Purpose tag for a sealed connection capability issued by an adapter.
+CONNECTION_PURPOSE = 'q2b-connection:v1'
 
 # Exact proconfig expected on every reviewed helper. PostgreSQL stores the
 # normalised form with a space after the comma; callers cannot substitute it.
@@ -245,8 +253,9 @@ class Q2bTargetCatalogReceipt(StrictRecord):
 
     ``admitted`` stays false from this tooling. A separate sealed admission
     (``admit_target_catalog``) is a different artifact; the ``admitted``
-    boolean alone never authorises target execution — registry identity
-    does. This receipt alone never authorises target execution.
+    boolean alone never authorises target execution — the purpose-tagged
+    ``admission_mac`` signature does. This receipt alone never authorises
+    target execution.
     """
     purpose: Literal['q2b-target-catalog-proof-v1'] = 'q2b-target-catalog-proof-v1'
     pg_proc_owner: Q2bProcOwnerFact | Literal['UNKNOWN'] = UNKNOWN
@@ -257,6 +266,7 @@ class Q2bTargetCatalogReceipt(StrictRecord):
     target_identity: Q2bTargetIdentityFact | Literal['UNKNOWN'] = UNKNOWN
     admitted: bool = False
     fact_mac: str = ''
+    admission_mac: str = ''
 
     def fact_classes(self) -> tuple[str, ...]:
         return FACT_CLASSES
@@ -378,11 +388,95 @@ def build_receipt(
 def _facts_payload(receipt: Q2bTargetCatalogReceipt) -> str:
     """Canonical JSON of the six fact classes for MAC binding.
 
-    Excludes ``admitted`` and ``fact_mac`` so the seal covers exactly the
-    observed facts and nothing caller-writable about admission state.
+    Excludes ``admitted``, ``fact_mac`` and ``admission_mac`` so the
+    seal covers exactly the observed facts and nothing caller-writable
+    about admission state.
     """
-    data = receipt.model_dump(mode='json', exclude={'admitted', 'fact_mac'})
+    data = receipt.model_dump(mode='json', exclude={'admitted', 'fact_mac', 'admission_mac'})
     return json.dumps(data, sort_keys=True, separators=(',', ':'))
+
+
+class CatalogConnection:
+    """Sealed connection capability issued by an adapter.
+
+    Authority is the Ed25519 ``connection_mac`` over the connection
+    identity under ``CONNECTION_PURPOSE``. Direct construction is refused.
+    A duck-typed look-alike built with ``object.__new__`` carries no valid
+    signature and is denied before any sign. There is no capability
+    registry to mutate.
+    """
+    __slots__ = ('_connection', '_identity', '_connection_mac', '__weakref__')
+
+    def __init__(self, *args, **kwargs) -> None:
+        raise PermissionError('catalog connection capability cannot be forged')
+
+    @property
+    def connection(self):
+        return self._connection
+
+    @property
+    def identity(self) -> str:
+        return self._identity
+
+    @property
+    def connection_mac(self) -> str:
+        return self._connection_mac
+
+
+def issue_catalog_connection(connection, *, identity: str,
+                             connection_mac: str) -> CatalogConnection:
+    """Adapter: wrap a DB-API connection in a sealed capability.
+
+    ``connection_mac`` must be a host-issued Ed25519 seal over the
+    connection identity under ``CONNECTION_PURPOSE``. Without a valid
+    seal the call is denied. The capability carries its signature; there
+    is no registry membership to forge.
+    """
+    if connection is None or not identity or not connection_mac:
+        raise PermissionError('sealed catalog connection requires identity and signature')
+    from oracle_brain.seal import verify_mac
+    verify_mac(CONNECTION_PURPOSE, connection_mac, identity)
+    capability = object.__new__(CatalogConnection)
+    capability._connection = connection
+    capability._identity = identity
+    capability._connection_mac = connection_mac
+    return capability
+
+
+def _real_dbapi_connection_types() -> tuple:
+    """Real DB-API connection classes, when the driver is installed."""
+    types = []
+    try:
+        import psycopg
+        types.append(psycopg.Connection)
+    except Exception:  # noqa: BLE001 — driver absent is not fatal here
+        pass
+    try:
+        import psycopg2.extensions
+        types.append(psycopg2.extensions.connection)
+    except Exception:  # noqa: BLE001
+        pass
+    return tuple(types)
+
+
+def _require_catalog_connection(connection):
+    """Accept only a real DB-API connection or a sealed capability.
+
+    Duck-typed fakes are denied before any sign. A sealed capability's
+    signature is re-verified here so a mutated look-alike never reaches
+    the catalog.
+    """
+    real_types = _real_dbapi_connection_types()
+    if real_types and isinstance(connection, real_types):
+        return connection
+    if isinstance(connection, CatalogConnection):
+        from oracle_brain.seal import verify_mac
+        verify_mac(CONNECTION_PURPOSE, connection.connection_mac,
+                   connection.identity)
+        return connection.connection
+    raise PermissionError(
+        'Q2b catalog connection must be a real DB-API connection '
+        'or a sealed connection capability')
 
 
 def _connection_params(connection) -> dict:
@@ -473,32 +567,37 @@ def _require_all_pins(receipt: Q2bTargetCatalogReceipt,
 
 
 def _install_sealed_catalog_api(*, mint, verify):
-    """Sealed Q2b catalog API: bound mint/verify plus identity registry.
+    """Sealed Q2b catalog API: bound mint/verify, signature-only admission.
 
     Receives the bound internal mint and verify callables from the seal
-    closure and closes over them. The registry maps ``id(receipt)`` to
-    the receipt and membership is an identity (``is``) check — Pydantic
-    record equality is value-based, so a constructor copy with
-    ``admitted=True`` is never sealed and never passes the gate.
+    closure and closes over them. There is no mutable registry: admission
+    is a purpose-tagged Ed25519 signature over the admitted fact payload,
+    and use-site checks re-verify that signature plus the reader seal and
+    the pin expectations. A constructor copy with ``admitted=True`` and no
+    valid ``admission_mac`` is denied — there is no identity table to
+    mutate through ``__closure__``.
     """
-    sealed: dict = {}
 
     def read_target_catalog(connection, expected: Q2bExpectedPins) -> Q2bTargetCatalogReceipt:
         """Metadata-only catalog read. Refuses incomplete pins and any non-metadata SQL.
 
-        Reads only pg_proc owner/prosecdef/proconfig/ACL, pg_has_role reachability
-        and target identity (host/port/dbname/user + TLS). Never source data,
-        secrets or environment values. Emits UNKNOWN where the catalog holds
-        nothing; invents no fact. Seals the six fact classes with a
-        purpose-tagged MAC issued through the bound internal mint.
+        The connection must be a real DB-API connection or a sealed
+        connection capability; duck-typed fakes are denied before any
+        sign. Reads only pg_proc owner/prosecdef/proconfig/ACL, pg_has_role
+        reachability and target identity (host/port/dbname/user + TLS).
+        Never source data, secrets or environment values. Emits UNKNOWN
+        where the catalog holds nothing; invents no fact. Seals the six
+        fact classes with a purpose-tagged MAC issued through the bound
+        internal mint.
         """
         if not isinstance(expected, Q2bExpectedPins):
             raise PermissionError('complete Q2b expected descriptor/role scope required')
-        execute = getattr(connection, 'execute', None)
+        conn = _require_catalog_connection(connection)
+        execute = getattr(conn, 'execute', None)
         if execute is None:
             raise PermissionError('Q2b catalog connection execute required')
-        params = _connection_params(connection)
-        ssl_in_use = _connection_ssl_in_use(connection)
+        params = _connection_params(conn)
+        ssl_in_use = _connection_ssl_in_use(conn)
 
         for statement in READER_SQL_STATEMENTS:
             require_metadata_only_sql(statement)
@@ -530,8 +629,10 @@ def _install_sealed_catalog_api(*, mint, verify):
         ``read_target_catalog`` via the isolated signer. Caller-constructed
         fact dicts are denied even when every value matches the pins:
         without the reader seal they prove nothing about where the facts
-        came from. Pin checks follow. Only then is admission sealed by
-        identity registry.
+        came from. Pin checks follow. Only then is admission sealed with
+        ``admission_mac`` — a purpose-tagged signature over the admitted
+        fact payload. The signature is the authority; there is no
+        registry.
         """
         if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
             raise PermissionError('Q2b target catalog receipt and complete pins required')
@@ -539,24 +640,25 @@ def _install_sealed_catalog_api(*, mint, verify):
             raise PermissionError('Q2b reader-produced sealed facts required')
         verify(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
         _require_all_pins(receipt, expected)
-        admitted = receipt.model_copy(update={'admitted': True})
-        sealed[id(admitted)] = admitted
-        return admitted
+        admission_mac = mint(ADMISSION_PURPOSE, _facts_payload(receipt))
+        return receipt.model_copy(update={'admitted': True, 'admission_mac': admission_mac})
 
     def require_target_catalog(receipt: Q2bTargetCatalogReceipt,
                                expected: Q2bExpectedPins) -> None:
-        """Use-site gate: sealed admission plus real pin checks.
+        """Use-site gate: signed admission plus real pin checks.
 
-        Identity registry membership is the admission proof. The
-        ``admitted`` boolean alone is never believed — a constructor copy
-        with ``admitted=True`` is denied. The reader-seal MAC is rechecked
-        so damage to the fact fields between admission and use never
-        grants access. Pin checks are redone for the same reason.
+        The ``admitted`` boolean alone is never believed. The
+        ``admission_mac`` signature over the admitted fact payload is the
+        admission proof; a constructor copy with ``admitted=True`` and no
+        valid signature is denied. The reader-seal MAC is rechecked so
+        damage to the fact fields between admission and use never grants
+        access. Pin checks are redone for the same reason.
         """
         if not isinstance(receipt, Q2bTargetCatalogReceipt) or not isinstance(expected, Q2bExpectedPins):
             raise PermissionError('Q2b target catalog receipt and complete pins required')
-        if receipt.admitted is not True or sealed.get(id(receipt)) is not receipt:
+        if receipt.admitted is not True or not receipt.admission_mac:
             raise PermissionError('Q2b target catalog not admitted')
+        verify(ADMISSION_PURPOSE, receipt.admission_mac, _facts_payload(receipt))
         if not receipt.fact_mac:
             raise PermissionError('Q2b reader-produced sealed facts required')
         verify(READER_FACT_PURPOSE, receipt.fact_mac, _facts_payload(receipt))
