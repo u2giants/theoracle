@@ -12,7 +12,8 @@ from oracle_brain.operating_model.original_qualification_v1 import RawOriginalPo
 from oracle_brain.operating_model.original_source_authority_v1 import OriginalSourceBindingV1,OriginalSourceResolverV1,OriginalPopulationSnapshotV1
 from oracle_brain.operating_model.raw_original_context_v1 import RawOriginalPhaseContextV1
 from oracle_brain.operating_model.raw_vision_policy_v1 import RawVisionTokenPolicyV1
-from .purpose_journey_v2 import _worker_file,_worker_json,_require
+from .purpose_journey_v2 import _worker_file,_worker_json,_worker_parse,_require
+from oracle_brain.operating_model.raw_endpoint_inventory_v1 import RawBillingBoundsV1
 from .purpose_transport import PurposeTLSBindingV2
 from .custody import DurableNonceSequenceV2
 from .raw_original_observer_v1 import RawOriginalObserverAdmissionV1,RawOriginalObserverClientV1,RawOriginalCurrentnessConsumerV1,RawOriginalObservedCurrentnessV1
@@ -42,6 +43,7 @@ class RawOriginalProviderConfigV1(StrictRecord):
     expected_session_role:str
     original_allocation_hash:str=Field(pattern=HASH)
     original_horizon:AwareDatetime
+    billing_bounds:RawPrivateFileV1|None=None
     database_url:RawPrivateFileV1
     database_ca:RawPrivateFileV1
     database_hostname:str
@@ -97,6 +99,54 @@ class RawOriginalProviderAppointmentV1(StrictRecord):
     def exact_version(cls,v):
         if type(v) is not int or v!=1:raise ValueError('exact raw appointment version required')
         return v
+
+@dataclass(frozen=True)
+class RawOriginalBillingEvidenceV1:
+    """Protected observed bytes, not proof of route, terms or spend authority.
+
+    Both commitments are named separately even under the canonical-file policy.
+    Caller construction authenticates neither a protected read nor appointment.
+    """
+    raw_bytes:bytes
+    bounds:RawBillingBoundsV1
+    original_file_sha256:str
+    canonical_record_sha256:str
+
+    def __post_init__(self):
+        _require(type(self.raw_bytes) is bytes and 0<len(self.raw_bytes)<=100000
+            and type(self.bounds) is RawBillingBoundsV1,
+            'exact bounded billing evidence required')
+        parsed=_worker_parse(self.raw_bytes,RawBillingBoundsV1)
+        canonical=canonical_bytes(parsed.model_dump(mode='json'))
+        _require(self.raw_bytes==canonical and parsed==self.bounds
+            and type(self.original_file_sha256) is str and re.fullmatch(HASH,self.original_file_sha256)
+            and type(self.canonical_record_sha256) is str and re.fullmatch(HASH,self.canonical_record_sha256)
+            and hashlib.sha256(self.raw_bytes).hexdigest()==self.original_file_sha256
+            and digest(parsed.model_dump(mode='json'))==self.canonical_record_sha256,
+            'original billing bytes and canonical record commitments differ')
+
+
+def _billing_matches_context(bounds,context,now):
+    # These are the billing identity/route/window predicates of the pure endpoint
+    # comparator, not its metadata pricing/capacity verdict. The future factory
+    # must separately supply actual broker identity and actual observed wires.
+    x=RawOriginalPhaseContextV1.model_validate_json(context.model_dump_json())
+    j=x.job;q=j.pricing
+    expected=(q.account,q.key_fingerprint,q.ledger_registry_hash,q.terms_hash)
+    _require(type(bounds) is RawBillingBoundsV1
+        and (bounds.account,bounds.key_fingerprint,bounds.ledger_registry_hash,bounds.terms_hash)==expected
+        and q.account=='key-sha256:'+q.key_fingerprint and bounds.model==q.model
+        and q.admitted_register_hash==j.register_hash
+        and q.terms_hash==j.processing_request.terms_hash
+        and digest(q.model_dump(mode='json'))==x.pricing_quote_hash
+        and q.is_byok==(bounds.route=='byok')
+        and q.valid_from<=now<q.expires_at<=bounds.expires_at and bounds.valid_from<=now,
+        'protected billing bounds differ from current exact context quote')
+    _require(all(getattr(q,name)==getattr(bounds,name) for name in
+        ('upstream_input_per_million_usd','upstream_output_per_million_usd',
+         'upstream_per_image_fee_usd','upstream_per_request_fee_usd')),
+        'protected billing upstream bounds differ from current quote')
+
 
 @dataclass(frozen=True)
 class RawOriginalAuthorityWindowV1:
@@ -254,6 +304,26 @@ class RawOriginalProviderSettingsV1:
         self._current_settings_pins()
         _require(datetime.now(timezone.utc)<observed.window.current_until,'raw authorization expired before return')
         return observed
+
+    def read_billing_bounds(self):
+        """Read actual appointed prospective bounds; never reserve or dispatch.
+
+        No caller DTO, digest or route can substitute for the protected pointer.
+        Legacy settings/current_window do not require this optional source input.
+        """
+        self._current_settings_pins()
+        pointer=self.config.billing_bounds
+        _require(type(pointer) is RawPrivateFileV1,'appointed protected billing pointer required')
+        raw=_worker_file(pointer.path,pointer.sha256,limit=100000)
+        bounds=_worker_parse(raw,RawBillingBoundsV1)
+        record=RawOriginalBillingEvidenceV1(raw,bounds,pointer.sha256,digest(bounds.model_dump(mode='json')))
+        _billing_matches_context(bounds,self.context,datetime.now(timezone.utc))
+        self._current_settings_pins()
+        _require(self.config.billing_bounds==pointer
+            and _worker_file(pointer.path,pointer.sha256,limit=100000)==raw,
+            'protected billing pointer or actual bytes changed before return')
+        _billing_matches_context(bounds,self.context,datetime.now(timezone.utc))
+        return record
 
     def read_pdf_views(self):
         from oracle_brain.operating_model.artifact_storage import FileBlobStore,OriginalObjectRefV1,ReservationOriginalObjectRefV1

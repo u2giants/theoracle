@@ -346,3 +346,192 @@ def test_protected_material_or_binding_drift_during_tls_never_returns_evidence(o
     with pytest.raises(PermissionError):
         (settings.observed_window if observed else settings.current_window)()
     assert len(reads)==2 and len(state['requests'])==1 and consumer.replay._read()['sequence']==13
+
+
+def billing_settings(observed_exchange,tmp_path,monkeypatch,*,raw_transform=None,bounds_update=None,shared_only=False):
+    """Appointed invented canonical billing file; no provider or SQL requests."""
+    from dataclasses import replace
+    from decimal import Decimal
+    consumer,state,_=observed_exchange
+    settings,reads=configured_window_settings(consumer,tmp_path,monkeypatch)
+    q=settings.context.job.pricing
+    # The retained generic quote fixture predates exact billing identity. Pin an
+    # actual consistent invented quote/context rather than loosening assertions.
+    fp=settings.context.job.processing_request.account.removeprefix('key-sha256:')
+    changes={'key_fingerprint':fp,'terms_hash':settings.context.job.processing_request.terms_hash}
+    if shared_only:
+        changes.update(is_byok=False,**{key:Decimal('0') for key in ('upstream_input_per_million_usd',
+            'upstream_output_per_million_usd','upstream_per_image_fee_usd','upstream_per_request_fee_usd')})
+    q=q.model_copy(update=changes)
+    job=type(settings.context.job).model_validate(settings.context.job.model_dump(mode='python')|{'pricing':q})
+    x=type(settings.context).model_validate(settings.context.model_dump(mode='python')|{'job':job,
+        'pricing_quote_hash':digest(q.model_dump(mode='json'))})
+    xh=write(Path(settings.config.context.path),x)
+    body=dict(model=q.model,route='byok' if q.is_byok else 'shared-only',account=q.account,
+        key_fingerprint=q.key_fingerprint,ledger_registry_hash=q.ledger_registry_hash,terms_hash=q.terms_hash,
+        provider_evidence_sha256='7'*64,valid_from=q.valid_from,expires_at=q.expires_at,
+        **{key:getattr(q,key) for key in ('upstream_input_per_million_usd','upstream_output_per_million_usd',
+            'upstream_per_image_fee_usd','upstream_per_request_fee_usd')})
+    body.update(bounds_update or {})
+    b=m.RawBillingBoundsV1.model_validate(body)
+    raw=canonical_bytes(b.model_dump(mode='json'))
+    if raw_transform:raw=raw_transform(raw)
+    path=tmp_path/'observed-billing.json';path.write_bytes(raw);path.chmod(0o600)
+    pointer=m.RawPrivateFileV1(path=str(path),sha256=hashlib.sha256(raw).hexdigest())
+    c=type(settings.config).model_validate(settings.config.model_dump(mode='python')|{'billing_bounds':pointer,
+        'context':m.RawPrivateFileV1(path=settings.config.context.path,sha256=xh)})
+    ch=write(settings.config_path,c);app=appointment(c,ch);ah=write(settings.appointment_path,app)
+    return replace(settings,config=c,config_sha256=ch,appointment=app,appointment_sha256=ah,context=x),reads,state,b
+
+
+def test_billing_pointer_absent_preserves_legacy_window_and_refuses_only_new_read(observed_exchange,tmp_path,monkeypatch):
+    consumer,state,_=observed_exchange;settings,reads=configured_window_settings(consumer,tmp_path,monkeypatch)
+    from dataclasses import replace
+    assert settings.config.billing_bounds is None
+    # Genuine old protected bytes omit the new field, including its null value.
+    body=settings.config.model_dump(mode='json');del body['billing_bounds']
+    raw=canonical_bytes(body);settings.config_path.write_bytes(raw)
+    ch=hashlib.sha256(raw).hexdigest();app=appointment(settings.config,ch)
+    ah=write(settings.appointment_path,app)
+    settings=replace(settings,config_sha256=ch,appointment=app,appointment_sha256=ah)
+    assert type(settings.current_window()) is m.RawOriginalAuthorityWindowV1
+    before=(len(reads),len(state['requests']))
+    with pytest.raises(PermissionError,match='billing pointer'):settings.read_billing_bounds()
+    assert (len(reads),len(state['requests']))==before
+
+
+def test_protected_billing_read_returns_exact_immutable_separately_named_commitments_without_io(observed_exchange,tmp_path,monkeypatch):
+    from dataclasses import FrozenInstanceError,replace
+    settings,reads,state,b=billing_settings(observed_exchange,tmp_path,monkeypatch)
+    result=settings.read_billing_bounds();raw=Path(settings.config.billing_bounds.path).read_bytes()
+    assert result.raw_bytes==raw and result.bounds==b
+    assert result.original_file_sha256==settings.config.billing_bounds.sha256==hashlib.sha256(raw).hexdigest()
+    assert result.canonical_record_sha256==digest(b.model_dump(mode='json'))
+    assert reads==[] and state['requests']==[]  # No SQL, observer, metadata, allowance or paid send.
+    with pytest.raises(FrozenInstanceError):result.raw_bytes=b'{}'
+    with pytest.raises(ValueError):result.bounds.route='shared-only'
+    for changes in ({'raw_bytes':bytearray(raw)},{'raw_bytes':raw+b' '},{'bounds':object()},
+        {'original_file_sha256':'0'*64},{'canonical_record_sha256':'0'*64},
+        {'bounds':b.model_copy(update={'provider_evidence_sha256':'0'*64})}):
+        with pytest.raises((PermissionError,ValueError)):replace(result,**changes)
+    for kwargs in ({'bounds':b},{'expected_sha256':result.original_file_sha256},{'route':'byok'}):
+        with pytest.raises(TypeError):settings.read_billing_bounds(**kwargs)
+
+
+@pytest.mark.parametrize('shape',['whitespace','order','missing_default','unknown','duplicate','numeric_decimal',
+    'negative','nonfinite','bool_version','float_version','string_version','wrong_route','missing_route','missing_upstream','naive_date'])
+def test_billing_full_canonical_model_bytes_no_duplicate_coercion_or_missing_dimension(observed_exchange,tmp_path,monkeypatch,shape):
+    import json
+    def transform(raw):
+        value=json.loads(raw)
+        if shape=='whitespace':return raw+b'\n'
+        if shape=='order':return json.dumps(dict(reversed(tuple(value.items()))),separators=(',',':')).encode()
+        if shape=='missing_default':del value['schema_version']
+        elif shape=='unknown':value['approved']=True
+        elif shape=='duplicate':return raw[:-1]+b',"model":"openai/gpt-6.1-sol"}'
+        elif shape=='numeric_decimal':value['upstream_input_per_million_usd']=3
+        elif shape=='negative':value['upstream_input_per_million_usd']='-1'
+        elif shape=='nonfinite':return raw.replace(b'"upstream_input_per_million_usd":"3"',b'"upstream_input_per_million_usd":NaN')
+        elif shape=='bool_version':value['schema_version']=True
+        elif shape=='float_version':value['schema_version']=1.0
+        elif shape=='string_version':value['schema_version']='1'
+        elif shape=='wrong_route':value['route']='unknown'
+        elif shape=='missing_route':del value['route']
+        elif shape=='missing_upstream':del value['upstream_per_request_fee_usd']
+        elif shape=='naive_date':value['valid_from']='2026-10-21T00:00:00'
+        return canonical_bytes(value)
+    settings,reads,state,_=billing_settings(observed_exchange,tmp_path,monkeypatch,raw_transform=transform)
+    with pytest.raises((PermissionError,ValueError)):settings.read_billing_bounds()
+    assert reads==[] and state['requests']==[]
+
+
+@pytest.mark.parametrize('field',['account','key_fingerprint','ledger_registry_hash','terms_hash','model','route',
+    'upstream_input_per_million_usd','upstream_output_per_million_usd','upstream_per_image_fee_usd',
+    'upstream_per_request_fee_usd','expired','future','too_short'])
+def test_billing_canonical_bound_but_wrong_current_quote_context_refuses(observed_exchange,tmp_path,monkeypatch,field):
+    from decimal import Decimal
+    def transform(raw):
+        import json
+        b=json.loads(raw)
+        if field in {'account','key_fingerprint'}:b.update(account='key-sha256:'+'0'*64,key_fingerprint='0'*64)
+        elif field=='model':b[field]='openai/gpt-6-astra'
+        elif field=='route':
+            b[field]='shared-only'
+            for k in tuple(b):
+                if k.startswith('upstream_'):b[k]='0'
+        elif field.startswith('upstream_'):b[field]=str(Decimal(b[field])+1)
+        elif field=='expired':b['valid_from']='2020-01-01T00:00:00Z';b['expires_at']='2020-01-02T00:00:00Z'
+        elif field=='future':b['valid_from']='2099-01-01T00:00:00Z';b['expires_at']='2099-01-02T00:00:00Z'
+        elif field=='too_short':
+            b['expires_at']=(datetime.fromisoformat(b['expires_at'].replace('Z','+00:00'))-timedelta(seconds=1)).isoformat().replace('+00:00','Z')
+        else:b[field]='0'*64
+        # Canonical *typed* bytes prove refusal is bindings/windows, not spelling.
+        return canonical_bytes(m.RawBillingBoundsV1.model_validate_json(canonical_bytes(b)).model_dump(mode='json'))
+    settings,reads,state,_=billing_settings(observed_exchange,tmp_path,monkeypatch,raw_transform=transform)
+    with pytest.raises(PermissionError):settings.read_billing_bounds()
+    assert reads==[] and state['requests']==[]
+
+
+@pytest.mark.parametrize('damage',['file_bytes','mode','hardlink','symlink','directory','oversize','relative','tuple_hash','tuple_path','issuer','job'])
+def test_billing_file_or_appointed_tuple_tampering_before_read_refuses(observed_exchange,tmp_path,monkeypatch,damage):
+    from dataclasses import replace
+    settings,reads,state,_=billing_settings(observed_exchange,tmp_path,monkeypatch)
+    pointer=settings.config.billing_bounds;path=Path(pointer.path)
+    if damage=='file_bytes':path.write_bytes(path.read_bytes()+b' ')
+    elif damage=='mode':path.chmod(0o644)
+    elif damage=='hardlink':os.link(path,tmp_path/'second-link')
+    elif damage=='symlink':
+        saved=tmp_path/'billing-real';path.rename(saved);path.symlink_to(saved)
+    elif damage=='directory':path.unlink();path.mkdir()
+    elif damage=='oversize':path.write_bytes(b' '*100001)
+    elif damage in {'relative','tuple_hash','tuple_path'}:
+        changed=pointer.model_copy(update={'sha256':'0'*64} if damage=='tuple_hash' else
+            {'path':'relative.json' if damage=='relative' else str(tmp_path/'foreign.json')})
+        settings=replace(settings,config=settings.config.model_copy(update={'billing_bounds':changed}))
+    elif damage=='issuer':settings=replace(settings,appointment=settings.appointment.model_copy(update={'issuer_actor':uuid4()}))
+    else:settings=replace(settings,context=settings.context.model_copy(update={'job':settings.context.job.model_copy(update={'register_hash':'0'*64})}))
+    with pytest.raises((PermissionError,ValueError,OSError)):settings.read_billing_bounds()
+    assert reads==[] and state['requests']==[]
+
+
+@pytest.mark.parametrize('damage',['billing_bytes','context_bytes','config_bytes','appointment_bytes','loaded_pointer'])
+def test_billing_second_boundary_refuses_drift_before_return(observed_exchange,tmp_path,monkeypatch,damage):
+    settings,reads,state,_=billing_settings(observed_exchange,tmp_path,monkeypatch)
+    original=m.RawOriginalProviderSettingsV1._current_settings_pins;calls=[]
+    def boundary(self):
+        calls.append(1)
+        if len(calls)==2:
+            if damage=='loaded_pointer':
+                object.__setattr__(self.config,'billing_bounds',self.config.billing_bounds.model_copy(update={'sha256':'0'*64}))
+            else:
+                path=(Path(self.config.billing_bounds.path) if damage=='billing_bytes' else
+                    Path(self.config.context.path) if damage=='context_bytes' else
+                    self.config_path if damage=='config_bytes' else self.appointment_path)
+                path.write_bytes(path.read_bytes()+b' ')
+        return original(self)
+    monkeypatch.setattr(m.RawOriginalProviderSettingsV1,'_current_settings_pins',boundary)
+    with pytest.raises(PermissionError):settings.read_billing_bounds()
+    assert len(calls)==2 and reads==[] and state['requests']==[]
+
+
+def test_billing_explicit_shared_only_zero_bounds_remain_distinct_from_missing_route(observed_exchange,tmp_path,monkeypatch):
+    settings,reads,state,_=billing_settings(observed_exchange,tmp_path,monkeypatch,shared_only=True)
+    result=settings.read_billing_bounds()
+    assert result.bounds.route=='shared-only' and settings.context.job.pricing.is_byok is False
+    assert all(getattr(result.bounds,key)==0 for key in ('upstream_input_per_million_usd',
+        'upstream_output_per_million_usd','upstream_per_image_fee_usd','upstream_per_request_fee_usd'))
+    assert reads==[] and state['requests']==[]
+
+
+def test_billing_current_quote_cannot_expire_between_read_and_return(observed_exchange,tmp_path,monkeypatch):
+    settings,reads,state,_=billing_settings(observed_exchange,tmp_path,monkeypatch)
+    original=m.RawOriginalProviderSettingsV1._current_settings_pins;calls=[]
+    def boundary(self):
+        calls.append(1)
+        result=original(self)
+        if len(calls)==2:
+            monkeypatch.setattr(m,'datetime',SimpleNamespace(now=lambda _:self.context.job.pricing.expires_at))
+        return result
+    monkeypatch.setattr(m.RawOriginalProviderSettingsV1,'_current_settings_pins',boundary)
+    with pytest.raises(PermissionError):settings.read_billing_bounds()
+    assert len(calls)==2 and reads==[] and state['requests']==[]
