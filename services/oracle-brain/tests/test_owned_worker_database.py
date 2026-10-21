@@ -1,6 +1,7 @@
 """Narrow read-only worker target qualification; no migration/role shortcuts."""
 from types import SimpleNamespace
 import os
+import re
 import psycopg
 import pytest
 from dev.oracle2 import test_worker_postgres_fixture as worker
@@ -67,7 +68,8 @@ def test_real_canonical_owned_worker_database_is_observed():
     name=psycopg.conninfo.conninfo_to_dict(url)['dbname']
     # W10 supplies a fresh UUID database; the S03 phase owns the Compose base.
     # Both must prove the actual selected target, never switch to a fallback.
-    assert name=='oracle2' or (name.startswith('oracle_operating_model_test_') and len(name)==60)
+    assert name=='oracle2' or re.fullmatch(r'oracle_operating_model_test_[0-9a-f]{32}',name)
     details=worker.owned_worker_database(container,url)
-    assert details['Id']==container
+    assert re.fullmatch(r'[0-9a-f]{64}',details['Id'])
+    assert container==details['Id'] or details['Name']=='/'+container
     assert details['Config']['Labels']['oracle.operating.synthetic']=='true'

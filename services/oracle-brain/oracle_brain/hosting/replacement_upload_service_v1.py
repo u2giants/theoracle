@@ -109,6 +109,7 @@ def protected_replacement_upload_server_v1(intake, peer_profile_path, expected_p
 
         def do_POST(self):
             acquired = False
+            started = False
             try:
                 if self.server.closing or self.headers.get_all('Content-Encoding', []) != []:
                     raise PermissionError('fixed upload framing required')
@@ -153,6 +154,7 @@ def protected_replacement_upload_server_v1(intake, peer_profile_path, expected_p
                     raise PermissionError('bounded public original custody required')
                 self.connection.settimeout(max(.001, min(5, original_end - time.monotonic())))
                 self.close_connection = True
+                started = True
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(encoded)))
@@ -160,7 +162,10 @@ def protected_replacement_upload_server_v1(intake, peer_profile_path, expected_p
                 self.end_headers()
                 self.wfile.write(encoded)
             except Exception:
-                self._deny()
+                if not started:
+                    self._deny()
+                else:
+                    self.close_connection = True
             finally:
                 if acquired:
                     slot.release()
