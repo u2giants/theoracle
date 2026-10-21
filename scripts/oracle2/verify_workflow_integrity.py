@@ -250,6 +250,7 @@ def cleanup_test_databases(admin,parts,owned):
 
 
 SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_worker_postgres_fixture.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
+SOURCE_INPUT_PATHS += ('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py')
 SOURCE_INPUT_PATHS += ('dev/oracle2/native-v2-fixed-identities.json', 'dev/oracle2/hosting/prepare_native_trigger_v2.py', 'dev/oracle2/hosting/install_native_trigger_v2.py', 'dev/oracle2/hosting/project_native_trigger_v2.py', 'dev/oracle2/hosting/falkor_native_proof_acl_v2.py')
 
 

@@ -294,3 +294,21 @@ assert code==0 and evidence['tests']==1 and evidence['failures']==evidence['skip
         str(Path(__file__).parents[3] / 'scripts/oracle2/verify_phase.py'),
         sys.executable, str(case)], capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stderr
+
+
+
+def test_recorded_source_inventory_binds_shared_evidence_and_phase_frontdoor_bytes(tmp_path,monkeypatch):
+    import subprocess
+    subprocess.run(['git','init','-q',str(tmp_path)],check=True)
+    names=('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py')
+    for name in names:
+        p=tmp_path/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('invented initial source\n')
+    monkeypatch.setattr(verifier,'ROOT',tmp_path)
+    first=verifier.source_input_hashes()
+    assert set(first)==set(names)
+    for index,name in enumerate(names):
+        before=verifier.source_input_hashes()
+        (tmp_path/name).write_text('invented changed source '+str(index)+'\n')
+        after=verifier.source_input_hashes()
+        assert before[name]!=after[name]
+        assert all(before[other]==after[other] for other in names if other!=name)
