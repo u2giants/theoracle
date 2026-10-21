@@ -34,6 +34,9 @@ CREATE TABLE oracle2.processing_model_admissions_v1 (
  config_hash text NOT NULL CHECK(config_hash ~ '^[0-9a-f]{64}$'),
  issuer_actor uuid NOT NULL,reviewer_actor uuid NOT NULL,
  decision_kind text CHECK(decision_kind IN('employee-account','process-policy','company-policy')),
+ -- Finite command authority window; accepted company policy has NO implicit
+ -- expiry from this field or former approver authority loss. Explicit withdrawal
+ -- and current source/reader/version checks determine availability/in-force state.
  decision_valid_until timestamptz CHECK(decision_valid_until IS NULL OR isfinite(decision_valid_until)),
  scope_hash text CHECK(scope_hash ~ '^[0-9a-f]{64}$'),
  membership_appointment uuid REFERENCES oracle2.appointments(appointment_id),
@@ -61,7 +64,7 @@ END $immutable$;
 
 CREATE FUNCTION oracle2._processing_model_admission_v1(appointment uuid,operation_name text,runtime text,registry text,config text,deadline timestamptz)
  RETURNS oracle2.processing_model_admissions_v1 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
-DECLARE a oracle2.processing_model_admissions_v1; login oid; owner_oid oid; permitted_until timestamptz;
+DECLARE a oracle2.processing_model_admissions_v1; login oid; owner_oid oid; permitted_until timestamptz;member_ok boolean;root_ok boolean;
 BEGIN
  SELECT oid INTO login FROM pg_roles WHERE rolname=SESSION_USER AND rolcanlogin
  AND NOT(rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication);
@@ -90,7 +93,27 @@ BEGIN
     AND (p.expires_at IS NULL OR p.expires_at>clock_timestamp())
     AND p.scope='processing-business:'||a.decision_kind||':'||a.scope_hash)
   THEN RAISE insufficient_privilege USING MESSAGE='exact business membership/delegation missing'; END IF;
-  permitted_until:=oracle2._replacement_scope(a.workspace_id,a.principal_id,'processing-business:'||a.decision_kind||':'||a.scope_hash);
+  -- Retain canonical locking/currentness, then prove THIS appointed path.
+  PERFORM oracle2._replacement_scope(a.workspace_id,a.principal_id,'processing-business:'||a.decision_kind||':'||a.scope_hash);
+  WITH RECURSIVE exact_path AS (
+   SELECT p.appointment_id,p.parent_id,p.actor_id,p.granted_by,p.scope,p.revoked_at,p.expires_at,
+    ARRAY[p.appointment_id] seen,true valid,1 depth
+   FROM oracle2.appointments p WHERE p.workspace_id=a.workspace_id AND p.appointment_id=a.membership_appointment
+    AND p.actor_id=a.principal_id AND p.scope='processing-business:'||a.decision_kind||':'||a.scope_hash
+   UNION ALL
+   SELECT p.appointment_id,p.parent_id,p.actor_id,p.granted_by,p.scope,p.revoked_at,p.expires_at,
+    path.seen||p.appointment_id,path.valid AND p.actor_id=path.granted_by
+     AND p.scope IN('processing-business:'||a.decision_kind||':'||a.scope_hash,'root'),path.depth+1
+   FROM exact_path path JOIN oracle2.appointments p ON p.appointment_id=path.parent_id AND p.workspace_id=a.workspace_id
+   WHERE path.depth<16 AND NOT p.appointment_id=ANY(path.seen))
+  SELECT coalesce(min(expires_at),'infinity'::timestamptz),
+   bool_and(valid AND revoked_at IS NULL AND(expires_at IS NULL OR expires_at>clock_timestamp())),
+   bool_or(scope='root' AND parent_id IS NULL)
+  INTO permitted_until,member_ok,root_ok FROM exact_path;
+  IF member_ok IS DISTINCT FROM true OR root_ok IS DISTINCT FROM true THEN
+   RAISE insufficient_privilege USING MESSAGE='exact appointed business delegation path denied';
+  END IF;
+  permitted_until:=least(permitted_until,a.decision_valid_until);
  ELSE
   permitted_until:=oracle2._replacement_scope(a.workspace_id,a.principal_id,
     CASE WHEN operation_name='history-read' THEN 'processing-history' ELSE 'processing-consolidate' END);
@@ -344,6 +367,16 @@ BEGIN
  END LOOP;
  IF expiry<=clock_timestamp() THEN RAISE insufficient_privilege; END IF;
  RETURN jsonb_build_object('manifest',m,'sourceRefs',source_set,'recordedAt',r.recorded_at,
+  'businessDecisions',coalesce((SELECT jsonb_agg(item ORDER BY recorded_at,event_id) FROM (
+   SELECT e.recorded_at,e.event_id,jsonb_build_object('eventId',e.event_id,'recordedAt',e.recorded_at,'decisionKind',e.payload->'decision_kind',
+    'scopeSha256',e.payload->'scope_hash','assertions',e.payload->'assertions',
+    'challenged',EXISTS(SELECT 1 FROM oracle2.processing_model_events_v1 change WHERE change.workspace_id=a.workspace_id AND change.artifact_id=model AND change.kind='business-challenge' AND change.payload->>'target_event_id'=e.event_id::text),
+    'withdrawn',EXISTS(SELECT 1 FROM oracle2.processing_model_events_v1 change WHERE change.workspace_id=a.workspace_id AND change.artifact_id=model AND change.kind='business-withdraw' AND change.payload->>'target_event_id'=e.event_id::text),
+    'policyInForce',e.payload->>'decision_kind'='company-policy' AND e.payload->>'policy_longevity'='remain-in-force-until-withdrawn'
+     AND r.version=(SELECT max(version) FROM oracle2.processing_model_revisions_v1 WHERE workspace_id=a.workspace_id AND artifact_id=model)
+     AND NOT EXISTS(SELECT 1 FROM oracle2.processing_model_events_v1 withdrawal WHERE withdrawal.workspace_id=a.workspace_id AND withdrawal.artifact_id=model AND withdrawal.kind='business-withdraw' AND withdrawal.payload->>'target_event_id'=e.event_id::text)) item
+   FROM oracle2.processing_model_events_v1 e WHERE e.workspace_id=a.workspace_id AND e.artifact_id=model AND e.version=ver AND e.kind='business-accept'
+   ORDER BY e.recorded_at DESC,e.event_id DESC LIMIT 64) decisions),'[]'::jsonb),
   'assertionIndex',r.assertion_index,'validUntil',expiry,'mode','historical','policyAccepted',false);
 END $$;
 REVOKE ALL ON FUNCTION oracle2._processing_history_metadata_v1(oracle2.processing_model_admissions_v1,uuid,integer) FROM PUBLIC;
@@ -363,6 +396,20 @@ BEGIN
  RETURN result||jsonb_build_object('validAt',valid_at,'knownAt',known_at,'validUntil',least((result->>'validUntil')::timestamptz,a.expires_at));
 END $$;
 REVOKE ALL ON FUNCTION oracle2.hosting_historical_consolidated_model_v1(uuid,timestamptz,timestamptz,uuid,text,text,text,timestamptz) FROM PUBLIC;
+
+-- Explicit retained version, never a fabricated business-valid or known time.
+CREATE FUNCTION oracle2.hosting_consolidated_model_version_v1(model uuid,ver integer,
+ appointment uuid,runtime text,registry text,config text,deadline timestamptz)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE a oracle2.processing_model_admissions_v1;result jsonb;
+BEGIN
+ a:=oracle2._processing_model_admission_v1(appointment,'history-read',runtime,registry,config,deadline);
+ IF model IS DISTINCT FROM a.model_id OR ver IS NULL OR ver<=0 THEN RAISE insufficient_privilege; END IF;
+ result:=oracle2._processing_history_metadata_v1(a,model,ver);
+ a:=oracle2._processing_model_admission_v1(appointment,'history-read',runtime,registry,config,deadline);
+ RETURN result||jsonb_build_object('mode','retained-version','validUntil',least((result->>'validUntil')::timestamptz,a.expires_at));
+END $$;
+REVOKE ALL ON FUNCTION oracle2.hosting_consolidated_model_version_v1(uuid,integer,uuid,text,text,text,timestamptz) FROM PUBLIC;
 
 CREATE FUNCTION oracle2.hosting_current_consolidated_model_v1(model uuid,
  appointment uuid,runtime text,registry text,config text,deadline timestamptz)
@@ -426,7 +473,7 @@ BEGIN
  INSERT INTO oracle2.processing_model_events_v1(event_id,workspace_id,artifact_id,version,kind,actor_id,admission_id,payload,idempotency)
  VALUES(event,a.workspace_id,model,ver,'business-'||decision,a.principal_id,appointment,
   jsonb_build_object('model_content_hash',expected_hash,'decision_kind',a.decision_kind,'scope_hash',a.scope_hash,
-   'assertions',assertions,'bundle_hash',bundle_hash,'membership_appointment',a.membership_appointment,'decision_valid_until',a.decision_valid_until,'policy_longevity','unsettled'),idempotency);
+   'assertions',assertions,'bundle_hash',bundle_hash,'membership_appointment',a.membership_appointment,'decision_valid_until',a.decision_valid_until,'policy_longevity',CASE WHEN a.decision_kind='company-policy' THEN 'remain-in-force-until-withdrawn' ELSE 'not-company-policy' END),idempotency);
  a:=oracle2._processing_model_admission_v1(appointment,'business-review',runtime,registry,config,deadline);
  RETURN jsonb_build_object('eventId',event,'modelId',model,'version',ver,'decision',decision,'validUntil',least(a.expires_at,until_at));
 END $$;
@@ -498,7 +545,7 @@ BEGIN
  END LOOP;
  IF EXISTS(SELECT 1 FROM oracle2.artifact_invalidations WHERE workspace_id=a.workspace_id AND artifact_id=model AND version=r.version) OR until_at<=clock_timestamp() THEN RAISE insufficient_privilege; END IF;
  RETURN jsonb_build_object('modelId',model,'currentVersion',r.version,'currentContentHash',r.content_hash,'recordedAt',r.recorded_at,
-  'conflict',r.version<>expected_version,'basePermitted',r.version=expected_version,
+  'decisionKind',a.decision_kind,'scopeSha256',a.scope_hash,'conflict',r.version<>expected_version,'basePermitted',r.version=expected_version,
   'message',CASE WHEN r.version=expected_version THEN 'Current exact version.' ELSE 'Base history requires separate permission; reload current review.' END,'validUntil',until_at);
 END $$;
 REVOKE ALL ON FUNCTION oracle2.hosting_processing_review_diff_v1(uuid,integer,uuid,text,text,text,timestamptz) FROM PUBLIC;
@@ -671,6 +718,12 @@ CREATE OR REPLACE FUNCTION oracle2.commit_processing_candidate(
 BEGIN
  IF convert_from(payload_bytes,'UTF8')::jsonb ? 'consolidation_core' THEN
   RAISE insufficient_privilege USING MESSAGE='temporal core requires canonical revision CAS';
+ END IF;
+ IF supplied_manifest->>'kind'='processing_qualified_model_v1' THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('operating-model:'||(supplied_manifest->>'workspace_id')::uuid::text||':'||(supplied_manifest->>'artifact_id')::uuid::text,0));
+  IF EXISTS(SELECT 1 FROM oracle2.processing_model_revisions_v1 WHERE workspace_id=(supplied_manifest->>'workspace_id')::uuid AND artifact_id=(supplied_manifest->>'artifact_id')::uuid) THEN
+   RAISE insufficient_privilege USING MESSAGE='registered temporal model requires canonical revision CAS';
+  END IF;
  END IF;
  RETURN oracle2._commit_processing_candidate_canonical_v1(supplied_manifest,payload_bytes,refs_bytes,dependency_bytes,supplied_receipts,expected_runtime,expected_registry,caller_deadline);
 END $$;

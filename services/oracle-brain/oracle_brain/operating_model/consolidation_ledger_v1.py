@@ -51,7 +51,7 @@ def persist_consolidation_revision_v1(ledger,authority,*,payload,permission_dige
     # Synchronous filesystem may finish late; no subsequent SQL is then allowed.
     if ledger.blobs.put(workspace,payload)!=(manifest.private_object_key,content):raise PermissionError('private immutable object identity differs')
     authority._deadline(deadline)
-    attempted=False
+    attempted=False;committed=False;body_complete=False
     try:
         with psycopg.connect(authority.url,connect_timeout=2) as c:
             authority._check(c,deadline);ledger.processing_sources._check(c)
@@ -68,19 +68,25 @@ def persist_consolidation_revision_v1(ledger,authority,*,payload,permission_dige
                     raise PermissionError('externally appointed compiler job changed before commit')
                 if qualification_hash not in protected_settings.semantic.current(datetime.now(timezone.utc)):
                     raise PermissionError('current external semantic registry changed before commit')
+            body_complete=True
+        committed=True
         authority._check_after_close(deadline,result)
     except (psycopg.errors.SerializationFailure,psycopg.errors.UniqueViolation,psycopg.errors.InsufficientPrivilege):
+        if committed or body_complete:raise ConsolidationCommitUnknown('committed consolidation no longer available; read-only reconciliation required, no automatic retry') from None
         raise
     except Exception:
-        if attempted:raise ConsolidationCommitUnknown('consolidation write outcome UNKNOWN; no automatic retry') from None
+        if attempted:raise ConsolidationCommitUnknown('consolidation write outcome UNKNOWN; read-only reconciliation required, no automatic retry') from None
         raise
-    # Actual new readonly transaction after actual write connection closed.
-    with psycopg.connect(authority.url,connect_timeout=2) as c:
-        authority._check(c,deadline)
-        fresh=c.execute('SELECT oracle2.hosting_processing_model_revision_v1(%s,%s,%s,%s,%s,%s,%s)',
-            (artifact,version,*authority._arguments(deadline))).fetchone()[0]
-        authority._check(c,deadline)
-    if fresh['manifest']!=result['manifest'] or fresh['recordedAt']!=result['recordedAt']:
-        raise PermissionError('committed revision no longer current')
-    authority._check_after_close(deadline,fresh)
+    try:
+        # Actual new readonly transaction after actual write connection closed.
+        with psycopg.connect(authority.url,connect_timeout=2) as c:
+            authority._check(c,deadline)
+            fresh=c.execute('SELECT oracle2.hosting_processing_model_revision_v1(%s,%s,%s,%s,%s,%s,%s)',
+                (artifact,version,*authority._arguments(deadline))).fetchone()[0]
+            authority._check(c,deadline)
+        if fresh['manifest']!=result['manifest'] or fresh['recordedAt']!=result['recordedAt']:
+            raise PermissionError('committed revision no longer current')
+        authority._check_after_close(deadline,fresh)
+    except Exception:
+        raise ConsolidationCommitUnknown('consolidation committed but readback unavailable; read-only reconciliation required, no automatic retry') from None
     return manifest,fresh

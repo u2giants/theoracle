@@ -17,6 +17,7 @@ from .purpose_qualification_v3 import PurposeAssemblyQualificationV3
 from .semantic_acceptance import sealed
 
 _FUNCTIONS=(
+ 'hosting_consolidated_model_version_v1(uuid,integer,uuid,text,text,text,timestamp with time zone)',
  'commit_processing_model_revision_v1(jsonb,bytea,bytea,bytea,jsonb,uuid,text,text,text,timestamp with time zone,uuid)',
  'hosting_historical_consolidated_model_v1(uuid,timestamp with time zone,timestamp with time zone,uuid,text,text,text,timestamp with time zone)',
  'hosting_current_consolidated_model_v1(uuid,uuid,text,text,text,timestamp with time zone)',
@@ -51,6 +52,8 @@ class ConsolidationBindingV1:
                 or any(type(x) is not UUID for x in (self.appointment_id,self.principal_id,self.workspace_id,self.model_id))
                 or not self.session_login or not self.expected_owner or self.session_login==self.expected_owner
                 or self.original_horizon.tzinfo is None or self.original_horizon.utcoffset() is None
+                or type(self.retained_semantic_admissions) is not frozenset
+                or type(self.capability_body_hashes) is not tuple or any(type(p) is not tuple or len(p)!=2 for p in self.capability_body_hashes)
                 or not self.retained_semantic_admissions or len(self.retained_semantic_admissions)>64):
             raise PermissionError('external finite exact processing appointment required')
         expected={x.split('(')[0] for x in _FUNCTIONS}|{'_commit_processing_candidate_canonical_v1'}
@@ -59,6 +62,12 @@ class ConsolidationBindingV1:
         import re
         if any(not re.fullmatch('[0-9a-f]{64}',h) for h in (self.runtime_hash,self.registry_hash,self.config_hash,self.ca_sha256,*self.retained_semantic_admissions,*(h for _,h in self.capability_body_hashes))):
             raise PermissionError('exact externally pinned hashes required')
+
+
+@dataclass(frozen=True)
+class ConsolidationReviewSnapshotV1:
+    metadata:dict
+    valid_until:datetime
 
 
 class ConsolidationOutcomeUnknown(PermissionError):
@@ -111,12 +120,15 @@ class ConsolidationAuthorityV1:
         b=self.binding
         return (b.appointment_id,b.runtime_hash,b.registry_hash,b.config_hash,deadline)
 
-    def _metadata(self,model,*,deadline,valid_at=None,known_at=None):
+    def _metadata(self,model,*,deadline,valid_at=None,known_at=None,version=None):
         self._deadline(deadline)
         if self.binding.operation!='history-read' or type(model) is not UUID or model!=self.binding.model_id:raise PermissionError('distinct fixed history appointment required')
         with psycopg.connect(self.url,connect_timeout=2) as c:
             self._check(c,deadline)
-            if valid_at is None and known_at is None:
+            if version is not None:
+                if type(version) is not int or version<1 or valid_at is not None or known_at is not None:raise PermissionError('exact retained version selector required')
+                result=c.execute('SELECT oracle2.hosting_consolidated_model_version_v1(%s,%s,%s,%s,%s,%s,%s)',(model,version,*self._arguments(deadline))).fetchone()[0]
+            elif valid_at is None and known_at is None:
                 result=c.execute('SELECT oracle2.hosting_current_consolidated_model_v1(%s,%s,%s,%s,%s,%s)',(model,*self._arguments(deadline))).fetchone()[0]
             elif valid_at is not None and known_at is not None:
                 result=c.execute('SELECT oracle2.hosting_historical_consolidated_model_v1(%s,%s,%s,%s,%s,%s,%s,%s)',(model,valid_at,known_at,*self._arguments(deadline))).fetchone()[0]
@@ -131,8 +143,8 @@ class ConsolidationAuthorityV1:
         if datetime.now(timezone.utc)>=min(deadline,self.binding.original_horizon,datetime.fromisoformat(result['validUntil'])):
             raise PermissionError('authority expired at connection close')
 
-    def _read_model_packet_v1(self,model,*,blobs,deadline,valid_at=None,known_at=None):
-        before=self._metadata(model,deadline=deadline,valid_at=valid_at,known_at=known_at)
+    def _read_model_packet_v1(self,model,*,blobs,deadline,valid_at=None,known_at=None,version=None):
+        before=self._metadata(model,deadline=deadline,valid_at=valid_at,known_at=known_at,version=version)
         manifest=ArtifactManifest.model_validate_json(canonical_bytes(before['manifest']))
         if manifest.workspace_id!=self.binding.workspace_id:raise PermissionError('cross-workspace capability')
         # Existing immutable private-object owner; no caller path/URL/role selector.
@@ -157,7 +169,7 @@ class ConsolidationAuthorityV1:
                 or core.model.model_id!=model or core.model.workspace_id!=manifest.workspace_id
                 or core.model.version!=manifest.version):
             raise PermissionError('exact retained independently qualified temporal body required')
-        after=self._metadata(model,deadline=deadline,valid_at=valid_at,known_at=known_at)
+        after=self._metadata(model,deadline=deadline,valid_at=valid_at,known_at=known_at,version=version)
         if after!=before:raise PermissionError('current history capability changed during private read')
         self._check_after_close(deadline,after)
         return core,after,payload
@@ -165,7 +177,7 @@ class ConsolidationAuthorityV1:
     def review_v1(self,*,model,version,content_hash,decision,scope,assertions,bundle_hash,idempotency,deadline):
         self._deadline(deadline)
         if self.binding.operation!='business-review' or model!=self.binding.model_id:raise PermissionError('separate scoped business decision appointment required')
-        attempted=False
+        attempted=False;body_complete=False
         try:
             with psycopg.connect(self.url,connect_timeout=2) as c:
                 self._check(c,deadline)
@@ -173,19 +185,26 @@ class ConsolidationAuthorityV1:
                 result=c.execute('SELECT oracle2.record_processing_model_review_v1(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                     (model,version,content_hash,decision,canonical_bytes(scope),Jsonb(assertions),bundle_hash,idempotency,*self._arguments(deadline))).fetchone()[0]
                 self._check(c,deadline)
-        except (psycopg.OperationalError,psycopg.InterfaceError,OSError,TimeoutError):
-            if attempted:raise ConsolidationOutcomeUnknown('business review outcome UNKNOWN; no automatic retry') from None
+                body_complete=True
+        except (psycopg.errors.SerializationFailure,psycopg.errors.UniqueViolation,psycopg.errors.InsufficientPrivilege):
+            if body_complete:raise ConsolidationOutcomeUnknown('decision commit/close outcome UNKNOWN; read-only reconciliation required, no retry') from None
             raise
-        self._check_after_close(deadline,result)
-        # Independent fresh purpose recheck after actual write ACK/connection close.
-        with psycopg.connect(self.url,connect_timeout=2) as c:
-            self._check(c,deadline)
-            fresh=c.execute('SELECT oracle2.hosting_processing_review_diff_v1(%s,%s,%s,%s,%s,%s,%s)',
-                (model,version,*self._arguments(deadline))).fetchone()[0]
-            if fresh['currentVersion']!=version or fresh['currentContentHash']!=content_hash:
-                raise PermissionError('accepted version changed after commit')
-            self._check(c,deadline)
-        self._check_after_close(deadline,fresh)
+        except Exception:
+            if attempted:raise ConsolidationOutcomeUnknown('business review outcome UNKNOWN; read-only reconciliation required, no automatic retry') from None
+            raise
+        try:
+            self._check_after_close(deadline,result)
+            # Independent fresh purpose recheck after actual write ACK/connection close.
+            with psycopg.connect(self.url,connect_timeout=2) as c:
+                self._check(c,deadline)
+                fresh=c.execute('SELECT oracle2.hosting_processing_review_diff_v1(%s,%s,%s,%s,%s,%s,%s)',
+                    (model,version,*self._arguments(deadline))).fetchone()[0]
+                if fresh['currentVersion']!=version or fresh['currentContentHash']!=content_hash:
+                    raise PermissionError('accepted version changed after commit')
+                self._check(c,deadline)
+            self._check_after_close(deadline,fresh)
+        except Exception:
+            raise ConsolidationOutcomeUnknown('decision committed but current readback unavailable; read-only reconciliation required, no retry') from None
         return result
 
 
@@ -194,23 +213,30 @@ class ConsolidationAuthorityV1:
         if (self.binding.operation!='business-review' or type(target_event) is not UUID
                 or type(idempotency) is not UUID or action not in {'challenge','withdraw'}):
             raise PermissionError('fixed currently scoped decision-change capability required')
-        attempted=False
+        attempted=False;body_complete=False
         try:
             with psycopg.connect(self.url,connect_timeout=2) as c:
                 self._check(c,deadline);attempted=True
                 result=c.execute('SELECT oracle2.record_processing_model_decision_change_v1(%s,%s,%s,%s,%s,%s,%s,%s)',
                     (target_event,action,idempotency,*self._arguments(deadline))).fetchone()[0]
                 self._check(c,deadline)
-        except (psycopg.OperationalError,psycopg.InterfaceError,OSError,TimeoutError):
-            if attempted:raise ConsolidationOutcomeUnknown('decision change outcome UNKNOWN; no automatic retry') from None
+                body_complete=True
+        except (psycopg.errors.SerializationFailure,psycopg.errors.UniqueViolation,psycopg.errors.InsufficientPrivilege):
+            if body_complete:raise ConsolidationOutcomeUnknown('decision commit/close outcome UNKNOWN; read-only reconciliation required, no retry') from None
             raise
-        self._check_after_close(deadline,result)
-        with psycopg.connect(self.url,connect_timeout=2) as c:
-            self._check(c,deadline)
-            fresh=c.execute('SELECT oracle2.hosting_processing_decision_event_v1(%s,%s,%s,%s,%s,%s)',
-                (result['eventId'],*self._arguments(deadline))).fetchone()[0]
-            self._check(c,deadline)
-        self._check_after_close(deadline,fresh)
+        except Exception:
+            if attempted:raise ConsolidationOutcomeUnknown('decision change outcome UNKNOWN; read-only reconciliation required, no automatic retry') from None
+            raise
+        try:
+            self._check_after_close(deadline,result)
+            with psycopg.connect(self.url,connect_timeout=2) as c:
+                self._check(c,deadline)
+                fresh=c.execute('SELECT oracle2.hosting_processing_decision_event_v1(%s,%s,%s,%s,%s,%s)',
+                    (result['eventId'],*self._arguments(deadline))).fetchone()[0]
+                self._check(c,deadline)
+            self._check_after_close(deadline,fresh)
+        except Exception:
+            raise ConsolidationOutcomeUnknown('decision committed but current readback unavailable; read-only reconciliation required, no retry') from None
         return result
 
 
@@ -228,7 +254,7 @@ class ConsolidationAuthorityV1:
         findings={f['finding_id']:f for f in payload.get('findings',[])}
         def documentary(assertion):
             groups={}
-            for polarity,ids in (('supporting',assertion.supporting_observations),('opposing',assertion.opposing_observations),('unknown',assertion.unknown_finding_ids)):
+            for polarity,ids in (('supporting',assertion.supporting_observations),('opposing',assertion.opposing_observations),('unknown',assertion.unknown_finding_ids),('temporal',assertion.temporal_observations)):
                 groups[polarity]=tuple(quote for identifier in ids for quote in (findings[identifier]['evidence_refs'] if polarity=='unknown' else observations[identifier]['evidence']))
             return {'assertion':assertion.model_dump(mode='json'),'evidence':groups,'authority':'reported','policyEligibility':'unknown'}
         def possible(a):
@@ -241,7 +267,7 @@ class ConsolidationAuthorityV1:
             'mode':metadata['mode'],'validAt':at.isoformat(),'knownAt':known_at.isoformat() if known_at is not None else 'current',
             'assertions':tuple(documentary(a) for a in selected[:64]),'unresolved':tuple(documentary(a) for a in unresolved[:16]),
             'totalApplicable':len(selected),'totalUnresolved':len(unresolved),'truncated':len(selected)>64 or len(unresolved)>16,
-            'policyEligibility':'unknown','modelConfirmed':False}
+            'policyEligibility':'unknown','modelConfirmed':False,'businessDecisions':metadata.get('businessDecisions',())}
         fresh=self._metadata(model,deadline=deadline,valid_at=valid_at,known_at=known_at)
         if fresh!=metadata:raise PermissionError('documentary query authority changed during answer packing')
         self._check_after_close(deadline,fresh)
@@ -259,27 +285,61 @@ class ConsolidationAuthorityV1:
         self._check_after_close(deadline,result)
         return result
 
-    def read_review_diff_v1(self,model,*,expected_version,base_known_at,blobs,deadline,history_authority=None):
+    def read_review_diff_v1(self,model,*,expected_version,blobs,deadline,history_authority=None):
+        return self.read_review_snapshot_v1(model,expected_version=expected_version,blobs=blobs,deadline=deadline,history_authority=history_authority).metadata
+
+    def read_review_snapshot_v1(self,model,*,expected_version,blobs,deadline,history_authority=None):
         """Both exact per-principal capabilities, no automatic rebase/approval."""
         current=self.review_metadata_v1(model,expected_version=expected_version,deadline=deadline)
         redacted={**{k:current[k] for k in ('modelId','currentVersion','currentContentHash','conflict')},
             'basePermitted':False,'message':'Base history is not permitted; reload current review.',
             'automaticRebase':False,'policyEligibility':'unknown'}
+        def redacted_packet(value):
+            end=min(deadline,self.binding.original_horizon,datetime.fromisoformat(value['validUntil']))
+            self._check_after_close(end,value)
+            return ConsolidationReviewSnapshotV1({**redacted,'currentVersion':value['currentVersion'],'currentContentHash':value['currentContentHash']},end)
         if (type(history_authority) is not ConsolidationAuthorityV1 or history_authority.binding.operation!='history-read'
                 or (history_authority.binding.principal_id,history_authority.binding.workspace_id,history_authority.binding.model_id)
                 !=(self.binding.principal_id,self.binding.workspace_id,self.binding.model_id)):
-            return redacted
+            return redacted_packet(current)
         try:
-            at=datetime.fromisoformat(current['recordedAt'])
-            latest,_,_=history_authority._read_model_packet_v1(model,blobs=blobs,deadline=deadline,valid_at=at,known_at=at)
-            base,_,_=history_authority._read_model_packet_v1(model,blobs=blobs,deadline=deadline,valid_at=base_known_at,known_at=base_known_at)
-            if base.model.version!=expected_version or latest.model.version!=current['currentVersion']:return redacted
+            latest,latest_metadata,latest_payload=history_authority._read_model_packet_v1(model,blobs=blobs,deadline=deadline,version=current['currentVersion'])
+            base,base_metadata,base_payload=history_authority._read_model_packet_v1(model,blobs=blobs,deadline=deadline,version=expected_version)
+            if base.model.version!=expected_version or latest.model.version!=current['currentVersion']:return redacted_packet(current)
             changes=readable_diff(base,latest) if base.model.version!=latest.model.version else ()
         except (PermissionError,psycopg.Error):
             # Reprove current access before even returning the redacted refresh.
-            self.review_metadata_v1(model,expected_version=expected_version,deadline=deadline)
-            return redacted
+            return redacted_packet(self.review_metadata_v1(model,expected_version=expected_version,deadline=deadline))
         fresh=self.review_metadata_v1(model,expected_version=expected_version,deadline=deadline)
-        if fresh!=current:return {**redacted,'currentVersion':fresh['currentVersion'],'currentContentHash':fresh['currentContentHash']}
-        return {**redacted,'basePermitted':True,'message':'Review exact changes before a new decision.',
-            'changes':changes[:64],'totalChanges':len(changes),'truncated':len(changes)>64}
+        if fresh!=current:return redacted_packet(fresh)
+        response={**redacted,'basePermitted':True,'message':'Review exact changes before a new decision.',
+            'baseRecordedAt':base_metadata['recordedAt'],'currentRecordedAt':latest_metadata['recordedAt'],
+            'currentAssertions':tuple(_review_assertion(latest_payload,a) for a in latest.assertions[:64]),
+            'totalAssertions':len(latest.assertions),'businessDecisions':latest_metadata.get('businessDecisions',()),
+            'changes':tuple({**change,'beforeEvidence':_review_evidence(base_payload,change['before']),
+                'afterEvidence':_review_evidence(latest_payload,change['after'])} for change in changes[:64]),
+            'totalChanges':len(changes),'truncated':len(changes)>64 or len(latest.assertions)>64}
+        # Reprove each independent history scope AFTER all private diff packing.
+        try:
+            latest_fresh=history_authority._metadata(model,deadline=deadline,version=latest.model.version)
+            base_fresh=history_authority._metadata(model,deadline=deadline,version=base.model.version)
+            if latest_fresh!=latest_metadata or base_fresh!=base_metadata:raise PermissionError('history review snapshot changed')
+        except (PermissionError,psycopg.Error):
+            return redacted_packet(self.review_metadata_v1(model,expected_version=expected_version,deadline=deadline))
+        final=self.review_metadata_v1(model,expected_version=expected_version,deadline=deadline)
+        if final!=current:return redacted_packet(final)
+        end=min(deadline,self.binding.original_horizon,history_authority.binding.original_horizon,
+            *(datetime.fromisoformat(m['validUntil']) for m in (final,latest_fresh,base_fresh)))
+        history_authority._check_after_close(end,latest_fresh);self._check_after_close(end,final)
+        return ConsolidationReviewSnapshotV1(response,end)
+
+
+def _review_evidence(payload,assertion):
+    if assertion is None:return None
+    observations={o['observation_id']:o for o in payload['observations']};findings={f['finding_id']:f for f in payload.get('findings',[])}
+    return {polarity:tuple(quote for key in assertion.get(field,()) for quote in (findings[key]['evidence_refs'] if polarity=='unknown' else observations[key]['evidence']))
+        for polarity,field in (('supporting','supporting_observations'),('opposing','opposing_observations'),('unknown','unknown_finding_ids'),('temporal','temporal_observations'))}
+
+def _review_assertion(payload,assertion):
+    body=assertion.model_dump(mode='json')
+    return {'assertion':body,'evidence':_review_evidence(payload,body)}

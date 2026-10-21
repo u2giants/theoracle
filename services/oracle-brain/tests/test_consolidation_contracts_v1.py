@@ -105,7 +105,7 @@ def test_actual_complete_wire_consolidation_capture_and_protocol_separation(cont
 from test_purpose_qualification_v3 import qualified_v3,serving
 
 
-def temporal_qualified_fixture(q):
+def temporal_qualified_fixture(q,*,predecessor=None):
     """Fresh injected capture/assessment/admission chain; never operational authority."""
     from oracle_brain.operating_model.purpose_profiles_v2 import PurposePrivateContextV2
     from oracle_brain.operating_model.purpose_qualification_v3 import (
@@ -114,11 +114,15 @@ def temporal_qualified_fixture(q):
     import hashlib
     original=q['wire'];ctx=original['context'];model=json.loads(_observed_model_content(original['raw'],ctx.job.request['model']))
     observations=ctx.extractions[0].payload['observations']
-    body={'contract':'qualified-consolidation-core-v1','model':model,'expected_predecessor_version':0,
-      'expected_predecessor_hash':None,'correction_source_ids':[],
+    body={'contract':'qualified-consolidation-core-v1','model':model,'expected_predecessor_version':model['version']-1,
+      'expected_predecessor_hash':digest(predecessor) if predecessor is not None else None,'correction_source_ids':[str(r.ref.source_id) for r in ctx.receipts] if predecessor is not None else [],
       'assertions':[{'assertion_id':str(uuid4()),'revision':1,'subject_id':str(uuid4()),'predicate':'reported_step','value':'documentary fixture',
         'provenance':'employee_account','scope':{key:{'mode':'unknown','identities':[]} for key in ('process','customer','product','region')},
         'valid_time':'unknown','supporting_observations':[observations[0]['observation_id']]}]}
+    if predecessor is not None:
+        prior=ConsolidationCoreV1.model_validate_json(canonical_bytes(predecessor['consolidation_core']))
+        a=body['assertions'][0];a.update(assertion_id=str(prior.assertions[0].assertion_id),revision=prior.assertions[0].revision+1,
+            predecessor_hash=digest(prior.assertions[0].model_dump(mode='json')),value='documentary correction fixture')
     core=ConsolidationCoreV1.model_validate_json(json.dumps(body))
     request=dict(ctx.job.request);request['messages']=assembly_messages(receipts=ctx.receipts,extractions=ctx.extractions,
       census=ctx.census,model_id=ctx.model_id,version=ctx.model_version,candidate_contract=core.contract)
