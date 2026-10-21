@@ -2,6 +2,7 @@
 import { performance } from 'node:perf_hooks';
 import { canonicalJson, parseClosedJson } from './replacement-server-binding';
 if (typeof window !== 'undefined') throw new Error('Replacement control unavailable');
+export const ORIGINAL_VIEW_PATH='/api/consultant/replacement/v1/protected/original';
 export const CONTROL_PATH = '/api/consultant/replacement/v1/protected/control';
 export const CONTROL_WINDOW_HEADER = 'x-oracle2-control-window';
 export const CONTROL_BYPASS_HEADERS = Object.freeze(['x-middleware-subrequest','x-invoke-path','x-invoke-query','x-matched-path','x-now-route-matches','x-nextjs-data']);

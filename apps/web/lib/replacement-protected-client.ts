@@ -3,8 +3,8 @@
 import * as https from 'node:https';
 import * as tls from 'node:tls';
 import { performance } from 'node:perf_hooks';
-import { canonicalHash, canonicalJson, canonicalUuid, instant, matchesIdentity, parseClosedJson, readInstalledBinding, sha256, type InstalledBinding, type ServerBinding } from './replacement-server-binding';
-import { readControlWindow } from './replacement-control-window';
+import { canonicalHash, canonicalJson, canonicalUuid, instant, matchesIdentity, parseClosedJson, readInstalledBinding, readInstalledViewerBinding, MAX_ORIGINAL_BYTES, sha256, type InstalledBinding, type ProtectedBinding, type ViewerSourcePin } from './replacement-server-binding';
+import { readControlWindow, unavailableControl, privateControlHeaders } from './replacement-control-window';
 if (typeof window !== 'undefined') throw new Error('Replacement control unavailable');
 const failure = (): never => { throw new Error('Replacement control unavailable'); };
 const exact = (v: unknown, fields: readonly string[]): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === fields.length && fields.every(k => Object.hasOwn(v,k));
@@ -39,7 +39,7 @@ async function within<T>(promise: Promise<T>, window: Window): Promise<T> {
     })]);
   } finally { if (timer) clearTimeout(timer); if (onAbort) window.signal.removeEventListener('abort',onAbort); }
 }
-async function identity(binding: Readonly<ServerBinding>, window: Window): Promise<void> {
+async function identity(binding: Readonly<ProtectedBinding>, window: Window): Promise<void> {
   // The sole production adapter: no supplied snapshot, JWT decoding, role,
   // fixture cookie, service client or caller-selected identity can enter here.
   const { getServerSupabase } = await within(import('./supabase/server'),window);
@@ -55,24 +55,24 @@ async function identity(binding: Readonly<ServerBinding>, window: Window): Promi
   if (!employee || !matchesIdentity(binding, { configuredProjectUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', actualProjectUrl, verifiedUserId:data.user.id,employeeId:employee.id,disabledAt:employee.disabledAt })) return failure();
   remaining(window);
 }
-function current(initial: InstalledBinding, window: Window): void {
-  const again = readInstalledBinding();
+function current(initial: InstalledBinding<ProtectedBinding>, window: Window): void {
+  const again = initial.profile.purpose==='replacement-original-web-binding-v1'?readInstalledViewerBinding():readInstalledBinding();
   if (canonicalJson(again.profile) !== canonicalJson(initial.profile)) return failure();
   window.end = Math.min(window.end,instant(again.profile.expires_at),instant(again.profile.original_horizon));
   remaining(window);
 }
-function origin(request: Request, binding: Readonly<ServerBinding>): void {
+function origin(request: Request, binding: Readonly<ProtectedBinding>): void {
   if (request.method !== 'POST' || request.headers.get('origin') !== binding.web_origin || new URL(request.url).origin !== binding.web_origin || request.headers.get('content-type') !== 'application/json' || request.headers.has('content-encoding')) return failure();
 }
-async function readBody(request: Request, window: Window): Promise<Buffer> {
+async function readBody(request: Request, window: Window,limit=65536): Promise<Buffer> {
   const declared = request.headers.get('content-length');
-  if (declared !== null && (!/^[1-9][0-9]{0,4}$/.test(declared) || Number(declared) > 65536)) return failure();
+  if (declared !== null && (!/^[1-9][0-9]{0,4}$/.test(declared) || Number(declared) > limit)) return failure();
   if (!request.body) return failure();
   const reader = request.body.getReader(); const chunks: Uint8Array[] = []; let length = 0;
   try {
     for (;;) {
       const next = await within(reader.read(),window); if (next.done) break;
-      length += next.value.length; if (length > 65536) return failure(); chunks.push(next.value);
+      length += next.value.length; if (length > limit) return failure(); chunks.push(next.value);
     }
     if (!length || (declared !== null && Number(declared) !== length)) return failure();
     return Buffer.concat(chunks,length);
@@ -102,7 +102,7 @@ export function validateControlRequest(bytes: Uint8Array): Readonly<Record<strin
   return Object.freeze(p);
 }
 
-async function transport(installed: InstalledBinding, body: Buffer, window: Window): Promise<Readonly<ControlMetadata>> {
+async function transport(installed: InstalledBinding<ProtectedBinding>, body: Buffer, window: Window,pin?:Readonly<ViewerSourcePin>): Promise<Readonly<ControlMetadata>|OriginalPacket> {
   const p = installed.profile; const url = new URL(p.backend_origin);
   let socket: tls.TLSSocket | undefined; let request: ReturnType<typeof https.request> | undefined;
   const abort = () => { request?.destroy(); socket?.destroy(); };
@@ -125,24 +125,33 @@ async function transport(installed: InstalledBinding, body: Buffer, window: Wind
     const agent = new https.Agent({keepAlive:false,maxSockets:1});
     agent.createConnection = () => connected;
     try {
-      const response = new Promise<Readonly<ControlMetadata>>((resolve,reject) => {
-        let metadata: Readonly<ControlMetadata> | undefined; let ended = false; let peerEnded = false; let responseCount = 0;
+      const response = new Promise<Readonly<ControlMetadata>|OriginalPacket>((resolve,reject) => {
+        let metadata: Readonly<ControlMetadata>|OriginalPacket|undefined; let ended = false; let peerEnded = false; let responseCount = 0;
         const refuse = () => reject(new Error('Replacement control unavailable'));
         connected.once('end',() => { peerEnded = true; });
         connected.once('close',(hadError) => { if (hadError || !peerEnded || !ended || !metadata) refuse(); else resolve(metadata); });
-        request = https.request({protocol:'https:',hostname:p.server_dns,port:url.port || 443,path:p.control_path,method:'POST',agent,headers:{'Content-Type':'application/json','Content-Length':String(body.length),'Connection':'close'}},res => {
-          responseCount++; if (responseCount !== 1 || res.statusCode !== 200 || res.headers['content-type'] !== 'application/json' || res.headers['content-encoding'] !== undefined || res.headers['transfer-encoding'] !== undefined || res.headers.connection !== 'close') { refuse(); abort(); return; }
+        request = https.request({protocol:'https:',hostname:p.server_dns,port:url.port || 443,path:p.purpose==='replacement-original-web-binding-v1'?p.original_path:p.control_path,method:'POST',agent,headers:{'Content-Type':'application/json','Content-Length':String(body.length),'Connection':'close'}},res => {
+          responseCount++; if (responseCount !== 1 || res.statusCode !== 200 || res.headers['content-type'] !== (pin?'application/pdf':'application/json') || res.headers['content-encoding'] !== undefined || res.headers['transfer-encoding'] !== undefined || res.headers.connection !== 'close') { refuse(); abort(); return; }
           const seen = new Set<string>();
           for (let i = 0; i < res.rawHeaders.length; i += 2) { const h = res.rawHeaders[i]!.toLowerCase(); if (seen.has(h)) { refuse(); abort(); return; } seen.add(h); }
           const len = res.headers['content-length'];
-          if (typeof len !== 'string' || !/^[1-9][0-9]{0,3}$/.test(len) || Number(len) > 4096) { refuse(); abort(); return; }
-          let size = 0; const chunks: Buffer[] = [];
+          if (typeof len !== 'string' || !/^[1-9][0-9]{0,7}$/.test(len) || Number(len) > (pin?MAX_ORIGINAL_BYTES:4096) || (pin!==undefined&&Number(len)!==pin.byte_count)) { refuse(); abort(); return; }
+          let lease:string|undefined;
+          if(pin){
+            try{
+              const value=res.headers['x-oracle-original-valid-until'];
+              if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value)||res.headers['cache-control']!=='no-store, private'||res.headers['x-content-type-options']!=='nosniff'||res.headers['accept-ranges']!==undefined)throw new Error();
+              const end=instant(value);if(end<=Date.now()||end>window.end)throw new Error();
+              lease=value;window.end=Math.min(window.end,end);connected.setTimeout(remaining(window));
+            }catch{refuse();abort();return;}
+          }
+          let size = 0; const chunks: Buffer[] = [];const original=pin?Buffer.alloc(pin.byte_count):undefined;
           res.on('data',(chunk: Buffer) => {
-            try { connected.setTimeout(remaining(window),() => abort()); size += chunk.length; if (size > Number(len)) throw new Error(); chunks.push(chunk); }
+            try { connected.setTimeout(remaining(window)); size += chunk.length; if (size > Number(len)) throw new Error(); if(original)chunk.copy(original,size-chunk.length);else chunks.push(chunk); }
             catch { refuse(); abort(); }
           });
           res.once('aborted',refuse); res.once('error',refuse);
-          res.once('end',() => { try { remaining(window); if (!res.complete || size !== Number(len) || res.trailers && Object.keys(res.trailers).length) return refuse(); metadata = parseControlMetadata(Buffer.concat(chunks,size)); ended = true; } catch { refuse(); abort(); } });
+          res.once('end',() => { try { remaining(window); if (!res.complete || size !== Number(len) || res.trailers && Object.keys(res.trailers).length) return refuse(); if(pin&&original&&lease){if(!original.subarray(0,5).equals(Buffer.from('%PDF-'))||sha256(original)!==pin.original_sha256)throw new Error();remaining(window);metadata={data:original,validUntil:lease};}else metadata = parseControlMetadata(Buffer.concat(chunks,size)); ended = true; } catch { refuse(); abort(); } });
         });
         request.once('error',refuse);
         request.setTimeout(remaining(window),() => { refuse(); abort(); });
@@ -173,11 +182,50 @@ export async function requestReplacementControl(request: Request): Promise<Prote
     if (callerDeadline <= Date.now() || callerDeadline > wall + 30000 || callerDeadline > proxyWindow.wall_end || callerDeadline > instant(installed.profile.original_horizon) || callerDeadline > instant(installed.profile.expires_at)) return failure();
     window.end = Math.min(window.end,callerDeadline);
     current(installed,window); await identity(installed.profile,window); current(installed,window);
-    const metadata = await transport(installed,body,window);
+    const response = await transport(installed,body,window);
+    if(!('runId' in response))return failure();const metadata=response;
     if (dto.operation === 'reserve' ? metadata.populationSha256 !== dto.population_sha256 : metadata.runId !== dto.run_id) return failure();
     current(installed,window); await identity(installed.profile,window); current(installed,window);
     // The original deadline remains private in this invocation and the exact
     // request bytes. A later explicit identical request still needs every gate.
     return Object.freeze({available:true,metadata});
   } catch { return Object.freeze({available:false}); }
+}
+
+interface OriginalPacket {readonly data:Buffer;readonly validUntil:string;}
+/** Closed original-view wire: exact Python post-validation datetime rendering. */
+export function validateOriginalViewRequest(bytes:Uint8Array):Readonly<Record<string,unknown>>{
+  const v=parseClosedJson(bytes,4096);
+  if(!exact(v,['schema_version','source_id','revision','caller_deadline'])||v.schema_version!==1||!canonicalUuid(v.source_id)||typeof v.revision!=='number'||!Number.isSafeInteger(v.revision)||v.revision<1||typeof v.caller_deadline!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.(?!000000)[0-9]{6})?Z$/.test(v.caller_deadline)||canonicalJson(v)!==Buffer.from(bytes).toString('utf8'))return failure();
+  instant(v.caller_deadline);return Object.freeze(v);
+}
+let viewerBusy=false;
+/** Original bytes only; separate installed purpose, no result/truth/writer grant. */
+export async function requestReplacementOriginal(request:Request):Promise<Response>{
+  const wall=Date.now(),mono=performance.now();
+  const window:Window={wall,mono,end:wall+30000,signal:request.signal,proxyMonoEnd:process.hrtime.bigint()+30000000000n};
+  if(viewerBusy)return unavailableControl();viewerBusy=true;let handedOff=false;
+  try{
+    const proxyWindow=readControlWindow(request.headers);window.end=Math.min(window.end,proxyWindow.wall_end);window.proxyMonoEnd=BigInt(proxyWindow.mono_end);
+    const installed=readInstalledViewerBinding(),profile=installed.profile;
+    window.end=Math.min(window.end,instant(profile.expires_at),instant(profile.original_horizon));
+    origin(request,profile);if(['range','if-range','if-match','if-none-match','if-modified-since','if-unmodified-since','expect'].some(k=>request.headers.has(k)))return unavailableControl();
+    remaining(window);await identity(profile,window);
+    const bytes=await readBody(request,window,4096),dto=validateOriginalViewRequest(bytes),deadline=instant(dto.caller_deadline);
+    if(deadline<=Date.now()||deadline>window.end)return unavailableControl();window.end=Math.min(window.end,deadline);
+    const pins=profile.sources.filter(pin=>pin.source_id===dto.source_id&&pin.revision===dto.revision);if(pins.length!==1)return unavailableControl();
+    current(installed,window);await identity(profile,window);current(installed,window);
+    const result=await transport(installed,bytes,window,pins[0]);if(!('data' in result))return unavailableControl();
+    current(installed,window);await identity(profile,window);current(installed,window);remaining(window);
+    let offset=0,timer:ReturnType<typeof setTimeout>|undefined,closed=false,controller:ReadableStreamDefaultController<Uint8Array>|undefined;
+    const release=()=>{if(closed)return;closed=true;if(timer)clearTimeout(timer);request.signal.removeEventListener('abort',abort);viewerBusy=false;};
+    const abort=()=>{if(closed)return;controller?.error(new Error('Replacement control unavailable'));release();};
+    const stream=new ReadableStream<Uint8Array>({
+      start(c){controller=c;timer=setTimeout(abort,remaining(window));request.signal.addEventListener('abort',abort,{once:true});if(request.signal.aborted)abort();},
+      pull(c){try{current(installed,window);remaining(window);const end=Math.min(offset+65536,result.data.length);c.enqueue(result.data.subarray(offset,end));offset=end;if(offset===result.data.length){c.close();release();}}catch{abort();}},
+      cancel(){release();},
+    },{highWaterMark:0});
+    handedOff=true;return new Response(stream,{status:200,headers:{...privateControlHeaders,'Content-Type':'application/pdf','Content-Length':String(result.data.length),'Content-Disposition':'inline; filename="original.pdf"'}});
+  }catch{return unavailableControl();}
+  finally{if(!handedOff)viewerBusy=false;}
 }

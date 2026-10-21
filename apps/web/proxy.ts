@@ -15,8 +15,8 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { captureControlWindow, controlWindowRemaining, CONTROL_PATH, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS, unavailableControl, privateControlHeaders, type ControlWindow } from './lib/replacement-control-window';
-import { canonicalJson, instant, readInstalledBinding } from './lib/replacement-server-binding';
+import { captureControlWindow, controlWindowRemaining, CONTROL_PATH, ORIGINAL_VIEW_PATH, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS, unavailableControl, privateControlHeaders, type ControlWindow } from './lib/replacement-control-window';
+import { canonicalJson, instant, readInstalledBinding, readInstalledViewerBinding } from './lib/replacement-server-binding';
 import { nativeRequestAllowed, nativeForwardingAllowed, readStaticManifest } from './lib/native-browser-runtime.mjs';
 
 export async function proxy(request: NextRequest) {
@@ -31,7 +31,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.next({request});
     }catch{return new NextResponse('Unavailable',{status:503,headers:{'Cache-Control':'no-store'}});}
   }
-  if(request.nextUrl.pathname===CONTROL_PATH)return protectedControlProxy(request,captureControlWindow());
+  if(request.nextUrl.pathname===CONTROL_PATH||request.nextUrl.pathname===ORIGINAL_VIEW_PATH)return protectedControlProxy(request,captureControlWindow());
   // Preserve the original matcher exclusions for ordinary deployments.
   if(/^\/(?:_next\/(?:static|image)|favicon\.ico|robots\.txt|sitemap\.xml)/.test(request.nextUrl.pathname)
     ||/\.(?:svg|png|jpg|jpeg|gif|webp)$/.test(request.nextUrl.pathname))return NextResponse.next({request});
@@ -81,11 +81,14 @@ export async function proxy(request: NextRequest) {
  * first boundary, and ordinary auth/cookie refresh below stays unchanged. */
 async function protectedControlProxy(request:NextRequest,window:Readonly<ControlWindow>):Promise<Response>{
   if(request.method!=='POST')return unavailableControl(405);
+  const viewer=request.nextUrl.pathname===ORIGINAL_VIEW_PATH;
+  if(viewer&&['range','if-range','if-match','if-none-match','if-modified-since','if-unmodified-since','expect','content-encoding'].some(k=>request.headers.has(k)))return unavailableControl();
   if(CONTROL_BYPASS_HEADERS.some(key=>request.headers.has(key)))return unavailableControl();
   const controller=new AbortController();let active=true,timer:ReturnType<typeof setTimeout>|undefined;
   const stop=()=>controller.abort();request.signal.addEventListener('abort',stop,{once:true});
   try{
-    const installed=readInstalledBinding(),profile=installed.profile;
+    const readBinding=viewer?readInstalledViewerBinding:readInstalledBinding;
+    const installed=readBinding(),profile=installed.profile;
     const remaining=()=>{
       if(!active||request.signal.aborted)return fail();
       const ms=Math.min(controlWindowRemaining(window),instant(profile.expires_at)-Date.now(),instant(profile.original_horizon)-Date.now());
@@ -118,7 +121,7 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
       const rejectAbort=()=>reject(new Error('Replacement control unavailable'));controller.signal.addEventListener('abort',rejectAbort,{once:true});if(controller.signal.aborted)rejectAbort();
     })]);
     remaining();if(result.error||!result.data.user||result.data.user.id!==profile.auth_user_id)return unavailableControl();
-    if(canonicalJson(readInstalledBinding().profile)!==canonicalJson(profile))return unavailableControl();
+    if(canonicalJson(readBinding().profile)!==canonicalJson(profile))return unavailableControl();
     remaining();return response;
   }catch{return unavailableControl();}
   finally{active=false;if(timer)clearTimeout(timer);controller.abort();request.signal.removeEventListener('abort',stop);}

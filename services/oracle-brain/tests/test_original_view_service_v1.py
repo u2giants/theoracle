@@ -5,6 +5,7 @@ import http.client
 import json
 from pathlib import Path
 import ssl
+import socket
 import threading
 import time
 from types import SimpleNamespace
@@ -23,7 +24,11 @@ def client(server, certificates, identity='worker', trusted=True):
     context=ssl.create_default_context(cafile=str(certificates/('ca.pem' if trusted else 'other.pem')))
     context.verify_flags |= ssl.VERIFY_X509_STRICT
     if identity: context.load_cert_chain(str(certificates/(identity+'.pem')),str(certificates/(identity+'.key')))
-    return http.client.HTTPSConnection('localhost',server.server_port,context=context,timeout=4)
+    connection=http.client.HTTPSConnection('localhost',server.server_port,context=context,timeout=4)
+    # Dial the exact IPv4 listener; preserve localhost SNI/hostname validation.
+    connection._create_connection=lambda address, timeout, source_address=None: socket.create_connection(
+        ('127.0.0.1', address[1]), timeout, source_address)
+    return connection
 
 
 def wire(f,seconds=10,**changes):
@@ -303,3 +308,59 @@ def test_private_bytes_are_read_after_first_sql_connection_closes(tmp_path,certi
     with running(f) as server:
         status,data,_=send(server,certificates,wire(f))
     assert status==200 and data==PDF and observed==['closed-before-private-read']
+
+
+def test_actual_header_preserves_exact_caller_and_sql_minimum(tmp_path, certificates, monkeypatch):
+    f = configured_viewer(tmp_path, certificates)
+    recording_sql(f, monkeypatch)
+    raw = wire(f)
+    caller = datetime.fromisoformat(json.loads(raw)['caller_deadline'].replace('Z', '+00:00'))
+    with running(f) as server:
+        status, data, headers = send(server, certificates, raw)
+        assert status == 200 and data == PDF
+        assert headers['X-Oracle-Original-Valid-Until'] == caller.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        lease = datetime.now(timezone.utc) + timedelta(seconds=3)
+        f.cap_changes['valid_until'] = lease.isoformat()
+        status, data, headers = send(server, certificates, wire(f))
+        assert status == 200 and data == PDF
+        assert headers['X-Oracle-Original-Valid-Until'] == lease.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
+
+def test_refusal_never_supplies_original_lease_header(tmp_path, certificates, monkeypatch):
+    f = configured_viewer(tmp_path, certificates)
+    recording_sql(f, monkeypatch)
+    with running(f) as server:
+        status, _, headers = send(server, certificates, wire(f), headers={'Range': 'bytes=0-1'})
+    assert status == 503 and 'X-Oracle-Original-Valid-Until' not in headers
+
+@pytest.mark.parametrize('narrowing', ['peer', 'settings'])
+def test_header_narrows_to_current_peer_or_settings_after_factory(tmp_path, certificates, monkeypatch, narrowing):
+    """Actual TLS/factory; synthetic currentness contraction at final boundary."""
+    f = configured_viewer(tmp_path, certificates)
+    recording_sql(f, monkeypatch)
+    active = False
+    lease = datetime.now(timezone.utc) + timedelta(seconds=2)
+    original_read = OriginalViewerFactoryV1.read_pdf_v1
+    def read(self, *args, **kwargs):
+        nonlocal active
+        result = original_read(self, *args, **kwargs)
+        active = True
+        return result
+    monkeypatch.setattr(OriginalViewerFactoryV1, 'read_pdf_v1', read)
+    if narrowing == 'settings':
+        settings_type = type(f.settings)
+        current = settings_type.current
+        def bounded(self):
+            value = current(self)
+            return min(value, lease) if active else value
+        monkeypatch.setattr(settings_type, 'current', bounded)
+    with running(f) as server:
+        if narrowing == 'peer':
+            current_peer = server.RequestHandlerClass._current_peer
+            def bounded_peer(self):
+                value = current_peer(self)
+                return min(value, lease) if active else value
+            monkeypatch.setattr(server.RequestHandlerClass, '_current_peer', bounded_peer)
+        status, data, headers = send(server, certificates, wire(f))
+    assert status == 200 and data == PDF
+    assert headers['X-Oracle-Original-Valid-Until'] == lease.strftime('%Y-%m-%dT%H:%M:%S.%fZ')

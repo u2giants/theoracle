@@ -104,6 +104,7 @@ def protected_original_view_server_v1(settings):
                 self.connection.settimeout(max(.001, min((end-datetime.now(timezone.utc)).total_seconds(), monotonic_end-time.monotonic())))
                 started = True
                 self.send_response(200)
+                self.send_header('X-Oracle-Original-Valid-Until', end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
                 self.send_header('Content-Type', 'application/pdf')
                 self.send_header('Content-Length', str(len(result.data)))
                 self.send_header('Content-Disposition', 'inline; filename="original.pdf"')
