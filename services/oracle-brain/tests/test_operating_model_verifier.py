@@ -332,7 +332,7 @@ def test_original_browser_upload_is_required_with_browser_install_before_w10():
 def test_recorded_source_inventory_binds_shared_evidence_and_phase_frontdoor_bytes(tmp_path,monkeypatch):
     import subprocess
     subprocess.run(['git','init','-q',str(tmp_path)],check=True)
-    names=('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py')
+    names=('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py','dev/oracle2/test_canonical_schema.py')
     for name in names:
         p=tmp_path/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('invented initial source\n')
     monkeypatch.setattr(verifier,'ROOT',tmp_path)

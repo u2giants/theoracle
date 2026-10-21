@@ -103,3 +103,44 @@ def test_retained_requester_fixture_cannot_overwrite_a_newer_canonical_capabilit
             connection.execute(original)
     with psycopg.connect(admin_url) as connection:
         schema.assert_canonical_test_schema(connection, admin_url)
+
+
+@pytest.mark.parametrize('damage',('permissions','symlink','changed','extra','noncanonical','duplicate'))
+def test_canonical_schema_receipt_rejects_unprotected_changed_or_open_bytes(tmp_path,damage):
+    import hashlib,json
+    from dev.oracle2.test_canonical_schema import _read_receipt
+    value={'schema_version':1,'database_key':'a'*64,'inventory':'b'*64,'catalog':'c'*64}
+    raw=json.dumps(value,sort_keys=True,separators=(',',':')).encode()
+    if damage=='extra':raw=json.dumps({**value,'authority':True},sort_keys=True,separators=(',',':')).encode()
+    if damage=='noncanonical':raw=b' '+raw
+    if damage=='duplicate':raw=raw[:-1]+b',"schema_version":1}'
+    path=tmp_path/'receipt';path.write_bytes(raw);path.chmod(0o600);seal=hashlib.sha256(raw).hexdigest()
+    if damage=='permissions':path.chmod(0o644)
+    if damage=='symlink':
+        link=tmp_path/'alias';link.symlink_to(path);path=link
+    if damage=='changed':path.write_bytes(raw+b' ')
+    with pytest.raises((PermissionError,OSError)):_read_receipt(path,seal)
+
+
+def test_actual_canonical_schema_cross_process_receipt_verifies_without_replaying_ddl(admin_url,tmp_path):
+    import subprocess,sys
+    from dev.oracle2.test_canonical_schema import bootstrap_canonical_test_schema
+    path=tmp_path/'canonical-schema.json'
+    seal=bootstrap_canonical_test_schema(admin_url,receipt_path=path.resolve())
+    script="""import os,psycopg
+from dev.oracle2.test_canonical_schema import bootstrap_canonical_test_schema,_RECEIPTS
+assert not _RECEIPTS
+original=psycopg.Connection.execute
+seen=[]
+def readonly(self,query,*a,**kw):
+    if not isinstance(query,str) or not query.lstrip().upper().startswith('SELECT '):
+        raise AssertionError('child attempted schema replay or other mutation')
+    seen.append(query)
+    return original(self,query,*a,**kw)
+psycopg.Connection.execute=readonly
+bootstrap_canonical_test_schema(os.environ['ORACLE2_TEST_ADMIN_URL'])
+assert seen and _RECEIPTS
+"""
+    env={**os.environ,'ORACLE2_TEST_ADMIN_URL':admin_url,'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT':str(path.resolve()),'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256':seal}
+    result=subprocess.run([sys.executable,'-c',script],env=env,capture_output=True,text=True,timeout=20)
+    assert result.returncode==0,result.stderr

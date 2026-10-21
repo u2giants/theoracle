@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 from pathlib import Path
 
 import psycopg
@@ -69,26 +70,76 @@ def assert_canonical_test_schema(connection, url):
         raise PermissionError('canonical test schema changed; no fixture downgrade or automatic repair')
 
 
-def bootstrap_canonical_test_schema(url):
-    container = os.environ.get('ORACLE2_SYNTHETIC_POSTGRES_CONTAINER', '')
+def _read_receipt(path, seal):
+    p=Path(path)
+    if not p.is_absolute() or p.parent.resolve()!=p.parent or not re.fullmatch('[0-9a-f]{64}',seal):
+        raise PermissionError('fixed protected canonical schema receipt required')
+    fd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW)
+    try:
+        before=os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_uid!=os.getuid() or before.st_nlink!=1 or before.st_mode&0o077 or before.st_size>4096:
+            raise PermissionError('private owned canonical schema receipt required')
+        raw=os.read(fd,4097)
+        identity=lambda x:(x.st_dev,x.st_ino,x.st_mode,x.st_uid,x.st_nlink,x.st_size,x.st_mtime_ns,x.st_ctime_ns)
+        if identity(before)!=identity(os.fstat(fd)) or identity(before)!=identity(p.lstat()) or hashlib.sha256(raw).hexdigest()!=seal:
+            raise PermissionError('canonical schema receipt changed')
+    finally:os.close(fd)
+    value=json.loads(raw)
+    if json.dumps(value,sort_keys=True,separators=(',',':')).encode()!=raw:raise PermissionError('canonical schema receipt bytes required')
+    if type(value) is not dict or set(value)!={'schema_version','database_key','inventory','catalog'} or type(value['schema_version']) is not int or value['schema_version']!=1 or any(type(value[k]) is not str or not re.fullmatch('[0-9a-f]{64}',value[k]) for k in ('database_key','inventory','catalog')):
+        raise PermissionError('closed canonical schema receipt required')
+    return value
+
+
+def _write_receipt(path, key, receipt):
+    p=Path(path)
+    if not p.is_absolute() or p.parent.resolve()!=p.parent:
+        raise PermissionError('exact canonical schema receipt destination required')
+    raw=json.dumps({'schema_version':1,'database_key':key,**receipt},sort_keys=True,separators=(',',':')).encode()
+    fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'wb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+    directory=os.open(p.parent,os.O_RDONLY|os.O_DIRECTORY)
+    try:os.fsync(directory)
+    finally:os.close(directory)
+    seal=hashlib.sha256(raw).hexdigest()
+    if _read_receipt(p,seal)!={'schema_version':1,'database_key':key,**receipt}:
+        raise PermissionError('canonical schema receipt readback differs')
+    return seal
+
+
+def bootstrap_canonical_test_schema(url,*,container_id=None,receipt_path=None):
+    container = container_id or os.environ.get('ORACLE2_SYNTHETIC_POSTGRES_CONTAINER', '')
     if not container:
         raise PermissionError('exact owned synthetic PostgreSQL identity required')
     owned_worker_database(container, url)
     files = canonical_synthetic_migrations()
     key = _key(url)
-    if key in _RECEIPTS:
+    source_path=os.environ.get('ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT')
+    source_seal=os.environ.get('ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256')
+    if receipt_path is None and (source_path or source_seal):
+        if not source_path or not source_seal:raise PermissionError('complete canonical schema receipt pins required')
+        observed=_read_receipt(source_path,source_seal)
+        if observed['database_key']!=key or observed['inventory']!=_inventory_digest(files):
+            raise PermissionError('canonical schema receipt target or inventory differs')
         with psycopg.connect(url) as connection:
-            assert_canonical_test_schema(connection, url)
+            if _catalog(connection)!=observed['catalog']:
+                raise PermissionError('canonical test schema changed; no fixture downgrade or automatic repair')
+        receipt={k:observed[k] for k in ('inventory','catalog')}
+        if key in _RECEIPTS and _RECEIPTS[key]!=receipt:raise PermissionError('canonical schema receipt changed after admission')
+        _RECEIPTS[key]=receipt
         return
+    if key in _RECEIPTS:
+        with psycopg.connect(url) as connection:assert_canonical_test_schema(connection, url)
+        return _write_receipt(receipt_path,key,_RECEIPTS[key]) if receipt_path is not None else None
     inventory = _inventory_digest(files)
     with psycopg.connect(url) as connection:
-        for path in files:
-            connection.execute(path.read_text())
+        for path in files:connection.execute(path.read_text())
         catalog = _catalog(connection)
     # Return and remember only after actual DDL transaction commit/close and a
-    # fresh exact ownership check. No test may use this receipt as app authority.
+    # fresh exact ownership check. This invented-test receipt is never app authority.
     owned_worker_database(container, url)
     with psycopg.connect(url) as connection:
         if _catalog(connection) != catalog or _inventory_digest(files) != inventory:
             raise PermissionError('canonical test schema changed during bootstrap')
     _RECEIPTS[key] = {'inventory': inventory, 'catalog': catalog}
+    return _write_receipt(receipt_path,key,_RECEIPTS[key]) if receipt_path is not None else None
