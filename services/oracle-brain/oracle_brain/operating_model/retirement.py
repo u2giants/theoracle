@@ -2,6 +2,13 @@
 from .contracts import digest
 from .release_manifest import ReleaseManifest
 
+def validate_retirement_path(path: str):
+    if (type(path) is not str or not path.strip() or path.startswith('/') or
+            '\\' in path or ':' in path or
+            any(ord(char) < 32 or ord(char) == 127 for char in path) or
+            any(part in ('', '.', '..') for part in path.split('/'))):
+        raise ValueError('retirement path must be canonical repository relative')
+
 def verify_retirement(manifest: ReleaseManifest, census: dict, *, proposed_paths: tuple[str, ...],
                       preserved_capabilities: dict, accepted_release_hashes: frozenset[str],
                       admitted_census_hashes: frozenset[str], admitted_equivalence_hashes: frozenset[str]):
@@ -14,11 +21,13 @@ def verify_retirement(manifest: ReleaseManifest, census: dict, *, proposed_paths
     if preserved_capabilities.get('release_hash') != manifest.content_hash():
         raise PermissionError('capability proofs do not bind accepted release')
     entries = census.get('files', {})
-    if not proposed_paths or len(set(proposed_paths)) != len(proposed_paths):
+    if not proposed_paths:
         raise ValueError('nonempty unique retirement paths required')
     for path in proposed_paths:
-        if path.startswith('/') or '..' in path.split('/') or '\\' in path:
-            raise ValueError('retirement path must be repository relative')
+        validate_retirement_path(path)
+    if len(set(proposed_paths)) != len(proposed_paths):
+        raise ValueError('nonempty unique retirement paths required')
+    for path in proposed_paths:
         entry = entries.get(path)
         if not entry or entry.get('replaced') is not True or entry.get('references') != []:
             raise PermissionError('retirement target is not replaced and unreferenced')
