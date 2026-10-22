@@ -235,6 +235,13 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_citation_sql',),
 # population, original shared120s ceiling and exactly ten workers.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
     'replacement_documentary_journey',after=True)
+
+# Run39846165685 completed all5472 tests with zero failures but the shared
+# timed_out flag marked every worker when documentary03 exceeded120s wall
+# clock. Shift source_processing_qualification to documentary02's measured
+# sibling: keep the whole population, ten workers and unchanged120s deadline.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('source_processing_qualification',),
+    'workflow_authorization',after=True)
 # Preserve every current suite and the existing ten workers /120s deadline.
 QUESTION_EFFECT_PURE_SUITES=('question_core_forwarding_v1','qualified_synthesis_v1',
     'question_effect_pricing_v1','question_effect_public_v1','question_vector_packing_v1')
@@ -326,18 +333,20 @@ def run_test_groups(jobs,directory,*,deadline):
             except OSError:
                 launch_error=True;break
             workers.append(worker)
-        timed_out=False
+        timeouts=[False]*len(workers)
         if launch_error:cleanup.extend(stop_owned_workers(workers))
-        for worker in workers:
+        for index,worker in enumerate(workers):
             remaining=max(0,deadline-time.monotonic())
             try:worker.wait(timeout=remaining)
-            except subprocess.TimeoutExpired:timed_out=True;break
-        if time.monotonic()>deadline:timed_out=True
-        if timed_out:cleanup.extend(stop_owned_workers(workers))
+            except subprocess.TimeoutExpired:
+                for j in range(index,len(workers)):
+                    if workers[j].poll() is None:timeouts[j]=True
+                break
+        if any(timeouts):cleanup.extend(stop_owned_workers(workers))
         for index,job in enumerate(jobs):
             worker=workers[index] if index<len(workers) else None
             results.append({'name':job['name'],'exit_code':worker.returncode if worker else None,
-                'timed_out':timed_out,'launch_error':launch_error})
+                'timed_out':timeouts[index] if index<len(timeouts) else True,'launch_error':launch_error})
         return results,cleanup
     finally:
         if any(worker.poll() is None for worker in workers):cleanup.extend(stop_owned_workers(workers))

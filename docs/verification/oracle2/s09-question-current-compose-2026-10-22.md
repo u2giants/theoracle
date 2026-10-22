@@ -189,6 +189,46 @@ Not proved here; all of the following stay open:
    No API substitution for browser. No production / company data / paid
    provider effects.
 
+## 5a. Run 39846165685 diagnosis — zero test failures, timeout accounting defect
+
+CI run 39846165685 (branch `codex/parent24-s09-compose`, commit `b1edb626`)
+executed the complete 5472-test population. JUnit evidence shows **zero
+failed, errored, or skipped tests** across all ten workers. Every worker's
+stdout ends with `N passed`. The `success: false` verdict comes entirely from
+`evidence_errors: ["worker did not complete successfully" ×10]`.
+
+Root cause: `run_test_groups` used a single shared `timed_out` boolean. When
+documentary-03's wall clock (119.44 s pytest + process overhead) exceeded the
+shared 120-second deadline, the `break` path set `timed_out=True` and that
+one flag was stamped onto every worker — including event (97.24 s) and
+documentary-09 (105.88 s) which finished well within budget. A post-loop
+`if time.monotonic()>deadline` check further marked all workers timed out
+even when each individual `wait()` had returned successfully.
+
+Two source fixes in this commit:
+
+1. **Per-worker timeout tracking** in `run_test_groups`: each worker's
+   `timed_out` is now computed from its own `wait()` outcome against the
+   shared deadline. Workers that completed before the deadline are no longer
+   marked timed out because a sibling was slow. The blanket post-loop clock
+   check is removed; the per-worker `wait(timeout=remaining)` already
+   enforces the deadline.
+2. **Rebalance** `source_processing_qualification` (5.48 s measured) from
+   documentary-03 (118.1 s) to documentary-02 (105.0 s → 110.5 s). This
+   brings documentary-03 to ≈112.6 s pytest, under the 120 s wall-clock
+   ceiling with process overhead. Population, ten workers, and the 120 s
+   deadline are unchanged. No case cuts, no budget raises.
+
+The known S07 Create-child failure (protected channel 503 during exchange)
+did **not** reproduce in this run — `test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_receipt`
+passed (40.88 s). It remains the known inherited main failure and is not
+treated as fixed.
+
+Slowest tests retained as-is (real-clock semantics, not defects):
+- `test_purpose_coherent_native_journey::test_coherent_native_census_uses_real_prior_input_parent` — 80.71 s (full multi-phase journey)
+- `test_meeting_unattended_sql::test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_receipt` — 40.88 s (capture-window expiry)
+- `test_purpose_worker_startup` — 78.98 s (intentional 5 s deadline/horizon sleeps)
+
 ## 6. Hard constraints checklist
 
 - [x] Own worktree (`C:\tmp\s09-compose-work\s09-compose`), branch only
@@ -200,6 +240,9 @@ Not proved here; all of the following stay open:
 - [x] Pure checks only; full W10 NOT run; no SQL/native/Next execution
 - [x] Second packing fix is registration/placement only (conversation_native_sql
       restored to documentary-03; no test body / budget / case changes)
+- [x] Third fix: per-worker timeout tracking + source_processing_qualification
+      rebalance (no case cuts, no budget raises, no guard weakening)
+- [x] All 5472 tests confirmed passing in run 39846165685 (0 F/E/S)
 - [x] Commit as Albert Hazan `<u2giants@users.noreply.github.com>`
 - [x] Safety gates and business-acceptance hold preserved
 - [x] Failed proof not overwritten with an earlier green receipt
