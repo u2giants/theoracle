@@ -83,12 +83,17 @@ def test_canonical_prerequisites_precede_checkpoints(monkeypatch):
         f"GRANT SELECT,INSERT,UPDATE,DELETE ON public.{name} TO oracle2_checkpoint"
         for name in ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
     ]
-    assert bootstrap.SYNTHETIC_MIGRATIONS[-4:] == (
+    required_processing_chain = (
         "011_hosting_source_processing_permissions.sql",
         "012_processing_compiler_capabilities.sql",
         "013_processing_purpose_permissions.sql",
         "014_replacement_source_custody.sql",
+        "017_processing_model_history.sql",
+        "018_original_review_reading_input.sql",
+        "019_employee_conversations.sql",
     )
+    start = bootstrap.SYNTHETIC_MIGRATIONS.index(required_processing_chain[0])
+    assert bootstrap.SYNTHETIC_MIGRATIONS[start:start+len(required_processing_chain)] == required_processing_chain
 
 
 def test_owner_refusal_stops_bootstrap_before_checkpoint_setup(monkeypatch):
