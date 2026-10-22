@@ -1,6 +1,6 @@
 /** Node-only narrowing context. No identity, admission, capability or grant. */
 import { performance } from 'node:perf_hooks';
-import { canonicalJson, parseClosedJson } from './protected-server-binding';
+import { canonicalJson, parseClosedJson,readInstalledMeetingStopProcessConfigV1,currentInstalledMeetingStopProcessConfigV1,instant,type MeetingStopProcessConfigV1 } from './protected-server-binding';
 if (typeof window !== 'undefined') throw new Error('Replacement control unavailable');
 export const ORIGINAL_VIEW_PATH='/api/consultant/replacement/v1/protected/original';
 export const MODEL_REVIEW_PATH='/api/consultant/replacement/v1/protected/model-review';
@@ -79,3 +79,23 @@ export async function within<T>(promise: Promise<T>, window: Window): Promise<T>
 
 export const CONNECTED_ANSWER_PATH='/api/consultant/replacement/v1/protected/answer';
 export const CONNECTED_MCP_PATH='/api/consultant/mcp/mcp';
+
+
+/** Private original local-operation provenance. Time is narrowing, no grant. */
+interface LocalStopWindowRecordV1 {readonly wall:number;readonly mono:number;readonly tick:bigint;readonly hardEnd:number;readonly hardMonoEnd:bigint;readonly config:Readonly<MeetingStopProcessConfigV1>;readonly window:Window;}
+const localStopWindowsV1=new WeakMap<object,LocalStopWindowRecordV1>();
+const localStopMinimumEndsV1=new WeakMap<object,number>();
+export function _captureLocalStopOperationV1():object{
+ const wall=Date.now(),mono=performance.now(),tick=process.hrtime.bigint();
+ const config=readInstalledMeetingStopProcessConfigV1();currentInstalledMeetingStopProcessConfigV1(config);
+ const end=Math.floor(Math.min(wall+config.stop_request_seconds*1000,instant(config.expires_at),instant(config.stop_until),instant(config.original_horizon))),hardMonoEnd=tick+BigInt(Math.max(0,end-wall))*1000000n;
+ const window:Window={wall,mono,end,signal:AbortSignal.timeout(30000),proxyMonoEnd:hardMonoEnd};
+ Object.defineProperties(window,{wall:{writable:false,configurable:false},mono:{writable:false,configurable:false},signal:{writable:false,configurable:false}});
+ const cap=Object.freeze({});localStopWindowsV1.set(cap,Object.freeze({wall,mono,tick,hardEnd:end,hardMonoEnd,config,window}));localStopMinimumEndsV1.set(cap,end);remaining(window);return cap;
+}
+export function _currentLocalStopOperationV1(cap:object):Readonly<LocalStopWindowRecordV1>{
+ const v=localStopWindowsV1.get(cap),prior=localStopMinimumEndsV1.get(cap);if(!v||prior===undefined)return unavailable();v.window.end=Math.min(v.window.end,v.hardEnd,prior);localStopMinimumEndsV1.set(cap,v.window.end);const monoEnd=v.tick+BigInt(Math.max(0,Math.floor(v.window.end-v.wall)))*1000000n;v.window.proxyMonoEnd=v.window.proxyMonoEnd<monoEnd?v.window.proxyMonoEnd:monoEnd;currentInstalledMeetingStopProcessConfigV1(v.config);remaining(v.window);return v;
+}
+export function _narrowLocalStopOperationV1(cap:object,end:number):void{
+ const v=_currentLocalStopOperationV1(cap);if(!Number.isFinite(end)||end>v.window.end)return unavailable();v.window.end=Math.min(v.window.end,end);localStopMinimumEndsV1.set(cap,v.window.end);remaining(v.window);
+}
