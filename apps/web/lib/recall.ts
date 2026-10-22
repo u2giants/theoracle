@@ -1,3 +1,4 @@
+import {verifyReplacementRecallRequestV1} from '@oracle/shared/recall-webhook-verifier';
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
 
@@ -25,7 +26,13 @@ export function verifyRecallRequest(args: {
   secret: string;
   headers: Headers;
   payload: string | null;
+  policy?: 'replacement-v1';
 }): void {
+  if (args.policy !== undefined) {
+    if (args.policy !== 'replacement-v1') throw new Error('Unsupported Recall verification policy');
+    verifyReplacementRecallRequestV1(args);
+    return;
+  }
   const { secret, headers, payload } = args;
   const msgId = headers.get('webhook-id') ?? headers.get('svix-id');
   const msgTimestamp = headers.get('webhook-timestamp') ?? headers.get('svix-timestamp');
@@ -55,6 +62,9 @@ export function verifyRecallRequest(args: {
   }
   throw new Error('No matching Recall signature found');
 }
+
+// Replacement-only freshness and canonical envelope policy. A valid signature
+// authenticates bytes from the installed verifier account; it grants no capture.
 
 function providerConfig(provider: RecallSttProvider): Record<string, unknown> {
   if (provider === 'assembly_ai_v3_streaming') {

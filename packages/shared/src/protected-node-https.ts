@@ -16,6 +16,14 @@ export interface RecallWireTargetV1 {readonly hostname:string;readonly ca:Uint8A
 export interface OriginalWireWindowV1 {readonly wallDeadline:number;readonly monotonicDeadline:bigint;readonly signal:AbortSignal;readonly current:()=>void;}
 export type RecallWireOperationV1=Readonly<{kind:'create';body:Uint8Array}>|Readonly<{kind:'leave'|'retrieve';botId:string}>|Readonly<{kind:'send-chat';botId:string;body:Uint8Array}>;
 export interface RecallWireObservationV1 {readonly status:number;readonly headers:ReadonlyArray<readonly[string,string]>;readonly body:Buffer;readonly wire:Buffer;readonly wireSha256:string;}
+/** Bounded observed RESPONSE bytes on refusal, never request/key material.
+ * An incomplete or over-bound wire remains UNKNOWN and is never executable.
+ */
+export class RecallWireUncertaintyV1 extends Error {
+ readonly #retained:Buffer;readonly observedBytes:number;readonly wireTruncated:boolean;
+ constructor(wire:Uint8Array,observedBytes:number){super('Installed Recall operation unavailable');this.name='RecallWireUncertaintyV1';this.#retained=Buffer.from(wire);this.observedBytes=observedBytes;this.wireTruncated=observedBytes>wire.length;}
+ get wire():Buffer{return Buffer.from(this.#retained);}
+}
 function ipv6Words(address:string):number[]{
  const parts=address.split('::');if(parts.length>2)return refused();
  const left=parts[0]!.split(':').filter(Boolean),right=parts.length===2?parts[1]!.split(':').filter(Boolean):[];
@@ -69,6 +77,7 @@ class RecallWireClientV1{
  async exchange(operation:RecallWireOperationV1,window:OriginalWireWindowV1,beforeWrite:()=>Promise<void>):Promise<Readonly<RecallWireObservationV1>>{
   if(this.busy||typeof beforeWrite!=='function')return refused();this.busy=true;
   let connected:tls.TLSSocket|undefined,request:ReturnType<typeof https.request>|undefined,timer:ReturnType<typeof setTimeout>|undefined;
+  const retainedResponse:Buffer[]=[];let observedBytes=0,retainedBytes=0;const maximumRetained=16384+1048576;
   const abort=()=>{request?.destroy();connected?.destroy();};
   try{
    const q=route(operation);this.remaining(window);const answers=await this.addresses(window);this.remaining(window);const selected=answers[0]!;
@@ -83,7 +92,7 @@ class RecallWireClientV1{
    const wireLimit=16384+1048576;let prefix=Buffer.alloc(0),headerLength:number|undefined,wireSize=0,expectedSize:number|undefined,wireBad=false,peerEnd=false,peerClose=false,closedError=false,responseDone=false,status=0,headers:readonly(readonly[string,string])[]=[],body=Buffer.alloc(0);const wire:Buffer[]=[];
    let rejectWire:((error:Error)=>void)|undefined;
    const fail=()=>{wireBad=true;rejectWire?.(new Error('Installed Recall operation unavailable'));abort();};
-   const observe=(chunk:Buffer)=>{try{this.remaining(window);wireSize+=chunk.length;if(wireSize>wireLimit)return fail();wire.push(Buffer.from(chunk));if(headerLength===undefined){prefix=Buffer.concat([prefix,chunk]);const end=prefix.indexOf('\r\n\r\n');if(end>=0){headerLength=end+4;if(headerLength>16384)return fail();prefix=Buffer.alloc(0);}else if(prefix.length>16384)return fail();}if(expectedSize!==undefined&&wireSize>expectedSize)return fail();}catch{fail();}};
+   const observe=(chunk:Buffer)=>{observedBytes+=chunk.length;const keep=Math.min(chunk.length,maximumRetained-retainedBytes);if(keep>0){retainedResponse.push(Buffer.from(chunk.subarray(0,keep)));retainedBytes+=keep;}try{this.remaining(window);wireSize+=chunk.length;if(wireSize>wireLimit)return fail();wire.push(Buffer.from(chunk));if(headerLength===undefined){prefix=Buffer.concat([prefix,chunk]);const end=prefix.indexOf('\r\n\r\n');if(end>=0){headerLength=end+4;if(headerLength>16384)return fail();prefix=Buffer.alloc(0);}else if(prefix.length>16384)return fail();}if(expectedSize!==undefined&&wireSize>expectedSize)return fail();}catch{fail();}};
    socket.on('data',observe);
    const agent=new https.Agent({keepAlive:false,maxSockets:1});agent.createConnection=()=>socket;
    try{return await new Promise<Readonly<RecallWireObservationV1>>((resolve,reject)=>{
@@ -100,7 +109,7 @@ class RecallWireClientV1{
      }catch{fail();}
     });request.once('error',()=>{reject(new Error('Installed Recall operation unavailable'));abort();});request.end(q.body);
    });}finally{socket.removeListener('data',observe);agent.destroy();}
-  }finally{if(timer)clearTimeout(timer);window.signal.removeEventListener('abort',abort);abort();this.busy=false;}
+  }catch{throw new RecallWireUncertaintyV1(Buffer.concat(retainedResponse,retainedBytes),observedBytes);}finally{if(timer)clearTimeout(timer);window.signal.removeEventListener('abort',abort);abort();this.busy=false;}
  }
 }
 /** Production constructor never admits private/transition DNS answers. */

@@ -197,6 +197,32 @@ test('half-close ownership still refuses delayed extra response bytes double res
  for(mode of ['late-extra','double-response','no-eof','header-overflow']){const count=requests;await refused(request(body({caller_deadline:new Date(Date.now()+350).toISOString()})));assert.equal(requests,count+1,mode);for(const socket of peerSockets)socket.destroy();}mode='valid';
 });
 
+// Actual channel lifecycle proof only. Production user identity remains solely
+// in the web wrapper above and is independently checked by retained negatives.
+test('shared staged channel sends no HTTP before explicit send and close refuses later send',async()=>{
+ const {openProtectedChannelV1}=await import('@oracle/shared/protected-service-channel');
+ const {readInstalledBinding}=await import('./replacement-server-binding');
+ const {performance}=await import('node:perf_hooks');
+ const wall=Date.now(),mono=performance.now(),count=requests;
+ const window={wall,mono,end:wall+2000,signal:new AbortController().signal,proxyMonoEnd:process.hrtime.bigint()+2000000000n};
+ const channel=await openProtectedChannelV1(readInstalledBinding(),window);
+ await new Promise(r=>setTimeout(r,20));assert.equal(requests,count);
+ channel.close();await assert.rejects(channel.send(body()));assert.equal(requests,count);
+});
+test('shared verified channel is single use and cannot renew original expiry',async()=>{
+ const {openProtectedChannelV1}=await import('@oracle/shared/protected-service-channel');
+ const {readInstalledBinding}=await import('./replacement-server-binding');
+ const {performance}=await import('node:perf_hooks');
+ let wall=Date.now(),mono=performance.now();mode='valid';
+ let window={wall,mono,end:wall+2000,signal:new AbortController().signal,proxyMonoEnd:process.hrtime.bigint()+2000000000n};
+ const channel=await openProtectedChannelV1(readInstalledBinding(),window);const count=requests;
+ assert.equal((await channel.send(body()) as {runId:string}).runId,id);assert.equal(requests,count+1);
+ await assert.rejects(channel.send(body()));channel.close();assert.equal(requests,count+1);
+ wall=Date.now();mono=performance.now();window={wall,mono,end:wall+2000,signal:new AbortController().signal,proxyMonoEnd:process.hrtime.bigint()+2000000000n};
+ const expired=await openProtectedChannelV1(readInstalledBinding(),window);window.end=Date.now()-1;
+ await assert.rejects(expired.send(body()));expired.close();assert.equal(requests,count+1);
+});
+
 test('mid-transport identical file replacement refuses reply and later entry (last: installation poisoned)',async () => {
   mode='slow'; const count=requests; const pending=requestReplacementControl(request());
   await new Promise<void>((resolve,reject) => { const started=Date.now(); const tick=()=>{if(requests>count)return resolve();if(Date.now()-started>1000)return reject(new Error('invented request did not reach peer'));setTimeout(tick,2)};tick(); });

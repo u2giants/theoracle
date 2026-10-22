@@ -8,11 +8,16 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { triggerTask } from '@/lib/trigger';
 import { verifyRecallRequest } from '@/lib/recall';
+import { requestReplacementMeetingIngress } from '@/lib/replacement-protected-client';
+import { unavailableControl } from '@/lib/replacement-control-window';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<Response> {
+  const mode = process.env.ORACLE2_MEETING_ROUTING_MODE;
+  if (mode === 'replacement') return requestReplacementMeetingIngress(req);
+  if (mode !== undefined && mode !== 'legacy') return unavailableControl();
   const raw = await req.text();
   const secret = process.env.RECALL_WEBHOOK_SECRET;
   if (!secret) {

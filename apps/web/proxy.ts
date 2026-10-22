@@ -15,8 +15,8 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { captureControlWindow, controlWindowRemaining,isConversationPath, CONTROL_PATH, ORIGINAL_VIEW_PATH, ORIGINAL_UPLOAD_PATH, MODEL_REVIEW_PATH, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS, unavailableControl, privateControlHeaders, type ControlWindow } from './lib/replacement-control-window';
-import { canonicalJson, instant, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding,readInstalledModelReviewBinding,readInstalledConversationBinding } from './lib/replacement-server-binding';
+import { captureControlWindow, controlWindowRemaining,isConversationPath, CONTROL_PATH, CONNECTED_ANSWER_PATH, CONNECTED_MCP_PATH, MEETING_CONTROL_PATH, MEETING_INGRESS_PATH, ORIGINAL_VIEW_PATH, ORIGINAL_UPLOAD_PATH, MODEL_REVIEW_PATH, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS, unavailableControl, privateControlHeaders, type ControlWindow } from './lib/replacement-control-window';
+import { canonicalJson, instant, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding,readInstalledModelReviewBinding,readInstalledConversationBinding,readInstalledConnectedAnswerBinding,readInstalledMcpAnswerBinding,readInstalledMeetingBinding } from './lib/replacement-server-binding';
 import { nativeRequestAllowed, nativeForwardingAllowed, readStaticManifest } from './lib/native-browser-runtime.mjs';
 
 export async function proxy(request: NextRequest) {
@@ -31,7 +31,13 @@ export async function proxy(request: NextRequest) {
       return NextResponse.next({request});
     }catch{return new NextResponse('Unavailable',{status:503,headers:{'Cache-Control':'no-store'}});}
   }
-  if(request.nextUrl.pathname===CONTROL_PATH||request.nextUrl.pathname===ORIGINAL_VIEW_PATH||request.nextUrl.pathname===ORIGINAL_UPLOAD_PATH||request.nextUrl.pathname===MODEL_REVIEW_PATH||isConversationPath(request.nextUrl.pathname))return protectedControlProxy(request,captureControlWindow());
+  if(request.nextUrl.pathname===MEETING_INGRESS_PATH&&process.env.ORACLE2_MEETING_ROUTING_MODE==='replacement'){
+    const window=captureControlWindow();if(request.method!=='POST')return unavailableControl(405);
+    if(CONTROL_BYPASS_HEADERS.some(k=>request.headers.has(k)))return unavailableControl();
+    request.headers.set(CONTROL_WINDOW_HEADER,canonicalJson(window));
+    return NextResponse.next({request:{headers:new Headers(request.headers)}});
+  }
+  if(request.nextUrl.pathname===MEETING_CONTROL_PATH||request.nextUrl.pathname===CONNECTED_ANSWER_PATH||request.nextUrl.pathname===CONNECTED_MCP_PATH||request.nextUrl.pathname===CONTROL_PATH||request.nextUrl.pathname===ORIGINAL_VIEW_PATH||request.nextUrl.pathname===ORIGINAL_UPLOAD_PATH||request.nextUrl.pathname===MODEL_REVIEW_PATH||isConversationPath(request.nextUrl.pathname))return protectedControlProxy(request,captureControlWindow());
   // Preserve the original matcher exclusions for ordinary deployments.
   if(/^\/(?:_next\/(?:static|image)|favicon\.ico|robots\.txt|sitemap\.xml)/.test(request.nextUrl.pathname)
     ||/\.(?:svg|png|jpg|jpeg|gif|webp)$/.test(request.nextUrl.pathname))return NextResponse.next({request});
@@ -89,7 +95,7 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
   const controller=new AbortController();let active=true,timer:ReturnType<typeof setTimeout>|undefined;
   const stop=()=>controller.abort();request.signal.addEventListener('abort',stop,{once:true});
   try{
-    const readBinding=conversation?readInstalledConversationBinding:request.nextUrl.pathname===MODEL_REVIEW_PATH?readInstalledModelReviewBinding:upload?readInstalledUploadBinding:viewer?readInstalledViewerBinding:readInstalledBinding;
+    const readBinding=request.nextUrl.pathname===MEETING_CONTROL_PATH?readInstalledMeetingBinding:request.nextUrl.pathname===CONNECTED_ANSWER_PATH?readInstalledConnectedAnswerBinding:request.nextUrl.pathname===CONNECTED_MCP_PATH?readInstalledMcpAnswerBinding:conversation?readInstalledConversationBinding:request.nextUrl.pathname===MODEL_REVIEW_PATH?readInstalledModelReviewBinding:upload?readInstalledUploadBinding:viewer?readInstalledViewerBinding:readInstalledBinding;
     const installed=readBinding(),profile=installed.profile;
     const remaining=()=>{
       if(!active||request.signal.aborted)return fail();
