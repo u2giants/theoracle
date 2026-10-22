@@ -23,3 +23,9 @@ test('leave200 empty is observation only and every other status/body refuses',()
 test('bounded recovery metadata requires exact bot and unambiguous last status, never a stop proof',()=>{
  const v={id:bot,status_changes:[{code:'done',created_at:'2026-10-21T20:00:00Z'}]};const r=interpretRecallCaptureResponseV1('capture-retrieve',response(200,v),bot);assert.equal(r.latest_status?.code,'done');assert.equal(r.remote_stop_proven,false);assert.equal(interpretRecallCaptureResponseV1('capture-retrieve',response(200,{...v,id:'02000000-0000-4000-8000-000000000001'}),bot).state,'UNKNOWN');assert.equal(interpretRecallCaptureResponseV1('capture-retrieve',response(200,{...v,status_changes:[...v.status_changes,{code:'failed',created_at:'2026-10-21T20:00:00Z'}]}),bot).state,'UNKNOWN');
 });
+
+test('future provider status metadata never becomes a terminal observation',()=>{
+ const v={id:bot,status_changes:[{code:'done',created_at:new Date(Date.now()+60000).toISOString()}]};
+ const result=interpretRecallCaptureResponseV1('capture-retrieve',response(200,v),bot);
+ assert.equal(result.state,'UNKNOWN');assert.equal(result.latest_status,null);assert.equal(result.remote_stop_proven,false);
+});

@@ -52,7 +52,7 @@ export function interpretRecallCaptureResponseV1(purpose:'capture-create'|'captu
   const object=v as Record<string,unknown>;if(purpose==='capture-create')return expectedBot===null?result('create-observed',object.id as string):result('UNKNOWN');
   if(object.id!==expectedBot||!Array.isArray(object.status_changes)||object.status_changes.length>2048)return result('UNKNOWN');
   let latest:RecallCaptureObservationV1['latest_status']=null,last=-Infinity;
-  for(const status of object.status_changes){if(!status||typeof status!=='object'||Array.isArray(status))return result('UNKNOWN');const s=status as Record<string,unknown>;if(!text(s.code,128)||typeof s.created_at!=='string')return result('UNKNOWN');const at=instant(s.created_at);if(at>last){last=at;latest=Object.freeze({code:s.code,created_at:s.created_at});}else if(at===last&&(latest?.code!==s.code||latest?.created_at!==s.created_at))return result('UNKNOWN');}
+  for(const status of object.status_changes){if(!status||typeof status!=='object'||Array.isArray(status))return result('UNKNOWN');const s=status as Record<string,unknown>;if(!text(s.code,128)||typeof s.created_at!=='string')return result('UNKNOWN');const at=instant(s.created_at);if(at>Date.now())return result('UNKNOWN');if(at>last){last=at;latest=Object.freeze({code:s.code,created_at:s.created_at});}else if(at===last&&(latest?.code!==s.code||latest?.created_at!==s.created_at))return result('UNKNOWN');}
   return result('metadata-observed',expectedBot,latest);
  }catch{return result('UNKNOWN');}
 }
