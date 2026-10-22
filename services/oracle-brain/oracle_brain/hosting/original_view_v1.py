@@ -36,7 +36,7 @@ class ViewerCapabilityV1(StrictRecord):
     principal_id: UUID
     original_sha256: str = Field(pattern=HASH)
     byte_count: int = Field(strict=True, ge=1, le=MAX_BYTES)
-    media_type: Literal['application/pdf']
+    media_type: Literal['application/pdf','text/plain']
     private_object_key: str = Field(max_length=255)
     runtime_hash: str = Field(pattern=HASH)
     registry_hash: str = Field(pattern=HASH)
@@ -49,6 +49,7 @@ class ViewerCapabilityV1(StrictRecord):
 class ViewedOriginalV1:
     data: bytes
     valid_until: datetime
+    media_type: str = 'application/pdf'
 
 
 class OriginalViewerUnavailable(PermissionError):
@@ -138,13 +139,26 @@ class OriginalViewerFactoryV1:
         self._current(deadline)
         data = store._read_original_bytes(item)
         self._current(deadline)
-        if not data.startswith(b'%PDF-'):
-            raise PermissionError('fixed PDF source framing required')
+        if ref.media_type == 'application/pdf':
+            if not data.startswith(b'%PDF-'):
+                raise PermissionError('fixed PDF source framing required')
+        elif ref.media_type == 'text/plain':
+            text = data.decode('utf-8', errors='strict')
+            if '\x00' in text or text.encode('utf-8') != data:
+                raise PermissionError('exact original UTF-8 text required')
+        else:
+            raise PermissionError('fixed original media required')
         if hashlib.sha256(data).hexdigest() != ref.original_sha256 or len(data) != ref.byte_count:
             raise PermissionError('original viewer bytes differ')
         return data
 
     def read_pdf_v1(self, source_id, revision, *, caller_deadline):
+        # Retained PDF-only API never silently serves another media type.
+        if not any((r.source_id,r.revision,r.media_type)==(source_id,revision,'application/pdf') for r in self.settings.config.sources):
+            raise OriginalViewerUnavailable('original PDF view unavailable; delivery unproved')
+        return self.read_original_v1(source_id,revision,caller_deadline=caller_deadline)
+
+    def read_original_v1(self, source_id, revision, *, caller_deadline):
         # No cached capability and no retry, including close or uncertain I/O.
         try:
             if type(source_id) is not UUID or type(revision) is not int or revision < 1:
@@ -191,6 +205,6 @@ class OriginalViewerFactoryV1:
                 if phase == 0:
                     # Private filesystem I/O never holds a SQL transaction.
                     data = self._private(after, ref, caller_deadline)
-            return ViewedOriginalV1(data, caller_deadline)
+            return ViewedOriginalV1(data, caller_deadline, ref.media_type)
         except Exception:
             raise OriginalViewerUnavailable('original view unavailable; delivery unproved') from None

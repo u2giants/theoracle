@@ -5,7 +5,7 @@ phase registry must bind their exact hashes after actual compiler-role reads.
 Legacy AssemblyJobContext and extraction permission semantics are unchanged.
 """
 from datetime import datetime
-from typing import Literal
+from typing import ClassVar,Literal
 from uuid import UUID
 from pydantic import AwareDatetime,Field,model_validator
 
@@ -80,6 +80,7 @@ def compiler_extraction_handoff_v2(ledger,*,workspace_id,extraction_ids,source_r
 
 
 class AssemblyJobContextV2(StrictRecord):
+    candidate_contract: ClassVar[str|None]=None
     schema_version: Literal[2]=2
     context_schema: Literal['purpose-assembly-context-v2']='purpose-assembly-context-v2'
     actor_id: UUID
@@ -120,7 +121,7 @@ class AssemblyJobContextV2(StrictRecord):
                 or any(e.manifest.artifact_id==self.model_id for e in self.extractions)):
             raise PermissionError('separately qualified current assembly and historical compiler handoff required')
         expected=assembly_messages(receipts=self.receipts,extractions=self.extractions,
-            census=self.census,model_id=self.model_id,version=self.model_version)
+            census=self.census,model_id=self.model_id,version=self.model_version,candidate_contract=self.candidate_contract)
         if self.job.request.get('messages')!=expected or digest(self.job.request)!=self.job.request_hash:
             raise PermissionError('assembly V2 request differs from complete immutable source inputs')
         # Historical extraction permission hashes are immutable evidence. They
@@ -136,8 +137,14 @@ class AssemblyJobContextV2(StrictRecord):
             raise PermissionError('current independent assembly phase qualification required')
         refs,observations,findings=assembly_inputs(tuple(e.payload for e in self.extractions),enforce_unique_sources=True)
         payload,evidence=assembly_candidate_payload(raw,workspace_id=self.job.workspace_id,
-            refs=refs,observations=observations,findings=findings)
+            refs=refs,observations=observations,findings=findings,candidate_contract=self.candidate_contract)
         model=payload['operating_models'][0]
         if model['model_id']!=str(self.model_id) or model['version']!=self.model_version:
             raise PermissionError('V2 assembly output identity differs from sealed new model intent')
         return payload,evidence
+
+
+class ConsolidationAssemblyJobContextV1(AssemblyJobContextV2):
+    """Fresh independently admitted request; V2 contexts retain exact old schema."""
+    context_schema: Literal['purpose-consolidation-context-v1']='purpose-consolidation-context-v1'
+    candidate_contract: ClassVar[str]='qualified-consolidation-core-v1'

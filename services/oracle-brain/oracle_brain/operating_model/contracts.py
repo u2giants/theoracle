@@ -19,14 +19,14 @@ def digest(payload: dict) -> str:
 
 PROCESSING_ARTIFACT_KINDS = frozenset({
     'processing_extraction_v1','processing_failed_extraction_v1',
-    'processing_qualified_model_v1','processing_summary_v1','processing_failed_assembly_v1',
+    'processing_qualified_model_v1','processing_summary_v1','processing_recommendation_v1','processing_failed_assembly_v1',
 })
 
 class ArtifactManifest(StrictRecord):
     workspace_id: UUID
     artifact_id: UUID
     version: int = Field(strict=True, ge=1)
-    kind: Literal['extraction', 'operating_model', 'workflow', 'summary', 'analysis', 'report', 'failed_extraction','failed_assembly','event_import', 'processing_extraction_v1', 'processing_failed_extraction_v1', 'processing_qualified_model_v1', 'processing_summary_v1', 'processing_failed_assembly_v1']
+    kind: Literal['extraction', 'operating_model', 'workflow', 'summary', 'analysis', 'report', 'failed_extraction','failed_assembly','event_import', 'processing_extraction_v1', 'processing_failed_extraction_v1', 'processing_qualified_model_v1', 'processing_summary_v1','processing_recommendation_v1', 'processing_failed_assembly_v1']
     input_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
     source_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
     permission_digest: str = Field(pattern=r'^[0-9a-f]{64}$')

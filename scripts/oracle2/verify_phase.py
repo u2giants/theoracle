@@ -23,6 +23,10 @@ S02_TESTS = [
     "test_preview_settings.py", "test_worker_guard_parity.py",
 ]
 S03_TESTS = [
+    "test_original_upload_chunks_v1.py", "test_original_upload_browser_v1.py",
+    "test_consolidation_contracts_v1.py", "test_consolidation_sql_v1.py",
+    "test_consolidation_review_v1.py", "test_consolidation_review_browser_v1.py",
+    "test_consolidation_next_auth_browser_v1.py", "test_consolidation_sdk_sql_v1.py",
     "test_replacement_request_service_v1.py", "test_protected_web_python_conformance_v1.py",
     "test_owned_worker_database.py", "test_replacement_upload_service_v1.py",
     "test_replacement_upload_sql.py",
@@ -35,6 +39,8 @@ S03_TESTS = [
     "test_original_pdf_image_views.py",
     "test_original_view_settings_v1.py", "test_original_view_service_v1.py", "test_original_view_sql.py",
     "test_graph_evidence_answer.py",
+    "test_protected_raw_original_factory_v1.py", "test_protected_raw_original_factory_sql.py",
+    "test_original_review_reading_input_sql.py",
     "test_replacement_original_lifecycle.py", "test_original_qualification_runtime.py",
     "test_original_response_normalization_v1.py", "test_original_qualification_authority_sql.py",
     "test_replacement_qualification_sql.py", "test_q2b_target_catalog_v1.py",
@@ -47,6 +53,7 @@ S03_TESTS = [
 # S04 — complete source ingestion, revisions and withdrawal
 # (plan_oracle_consultant_overhaul.md §S04 gate list).
 S04_TESTS = [
+    "test_original_upload_chunks_v1.py", "test_original_upload_browser_v1.py",
     "test_binary_documents.py",
     "test_original_byte_storage.py",
     "test_document_provenance.py",
@@ -55,6 +62,9 @@ S04_TESTS = [
 ]
 # S05 — confirmed temporal operating model and corrections.
 S05_TESTS = [
+    "test_consolidation_contracts_v1.py", "test_consolidation_sql_v1.py",
+    "test_consolidation_review_v1.py", "test_consolidation_review_browser_v1.py",
+    "test_consolidation_next_auth_browser_v1.py", "test_consolidation_sdk_sql_v1.py",
     "test_replacement_confirmation_settings_v1.py", "test_replacement_confirmation_service_v1.py", "test_replacement_confirmation_sql.py",
     "test_identity_resolution.py",
     "test_temporal_facts.py",
@@ -65,6 +75,11 @@ S05_TESTS = [
 ]
 # S06 — interviews and ordinary chat learning.
 S06_TESTS = [
+    "test_durable_interview_sql.py", "test_conversation_contract_v1.py",
+    "test_conversation_service_sql.py", "test_conversation_processing_sql.py",
+    "test_conversation_original_sql.py", "test_conversation_browser_sql.py",
+    "test_conversation_native_sql.py", "test_conversation_text_pricing_v1.py",
+    "test_conversation_fence_v1.py", "test_conversation_registration_sql.py",
     "test_interview_resume.py",
     "test_question_selection.py",
     "test_chat_learning.py",

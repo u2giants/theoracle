@@ -13,7 +13,7 @@ from pydantic import Field,model_validator
 
 from .acceptance_profiles import (
     CensusContext,AssessmentContext,POLICY,validate_context,validate_payload)
-from .purpose_assembly_v2 import AssemblyJobContextV2
+from .purpose_assembly_v2 import AssemblyJobContextV2,ConsolidationAssemblyJobContextV1
 from .contracts import StrictRecord,canonical_bytes,digest
 from .native_factory import NativeDispatchJob,validate_embedding_response
 from .purpose_context import HASH,PHASE_CONTRACTS,PurposeDispatchV2,PurposeRunDescriptorV2
@@ -60,7 +60,23 @@ class DerivedEmbeddingContextV2(StrictRecord):
                     or hashlib.sha256(doc['text'].encode()).hexdigest()!=doc['content_hash']):
                 raise PermissionError('derived document identity differs')
             body=json.loads(doc['text'])
-            if (set(body)!={'projection_schema','original_source_ref','qualified_model','observations','findings'}
+            fields={'projection_schema','original_source_ref','qualified_model','observations','findings'}
+            if 'consolidation_core' in self.qualified_payload:
+                # The retained source-only V2 context cannot embed a new core.
+                # Only the exact SDK inventory profile admits its typed sealed
+                # model, never arbitrary extra document material or subclasses.
+                if type(self) is not DerivedSDKEmbeddingContextV3:
+                    raise PermissionError('explicit qualified consolidation SDK context required')
+                from .consolidation_contracts_v1 import ConsolidationCoreV1
+                core=ConsolidationCoreV1.model_validate_json(canonical_bytes(body.get('qualified_consolidation_core')))
+                if (core.model.model_dump(mode='json')!=body['qualified_model']
+                        or core.model.workspace_id!=self.workspace_id
+                        or core.model.model_id!=self.qualified_artifact_id
+                        or core.model.version!=self.qualified_artifact_version
+                        or core.model.source_refs!=self.source_refs):
+                    raise PermissionError('qualified consolidation core differs from exact SDK artifact')
+                fields.add('qualified_consolidation_core')
+            if (set(body)!=fields
                     or body['projection_schema']!=view['schema'] or body['original_source_ref']!=doc['source_ref']
                     or digest(body['qualified_model'])!=view['qualified_model_hash']):
                 raise PermissionError('derived document contains unsupported material')
@@ -107,7 +123,7 @@ class PurposePrivateContextV2(StrictRecord):
     phase: Literal['census','assembly','assessment','embedding']
     job: NativeDispatchJob
     census: CensusContext|None=None
-    assembly: AssemblyJobContextV2|None=None
+    assembly: ConsolidationAssemblyJobContextV1|AssemblyJobContextV2|None=None
     assessment: AssessmentContext|None=None
     embedding: DerivedEmbeddingContextV2|DerivedSDKEmbeddingContextV3|None=None
 

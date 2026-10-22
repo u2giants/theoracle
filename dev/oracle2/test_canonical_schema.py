@@ -49,7 +49,12 @@ def _inventory_digest(files):
 
 def _catalog(connection):
     result = []
-    for signature in _SIGNATURES:
+    signatures=_SIGNATURES
+    if any(p.name=='019_employee_conversations.sql' for p in canonical_synthetic_migrations()):
+        signatures+=('oracle2._purpose_source_v2(uuid,uuid,uuid,text,text,text,boolean)',
+            'oracle2.conversation_model_input_v1(uuid)',
+            'oracle2.original_native_program_identity_v1(uuid)')
+    for signature in signatures:
         row = connection.execute('''SELECT oid::text,pg_get_functiondef(oid),pg_get_userbyid(proowner),
             prosecdef,proconfig,proacl::text FROM pg_proc WHERE oid=to_regprocedure(%s)''', (signature,)).fetchone()
         if row is None:

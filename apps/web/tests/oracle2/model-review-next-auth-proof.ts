@@ -1,0 +1,49 @@
+/** Actual Next process/proxy/page/API; actual SDK HTTPS getUser and employee SQL. */
+import assert from 'node:assert/strict';
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:net';
+import {X509Certificate} from 'node:crypto';
+import {chromium} from '@playwright/test';
+import {createAuthClient,type CookieAdapter} from '../../../../packages/auth/src/server';
+import {canonicalJson,sha256,type ModelReviewBinding} from '../../lib/replacement-server-binding';
+import {inventedAuthService} from './invented-auth-service';
+const meta=JSON.parse(readFileSync(process.argv[2]!,'utf8'));const auth=await inventedAuthService(meta);
+const portServer=createServer();await new Promise<void>(r=>portServer.listen(0,'::1',r));const address=portServer.address();assert.ok(address&&typeof address!=='string');const port=address.port;await new Promise<void>(r=>portServer.close(()=>r()));
+const origin='https://localhost.localdomain:'+port;const hashFile=(p:string)=>sha256(readFileSync(p));
+const binding:ModelReviewBinding={schema_version:1,purpose:'replacement-model-review-web-binding-v1',project_url:auth.origin,auth_issuer:auth.origin+'/auth/v1',auth_user_id:meta.auth_user_id,employee_id:meta.employee_id,principal_id:meta.principal_id,workspace_id:meta.workspace_id,runtime_hash:meta.runtime_hash,registry_hash:meta.registry_hash,model_id:meta.model_id,review_config_sha256:meta.review_config_sha256,review_peer_profile_sha256:meta.review_peer_profile_sha256,web_origin:origin,backend_origin:meta.backend_origin,review_path:'/v1/replacement/model-review',server_dns:'localhost.localdomain',server_certificate_der_sha256:sha256(new X509Certificate(readFileSync(meta.server_certificate_file)).raw),server_ca_file:meta.client_ca_file,server_ca_sha256:hashFile(meta.client_ca_file),client_certificate_file:meta.client_certificate_file,client_certificate_sha256:hashFile(meta.client_certificate_file),client_certificate_der_sha256:sha256(new X509Certificate(readFileSync(meta.client_certificate_file)).raw),client_uri:meta.client_uri,client_key_file:meta.client_key_file,client_key_sha256:hashFile(meta.client_key_file),issuer_actor:meta.issuer_actor,reviewer_actor:meta.reviewer_actor,valid_from:meta.valid_from,expires_at:meta.expires_at,original_horizon:meta.original_horizon};
+const bindingPath=join(meta.scratch,'actual-next-binding.json');writeFileSync(bindingPath,canonicalJson(binding),{mode:0o600});
+process.env.NEXT_PUBLIC_SUPABASE_URL=auth.origin;process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY=auth.anon;
+const jar:ReturnType<CookieAdapter['getAll']>=[];const adapter:CookieAdapter={getAll:()=>jar,setAll:values=>{for(const cookie of values){const i=jar.findIndex(c=>c.name===cookie.name);if(i>=0)jar.splice(i,1);jar.push({name:cookie.name,value:cookie.value});}}};
+const client=createAuthClient(adapter);const seeded=await client.auth.setSession({access_token:auth.token,refresh_token:'invented-no-refresh'});assert.equal(seeded.error,null);assert.equal(seeded.data.user?.id,meta.auth_user_id);assert.ok(jar.length);const seedRequests=auth.state.requests;
+const allowed=['PATH','HOME','TMPDIR','LANG','SHELL','NODE_EXTRA_CA_CERTS'];const env:NodeJS.ProcessEnv={...Object.fromEntries(allowed.filter(k=>process.env[k]).map(k=>[k,process.env[k]])),NODE_ENV:'development'};
+Object.assign(env,{NODE_ENV:'development',NEXT_TELEMETRY_DISABLED:'1',DATABASE_URL:meta.web_database_url,NEXT_PUBLIC_SUPABASE_URL:auth.origin,NEXT_PUBLIC_SUPABASE_ANON_KEY:auth.anon,ORACLE2_REPLACEMENT_REVIEW_BINDING_FILE:bindingPath,ORACLE2_REPLACEMENT_REVIEW_BINDING_SHA256:hashFile(bindingPath)});
+assert.ok(!env.NODE_OPTIONS&&!env.SUPABASE_SERVICE_ROLE_KEY&&!env.ORACLE2_NATIVE_BROWSER_BUILD);
+const child=spawn('pnpm',['exec','next','dev','--webpack','--hostname','localhost.localdomain','--port',String(port),'--experimental-https','--experimental-https-key',meta.server_key_file,'--experimental-https-cert',meta.server_certificate_file,'--experimental-https-ca',process.env.NODE_EXTRA_CA_CERTS!],{cwd:resolve('.'),env,stdio:['ignore','pipe','pipe'],detached:false});
+let output='';child.stdout.on('data',d=>{output+=d.toString();});child.stderr.on('data',d=>{output+=d.toString();});let browser:Awaited<ReturnType<typeof chromium.launch>>|undefined;
+const start=Date.now();let outcome='not-started';const statuses:Record<string,number>={};const pageErrors:string[]=[];const requests:Array<{url:string;origin:string|null}>=[];
+try{
+ while(!/Ready in/.test(output)){assert.ok(child.exitCode===null,'Next exited before ready');assert.ok(Date.now()-start<45000,'Next startup bounded');await new Promise(r=>setTimeout(r,100));}
+ browser=await chromium.launch({headless:true});const context=await browser.newContext({ignoreHTTPSErrors:true});await context.addCookies(jar.map(c=>({...c,url:origin,httpOnly:true,secure:true,sameSite:'Lax' as const})));
+ const page=await context.newPage();page.on('request',async r=>{if(r.url().includes('/protected/model-review'))requests.push({url:r.url(),origin:await r.headerValue('origin')});});page.on('pageerror',e=>pageErrors.push(e.message));const response=await page.goto(origin+'/consultant/replacement/review',{timeout:60000});assert.ok(response);statuses.page=response.status();
+ assert.equal(statuses.page,200);await page.getByRole('heading',{name:'Review documentary accounts',exact:true}).waitFor();assert.ok(auth.state.requests>seedRequests,'real Next made auth HTTP calls');
+ const inspect={schema_version:1,operation:'inspect',model_id:meta.model_id,base_version:1,caller_deadline:new Date(Date.now()+20000).toISOString().replace('.000Z','Z').replace(/\.(\d{3})Z$/,'.$1000Z')};
+ const beforeApi=auth.state.requests;const api=await page.evaluate(async body=>{const r=await fetch('/api/consultant/replacement/v1/protected/model-review',{method:'POST',headers:{'Content-Type':'application/json'},body});return {status:r.status,body:await r.text()};},canonicalJson(inspect));statuses.api=api.status;const afterApi=auth.state.requests;
+ if(api.status===503){assert.equal(api.body,'{"error":"Replacement control unavailable"}');outcome='actual-framework-refused';}
+ else{
+  assert.equal(api.status,200,api.body);outcome='actual-framework-positive';await page.getByRole('button',{name:'Load review',exact:true}).click();await page.getByText('Changed account',{exact:true}).waitFor({timeout:15000});await page.screenshot({path:join(meta.scratch,'actual-next-stale-diff.png')});
+  await page.getByRole('button',{name:'Reload current version for a new decision',exact:true}).click();await page.getByRole('radio').first().waitFor();await page.getByRole('radio').first().check();await page.getByRole('button',{name:'Accept my reported account',exact:true}).click();await page.getByRole('status').filter({hasText:'Your account decision was recorded. Company policy remains unconfirmed.'}).waitFor();await page.getByLabel('Version last reviewed').fill('1');await page.getByRole('button',{name:'Load review',exact:true}).click();await page.getByText('Your earlier version is unavailable. Its contents have been withheld.',{exact:true}).waitFor();assert.equal(await page.getByRole('radio').count(),0);assert.equal(await page.getByRole('button',{name:'Accept my reported account',exact:true}).isDisabled(),true);assert.equal(await page.getByRole('button',{name:'Reject this account',exact:true}).isDisabled(),true);
+ }
+ const denied=async()=>page.evaluate(async()=>{const r=await fetch('/api/consultant/replacement/v1/protected/model-review',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});return r.status;});
+ auth.state.mode='revoked';statuses.revoked=await denied();assert.equal(statuses.revoked,503);statuses.revokedPage=(await context.request.get(origin+'/consultant/replacement/review',{maxRedirects:0})).status();assert.equal(statuses.revokedPage,307);auth.state.mode='foreign';statuses.foreign=await denied();assert.equal(statuses.foreign,503);statuses.foreignPage=(await context.request.get(origin+'/consultant/replacement/review',{maxRedirects:0})).status();assert.equal(statuses.foreignPage,307);auth.state.mode='valid';
+ const absent=await browser.newContext({ignoreHTTPSErrors:true});const noCookie=await absent.request.post(origin+'/api/consultant/replacement/v1/protected/model-review',{headers:{Origin:origin,'Content-Type':'application/json'},data:'{}'});statuses.noCookie=noCookie.status();assert.equal(statuses.noCookie,503);await absent.close();
+ writeFileSync(join(meta.scratch,'disable-employee'),'requested',{mode:0o600});const disableStart=Date.now();while(!existsSync(join(meta.scratch,'employee-disabled'))){assert.ok(Date.now()-disableStart<5000);await new Promise(r=>setTimeout(r,50));}
+ statuses.disabled=await denied();assert.equal(statuses.disabled,503);statuses.disabledPage=(await context.request.get(origin+'/consultant/replacement/review',{maxRedirects:0})).status();assert.equal(statuses.disabledPage,307);
+ await page.screenshot({path:join(meta.scratch,'actual-next-screen.png')});
+ writeFileSync(join(meta.scratch,'actual-next-receipt.json'),JSON.stringify({actual_next:true,auth:'actual SDK getUser HTTPS protocol against invented fixture',employee:'actual SQL employee_identities join',outcome,statuses,requests,before_api_auth_requests:beforeApi,after_api_auth_requests:afterApi,auth_requests:auth.state.requests,seed_requests:seedRequests,auth_accepted:auth.state.accepted,auth_rejected:auth.state.rejected,page_errors:pageErrors,next_pid:child.pid,clock_guard_unchanged:true})+'\n');
+}finally{
+ if(browser)await browser.close();writeFileSync(join(meta.scratch,'actual-next-process.txt'),output,{mode:0o600});try{child.kill('SIGTERM');}catch{}
+ await Promise.race([new Promise(r=>child.once('exit',r)),new Promise(r=>setTimeout(r,3000))]);try{child.kill('SIGKILL');}catch{}
+ await auth.close();
+}

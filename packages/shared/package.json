@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./domains": "./src/domains.ts",
-    "./business-model-shapes": "./src/business-model-shapes.ts"
+    "./business-model-shapes": "./src/business-model-shapes.ts",
+    "./protected-node-https": "./src/protected-node-https.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

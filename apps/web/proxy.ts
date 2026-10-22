@@ -15,8 +15,8 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { captureControlWindow, controlWindowRemaining, CONTROL_PATH, ORIGINAL_VIEW_PATH, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS, unavailableControl, privateControlHeaders, type ControlWindow } from './lib/replacement-control-window';
-import { canonicalJson, instant, readInstalledBinding, readInstalledViewerBinding } from './lib/replacement-server-binding';
+import { captureControlWindow, controlWindowRemaining,isConversationPath, CONTROL_PATH, ORIGINAL_VIEW_PATH, ORIGINAL_UPLOAD_PATH, MODEL_REVIEW_PATH, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS, unavailableControl, privateControlHeaders, type ControlWindow } from './lib/replacement-control-window';
+import { canonicalJson, instant, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding,readInstalledModelReviewBinding,readInstalledConversationBinding } from './lib/replacement-server-binding';
 import { nativeRequestAllowed, nativeForwardingAllowed, readStaticManifest } from './lib/native-browser-runtime.mjs';
 
 export async function proxy(request: NextRequest) {
@@ -31,7 +31,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.next({request});
     }catch{return new NextResponse('Unavailable',{status:503,headers:{'Cache-Control':'no-store'}});}
   }
-  if(request.nextUrl.pathname===CONTROL_PATH||request.nextUrl.pathname===ORIGINAL_VIEW_PATH)return protectedControlProxy(request,captureControlWindow());
+  if(request.nextUrl.pathname===CONTROL_PATH||request.nextUrl.pathname===ORIGINAL_VIEW_PATH||request.nextUrl.pathname===ORIGINAL_UPLOAD_PATH||request.nextUrl.pathname===MODEL_REVIEW_PATH||isConversationPath(request.nextUrl.pathname))return protectedControlProxy(request,captureControlWindow());
   // Preserve the original matcher exclusions for ordinary deployments.
   if(/^\/(?:_next\/(?:static|image)|favicon\.ico|robots\.txt|sitemap\.xml)/.test(request.nextUrl.pathname)
     ||/\.(?:svg|png|jpg|jpeg|gif|webp)$/.test(request.nextUrl.pathname))return NextResponse.next({request});
@@ -81,13 +81,15 @@ export async function proxy(request: NextRequest) {
  * first boundary, and ordinary auth/cookie refresh below stays unchanged. */
 async function protectedControlProxy(request:NextRequest,window:Readonly<ControlWindow>):Promise<Response>{
   if(request.method!=='POST')return unavailableControl(405);
-  const viewer=request.nextUrl.pathname===ORIGINAL_VIEW_PATH;
+  const upload=request.nextUrl.pathname===ORIGINAL_UPLOAD_PATH;
+  const conversation=isConversationPath(request.nextUrl.pathname);
+  const viewer=request.nextUrl.pathname===ORIGINAL_VIEW_PATH||upload;
   if(viewer&&['range','if-range','if-match','if-none-match','if-modified-since','if-unmodified-since','expect','content-encoding'].some(k=>request.headers.has(k)))return unavailableControl();
   if(CONTROL_BYPASS_HEADERS.some(key=>request.headers.has(key)))return unavailableControl();
   const controller=new AbortController();let active=true,timer:ReturnType<typeof setTimeout>|undefined;
   const stop=()=>controller.abort();request.signal.addEventListener('abort',stop,{once:true});
   try{
-    const readBinding=viewer?readInstalledViewerBinding:readInstalledBinding;
+    const readBinding=conversation?readInstalledConversationBinding:request.nextUrl.pathname===MODEL_REVIEW_PATH?readInstalledModelReviewBinding:upload?readInstalledUploadBinding:viewer?readInstalledViewerBinding:readInstalledBinding;
     const installed=readBinding(),profile=installed.profile;
     const remaining=()=>{
       if(!active||request.signal.aborted)return fail();

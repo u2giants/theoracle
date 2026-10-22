@@ -204,6 +204,13 @@ class RawOriginalNativeProviderV1:
                 response_validator(response)
             except (ValueError, TypeError, KeyError):
                 valid = False
+            except Exception:
+                # Authority/route/currentness may fail after actual paid wire.
+                # Preserve UNKNOWN liability, including any observed overrun;
+                # never leave an un-settled reservation or silently retry.
+                self.budget.finish(rid, actual_usd=max(actual, maximum), failed=True,
+                    response_hash=None, failure_kind='transport_failure')
+                raise RuntimeError('raw validation outcome unknown; liability retained; no retry') from None
         if isinstance(response, str):
             response_hash = hashlib.sha256(response.encode()).hexdigest()
         else:

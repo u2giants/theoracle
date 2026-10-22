@@ -48,7 +48,8 @@ RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_endpoint_quote_v1','raw_na
     'raw_multimodal_pricing_v1','raw_original_context_v1',
     'raw_original_native_provider_v1','raw_original_observer_v1','raw_original_paid_response_v1',
     'raw_original_request_v1','raw_original_settings_v1','raw_original_views_v1',
-    'raw_provider_reservation_hooks','raw_vision_policy_v1')
+    'raw_provider_reservation_hooks','raw_vision_policy_v1',
+    'protected_raw_original_factory_v1','protected_raw_original_factory_sql','original_review_reading_input_sql')
 REPLACEMENT_RESULT_SUITES=('replacement_confirmation_settings_v1','replacement_confirmation_service_v1','replacement_confirmation_sql',
     'replacement_executor_target_sql','replacement_public_view_v1',
     'replacement_result_cleanup_v1','replacement_result_settings_v1','replacement_result_v1',
@@ -63,6 +64,8 @@ DOCUMENTARY += ('research_rights','research_fetch','research_scheduler')
 DOCUMENTARY += ('research_freshness','applicability','recommendation_contract',
     'recommendation_identity','scenario_math','experiment_outcomes')
 DOCUMENTARY += ('report_v2_codec','report_v2_workflow','report_v2_store')
+CONSOLIDATION_SUITES = ('consolidation_contracts_v1','consolidation_sql_v1','consolidation_review_v1','consolidation_review_browser_v1','consolidation_next_auth_browser_v1','consolidation_sdk_sql_v1')
+DOCUMENTARY += CONSOLIDATION_SUITES
 DOCUMENTARY += REPLACEMENT_RESULT_SUITES
 # Keep the light hosting/operator tail with documentary fixtures so every
 # heavy native suite owns one worker without exceeding the ten-worker cap.
@@ -75,7 +78,7 @@ DOCUMENTARY += ('native_trigger_v1',)
 # suites. They are mandatory source checks, never live/business acceptance.
 DOCUMENTARY += ('replacement_requester_v1','replacement_requester_sql',
     'replacement_request_service_v1','protected_web_python_conformance_v1','owned_worker_database',
-    'replacement_upload_service_v1','replacement_upload_sql',
+    'replacement_upload_service_v1','replacement_upload_sql','original_upload_chunks_v1','original_upload_browser_v1',
     'operations_recovery','recovery_primitives',
     'legacy_mapping','migration_reconcile','migration_resume','migration_delta',
     'legacy_routes_retired','legacy_citation_redirect','retired_writer_denial',
@@ -86,7 +89,7 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql')
+    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2
@@ -149,6 +152,30 @@ def required_suites(stage):
 # fresh database; all start under the SAME 120-second test deadline below.
 # R7: drop the purpose_coherent_native_journey / native_trigger_v1 singleton
 # groups so the original and raw-original families can own workers instead.
+DOCUMENTARY += ('durable_interview_sql','conversation_contract_v1','conversation_service_sql',
+    'conversation_processing_sql','conversation_original_sql','conversation_browser_sql',
+    'conversation_native_sql','conversation_text_pricing_v1','conversation_fence_v1','conversation_registration_sql')
+
+# Actual CI timings place the retained native journey near the 120-second
+# ceiling in its old worker. Place the new families in measured lighter workers;
+# the exact population, nine documentary workers and deadline are unchanged.
+def _place_suites(population, selected, anchor, *, after=False):
+    if any(population.count(name)!=1 for name in (*selected,anchor)) or anchor in selected:
+        raise RuntimeError('suite placement requires unique existing names')
+    remaining=tuple(name for name in population if name not in selected)
+    position=remaining.index(anchor)+int(after)
+    result=remaining[:position]+tuple(selected)+remaining[position:]
+    if len(result)!=len(population) or set(result)!=set(population):
+        raise RuntimeError('suite placement changed required population')
+    return result
+
+DOCUMENTARY=_place_suites(DOCUMENTARY,CONSOLIDATION_SUITES,'workflow_authorization')
+DOCUMENTARY=_place_suites(DOCUMENTARY,
+    ('protected_raw_original_factory_v1','protected_raw_original_factory_sql','original_review_reading_input_sql'),
+    'original_corpus_import',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('purpose_coherent_native_journey',),
+    'purpose_context_v2',after=True)
+
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
     'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
@@ -251,6 +278,9 @@ def cleanup_test_databases(admin,parts,owned):
 
 SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_worker_postgres_fixture.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
 SOURCE_INPUT_PATHS += ('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py','dev/oracle2/test_canonical_schema.py')
+# Actual browser/framework child cases read these same public sources. Never
+# bind only the Python caller while omitting its executed web/identity code.
+SOURCE_INPUT_PATHS += ('apps/web/app','apps/web/components/consultant','apps/web/lib','apps/web/tests/oracle2','apps/web/proxy.ts','apps/web/next.config.ts','apps/web/package.json','packages/db/src','packages/auth/src','packages/shared/src','pnpm-lock.yaml','pnpm-workspace.yaml','.github/workflows/oracle2-contracts.yml')
 SOURCE_INPUT_PATHS += ('dev/oracle2/native-v2-fixed-identities.json', 'dev/oracle2/hosting/prepare_native_trigger_v2.py', 'dev/oracle2/hosting/install_native_trigger_v2.py', 'dev/oracle2/hosting/project_native_trigger_v2.py', 'dev/oracle2/hosting/falkor_native_proof_acl_v2.py')
 
 
@@ -277,6 +307,7 @@ def main(argv=None):
     missing=[p.name for p in paths if not p.is_file()]
     if missing:raise RuntimeError('required tests missing: '+','.join(missing))
     public_hashes=required_public_chain_hashes()
+    source_snapshot=source_input_hashes()
     admin=os.environ['ORACLE2_TEST_ADMIN_URL'];parts=psycopg.conninfo.conninfo_to_dict(admin)
     if parts.get('host') not in {'localhost','127.0.0.1'}:raise PermissionError('synthetic loopback proof required')
     destination=ROOT/args.result;destination.parent.mkdir(parents=True,exist_ok=True)
@@ -314,6 +345,7 @@ def main(argv=None):
         report['versions']={package:version(package) for package in ('graphrag-sdk','langgraph','pydantic','psycopg')}
         report['head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
         hashes=source_input_hashes()
+        if hashes!=source_snapshot:raise RuntimeError('required executed source changed during tests')
         current_public_hashes=required_public_chain_hashes()
         if current_public_hashes!=public_hashes:raise RuntimeError('required public source changed during tests')
         hashes.update(current_public_hashes)

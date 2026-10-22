@@ -91,7 +91,7 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
         '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
         '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-        '014_replacement_source_custody.sql')
+        '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql')
 
 
 def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
@@ -199,7 +199,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
-    assert verifier.SYNTHETIC_MIGRATIONS[-1]=='014_replacement_source_custody.sql'
+    assert verifier.SYNTHETIC_MIGRATIONS[-4:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql')
 
 
 @pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])
@@ -243,6 +243,19 @@ def test_worker_cluster_existing_project_refuses_before_any_mutation(tmp_path,mo
     assert not (tmp_path/'cluster').exists()
 
 
+def test_protected_raw_factory_and_actual_reviewer_input_are_mandatory_once():
+    from collections import Counter
+    import ast
+    names={'protected_raw_original_factory_v1','protected_raw_original_factory_sql','original_review_reading_input_sql'}
+    for stage in ('W10','W12','documentary'):
+        counts=Counter(verifier.required_suites(stage))
+        assert all(counts[name]==1 for name in names)
+    phase=ast.parse((Path(__file__).parents[3]/'scripts/oracle2/verify_phase.py').read_text())
+    suites=next(ast.literal_eval(n.value) for n in phase.body if isinstance(n,ast.Assign)
+        and any(isinstance(t,ast.Name) and t.id=='S03_TESTS' for t in n.targets))
+    assert all(suites.count('test_'+name+'.py')==1 for name in names)
+
+
 @pytest.mark.parametrize(('body', 'exit_code', 'skipped', 'failures'), [
     ('def test_actual(): assert True\n', 0, 0, 0),
     ('import pytest\ndef test_actual(): pytest.skip("missing capability")\n', 1, 1, 0),
@@ -272,6 +285,18 @@ def test_actual_python_web_peer_conformance_is_mandatory_not_a_skipped_browser_p
     assert S03_TESTS.count('test_protected_web_python_conformance_v1.py') == 1
 
 
+def test_canonical_consolidation_is_required_once_with_017_before_018():
+    from scripts.oracle2.verify_phase import S03_TESTS, S05_TESTS
+    for name in ('consolidation_contracts_v1', 'consolidation_sql_v1','consolidation_review_v1','consolidation_review_browser_v1'):
+        assert verifier.required_suites('W10').count(name) == 1
+        assert S03_TESTS.count('test_' + name + '.py') == 1
+        assert S05_TESTS.count('test_' + name + '.py') == 1
+    assert verifier.SYNTHETIC_MIGRATIONS.count('017_processing_model_history.sql') == 1
+    assert verifier.SYNTHETIC_MIGRATIONS.count('018_original_review_reading_input.sql') == 1
+    assert verifier.SYNTHETIC_MIGRATIONS.count('019_employee_conversations.sql') == 1
+    start=verifier.SYNTHETIC_MIGRATIONS.index('017_processing_model_history.sql')
+    assert verifier.SYNTHETIC_MIGRATIONS[start:start+3] == ('017_processing_model_history.sql', '018_original_review_reading_input.sql', '019_employee_conversations.sql')
+
 
 def test_phase_frontdoor_needs_no_worker_database_or_process_dependencies(tmp_path):
     import subprocess
@@ -296,11 +321,22 @@ assert code==0 and evidence['tests']==1 and evidence['failures']==evidence['skip
     assert result.returncode == 0, result.stderr
 
 
+def test_original_browser_upload_is_required_with_browser_install_before_w10():
+    from scripts.oracle2.verify_phase import S03_TESTS, S04_TESTS
+    for name in ('original_upload_chunks_v1','original_upload_browser_v1'):
+        assert verifier.required_suites('W10').count(name)==1
+        assert S03_TESTS.count('test_'+name+'.py')==1
+        assert S04_TESTS.count('test_'+name+'.py')==1
+    workflow=(Path(__file__).parents[3]/'.github/workflows/oracle2-contracts.yml').read_text()
+    assert workflow.count('run: pnpm --filter @oracle/web exec playwright install chromium')==1
+    assert workflow.index('name: Install browser for synthetic connected-document proof') < workflow.index('name: New operating-model documentary and event contracts')
+
+
 
 def test_recorded_source_inventory_binds_shared_evidence_and_phase_frontdoor_bytes(tmp_path,monkeypatch):
     import subprocess
     subprocess.run(['git','init','-q',str(tmp_path)],check=True)
-    names=('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py')
+    names=('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py','dev/oracle2/test_canonical_schema.py')
     for name in names:
         p=tmp_path/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('invented initial source\n')
     monkeypatch.setattr(verifier,'ROOT',tmp_path)
@@ -312,3 +348,36 @@ def test_recorded_source_inventory_binds_shared_evidence_and_phase_frontdoor_byt
         after=verifier.source_input_hashes()
         assert before[name]!=after[name]
         assert all(before[other]==after[other] for other in names if other!=name)
+
+
+def test_actual_web_identity_and_framework_source_are_in_recorded_execution_inventory(tmp_path,monkeypatch):
+    import subprocess
+    subprocess.run(['git','init','-q',str(tmp_path)],check=True)
+    names=('apps/web/app/api/consultant/replacement/v1/protected/model-review/route.ts',
+        'apps/web/lib/replacement-protected-client.ts','apps/web/proxy.ts',
+        'apps/web/tests/oracle2/model-review-next-auth-proof.ts',
+        'packages/db/src/schema.ts','packages/auth/src/index.ts',
+        'packages/shared/src/protected-node-https.ts','pnpm-lock.yaml')
+    for name in names:
+        path=tmp_path/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'invented executed source')
+    private=tmp_path/'apps/web/lib/.env.local';private.write_bytes(b'invented excluded private fixture')
+    cache=tmp_path/'apps/web/.next/cache';cache.parent.mkdir(parents=True);cache.write_bytes(b'invented cache')
+    monkeypatch.setattr(verifier,'ROOT',tmp_path)
+    before=verifier.source_input_hashes()
+    assert set(before)==set(names)
+    (tmp_path/'apps/web/lib/replacement-protected-client.ts').write_bytes(b'changed actual executed peer')
+    assert before!=verifier.source_input_hashes()
+
+
+def test_new_database_browser_and_native_families_use_distinct_existing_worker_capacity():
+    groups=dict(verifier.test_groups('W10'))
+    assert set(verifier.CONSOLIDATION_SUITES)<=set(groups['documentary-01'])
+    assert {'protected_raw_original_factory_v1','protected_raw_original_factory_sql',
+        'original_review_reading_input_sql'}<=set(groups['documentary-04'])
+    assert 'purpose_coherent_native_journey' in groups['documentary-06']
+    assert 'conversation_native_sql' in groups['documentary-09']
+    assert 'purpose_coherent_native_journey' not in groups['documentary-09']
+    for population,selected,anchor in ((('a','a','b'),('a',),'b'),
+        (('a','b'),('missing',),'b'),(('a','b'),('a',),'a')):
+        with pytest.raises(RuntimeError):
+            verifier._place_suites(population,selected,anchor)

@@ -3,9 +3,10 @@ from dataclasses import dataclass
 from datetime import datetime,timezone
 import re
 from uuid import UUID
+from typing import Literal
 
-from pydantic import BaseModel,ConfigDict,Field,AwareDatetime,model_validator
-from .contracts import canonical_bytes
+from pydantic import BaseModel,ConfigDict,Field,AwareDatetime,model_validator,field_validator
+from .contracts import StrictRecord,canonical_bytes
 from .original_qualification_v1 import RawOriginalPopulationV1
 from .authority_adapter import ProcessingSourceResolver
 
@@ -81,6 +82,8 @@ class OriginalSourceResolverV1:
         return ProcessingSourceResolver._connection(self,connection)
 
     def _check(self,c):
+        from .request_deadline_v1 import request_remaining_v1
+        request_remaining_v1(required=False)
         b=self.binding
         if datetime.now(timezone.utc)>=b.expires_at:raise PermissionError('original caller binding expired')
         params=c.info.get_parameters()
@@ -99,6 +102,7 @@ class OriginalSourceResolverV1:
         owner=c.execute("SELECT r.rolname,pg_has_role(session_user,r.oid,'MEMBER') FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname='oracle2'").fetchone()
         if owner!=(b.expected_owner_role,False):raise PermissionError('trusted original schema owner differs')
         ProcessingSourceResolver._check_function_signatures(self,c,self._signatures)
+        request_remaining_v1(required=False)
 
     def original_population_current_v1(self,population_id,*,connection=None):
         b=self.binding
@@ -139,6 +143,46 @@ class OriginalSourceResolverV1:
         if datetime.now(timezone.utc)>=deadline:raise PermissionError('private original capability expired')
         return value|{'valid_until':deadline.isoformat()}
 
+
+    def original_review_reading_input_v1(self,reading_commit_hash):
+        """Own current reviewer only; completed reader authority is historical."""
+        from .authority_adapter import ProcessingSourceResolver
+        b=self.binding
+        if (b.purpose!='source-original-review' or type(reading_commit_hash) is not str
+                or not re.fullmatch(r'[0-9a-f]{64}',reading_commit_hash)):
+            raise PermissionError('own exact historical reading input required')
+        signatures={'oracle2.original_review_reading_input_v1(text)':frozenset({'oracle2_source_original_reviewer'})}
+        with self._connection() as c:
+            before=self.original_population_current_v1(b.population.population_id,connection=c)
+            ProcessingSourceResolver._check_function_signatures(self,c,signatures)
+            row=c.execute('SELECT oracle2.original_review_reading_input_v1(%s)',(reading_commit_hash,)).fetchone()
+            after=self.original_population_current_v1(b.population.population_id,connection=c)
+            ProcessingSourceResolver._check_function_signatures(self,c,signatures)
+            self._check(c)
+        if not row:raise PermissionError('actual historical reader metadata unavailable')
+        value=OriginalReviewReadingInputV1.model_validate_json(canonical_bytes(row[0]))
+        snapshot=value.reviewer_snapshot
+        if (value.reading_commit_sha256!=reading_commit_hash or snapshot.population!=b.population
+                or snapshot.actual_principal_id!=b.principal or snapshot.session_role!=b.expected_session_role
+                or snapshot.original_allocation_hash!=b.original_allocation_hash
+                or snapshot.original_horizon!=b.original_horizon
+                or value.reader_principal_id==b.principal or value.reader_session_role==b.expected_session_role
+                or datetime.now(timezone.utc)>=min(value.valid_until,before.valid_until,after.valid_until,b.expires_at)):
+            raise PermissionError('actual own current reviewer metadata differs')
+        return value
+
+    def original_native_program_identity_v1(self):
+        b=self.binding
+        signature={'oracle2.original_native_program_identity_v1(uuid)':frozenset({'oracle2_source_original_reader','oracle2_source_original_reviewer'})}
+        with self._connection() as c:
+            self.original_population_current_v1(b.population.population_id,connection=c)
+            ProcessingSourceResolver._check_function_signatures(self,c,signature)
+            row=c.execute('SELECT oracle2.original_native_program_identity_v1(%s)',(b.population.population_id,)).fetchone()
+            self.original_population_current_v1(b.population.population_id,connection=c);self._check(c)
+        value=OriginalNativeProgramIdentityV1.model_validate_json(canonical_bytes(row[0]))
+        if (value.principal_id,value.session_role,value.population_id,value.purpose)!=(b.principal,b.expected_session_role,b.population.population_id,b.purpose) or not value.checked_at<=datetime.now(timezone.utc)<value.valid_until<=b.expires_at:
+            raise PermissionError('actual own native program identity differs')
+        return value
 
     def _write_original(self, operation):
         """Own transaction only. Return solely after the real connection commits."""
@@ -211,8 +255,19 @@ class OriginalSourceResolverV1:
         """SQL014 is the sole custody owner; no shared/borrowed transaction."""
         import hashlib
         b=self.binding
-        if (b.purpose!='source-original-review' or type(reading_seal) is not OriginalPhaseSealV1
-                or type(review_seal) is not OriginalPhaseSealV1
+        retained=type(reading_seal) is OriginalReviewReadingInputV1
+        if retained:
+            # Caller construction is not authority. Obtain the actual own current
+            # SQL018 record again; never manufacture a renewed reader seal.
+            actual=self.original_review_reading_input_v1(reading_seal.reading_commit_sha256)
+            stable=('schema_version','purpose','reading_commit_sha256','reading_commit_canonical_utf8_hex','reader_principal_id',
+                'reader_session_role','reader_model_id','reader_runtime_hash','reader_population_id','reader_operation_registry_hash','reader_model_identity_sha256')
+            if any(getattr(actual,k)!=getattr(reading_seal,k) for k in stable):raise PermissionError('actual retained reader proof differs')
+            reading_principal=actual.reader_principal_id;reading_role=actual.reader_session_role;reading_hash=actual.reading_commit_sha256
+        elif type(reading_seal) is OriginalPhaseSealV1:
+            reading_principal=reading_seal.principal_id;reading_role=reading_seal.session_role;reading_hash=reading_seal.commit_sha256
+        else:raise PermissionError('actual reader seal or retained own-reviewer observation required')
+        if (b.purpose!='source-original-review' or type(review_seal) is not OriginalPhaseSealV1
                 or type(reading_text) is not str or not reading_text.strip()
                 or len(reading_text.encode('utf-8'))>25*1024*1024):
             raise PermissionError('own reviewer and exact completed reading/seals required')
@@ -220,21 +275,21 @@ class OriginalSourceResolverV1:
                 or review_seal.population_id!=b.population.population_id
                 or review_seal.runtime_hash!=b.population.runtime_hash
                 or review_seal.operation_registry_hash!=b.population.operation_registry_hash
-                or reading_seal.principal_id==review_seal.principal_id
-                or reading_seal.session_role==review_seal.session_role):
+                or reading_principal==review_seal.principal_id
+                or reading_role==review_seal.session_role):
             raise PermissionError('actual own independent review seal required')
         def write(c):
             row=c.execute('SELECT oracle2.finalize_original_reading_qualification_v1(%s,%s,%s)',
-                (reading_seal.commit_sha256,review_seal.commit_sha256,reading_text)).fetchone()
+                (reading_hash,review_seal.commit_sha256,reading_text)).fetchone()
             if not row:raise PermissionError('actual original qualification unavailable')
             seal=OriginalQualificationSealV1.model_validate_json(canonical_bytes(row[0]))
             matches=[ref for ref in b.population.raw_refs if
                 (ref.workspace_id,ref.source_id,ref.revision,ref.original_sha256)==
                 (seal.workspace_id,seal.source_id,seal.revision,seal.original_sha256)]
             if (len(matches)!=1 or seal.reading_sha256!=hashlib.sha256(reading_text.encode()).hexdigest()
-                    or seal.reader_principal_id!=reading_seal.principal_id
+                    or seal.reader_principal_id!=reading_principal
                     or seal.reviewer_principal_id!=review_seal.principal_id
-                    or seal.reader_commit!=reading_seal.commit_sha256
+                    or seal.reader_commit!=reading_hash
                     or seal.reviewer_commit!=review_seal.commit_sha256
                     or seal.valid_until>b.expires_at or datetime.now(timezone.utc)>=seal.valid_until):
                 raise PermissionError('actual committed original qualification differs')
@@ -293,3 +348,56 @@ class OriginalQualificationSealV1(BaseModel):
         from .source_receipts import SourceRef
         return SourceRef(workspace_id=self.workspace_id,source_id=self.source_id,revision=self.revision,
             original_sha256=self.original_sha256,reading_sha256=self.reading_sha256,parser_id=self.parser_id)
+
+
+class OriginalReviewReadingInputV1(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True,frozen=True)
+    schema_version:Literal[1]
+    purpose:Literal['original-review-reading-input-v1']
+    reading_commit_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reading_commit_canonical_utf8_hex:str=Field(min_length=2,max_length=131072,pattern=r'^(?:[0-9a-f]{2})+$')
+    reader_principal_id:UUID
+    reader_session_role:str=Field(pattern=r'^[a-z_][a-z0-9_]{0,62}$')
+    reader_model_id:str=Field(min_length=1,max_length=255)
+    reader_runtime_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reader_population_id:UUID
+    reader_operation_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reader_model_identity_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    reviewer_snapshot:OriginalPopulationSnapshotV1
+    checked_at:AwareDatetime
+    valid_until:AwareDatetime
+
+    @field_validator('schema_version',mode='before')
+    @classmethod
+    def exact_version(cls,v):
+        if type(v) is not int or v!=1:raise ValueError('exact reviewer reading input version required')
+        return v
+
+    @model_validator(mode='after')
+    def retained_actual_commit(self):
+        import hashlib,json
+        from .contracts import digest
+        from .original_qualification_v1 import parse_original_response_commit_v1
+        raw=bytes.fromhex(self.reading_commit_canonical_utf8_hex)
+        record=parse_original_response_commit_v1(raw,phase='reading')
+        if (canonical_bytes(json.loads(raw))!=raw
+                or hashlib.sha256(raw).hexdigest()!=self.reading_commit_sha256
+                or record.population_id!=self.reader_population_id
+                or record.operation_registry_hash!=self.reader_operation_registry_hash
+                or not self.checked_at<self.valid_until<=self.reviewer_snapshot.valid_until
+                or self.reader_model_identity_sha256!=digest({'model_id':self.reader_model_id,
+                    'purpose':'source-original-reading','session_role':self.reader_session_role,
+                    'runtime_hash':self.reader_runtime_hash,'population_id':str(self.reader_population_id),
+                    'response_sha256':self.reading_commit_sha256})):
+            raise ValueError('actual canonical retained reader metadata differs')
+        return self
+
+
+class OriginalNativeProgramIdentityV1(StrictRecord):
+    purpose:Literal['source-original-reading','source-original-review']
+    principal_id:UUID
+    session_role:str
+    population_id:UUID
+    model_id:str=Field(min_length=1,max_length=255)
+    checked_at:AwareDatetime
+    valid_until:AwareDatetime

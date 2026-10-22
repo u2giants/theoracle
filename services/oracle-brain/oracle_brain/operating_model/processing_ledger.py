@@ -50,6 +50,8 @@ class ProcessingCompilerLedger(Ledger):
 
     def persist(self,*,workspace_id,artifact_id,version,kind,payload,refs,permission_digest,
                 compiler_digest,dependencies=(),failed=False,before_commit=None):
+        if 'consolidation_core' in payload:
+            raise PermissionError('qualified temporal revisions require canonical consolidation owner')
         if (kind not in PROCESSING_ARTIFACT_KINDS or not isinstance(workspace_id,UUID)
                 or not isinstance(artifact_id,UUID) or type(version) is not int or version<1
                 or type(failed) is not bool or failed!=(kind in {'processing_failed_extraction_v1','processing_failed_assembly_v1'})
@@ -81,7 +83,7 @@ class ProcessingCompilerLedger(Ledger):
             manifest_until=self._authorize_processing_blob(manifest)
             deadline=min(deadline,manifest_until,
                 self._validate_processing_guard(self.processing_extraction_guard,manifest,payload,now))
-        if kind in {'processing_qualified_model_v1','processing_summary_v1'}:
+        if kind in {'processing_qualified_model_v1','processing_summary_v1','processing_recommendation_v1'}:
             if self.processing_compile_guard is None:
                 raise PermissionError('independent current processing qualification required')
             now=self.clock()

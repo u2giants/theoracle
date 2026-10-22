@@ -36,10 +36,16 @@ class SealedAssemblyExtraction(StrictRecord):
         return self
 
 
-def assembly_messages(*, receipts, extractions, census, model_id, version):
+def assembly_messages(*, receipts, extractions, census, model_id, version, candidate_contract=None):
     """Exact full-source + immutable observation request; response is model only."""
+    if candidate_contract is None:schema=BusinessOperatingModel.model_json_schema()
+    elif candidate_contract=='qualified-consolidation-core-v1':
+        from .consolidation_contracts_v1 import ConsolidationCoreV1
+        schema=ConsolidationCoreV1.model_json_schema()
+    else:raise PermissionError('unknown assembly response contract')
+    response_name='BusinessOperatingModel' if candidate_contract is None else 'ConsolidationCoreV1'
     return [
-        {'role': 'system', 'content': 'Assemble the complete documentary operating model across all supplied originals and immutable extractions. Preserve conflicts and missing knowledge. Reuse actual observation and finding identities with exact support. Workflows remain reported; never confer company policy. Return only this BusinessOperatingModel JSON schema, without coverage or assessment: ' + json.dumps(BusinessOperatingModel.model_json_schema(), sort_keys=True)},
+        {'role': 'system', 'content': 'Assemble the complete documentary operating model across all supplied originals and immutable extractions. Preserve conflicts and missing knowledge. Reuse actual observation and finding identities with exact support. Workflows remain reported; never confer company policy. Return only this '+response_name+' JSON schema, without coverage or assessment: ' + json.dumps(schema, sort_keys=True)},
         {'role': 'user', 'content': json.dumps({
             'model_id': str(model_id), 'version': version,
             'originals': [{'source_ref': r.ref.model_dump(mode='json'), 'reading': r.reading} for r in receipts],

@@ -15,17 +15,7 @@ from .gateway import OpaqueGateway, server_tls
 from .job_authority import PostgresJobAuthority
 
 
-def protected_file(path, *, limit=1_000_000):
-    path=Path(path)
-    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077:
-        raise PermissionError('protected operator file required')
-    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
-    with os.fdopen(fd,'rb') as stream:
-        if os.fstat(stream.fileno()).st_mode & 0o077:
-            raise PermissionError('protected operator file required')
-        raw=stream.read(limit+1)
-    if len(raw)>limit:raise PermissionError('operator file exceeds bound')
-    return raw
+from oracle_brain.operating_model.protected_inputs_v1 import protected_file
 
 
 SCENARIO_FIELDS={'synthetic_scenario','synthetic_scenario_seal','synthetic_review_hash'}

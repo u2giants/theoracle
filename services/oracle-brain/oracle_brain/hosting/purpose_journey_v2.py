@@ -1083,7 +1083,7 @@ class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
 
     def authorize_manifest(self,manifest,principal,now):
         _require(principal==self.settings.config.actor_id and manifest.workspace_id==self.job.workspace_id
-            and manifest.kind in {'processing_qualified_model_v1','processing_summary_v1'},
+            and manifest.kind in {'processing_qualified_model_v1','processing_summary_v1','processing_recommendation_v1'},
             'exact qualified reader principal/kind required')
         fresh=self._boundary()
         actual,refs=self.settings.resolver.artifact_metadata(manifest.workspace_id,manifest.artifact_id,manifest.version)
@@ -1094,7 +1094,7 @@ class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
 
     def _validate_qualified_current(self,manifest,payload,principal,now):
         _require(principal==self.settings.config.actor_id and manifest.workspace_id==self.job.workspace_id
-            and manifest.kind in {'processing_qualified_model_v1','processing_summary_v1'},
+            and manifest.kind in {'processing_qualified_model_v1','processing_summary_v1','processing_recommendation_v1'},
             'exact current qualified read target required')
         before=self._boundary()
         if manifest.kind=='processing_qualified_model_v1':
@@ -1103,8 +1103,12 @@ class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
         # This full semantic/immutable lineage validation retains actual own-role
         # source and dependency SQL callbacks plus the sole current registry.
         # One shared connection covers the nested identity/seal round-trips.
+        guard=self.qualified
+        if manifest.kind=='processing_recommendation_v1':
+            guard=self.ledger.processing_compile_guard
+            _require(type(guard) is _PurposeCompilerReadGuardV3,'actual full canonical recommendation parent guard required')
         with self.settings.resolver.shared_connection():
-            validated=min(self.qualified.valid_until(manifest,payload,principal,datetime.now(timezone.utc)),
+            validated=min(guard.valid_until(manifest,payload,principal,datetime.now(timezone.utc)),
                 self.settings.semantic.valid_until(datetime.now(timezone.utc)))
         final=self._boundary()  # NEW current proof LAST, never cached across calls.
         until=min(before.operation_horizon,final.operation_horizon,final.current_until,validated)
@@ -1142,7 +1146,7 @@ class _PurposeQualifiedReaderLedgerV3(PurposeProcessingCompilerLedgerV3):
 
     def _authorize_processing_blob(self,manifest):
         super()._authorize_processing_blob(manifest)  # Full raw extraction hook unchanged.
-        if manifest.kind in {'processing_qualified_model_v1','processing_summary_v1'}:
+        if manifest.kind in {'processing_qualified_model_v1','processing_summary_v1','processing_recommendation_v1'}:
             guard=self.processing_read_guard
             _require(type(guard) is _PurposeQualifiedReadGuardV3,'exact protected qualified preblob guard required')
             guard.authorize_manifest(manifest,self.principal,datetime.now(timezone.utc))
@@ -1191,16 +1195,16 @@ class PurposeCompileInputsV2(StrictRecord):
         return self
 
 
-def compile_purpose_worker_result_v3(settings,job):
+def _compile_purpose_worker_result_v3(settings,job,*,consolidation_authority=None,deadline=None,idempotency=None):
     """Consume external schema3 and actual custody; only SQL creates outbox."""
     from oracle_brain.operating_model.purpose_profiles_v2 import PurposePrivateContextV2
-    from oracle_brain.operating_model.purpose_assembly_v2 import AssemblyJobContextV2
+    from oracle_brain.operating_model.purpose_assembly_v2 import AssemblyJobContextV2,ConsolidationAssemblyJobContextV1
     from oracle_brain.operating_model.purpose_capture_v2 import (
-        AssemblyObserverContextV2,ObservedAssemblyProtocolV2,ObservedAssemblyWireV2)
+        AssemblyObserverContextV2,ObservedAssemblyProtocolV2,ObservedConsolidationProtocolV1,ObservedAssemblyWireV2)
     from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
     from oracle_brain.operating_model.purpose_qualification_v3 import (
         PurposeSemanticAdmissionV3,compile_purpose_assembly_v3)
-    from oracle_brain.operating_model.semantic_acceptance import IndependentAssessment
+    from oracle_brain.operating_model.semantic_acceptance import IndependentAssessment,sealed
     _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
         and job.phase=='compile','exact externally appointed compiler phase required')
     settings.authorize(job)
@@ -1229,6 +1233,13 @@ def compile_purpose_worker_result_v3(settings,job):
     _require(records[('compile_inputs',None)]==(inputs_raw,inputs_entry),'compile input changed during bundle read')
     def model(kind,cls,**selector):
         raw,entry=records[(kind,selector.get('dispatch_id'))]
+        # Exact protected custody bytes choose only these closed explicit contracts.
+        if kind=='assembly_context':
+            decoded=json.loads(raw,object_pairs_hook=_unique)
+            if decoded.get('context_schema')=='purpose-consolidation-context-v1':cls=ConsolidationAssemblyJobContextV1
+        elif kind=='assembly_protocol':
+            decoded=json.loads(raw,object_pairs_hook=_unique)
+            if decoded.get('protocol')=='observed-consolidation-candidate-v1':cls=ObservedConsolidationProtocolV1
         return parse(raw,entry,cls)
     ctx,_=model('assembly_context',AssemblyJobContextV2,dispatch_id=inputs.assembly_dispatch_id)
     _require(tuple(r.ref for r in ctx.receipts)==job.source_refs
@@ -1262,6 +1273,36 @@ def compile_purpose_worker_result_v3(settings,job):
     settings.authorize(job)
     # Guard rechecks actual current registry/custody/compiler horizons; native
     # completed phase grants are historical receipts, never renewed here.
+    if type(ctx) is ConsolidationAssemblyJobContextV1:
+        from oracle_brain.operating_model.consolidation_authority_v1 import ConsolidationAuthorityV1
+        from oracle_brain.operating_model.consolidation_ledger_v1 import persist_consolidation_revision_v1,ConsolidationCommitUnknown
+        _require(type(consolidation_authority) is ConsolidationAuthorityV1
+            and consolidation_authority.binding.config_hash==settings.config_sha256
+            and consolidation_authority.binding.runtime_hash==settings.config.runtime_hash
+            and consolidation_authority.binding.principal_id==settings.config.actor_id,
+            'separate current externally appointed consolidation consumer required')
+        _require(type(settings) is CompilerWorkerSettingsV2
+            and settings.resolver is ledger.processing_sources
+            and settings.config_sha256==consolidation_authority.binding.config_hash,
+            'exact protected compiler metadata consumer required')
+        def current_consolidation_worker():
+            _worker_file(settings.config_path,settings.config_sha256)
+            _require(settings.jobs.current(job.job_id,now=datetime.now(timezone.utc))==job,
+                'externally appointed compiler job changed before commit')
+            _require(sealed(admission) in settings.semantic.current(datetime.now(timezone.utc)),
+                'current external semantic registry changed before commit')
+        current_consolidation_worker()
+        result=persist_consolidation_revision_v1(ledger,consolidation_authority,payload=payload,
+            permission_digest=admission.compiler_permission_hash,
+            dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in ctx.extractions),
+            idempotency=idempotency,deadline=deadline,_runtime_recheck=current_consolidation_worker)
+        try:
+            settings.authorize(job)
+            consolidation_authority._check_after_close(deadline,result[1])
+        except Exception:
+            raise ConsolidationCommitUnknown('committed consolidation runtime readback unavailable; read-only reconciliation required, no automatic retry') from None
+        return result
+    _require(consolidation_authority is None,'consolidation consumer cannot reinterpret old captures')
     return ledger.persist(workspace_id=job.workspace_id,artifact_id=inputs.artifact_id,version=inputs.artifact_version,
         kind='processing_qualified_model_v1',payload=payload,refs=job.source_refs,
         permission_digest=admission.compiler_permission_hash,compiler_digest=settings.config.runtime_hash,
@@ -1349,3 +1390,22 @@ def observe_qualified_purpose_result_v3(settings,job):
         'exact already committed qualified artifact required')
     settings.authorize(job)
     return manifest
+
+
+def compile_purpose_worker_result_v3(settings,job):
+    """Retained v3 entry point; old captures and signatures remain unchanged."""
+    return _compile_purpose_worker_result_v3(settings,job)
+
+
+def compile_consolidation_worker_result_v1(settings,job,*,authority,deadline,idempotency):
+    """Fresh qualified temporal capture through actual protected compiler custody.
+
+    Authority is installation-selected, never a body/actor/role/config selector.
+    This consumes actual phase wire; it cannot issue or renew phase admission.
+    """
+    from oracle_brain.operating_model.consolidation_authority_v1 import ConsolidationAuthorityV1
+    _require(type(authority) is ConsolidationAuthorityV1 and type(idempotency) is UUID,
+        'fixed separately appointed consolidation operation required')
+    authority._deadline(deadline)
+    return _compile_purpose_worker_result_v3(settings,job,consolidation_authority=authority,
+        deadline=deadline,idempotency=idempotency)

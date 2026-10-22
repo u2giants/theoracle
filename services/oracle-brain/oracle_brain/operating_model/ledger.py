@@ -95,6 +95,8 @@ class Ledger:
                 payload: dict, refs: tuple[SourceRef, ...], permission_digest: str,
                 compiler_digest: str, dependencies: tuple[tuple[str,str,str], ...] = (),
                 failed: bool = False, before_commit: Callable[[], None] | None = None) -> ArtifactManifest:
+        if 'consolidation_core' in payload:
+            raise PermissionError('qualified temporal core cannot use legacy persistence or report kinds')
         if self.processing_sources is not None and self.processing_sources.metadata_only:
             raise PermissionError('metadata-only processing resolver cannot compile artifacts')
         if kind in PROCESSING_ARTIFACT_KINDS:
@@ -222,7 +224,7 @@ class Ledger:
             raise PermissionError('current trusted processing qualification required')
         if (processing and (self.processing_sources.binding.profile not in {'candidate-compiler','documentary-executor'}
                 or (self.processing_sources.binding.profile != 'candidate-compiler'
-                    and manifest.kind not in {'processing_qualified_model_v1','processing_summary_v1'}))):
+                    and manifest.kind not in {'processing_qualified_model_v1','processing_summary_v1','processing_recommendation_v1'}))):
             raise PermissionError('processing profile cannot open extraction or failed candidate blobs')
         if manifest.state!='ready' and not include_failed:
             raise PermissionError('failed extraction cannot serve')
@@ -260,7 +262,7 @@ class Ledger:
         manifest,authoritative_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
         if (self.processing_sources.binding.profile not in {'candidate-compiler','documentary-executor'}
                 or (self.processing_sources.binding.profile != 'candidate-compiler'
-                    and manifest.kind not in {'processing_qualified_model_v1','processing_summary_v1'})):
+                    and manifest.kind not in {'processing_qualified_model_v1','processing_summary_v1','processing_recommendation_v1'})):
             raise PermissionError('processing profile cannot open extraction or failed candidate blobs')
         if manifest.state!='ready' and not include_failed:
             raise PermissionError('failed processing candidate cannot serve')

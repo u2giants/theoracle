@@ -29,9 +29,19 @@ def assembly_inputs(payloads, *, enforce_unique_sources=False):
     return refs,observations,findings
 
 
-def assembly_candidate_payload(raw_response, *, workspace_id, refs, observations, findings):
+def assembly_candidate_payload(raw_response, *, workspace_id, refs, observations, findings, candidate_contract=None):
     """Validate one model-only generation before independent coverage exists. No writes."""
-    model=BusinessOperatingModel.model_validate_json(raw_response)
+    core=None
+    if candidate_contract is None:
+        model=BusinessOperatingModel.model_validate_json(raw_response)
+    elif candidate_contract=='qualified-consolidation-core-v1':
+        from .consolidation_contracts_v1 import ConsolidationCoreV1,validate_core_evidence
+        from .native_factory import _unique_object,_deny_constant
+        from .contracts import canonical_bytes
+        decoded=json.loads(raw_response,object_pairs_hook=_unique_object,parse_constant=_deny_constant)
+        core=ConsolidationCoreV1.model_validate_json(canonical_bytes(decoded))
+        model=core.model
+    else:raise PermissionError('unknown explicit assembly response contract')
     if model.workspace_id!=workspace_id or set(model.source_refs)!=set(refs):raise ValueError('assembly must account for the exact admitted source population')
     validate_assembly(model,observations)
     if not set(model.finding_ids)<=findings.keys() or any(not set(w.finding_ids)<=findings.keys() for w in model.workflows):raise ValueError('assembly finding absent from current extraction')
@@ -50,6 +60,11 @@ def assembly_candidate_payload(raw_response, *, workspace_id, refs, observations
         if key in evidence or key in observations:raise ValueError('finding projection identity collision')
         evidence[key]=tuple(EvidenceRef.model_validate_json(json.dumps(e)) for e in f['evidence_refs'])
     payload={'source_refs':[r.model_dump(mode='json') for r in refs],'observations':[o.model_dump(mode='json') for o in observations.values()],'findings':list(findings.values()),'workflows':[w.model_dump(mode='json') for w in model.workflows],'operating_models':[model.model_dump(mode='json')],'raw_response':raw_response}
+    if core is not None:
+        temporal=validate_core_evidence(core,observations,findings)
+        if set(temporal)&evidence.keys():raise ValueError('temporal projection identity collision')
+        evidence.update(temporal)
+        payload['consolidation_core']=core.model_dump(mode='json')
     return payload,evidence
 
 

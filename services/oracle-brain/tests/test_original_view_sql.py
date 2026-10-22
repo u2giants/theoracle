@@ -66,14 +66,26 @@ def actual_intake(tmp_path,x,owner):
 
 
 @pytest.fixture
-def actual_viewer(requester,tmp_path,certificates):
+def actual_viewer(requester,tmp_path,certificates,request):
     x=requester
     with owned_admin(x) as connection:
         owner=connection.execute("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='oracle2'").fetchone()[0]
     intake_dir=tmp_path/'intake';intake_dir.mkdir(mode=0o700)
-    intake=actual_intake(intake_dir,x,owner);data=actual_pdf()
-    snapshot=OriginalIntakeFactoryV1(intake).intake_pdf_v1(source_id=None,expected_head=0,idempotency_key=uuid4(),
-        filename='invented-valid.pdf',original_sha256=hashlib.sha256(data).hexdigest(),data=data)
+    intake=actual_intake(intake_dir,x,owner)
+    media=getattr(request,'param','application/pdf')
+    if media=='text/plain':
+        data='不要未经审核就发货。仅限样品。'.encode('utf-8')
+        appointment=intake.appointment.model_copy(update={'media_types':('application/pdf','text/plain')})
+        raw=canonical_bytes(appointment.model_dump(mode='json'));intake.appointment_path.write_bytes(raw)
+        intake=load_original_intake_settings_v1(intake.config_path,intake.config_sha256,intake.appointment_path,
+            hashlib.sha256(raw).hexdigest(),intake.expected_issuer_actor,intake.expected_reviewer_actor)
+        snapshot=OriginalIntakeFactoryV1(intake).intake_text_v1(source_id=None,expected_head=0,idempotency_key=uuid4(),
+            filename='invented-conversation.txt',original_sha256=hashlib.sha256(data).hexdigest(),data=data)
+    else:
+        assert media=='application/pdf'
+        data=actual_pdf()
+        snapshot=OriginalIntakeFactoryV1(intake).intake_pdf_v1(source_id=None,expected_head=0,idempotency_key=uuid4(),
+            filename='invented-valid.pdf',original_sha256=hashlib.sha256(data).hexdigest(),data=data)
     login='original_view_'+uuid4().hex[:12];principal=uuid4();grant=uuid4()
     with owned_admin(x) as connection:
         original=connection.execute('SELECT original_sha256,byte_count,media_type,private_object_key,custody_locator_seal_sha256 FROM oracle2.source_original_revisions WHERE workspace_id=%s AND source_id=%s AND revision=1',
@@ -209,3 +221,27 @@ def test_actual_revocation_after_first_connection_closes_denies_second_pass(actu
     monkeypatch.setattr('psycopg.connect',observed_connect)
     with running(f) as server:assert send(server,certificates,wire(f))[:2]==(503,b'')
     assert len(calls)==2 and all(c.closed for c in calls)
+
+
+@pytest.mark.parametrize('actual_viewer',['text/plain'],indirect=True)
+def test_actual_text_intake_independent_native_qualification_then_tls_view_and_current_revocation(actual_viewer,certificates,tmp_path):
+    from types import SimpleNamespace
+    from test_conversation_original_sql import appointed_native_original_phases_v1,reading_then_review
+    f=actual_viewer
+    snapshot=SimpleNamespace(sourceId=f.source,originalSha256=hashlib.sha256(f.data).hexdigest(),filename='invented-conversation.txt')
+    with appointed_native_original_phases_v1(f.x,snapshot,f.data,f.intake,tmp_path) as observed:
+        _,qualified=reading_then_review(observed,expire_reader=True)
+        assert qualified.source_ref.source_id==f.source
+        assert qualified.source_ref.original_sha256==qualified.source_ref.reading_sha256==hashlib.sha256(f.data).hexdigest()
+    with running(f) as server:
+        status,data,headers=send(server,certificates,wire(f))
+        assert status==200 and data==f.data
+        assert headers['Content-Type']=='text/plain; charset=utf-8'
+        assert headers['X-Content-Type-Options']=='nosniff' and headers['Connection']=='close'
+        # The viewer is a separate actual role, not the expired byte reader or
+        # independently appointed reviewer. Current own source access still wins.
+        with owned_admin(f.x) as connection:
+            assert connection.execute('SELECT count(*) FROM oracle2.source_reading_qualifications WHERE source_id=%s',(f.source,)).fetchone()==(1,)
+            assert connection.execute('SELECT count(*) FROM oracle2.operating_dispatch_reservations WHERE workspace_id=%s',(f.x['workspace'],)).fetchone()==(0,)
+            connection.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(f.grant,))
+        assert send(server,certificates,wire(f))[:2]==(503,b'')

@@ -93,7 +93,7 @@ jobs:
       - name: Verify new native browser authority and result binding
         run: pnpm --filter @oracle/web exec tsx --test lib/native-trigger.test.ts lib/native-trigger-v2.test.ts
       - name: Verify replacement journey contract and fixture store
-        run: pnpm --filter @oracle/web exec tsx --test lib/replacement-contract.test.ts lib/replacement-fixture-auth.test.ts lib/replacement-fixture-route.test.ts lib/replacement-control-window.test.ts lib/replacement-protected-client.test.ts lib/replacement-protected-control-route.test.ts lib/replacement-original-viewer.test.ts
+        run: pnpm --filter @oracle/web exec tsx --test lib/replacement-contract.test.ts lib/replacement-fixture-auth.test.ts lib/replacement-fixture-route.test.ts lib/replacement-control-window.test.ts lib/replacement-protected-client.test.ts lib/replacement-protected-control-route.test.ts lib/replacement-original-viewer.test.ts lib/replacement-original-upload-route.test.ts lib/replacement-original-upload.test.ts lib/replacement-model-review.test.ts lib/replacement-conversation-contract.test.ts
       - name: Verify Oracle 2 worker script bundle paths
         run: node scripts/oracle2/verify_worker_bundle.mjs
       - name: Install uv
@@ -118,6 +118,8 @@ jobs:
         run: |
           services/oracle-brain/.venv/bin/python -m pytest -q scripts/licensing/test_source_offer.py
           node scripts/licensing/build_source_offer.mjs
+      - name: Install browser for synthetic connected-document proof
+        run: pnpm --filter @oracle/web exec playwright install chromium
       - name: Start isolated real stores
         run: docker compose -f dev/oracle2/compose.yaml up -d --wait
       - name: Authenticate owned synthetic PostgreSQL with TLS and SCRAM
@@ -142,8 +144,6 @@ jobs:
         run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
       - name: S03 pilot journey offline gate
         run: python3 scripts/oracle2/verify_phase.py S03 --mode offline
-      - name: Install browser for synthetic connected-document proof
-        run: pnpm --filter @oracle/web exec playwright install chromium
       - name: Prove browser through SDK transport and real FalkorDB
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_holistic_browser.py
       - name: Prove isolated native browser transport and authority refusals

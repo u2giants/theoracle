@@ -14,16 +14,16 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Literal
-from uuid import UUID
+from uuid import UUID,uuid4
 
 import psycopg
 from pydantic import AwareDatetime, Field, model_validator, field_validator
 
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest, authorize
-from .contracts import StrictRecord, canonical_bytes, digest
+from .contracts import StrictRecord, SourceRef, canonical_bytes, digest
 from .key_coverage import VerifiedKeyCoverage
 from .native_provider import NativeOpenRouter
-from .provider_adapter import AdmittedProvider, Budget, Pricing
+from .provider_adapter import AdmittedProvider, Budget, Pricing, ConversationTextPricingV1
 from .original_qualification_v1 import RawOriginalRefV1
 from .raw_multimodal_pricing_v1 import RawMultimodalPricingQuoteV1
 
@@ -49,7 +49,7 @@ class NativeDispatchJob(StrictRecord):
     workspace_id: UUID
     artifact_id: UUID
     batch_id: UUID
-    purpose: Literal['source-census', 'source-extraction', 'operating-audit', 'independent-source-semantic-acceptance']
+    purpose: Literal['source-census', 'source-extraction', 'operating-audit', 'independent-source-semantic-acceptance','employee-conversation']
     attempt: Literal[1, 2]
     request: dict
     request_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -59,6 +59,36 @@ class NativeDispatchJob(StrictRecord):
     pricing: Pricing
     register_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     input_tokens_upper_bound: int = Field(strict=True, gt=0)
+
+
+class EmployeeConversationDispatchJobV1(NativeDispatchJob):
+    """Externally appointed immutable conversation operation, never evidence."""
+    schema_version:Literal[1]=1
+    job_schema:Literal['employee-conversation-dispatch-v1']='employee-conversation-dispatch-v1'
+    pricing:ConversationTextPricingV1
+    purpose:Literal['employee-conversation']='employee-conversation'
+    attempt:Literal[1]=1
+    thread_id:UUID
+    thread_revision:int=Field(strict=True,ge=1)
+    employee_event_id:UUID
+    original_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    billing_bounds_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    pending_question_id:UUID|None
+    qualified_population:tuple['SourceRef',...]=Field(max_length=4096)
+    qualified_population_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    @field_validator('attempt',mode='before')
+    @classmethod
+    def exact_one_attempt(cls,value):
+        if type(value) is not int or value!=1:raise ValueError('exact first conversation attempt required')
+        return value
+    @model_validator(mode='after')
+    def exact_conversation_operation(self):
+        if (self.dispatch_id!=self.artifact_id or self.processing_request.purpose!=self.purpose
+            or self.request_hash!=digest(self.request)
+            or self.qualified_population_sha256!=digest({'source_refs':[x.model_dump(mode='json') for x in self.qualified_population]})
+            or len({(x.source_id,x.revision) for x in self.qualified_population})!=len(self.qualified_population)):
+            raise ValueError('exact one-attempt conversation operation and qualified population required')
+        return self
 
 
 class RawOriginalDispatchJobV1(NativeDispatchJob):
@@ -260,7 +290,36 @@ class NativeBrokerEgress:
         with os.fdopen(descriptor,'wb') as stream:
             stream.write(canonical_bytes(record));stream.flush();os.fsync(stream.fileno())
 
-    def dispatch(self, body: bytes) -> bytes:
+    def _retain_conversation_metadata_v1(self,job,models,endpoints,comparison):
+        # Existing private native custodian, no second authority/dispatch owner.
+        from .native_provider import NativeMetadataWireV1
+        if type(job) is not EmployeeConversationDispatchJobV1 or type(models) is not NativeMetadataWireV1 or type(endpoints) is not NativeMetadataWireV1 or type(comparison) is not bytes:
+            raise PermissionError('actual complete conversation metadata observations required')
+        evidence_id=uuid4().hex
+        record={'schema_version':1,'purpose':'conversation-native-metadata-observation-v1',
+            'dispatch_id':str(job.dispatch_id),'job_sha256':digest(job.model_dump(mode='json')),
+            'key_fingerprint':self._key_fingerprint,'ledger_registry_hash':self._registry_hash,
+            'comparison_utf8':comparison.decode('utf-8'),'observations':[]}
+        prefix=str(job.dispatch_id)+'.text-metadata-'+evidence_id
+        for label,value in (('models',models),('endpoints',endpoints)):
+            path=self._receipts/(prefix+'.'+label+'.wire')
+            descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+            with os.fdopen(descriptor,'wb') as stream:
+                stream.write(value.wire);stream.flush();os.fsync(stream.fileno())
+            if path.read_bytes()!=value.wire:raise PermissionError('actual metadata wire custody differs')
+            record['observations'].append({'path':value.path,'started_at':value.started_at.isoformat(),
+                'observed_at':value.observed_at.isoformat(),'elapsed_seconds':str(value.elapsed_seconds),
+                'wire_sha256':value.wire_sha256,'wire_name':path.name})
+        data=canonical_bytes(record);path=self._receipts/(prefix+'.json')
+        descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        with os.fdopen(descriptor,'wb') as stream:
+            stream.write(data);stream.flush();os.fsync(stream.fileno())
+        directory=os.open(self._receipts,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(directory)
+        finally:os.close(directory)
+        if path.read_bytes()!=data:raise PermissionError('actual metadata observation custody differs')
+
+    def dispatch(self, body: bytes, *, _conversation_control=None) -> bytes:
         if len(body)>2_000_000:
             raise PermissionError('bounded provider envelope required')
         try:
@@ -276,6 +335,8 @@ class NativeBrokerEgress:
             # Do not retain shared mutable dictionaries returned by a resolver.
             if type(job) is RawOriginalDispatchJobV1:
                 job=RawOriginalDispatchJobV1.model_validate_json(job.model_dump_json())
+            elif type(job) is EmployeeConversationDispatchJobV1:
+                job=EmployeeConversationDispatchJobV1.model_validate_json(job.model_dump_json())
             else:
                 # Legacy base validation remains closed to new extra fields.
                 job=NativeDispatchJob.model_validate_json(job.model_dump_json())
@@ -285,10 +346,17 @@ class NativeBrokerEgress:
                 raise ValueError
         except (ValueError,TypeError,KeyError):
             raise PermissionError('provider request differs from immutable admitted job') from None
+        if job.purpose=='employee-conversation':
+            from oracle_brain.operating_model.conversation_native_authority_v1 import current_conversation_dispatch_v1
+            if type(job) is not EmployeeConversationDispatchJobV1:raise PermissionError('protected conversation consumer required')
+            current_conversation_dispatch_v1(_conversation_control,job,self)
+        elif _conversation_control is not None:raise PermissionError('conversation control cannot admit another purpose')
         if self._allocation is not None and job.batch_id!=self._allocation.batch_id:
             raise PermissionError('phase cannot choose a new allocation bucket')
         job_seal=digest(job.model_dump(mode='json'))
         def currently_authorized():
+            if job.purpose=='employee-conversation':
+                current_conversation_dispatch_v1(_conversation_control,job,self)
             return (digest(job.model_dump(mode='json'))==job_seal and self._authorize(job) is True
                     and digest(job.model_dump(mode='json'))==job_seal)
         if not currently_authorized():
@@ -329,6 +397,8 @@ class NativeBrokerEgress:
             if not currently_authorized():
                 raise PermissionError('current job authority changed before private POST')
             authorize(job.processing_request,list(job.approvals))
+            if job.purpose=='employee-conversation':
+                current_text_metadata_v1(_conversation_control,job,self,native)
         def capture_paid_wire(raw,*,complete):
             rid=getattr(provider,'last_reservation_id',None)
             self._capture_wire(job,raw,rid,complete=complete)
@@ -336,15 +406,19 @@ class NativeBrokerEgress:
                                before_private_dispatch=before_private_dispatch,
                                trusted_coverage_hash=self._coverage_hash,ledger_identity_hash=ledger_identity)
         native._coverage(datetime.now(timezone.utc))
-        current=native.pricing(model=request['model'],max_output_tokens=output_bound,register_hash=job.register_hash)
-        model=[item for item in native._models_snapshot.get('data',[]) if item.get('id')==request['model']]
-        lengths=([model[0].get('context_length')] if embedding else [model[0].get('context_length'),model[0].get('top_provider',{}).get('context_length')]) if len(model)==1 else []
-        if (len(lengths)!=(1 if embedding else 2) or any(type(value) is not int or value<=0 for value in lengths)
-                or job.input_tokens_upper_bound+(0 if embedding else output_bound)>min(lengths)):
-            raise PermissionError('current complete model context cannot cover admitted input/output bounds')
-        if (job.pricing.expires_at<=datetime.now(timezone.utc)
-                or current.model_dump(exclude={'expires_at'})!=job.pricing.model_dump(exclude={'expires_at'})):
-            raise PermissionError('current actual pricing differs from admitted job')
+        if job.purpose=='employee-conversation':
+            from oracle_brain.operating_model.conversation_native_authority_v1 import current_text_metadata_v1
+            current_text_metadata_v1(_conversation_control,job,self,native)
+        else:
+            current=native.pricing(model=request['model'],max_output_tokens=output_bound,register_hash=job.register_hash)
+            model=[item for item in native._models_snapshot.get('data',[]) if item.get('id')==request['model']]
+            lengths=([model[0].get('context_length')] if embedding else [model[0].get('context_length'),model[0].get('top_provider',{}).get('context_length')]) if len(model)==1 else []
+            if (len(lengths)!=(1 if embedding else 2) or any(type(value) is not int or value<=0 for value in lengths)
+                    or job.input_tokens_upper_bound+(0 if embedding else output_bound)>min(lengths)):
+                raise PermissionError('current complete model context cannot cover admitted input/output bounds')
+            if (job.pricing.expires_at<=datetime.now(timezone.utc)
+                    or current.model_dump(exclude={'expires_at'})!=job.pricing.model_dump(exclude={'expires_at'})):
+                raise PermissionError('current actual pricing differs from admitted job')
         provider=AdmittedProvider(request=job.processing_request,approvals=list(job.approvals),pricing=job.pricing,
             budget=Budget(self._url,ledger_identity_hash=ledger_identity,admitted_allocation=self._allocation),sender=native.embed if embedding else native.send,operation='embedding' if embedding else 'chat',
             remaining_daily_allowance=native.allowance,admitted_register_hash=job.register_hash)
@@ -356,13 +430,19 @@ class NativeBrokerEgress:
             nonlocal validation_failed
             try:
                 if not currently_authorized():
-                    raise ValueError('current validation authority unavailable')
+                    raise PermissionError('current validation authority unavailable') if job.purpose=='employee-conversation' else ValueError('current validation authority unavailable')
+                if job.purpose=='employee-conversation':
+                    from oracle_brain.operating_model.conversation_native_authority_v1 import validate_conversation_wire_v1
+                    validate_conversation_wire_v1(native.last_response_text,job)
+                    current_text_metadata_v1(_conversation_control,job,self,native)
                 if embedding:
                     validate_embedding_response(content,count=len(payload))
                 self._validate_response(job, content)
                 if not currently_authorized():
-                    raise ValueError('immutable job changed during validation')
-            except Exception:
+                    raise PermissionError('immutable job changed during validation') if job.purpose=='employee-conversation' else ValueError('immutable job changed during validation')
+            except Exception as error:
+                if job.purpose=='employee-conversation' and not isinstance(error,(ValueError,TypeError,KeyError)):
+                    raise
                 validation_failed = True
                 raise ValueError('trusted output validation rejected response') from None
         try:

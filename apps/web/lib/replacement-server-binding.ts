@@ -71,13 +71,7 @@ export function parseClosedJson(bytes: Uint8Array, limit: number): unknown {
   const out = value(0); ws(); if (i !== raw.length) return unavailable();
   return out;
 }
-export function canonicalJson(v: unknown): string {
-  if (v === null || typeof v === 'boolean' || typeof v === 'string') return JSON.stringify(v);
-  if (typeof v === 'number' && Number.isSafeInteger(v) && !Object.is(v, -0)) return JSON.stringify(v);
-  if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']';
-  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canonicalJson((v as Record<string, unknown>)[k])).join(',') + '}';
-  return unavailable();
-}
+export { canonicalJson } from './replacement-canonical-json';
 export const canonicalUuid = (v: unknown): v is string => typeof v === 'string' && uuid.test(v);
 export const canonicalHash = (v: unknown): v is string => typeof v === 'string' && hash.test(v);
 export function instant(v: unknown): number {
@@ -134,7 +128,7 @@ function validateCommonBinding(v: Record<string,unknown>):void {
   if (!(from < expires && expires <= horizon)) return unavailable();
 }
 export const MAX_ORIGINAL_BYTES=25*1024*1024;
-export interface ViewerSourcePin { readonly schema_version:1; readonly source_id:string; readonly revision:number; readonly original_sha256:string; readonly byte_count:number; readonly media_type:'application/pdf'; readonly reservation_id:string; readonly custody_seal_sha256:string; }
+export interface ViewerSourcePin { readonly schema_version:1; readonly source_id:string; readonly revision:number; readonly original_sha256:string; readonly byte_count:number; readonly media_type:'application/pdf'|'text/plain'; readonly reservation_id:string; readonly custody_seal_sha256:string; }
 export interface ViewerBinding extends Omit<ServerBinding,'purpose'|'intake_appointment_sha256'|'peer_profile_sha256'|'control_path'> {
   readonly purpose:'replacement-original-web-binding-v1'; readonly original_path:'/v1/replacement/original';
   readonly viewer_config_sha256:string; readonly viewer_appointment_sha256:string; readonly viewer_peer_profile_sha256:string; readonly storage_profile_hash:string;
@@ -148,12 +142,42 @@ export function validateViewerBinding(value:unknown):Readonly<ViewerBinding> {
   if(!Array.isArray(value.sources)||value.sources.length<1||value.sources.length>64)return unavailable();
   const seen=new Set<string>();
   for(const pin of value.sources){
-    if(!exact(pin,['schema_version','source_id','revision','original_sha256','byte_count','media_type','reservation_id','custody_seal_sha256'])||pin.schema_version!==1||!canonicalUuid(pin.source_id)||typeof pin.revision!=='number'||!Number.isSafeInteger(pin.revision)||pin.revision<1||!canonicalHash(pin.original_sha256)||typeof pin.byte_count!=='number'||!Number.isSafeInteger(pin.byte_count)||pin.byte_count<1||pin.byte_count>MAX_ORIGINAL_BYTES||pin.media_type!=='application/pdf'||!canonicalUuid(pin.reservation_id)||!canonicalHash(pin.custody_seal_sha256))return unavailable();
+    if(!exact(pin,['schema_version','source_id','revision','original_sha256','byte_count','media_type','reservation_id','custody_seal_sha256'])||pin.schema_version!==1||!canonicalUuid(pin.source_id)||typeof pin.revision!=='number'||!Number.isSafeInteger(pin.revision)||pin.revision<1||!canonicalHash(pin.original_sha256)||typeof pin.byte_count!=='number'||!Number.isSafeInteger(pin.byte_count)||pin.byte_count<1||pin.byte_count>MAX_ORIGINAL_BYTES||(pin.media_type!=='application/pdf'&&pin.media_type!=='text/plain')||!canonicalUuid(pin.reservation_id)||!canonicalHash(pin.custody_seal_sha256))return unavailable();
     const key=pin.source_id+':'+pin.revision;if(seen.has(key))return unavailable();seen.add(key);Object.freeze(pin);
   }
   Object.freeze(value.sources);return Object.freeze(value) as unknown as Readonly<ViewerBinding>;
 }
-export type ProtectedBinding=ServerBinding|ViewerBinding;
+export interface ModelReviewBinding extends Omit<ServerBinding,'purpose'|'intake_appointment_sha256'|'peer_profile_sha256'|'control_path'> {
+  readonly purpose:'replacement-model-review-web-binding-v1';readonly review_path:'/v1/replacement/model-review';
+  readonly model_id:string;readonly review_config_sha256:string;readonly review_peer_profile_sha256:string;
+}
+export function validateModelReviewBinding(value:unknown):Readonly<ModelReviewBinding>{
+  const keys=[...fields.filter(k=>!['purpose','intake_appointment_sha256','peer_profile_sha256','control_path'].includes(k)),'purpose','review_path','model_id','review_config_sha256','review_peer_profile_sha256'];
+  if(!exact(value,keys)||value.schema_version!==1||value.purpose!=='replacement-model-review-web-binding-v1'||value.review_path!=='/v1/replacement/model-review'||!canonicalUuid(value.model_id)||!canonicalHash(value.review_config_sha256)||!canonicalHash(value.review_peer_profile_sha256))return unavailable();
+  validateCommonBinding(value);return Object.freeze(value) as unknown as Readonly<ModelReviewBinding>;
+}
+export interface UploadBinding extends Omit<ServerBinding,'purpose'|'peer_profile_sha256'|'control_path'> {
+  readonly purpose:'replacement-upload-web-binding-v1';readonly upload_path:'/v1/replacement/upload/chunks';
+  readonly intake_config_sha256:string;readonly upload_peer_profile_sha256:string;readonly upload_spool_initialization_sha256:string;readonly storage_profile_hash:string;
+}
+export function validateUploadBinding(value:unknown):Readonly<UploadBinding>{
+ const keys=[...fields.filter(k=>!['purpose','peer_profile_sha256','control_path'].includes(k)),'purpose','upload_path','intake_config_sha256','upload_peer_profile_sha256','upload_spool_initialization_sha256','storage_profile_hash'];
+ if(!exact(value,keys)||value.schema_version!==1||value.purpose!=='replacement-upload-web-binding-v1'||value.upload_path!=='/v1/replacement/upload/chunks')return unavailable();
+ validateCommonBinding(value);
+ for(const k of ['intake_config_sha256','intake_appointment_sha256','upload_peer_profile_sha256','upload_spool_initialization_sha256','storage_profile_hash'])if(!canonicalHash(value[k]))return unavailable();
+ return Object.freeze(value) as unknown as Readonly<UploadBinding>;
+}
+export interface ConversationBinding extends Omit<ServerBinding,'purpose'|'intake_appointment_sha256'|'peer_profile_sha256'|'control_path'> {
+ readonly purpose:'employee-conversation-web-binding-v1';readonly conversation_path:'/v1/employee/conversation';
+ readonly conversation_config_sha256:string;readonly conversation_appointment_sha256:string;readonly conversation_peer_profile_sha256:string;
+}
+export function validateConversationBinding(v:unknown):Readonly<ConversationBinding>{
+ const keys=[...fields.filter(k=>!['purpose','intake_appointment_sha256','peer_profile_sha256','control_path'].includes(k)),'purpose','conversation_path','conversation_config_sha256','conversation_appointment_sha256','conversation_peer_profile_sha256'];
+ if(!exact(v,keys)||v.schema_version!==1||v.purpose!=='employee-conversation-web-binding-v1'||v.conversation_path!=='/v1/employee/conversation')return unavailable();
+ validateCommonBinding(v);for(const k of ['conversation_config_sha256','conversation_appointment_sha256','conversation_peer_profile_sha256'])if(!canonicalHash(v[k]))return unavailable();
+ return Object.freeze(v) as unknown as Readonly<ConversationBinding>;
+}
+export type ProtectedBinding=ServerBinding|ViewerBinding|UploadBinding|ModelReviewBinding|ConversationBinding;
 
 export interface IdentitySnapshot { readonly configuredProjectUrl: string; readonly actualProjectUrl: string; readonly verifiedUserId: string; readonly employeeId: string; readonly disabledAt: unknown; }
 /** Pure descriptive unit helper; production cannot inject this snapshot. */
@@ -186,41 +210,55 @@ function protectedRead(path: string, expected: string): PinnedFile {
   } finally { closeSync(fd); }
 }
 interface BindingCache { readonly path: string; readonly digest: string; readonly identity: string; readonly profile: Readonly<ProtectedBinding>; readonly files: readonly PinnedFile[] }
-let installed:BindingCache|undefined, viewerInstalled:BindingCache|undefined;
+let installed:BindingCache|undefined, viewerInstalled:BindingCache|undefined, reviewInstalled:BindingCache|undefined, uploadInstalled:BindingCache|undefined,conversationInstalled:BindingCache|undefined;
 export interface InstalledBinding<P extends ProtectedBinding=ServerBinding> { readonly profile: Readonly<P>; readonly ca: Buffer; readonly cert: Buffer; readonly key: Buffer; }
 /** Configuration selectors are read only from server configuration, once per instance.
  * File identity changes refuse even when the replacement has identical bytes.
  * The appointment/peer hashes require independent backend installation; this
  * consumer cannot prove their relationship merely by reading a supplied hash.
  */
-function loadInstalledBinding(viewer:boolean): InstalledBinding<ProtectedBinding> {
-  const prior=viewer?viewerInstalled:installed;
-  const path = viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_FILE:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE;
-  const digest = viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_SHA256:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256;
+function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conversation'): InstalledBinding<ProtectedBinding> {
+  const viewer=purpose==='viewer',upload=purpose==='upload',review=purpose==='review',conversation=purpose==='conversation';
+  const prior=conversation?conversationInstalled:review?reviewInstalled:upload?uploadInstalled:viewer?viewerInstalled:installed;
+  const path = conversation?process.env.ORACLE2_CONVERSATION_BINDING_FILE:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_FILE:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_FILE:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_FILE:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE;
+  const digest = conversation?process.env.ORACLE2_CONVERSATION_BINDING_SHA256:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_SHA256:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_SHA256:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_SHA256:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256;
   if (!path || !digest || (prior && (path !== prior.path || digest !== prior.digest))) return unavailable();
   const pinned = protectedRead(path, digest);
-  const profile = viewer?validateViewerBinding(parseClosedJson(pinned.bytes,65536)):validateBinding(parseClosedJson(pinned.bytes,16384));
+  const profile = conversation?validateConversationBinding(parseClosedJson(pinned.bytes,16384)):review?validateModelReviewBinding(parseClosedJson(pinned.bytes,16384)):upload?validateUploadBinding(parseClosedJson(pinned.bytes,16384)):viewer?validateViewerBinding(parseClosedJson(pinned.bytes,65536)):validateBinding(parseClosedJson(pinned.bytes,16384));
   const now = Date.now();
   if (now < instant(profile.valid_from) || now >= instant(profile.expires_at) || now >= instant(profile.original_horizon)) return unavailable();
   const files = [protectedRead(profile.server_ca_file,profile.server_ca_sha256),protectedRead(profile.client_certificate_file,profile.client_certificate_sha256),protectedRead(profile.client_key_file,profile.client_key_sha256)];
   if (prior && (prior.identity !== pinned.identity || files.some((f,i) => f.identity !== prior.files[i]!.identity || f.path !== prior.files[i]!.path || f.digest !== prior.files[i]!.digest))) return unavailable();
   const cert = new X509Certificate(files[1]!.bytes);
   if (sha256(cert.raw) !== profile.client_certificate_der_sha256 || !cert.subjectAltName?.split(', ').includes('URI:' + profile.client_uri) || now < Date.parse(cert.validFrom) || now >= Date.parse(cert.validTo)) return unavailable();
-  const other=viewer?installed:viewerInstalled;
-  if(other&&(profile.client_certificate_der_sha256===other.profile.client_certificate_der_sha256||profile.client_uri===other.profile.client_uri||cert.publicKey.equals(new X509Certificate(other.files[1]!.bytes).publicKey)))return unavailable();
+  const others=[installed,viewerInstalled,reviewInstalled,uploadInstalled,conversationInstalled].filter(other=>other&&other!==prior);
+  if(others.some(other=>other&&(profile.client_certificate_der_sha256===other.profile.client_certificate_der_sha256||profile.client_uri===other.profile.client_uri||cert.publicKey.equals(new X509Certificate(other.files[1]!.bytes).publicKey))))return unavailable();
   const key = createPrivateKey(files[2]!.bytes);
   if (!cert.checkPrivateKey(key) || !createPublicKey(key).equals(cert.publicKey)) return unavailable();
   const cache=prior??{path,digest,identity:pinned.identity,profile,files};
-  if(viewer)viewerInstalled=cache;else installed=cache;
+  if(conversation)conversationInstalled=cache;else if(review)reviewInstalled=cache;else if(upload)uploadInstalled=cache;else if(viewer)viewerInstalled=cache;else installed=cache;
   return { profile: cache.profile, ca: files[0]!.bytes,cert:files[1]!.bytes,key:files[2]!.bytes };
 }
 
 /** Fail closed without exposing protected paths or key/parser diagnostics. */
 export function readInstalledBinding(): InstalledBinding {
-  try { return loadInstalledBinding(false) as InstalledBinding; } catch { return unavailable(); }
+  try { return loadInstalledBinding('control') as InstalledBinding; } catch { return unavailable(); }
 }
 
 /** Separate independently installed viewer consumer; never control fallback. */
 export function readInstalledViewerBinding():InstalledBinding<ViewerBinding>{
-  try{return loadInstalledBinding(true) as InstalledBinding<ViewerBinding>;}catch{return unavailable();}
+  try{return loadInstalledBinding('viewer') as InstalledBinding<ViewerBinding>;}catch{return unavailable();}
+}
+
+export function readInstalledUploadBinding():InstalledBinding<UploadBinding>{
+ try{return loadInstalledBinding('upload') as InstalledBinding<UploadBinding>;}catch{return unavailable();}
+}
+
+/** Separate installed model-review purpose using the same actual identity owner. */
+export function readInstalledModelReviewBinding():InstalledBinding<ModelReviewBinding>{
+  try{return loadInstalledBinding('review') as InstalledBinding<ModelReviewBinding>;}catch{return unavailable();}
+}
+
+export function readInstalledConversationBinding():InstalledBinding<ConversationBinding>{
+ try{return loadInstalledBinding('conversation') as InstalledBinding<ConversationBinding>;}catch{return unavailable();}
 }

@@ -235,7 +235,7 @@ class CurrentPaidProjectorGuardV3(CurrentPaidSDKGuardV3):
 
 def _paid_projector_projection_v3(settings,*,signed_receipt=None,window=None):
     from graphrag_sdk import ConnectionConfig
-    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3,PaidConsolidationSDKProjectionV1
     _require(type(settings) is PaidProjectorSettingsV3,'exact protected projector settings required')
     window=window if window is not None else settings.current_window();horizon=window.operation_horizon;c=settings.config
     remaining=(horizon-datetime.now(timezone.utc)).total_seconds()
@@ -246,7 +246,8 @@ def _paid_projector_projection_v3(settings,*,signed_receipt=None,window=None):
         ssl=True,ssl_cert_reqs='required',ssl_check_hostname=True,ssl_ca_certs=c.tls_ca_file,
         ssl_certfile=c.tls_certificate_file,ssl_keyfile=c.tls_key_file,
         query_timeout_ms=max(1,min(30000,int(remaining*1000))),pool_timeout=min(30.0,remaining),retry_count=1)
-    projection=PaidProcessingSDKProjectionV3(settings.graph_url,workspace_id=c.workspace_id,
+    projection_type=PaidConsolidationSDKProjectionV1 if 'consolidation_core' in settings.bundle.payload else PaidProcessingSDKProjectionV3
+    projection=projection_type(settings.graph_url,workspace_id=c.workspace_id,
         artifact_id=c.artifact_id,artifact_version=c.artifact_version,generation=c.generation,
         embedder=settings.bundle.embedder,qualification_guard=CurrentPaidProjectorGuardV3(settings),
         read_only=signed_receipt is not None,signed_receipt=signed_receipt,
