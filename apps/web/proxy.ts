@@ -16,7 +16,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { captureControlWindow, controlWindowRemaining,isConversationPath, CONTROL_PATH, CONNECTED_ANSWER_PATH, CONNECTED_MCP_PATH, MEETING_CONTROL_PATH, MEETING_INGRESS_PATH, ORIGINAL_VIEW_PATH, ORIGINAL_UPLOAD_PATH, MODEL_REVIEW_PATH, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS, unavailableControl, privateControlHeaders, type ControlWindow } from './lib/replacement-control-window';
-import { canonicalJson, instant, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding,readInstalledModelReviewBinding,readInstalledConversationBinding,readInstalledConnectedAnswerBinding,readInstalledMcpAnswerBinding,readInstalledMeetingBinding } from './lib/replacement-server-binding';
+import { canonicalJson, instant, admitEmployeeRecipientOriginV1, employeeRecipientIndexConfiguredV1, readInstalledEmployeeBindingV1, rereadInstalledEmployeeBindingV1, installedEmployeeRecipientHorizonV1, type EmployeeBindingPurposeV1, readInstalledBinding, readInstalledViewerBinding, readInstalledUploadBinding,readInstalledModelReviewBinding,readInstalledConversationBinding,readInstalledConnectedAnswerBinding,readInstalledMcpAnswerBinding,readInstalledMeetingBinding } from './lib/replacement-server-binding';
 import { nativeRequestAllowed, nativeForwardingAllowed, readStaticManifest } from './lib/native-browser-runtime.mjs';
 
 export async function proxy(request: NextRequest) {
@@ -96,15 +96,27 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
   const stop=()=>controller.abort();request.signal.addEventListener('abort',stop,{once:true});
   try{
     const readBinding=request.nextUrl.pathname===MEETING_CONTROL_PATH?readInstalledMeetingBinding:request.nextUrl.pathname===CONNECTED_ANSWER_PATH?readInstalledConnectedAnswerBinding:request.nextUrl.pathname===CONNECTED_MCP_PATH?readInstalledMcpAnswerBinding:conversation?readInstalledConversationBinding:request.nextUrl.pathname===MODEL_REVIEW_PATH?readInstalledModelReviewBinding:upload?readInstalledUploadBinding:viewer?readInstalledViewerBinding:readInstalledBinding;
-    const installed=readBinding(),profile=installed.profile;
+    const indexed=employeeRecipientIndexConfiguredV1();
+    // Static indexed origins restrict before auth; identity selection remains after real SDK and employee SQL.
+    // The retained singleton path still checks its installed origin before auth.
+    let installed:ReturnType<typeof readBinding>|ReturnType<typeof readInstalledEmployeeBindingV1>|undefined=indexed?undefined:readBinding();
+    let profile=installed?.profile;
+    const kind:EmployeeBindingPurposeV1=request.nextUrl.pathname===MEETING_CONTROL_PATH?'meeting':request.nextUrl.pathname===CONNECTED_ANSWER_PATH?'answer':request.nextUrl.pathname===CONNECTED_MCP_PATH?'mcp-answer':conversation?'conversation':request.nextUrl.pathname===MODEL_REVIEW_PATH?'review':upload?'upload':viewer?'viewer':'control';
+    const configuredProject=process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const originRestriction=indexed?admitEmployeeRecipientOriginV1(kind,configuredProject??'',request.headers.get('origin'),request.url):undefined;
+    if(originRestriction){
+      const end=Math.floor(Math.min(window.wall_end,originRestriction.validUntil));
+      window=Object.freeze({...window,wall_end:end,mono_end:(BigInt(window.mono_end)-BigInt(Math.ceil((window.wall_end-end)*1e6))).toString()});
+    }
     const remaining=()=>{
       if(!active||request.signal.aborted)return fail();
-      const ms=Math.min(controlWindowRemaining(window),instant(profile.expires_at)-Date.now(),instant(profile.original_horizon)-Date.now());
+      const ms=Math.min(controlWindowRemaining(window),originRestriction?originRestriction.validUntil-Date.now():Infinity,profile?instant(profile.expires_at)-Date.now():Infinity,profile?instant(profile.original_horizon)-Date.now():Infinity,installed?installedEmployeeRecipientHorizonV1(installed)-Date.now():Infinity);
       if(ms<=0)return fail();return Math.max(1,Math.floor(ms));
     };
-    if(request.headers.get('origin')!==profile.web_origin||new URL(request.url).origin!==profile.web_origin)return unavailableControl();
+    const originMatches=()=>profile&&request.headers.get('origin')===profile.web_origin&&new URL(request.url).origin===profile.web_origin;
+    if(!indexed&&!originMatches())return unavailableControl();
     const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if(!url||url!==profile.project_url||!key)return unavailableControl();
+    if(!url||!key||(!indexed&&url!==profile!.project_url))return unavailableControl();
     remaining();
     // An inbound context can only be overwritten; no supplied value is trusted.
     request.headers.set(CONTROL_WINDOW_HEADER,canonicalJson(window));
@@ -124,12 +136,25 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
         response=next();for(const {name,value,options}of refreshedCookies.values())response.cookies.set(name,value,options);
       }},
     });
-    if(Reflect.get(client,'supabaseUrl')!==profile.project_url)return unavailableControl();
-    const result=await Promise.race([client.auth.getUser(),new Promise<never>((_,reject)=>{
+    const actualProjectUrl:unknown=Reflect.get(client,'supabaseUrl');if(actualProjectUrl!==url)return unavailableControl();
+    const aborted=()=>new Promise<never>((_,reject)=>{
       const rejectAbort=()=>reject(new Error('Replacement control unavailable'));controller.signal.addEventListener('abort',rejectAbort,{once:true});if(controller.signal.aborted)rejectAbort();
-    })]);
-    remaining();if(result.error||!result.data.user||result.data.user.id!==profile.auth_user_id)return unavailableControl();
-    if(canonicalJson(readBinding().profile)!==canonicalJson(profile))return unavailableControl();
+    });
+    const result=await Promise.race([client.auth.getUser(),aborted()]);
+    remaining();if(result.error||!result.data.user)return unavailableControl();
+    if(indexed){
+      const {getUniqueEmployeeForAuthUserV1}=await Promise.race([import('./lib/auth-guard'),aborted()]);remaining();
+      const employee=await Promise.race([getUniqueEmployeeForAuthUserV1(result.data.user.id),aborted()]);remaining();
+      if(!employee)return unavailableControl();
+      installed=readInstalledEmployeeBindingV1(kind,{configuredProjectUrl:url,actualProjectUrl,verifiedUserId:result.data.user.id,employeeId:employee.id,disabledAt:employee.disabledAt});profile=installed.profile;
+      if(timer)clearTimeout(timer);timer=setTimeout(stop,remaining());
+      remaining();if(!originMatches()||url!==profile.project_url)return unavailableControl();
+      const currentEmployee=await Promise.race([getUniqueEmployeeForAuthUserV1(result.data.user.id),aborted()]);remaining();
+      if(!currentEmployee||currentEmployee.id!==profile.employee_id||currentEmployee.disabledAt!==null||canonicalJson(rereadInstalledEmployeeBindingV1(installed)?.profile)!==canonicalJson(profile))return unavailableControl();
+    }else{
+      if(result.data.user.id!==profile!.auth_user_id)return unavailableControl();
+      if(canonicalJson(readBinding().profile)!==canonicalJson(profile))return unavailableControl();
+    }
     remaining();return response;
   }catch{return unavailableControl();}
   finally{active=false;if(timer)clearTimeout(timer);controller.abort();request.signal.removeEventListener('abort',stop);}
