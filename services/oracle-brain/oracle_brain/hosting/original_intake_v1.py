@@ -140,6 +140,16 @@ class OriginalIntakeSnapshotV1(Public):
 class FinalizeEnvelopeV1(StrictRecord):
     schema_version:Literal[1]
     context:RequesterContextV1;snapshot:OriginalIntakeSnapshotV1
+class ReconcileIntakeEnvelopeV1(StrictRecord):
+    schema_version:Literal[1]
+    context:RequesterContextV1
+    status:Literal['pending','expired','finalized']
+    reservation_expires_at:AwareDatetime
+    snapshot:OriginalIntakeSnapshotV1|None
+    @model_validator(mode='after')
+    def exact_observation(self):
+        if (self.status=='finalized')!=(self.snapshot is not None):raise ValueError('actual intake reconciliation status differs')
+        return self
 class OriginalIntakeUnavailable(PermissionError):pass
 class OriginalIntakeConflict(ValueError):pass
 
@@ -175,6 +185,9 @@ class OriginalIntakeFactoryV1:
         if type(settings) is not OriginalIntakeSettingsV1:raise TypeError('fixed intake settings required')
         settings.current();self.settings=settings
     def _call(self,name,arguments,record,*,caller_deadline=None):
+        from ._protected_control_listener_v1 import request_remaining_v1
+        if request_remaining_v1(required=False) is not None:
+            return self._call_protected_v1(name,arguments,record,caller_deadline=caller_deadline)
         import psycopg
         from psycopg.conninfo import conninfo_to_dict
         s=self.settings;c=s.config
@@ -219,6 +232,49 @@ class OriginalIntakeFactoryV1:
             conn.commit()
         _intake_current_deadline(s,deadline,value.context)
         return value
+    def _call_protected_v1(self,name,arguments,record,*,caller_deadline=None):
+        # One shared original socket/SQL/COMMIT/CLOSE boundary. This method
+        # preserves the intake owner's actual identity and catalog checks.
+        from psycopg.conninfo import conninfo_to_dict
+        from ..operating_model.protected_sql_connection_v1 import _connection_v1
+        from ..operating_model.request_deadline_v1 import sql_execute_v1
+        s=self.settings;c=s.config
+        deadline=s.current() if caller_deadline is None else caller_deadline
+        _intake_current_deadline(s,deadline)
+        raw=_pinned(c.database_url.path,c.database_url.sha256,16384).decode('utf-8')
+        _pinned(c.database_ca.path,c.database_ca.sha256,131072)
+        target=conninfo_to_dict(raw)
+        if target.get('sslrootcert')!=c.database_ca.path or target.get('user')!=c.expected_session_role:
+            raise PermissionError('fixed intake SQL target differs')
+        with _connection_v1(raw,deadline) as conn:
+            actual=conn.info
+            if (not conn.pgconn.ssl_in_use or actual.host!=target['host'] or actual.dbname!=target['dbname']
+                    or actual.user!=target['user'] or actual.port!=int(target['port'])
+                    or target.get('hostaddr') and actual.hostaddr!=target['hostaddr']):
+                raise PermissionError('actual intake SQL target differs')
+            execute=lambda statement,args=None:sql_execute_v1(conn,deadline,statement,args)
+            row=execute("SELECT SESSION_USER::text,CURRENT_USER::text,(SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='oracle2')").fetchone()
+            if row!=(c.expected_session_role,c.expected_session_role,c.expected_owner_role):raise PermissionError('actual intake SQL role differs')
+            names=['oracle2.reserve_source_revision_v1(integer,jsonb,uuid)','oracle2.finalize_source_revision_v1(uuid,integer,jsonb)']
+            if name=='reconcile':names.append('oracle2.reconcile_source_intake_v1(uuid)')
+            owners=execute('SELECT pg_get_userbyid(proowner),prosecdef FROM pg_proc WHERE oid=ANY(ARRAY(SELECT to_regprocedure(x) FROM unnest(%s::text[]) x))',(names,)).fetchall()
+            if len(owners)!=len(names) or any(owner!=(c.expected_owner_role,True) for owner in owners):raise PermissionError('actual intake function owner differs')
+            if name=='reserve':cursor=execute('SELECT oracle2.reserve_source_revision_v1(%s,%s::jsonb,%s)',arguments)
+            elif name=='finalize':cursor=execute('SELECT oracle2.finalize_source_revision_v1(%s,%s,%s::jsonb)',arguments)
+            elif name=='reconcile':cursor=execute('SELECT oracle2.reconcile_source_intake_v1(%s)',arguments)
+            else:raise PermissionError('fixed intake function required')
+            value=record.model_validate_json(json.dumps(cursor.fetchone()[0]))
+            _intake_current_deadline(s,deadline,value.context)
+        _intake_current_deadline(s,deadline,value.context)
+        return value
+
+    def reconcile_intake_v1(self,idempotency_key,*,caller_deadline):
+        # Current own-role read only; it never replays reserve/finalize/bytes.
+        from ._protected_control_listener_v1 import request_remaining_v1
+        request_remaining_v1(required=True)
+        if type(idempotency_key) is not UUID:raise TypeError('exact own intake idempotency UUID required')
+        return self._call('reconcile',(idempotency_key,),ReconcileIntakeEnvelopeV1,caller_deadline=caller_deadline)
+
     def intake_pdf_v1(self,**kwargs):
         return self._intake_v1(media_type='application/pdf',**kwargs)
     def intake_text_v1(self,**kwargs):
