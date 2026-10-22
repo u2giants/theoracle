@@ -106,6 +106,11 @@ def validate_core_evidence(core, observations, findings):
             refs += tuple(EvidenceRef.model_validate_json(json.dumps(e)) for e in findings[fid]['evidence_refs'])
         if not refs:
             raise ValueError('assertion has no quote-level documentary evidence')
+        from .industry_reference_v1 import parse_industry_assertion_v1, IndustryReferenceEvidenceV1
+        typed = parse_industry_assertion_v1(assertion)
+        if isinstance(typed, IndustryReferenceEvidenceV1) and (typed.original not in core.model.source_refs
+                or not any(e.ref == typed.original for oid in support for e in observations[oid].evidence)):
+            raise ValueError('industry metadata needs the exact qualified original and supporting quote')
         evidence['assertion:'+str(assertion.assertion_id)+':'+str(assertion.revision)]=refs
     return evidence
 

@@ -6,6 +6,7 @@ import psycopg
 from oracle_brain.knowledge.authority import _lock, _has_authority_conn
 from oracle_brain.ingest.originals import ReadingProvenance
 from .source_receipts import SourceRef, SourceReceipt
+from .request_deadline_v1 import sql_execute_current_v1
 
 
 def require_review(connection, workspace_id: UUID, actor_id: UUID, scope: str):
@@ -179,7 +180,7 @@ class ProcessingSourceResolver:
                 or not params.get('dbname','').startswith('oracle_operating_model_test')):
                 raise PermissionError('processing ledger authenticated TLS required')
         group = 'oracle2_' + b.profile.replace('-','_')
-        facts = conn.execute("""
+        facts = sql_execute_current_v1(conn,"""
             SELECT
               (SELECT row_to_json(s) FROM (
                 SELECT session_user,current_user,rolsuper,rolbypassrls,
@@ -236,7 +237,7 @@ class ProcessingSourceResolver:
         # One CURRENT catalogue statement, not a cached proof. LEFT joins retain
         # every requested ordinal, including missing functions and empty ACLs.
         if rows is None:
-            rows=conn.execute("""SELECT requested.signature,owner.rolname,p.prosecdef,p.proconfig,
+            rows=sql_execute_current_v1(conn,"""SELECT requested.signature,owner.rolname,p.prosecdef,p.proconfig,
                 coalesce(jsonb_agg(jsonb_build_array(coalesce(grantee.rolname,'PUBLIC'),acl.is_grantable))
                     FILTER (WHERE acl.privilege_type='EXECUTE' AND acl.grantee<>p.proowner),'[]'::jsonb)
             FROM unnest(%s::text[]) WITH ORDINALITY requested(signature,ordinal)

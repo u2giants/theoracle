@@ -436,7 +436,9 @@ def test_result_service_source_closes_owned_projection_exactly_once_in_finally()
 
 def test_result_service_close_source_never_reissues_close_task():
     tree = _service_source_tree()
-    closer = _async_function(tree, '_close_owned_projection')
+    closer = _async_function(tree, '_close_owned_projection_v1')
+    legacy = _async_function(tree, '_close_owned_projection')
+    assert any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == '_close_owned_projection_v1' for n in ast.walk(legacy)), 'legacy API must delegate the same single close owner'
     creates = [n for n in ast.walk(closer)
                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'create_task']
     assert len(creates) == 1, 'exactly one owned close task is created per projection'
@@ -461,7 +463,9 @@ def test_result_owned_loop_close_settles_tasks_before_loop_stop():
 
 def test_result_service_close_source_is_single_shot_per_pool():
     tree = _service_source_tree()
-    closer = _async_function(tree, '_close_owned_projection')
+    closer = _async_function(tree, '_close_owned_projection_v1')
+    legacy = _async_function(tree, '_close_owned_projection')
+    assert any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == '_close_owned_projection_v1' for n in ast.walk(legacy)), 'legacy API must delegate the same single close owner'
     source = ast.dump(closer)
     assert 'owned_closes' in source
     direct_closes = [n for n in ast.walk(closer)

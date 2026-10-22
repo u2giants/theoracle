@@ -387,7 +387,7 @@ def sql_qualified_v3(monkeypatch):
     return qualified_v3.__wrapped__(foundation.context.__wrapped__())
 
 
-def prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,*,return_fixture=False,return_stage=False,predecessor=None):
+def prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,*,return_fixture=False,return_stage=False,predecessor=None,assertion_factory=None):
     """Injected complete paid wires/semantic pins, ACTUAL compiler SQL/private bytes.
 
     Host prepares immutable extraction fixtures; this is not original D or paid
@@ -431,7 +431,8 @@ def prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,*,return_fixtur
     ctx=ctx.model_copy(update={'handoff':handoff,'expected_handoff_hash':sealed(handoff),'source_registry_hash':REGISTRY,'compiler_digest':RUNTIME})
     wire['context']=ctx;q['wire']=wire;q['manifest']=q['manifest'].model_copy(update={'compiler_digest':RUNTIME})
     q['admission']=q['admission'].model_copy(update={'runtime_hash':RUNTIME,'compiler_login':login})
-    q=temporal_qualified_fixture(q,predecessor=predecessor['q']['payload'] if predecessor is not None else None)
+    q=temporal_qualified_fixture(q,predecessor=predecessor['q']['payload'] if predecessor is not None else None,
+        assertions=assertion_factory(ctx) if assertion_factory is not None else None)
     url=psycopg.conninfo.make_conninfo(admin_url,user=login,password='invented-compiler-only',application_name=app_name)
     source=ProcessingArtifactResolver(url,binding=ProcessingSourceBinding(RUNTIME,REGISTRY,schema_owner,login,actor,'candidate-compiler',expiry,False))
     class CheckedBlobs(FileBlobStore):

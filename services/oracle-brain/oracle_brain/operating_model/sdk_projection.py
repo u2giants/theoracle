@@ -101,10 +101,10 @@ class SDKProjection:
         if _paid_connection_config is None:
             config=ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000)
         else:
-            if type(self) not in (PaidProcessingSDKProjectionV3,PaidConsolidationSDKProjectionV1,PaidMetadataSDKProjectionV3,NativeInventedTLSProjectionV1,NativeInventedTLSProjectionV2):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
+            if type(self) not in (PaidProcessingSDKProjectionV3,PaidConsolidationSDKProjectionV1,PaidMetadataSDKProjectionV3,ConsolidatedMetadataSDKProjectionV1,NativeInventedTLSProjectionV1,NativeInventedTLSProjectionV2):raise PermissionError('TLS override is restricted to explicit paid SDK profile')
             config=paid_tls_connection_config_v3(graph_url,self.graph_name,_paid_connection_config)
         self.connection=FalkorDBConnection(config)
-        if read_only:self.connection=ReadOnlyConnection(self.connection)
+        if read_only:self.connection=_FencedConsolidatedReadConnectionV1(self.connection) if type(self) is ConsolidatedMetadataSDKProjectionV1 else ReadOnlyConnection(self.connection)
         self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
           ontology=Ontology() if read_only else Ontology(entities=[Entity(label=k) for k in self.ontology_labels],relations=[Relation(label='RELATED_TO')]))
         self.qualification_guard=qualification_guard
@@ -379,14 +379,18 @@ class ProcessingSDKProjection(SDKProjection):
 
     async def verify(self,payload):
         await super().verify(payload)
-        projection=self.processing_projection_digest(payload)
-        rows=(await self.connection.query('MATCH (d:Document) RETURN d.id,d.original_source_ref,d.original_reading_hash,d.projection_schema,d.projection_digest')).result_set
-        expected={self.document_id(r,payload):(json.dumps(r,sort_keys=True),r['reading_sha256'],self.projection_schema,projection) for r in payload['source_refs']}
-        if len(rows)!=len(expected) or {r[0]:tuple(r[1:]) for r in rows}!=expected:
-            raise ValueError('derived projection provenance differs from qualified model')
-        rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.projection_schema,s.projection_digest')).result_set
-        if rows and (len(rows)!=1 or list(rows[0])!=[self.projection_schema,projection]):
-            raise ValueError('qualified projection snapshot differs')
+        await _verify_processing_provenance_v1(self,payload)
+
+
+async def _verify_processing_provenance_v1(adapter,payload):
+    projection=adapter.processing_projection_digest(payload)
+    rows=(await adapter.connection.query('MATCH (d:Document) RETURN d.id,d.original_source_ref,d.original_reading_hash,d.projection_schema,d.projection_digest')).result_set
+    expected={adapter.document_id(r,payload):(json.dumps(r,sort_keys=True),r['reading_sha256'],adapter.projection_schema,projection) for r in payload['source_refs']}
+    if len(rows)!=len(expected) or {r[0]:tuple(r[1:]) for r in rows}!=expected:
+        raise ValueError('derived projection provenance differs from qualified model')
+    rows=(await adapter.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.projection_schema,s.projection_digest')).result_set
+    if rows and (len(rows)!=1 or list(rows[0])!=[adapter.projection_schema,projection]):
+        raise ValueError('qualified projection snapshot differs')
 
 
 def paid_tls_connection_config_v3(graph_url,graph_name,config):
@@ -640,16 +644,8 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
         return seal,inventory
 
     async def _verify_metadata_graph(self,payload,inventory,before):
-        from .paid_sdk_embeddings_v3 import graph_vector_coverage_v3,PaidSDKProjectionProofV3
         await super().verify(payload)
-        chunks=(await self.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set
-        entities=(await self.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set
-        relations=(await self.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set
-        coverage,_=graph_vector_coverage_v3(inventory,chunks=chunks,entities=entities,relations=relations)
-        if coverage!=before.embedding_coverage_hash:raise PermissionError('executor graph vectors differ from authenticated ACK coverage')
-        proof=PaidSDKProjectionProofV3.model_validate({k:getattr(before,k) for k in PaidSDKProjectionProofV3.model_fields})
-        marker=(await self.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set
-        if marker!=[[digest(proof.model_dump(mode='json'))]]:raise PermissionError('executor completed graph marker differs')
+        await _verify_metadata_vectors_v1(self,payload,inventory,before)
 
     async def verify(self,payload):
         # Public verification independently retains both current SDK scopes.
@@ -740,3 +736,150 @@ class PaidConsolidationSDKProjectionV1(PaidProcessingSDKProjectionV3):
     def _paid_payload(self,payload):
         if 'consolidation_core' not in payload:raise PermissionError('explicit fresh consolidation projection required')
         return super()._paid_payload(payload)
+
+
+async def _verify_metadata_vectors_v1(projection,payload,inventory,before):
+    from .paid_sdk_embeddings_v3 import graph_vector_coverage_v3,PaidSDKProjectionProofV3
+    chunks=(await projection.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set
+    entities=(await projection.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set
+    relations=(await projection.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set
+    coverage,_=graph_vector_coverage_v3(inventory,chunks=chunks,entities=entities,relations=relations)
+    if coverage!=before.embedding_coverage_hash:raise PermissionError('executor graph vectors differ from authenticated ACK coverage')
+    proof=PaidSDKProjectionProofV3.model_validate({k:getattr(before,k) for k in PaidSDKProjectionProofV3.model_fields})
+    marker=(await projection.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set
+    if marker!=[[digest(proof.model_dump(mode='json'))]]:raise PermissionError('executor completed graph marker differs')
+
+
+def _consolidated_query_timeout_v1(timeout):
+    from .request_deadline_v1 import request_remaining_v1
+    remaining=request_remaining_v1()
+    if timeout is not None and (type(timeout) is not int or timeout<=0):raise PermissionError('strict bounded readonly query timeout required')
+    return max(1,min(30000,int(remaining*1000),timeout if timeout is not None else 30000))
+
+class _FencedConsolidatedReadGraphV1(ReadOnlyGraph):
+    async def query(self,cypher,params=None,*,timeout=None):
+        from .request_deadline_v1 import request_remaining_v1
+        result=await self._graph.ro_query(cypher,params=params,timeout=_consolidated_query_timeout_v1(timeout))
+        request_remaining_v1();return result
+    ro_query=query
+
+class _FencedConsolidatedReadDriverV1(ReadOnlyDriver):
+    def select_graph(self,name):return _FencedConsolidatedReadGraphV1(self._driver.select_graph(name))
+
+class _FencedConsolidatedReadConnectionV1(ReadOnlyConnection):
+    @property
+    def graph(self):return _FencedConsolidatedReadGraphV1(self._connection.graph)
+    @property
+    def _driver(self):
+        driver=self._connection._driver
+        return _FencedConsolidatedReadDriverV1(driver) if driver is not None else None
+    async def query(self,cypher,params=None,*,timeout=None):
+        return await self.graph.query(cypher,params=params,timeout=timeout)
+
+
+class ConsolidatedMetadataSDKProjectionV1(SDKProjection):
+    """Actual own-history metadata/accepted-ACK read; no provider or graph writes.
+
+    Retained original receipt timestamps are never renewed. Each operation uses
+    the same actual own SQL022 consumer and complete current source permissions.
+    No callback, caller seal, fake current-source resolver or paid embedder.
+    """
+    graph_prefix='oracle_processing_v1_'
+    consolidation_records=True
+    ontology_labels=PaidConsolidationSDKProjectionV1.ontology_labels
+    projection_schema=ProcessingSDKProjection.projection_schema
+    projection_view=staticmethod(ProcessingSDKProjection.projection_view)
+    processing_projection_digest=classmethod(ProcessingSDKProjection.processing_projection_digest.__func__)
+    document_id=ProcessingSDKProjection.document_id
+    document_hashes=ProcessingSDKProjection.document_hashes
+
+    def __init__(self,graph_url,*,authority,blobs,model_id,version,generation,connection_config,
+                 deadline,valid_at=None,known_at=None):
+        from .consolidation_authority_v1 import ConsolidationAuthorityV1
+        from .artifact_storage import FileBlobStore
+        from .request_deadline_v1 import request_remaining_v1
+        from graphrag_sdk.core.providers import LLMInterface,Embedder
+        request_remaining_v1()
+        if (type(authority) is not ConsolidationAuthorityV1 or authority.binding.operation!='history-read'
+                or type(blobs) is not FileBlobStore or model_id!=authority.binding.model_id
+                or type(version) is not int or version<1 or type(generation) is not UUID):
+            raise PermissionError('actual exact own history consumer and immutable private owner required')
+        self.authority=authority;self.blobs=blobs;self.model_id=model_id;self.model_version=version
+        self.deadline=deadline;self.valid_at=valid_at;self.known_at=known_at;self._loaded_bytes=None
+        packet=self._fresh_packet_v1();receipt=packet[3].retained_receipt
+        expected=f'oracle_processing_v1_{authority.binding.workspace_id.hex}_{model_id.hex}_{version}_{generation.hex}'
+        if receipt.graph_name!=expected:raise PermissionError('actual selected retained ACK graph differs')
+        class NoGeneration(LLMInterface):
+            def __init__(self):super().__init__('retained-consolidation-no-generation')
+            def invoke(self,*args,**kwargs):raise PermissionError('readonly consolidation cannot generate')
+        class NoEmbedding(Embedder):
+            model_name='no-query-embedding-authority'
+            def embed_query(self,*args,**kwargs):raise PermissionError('readonly consolidation has no query embedding authority')
+        super().__init__(graph_url,workspace_id=authority.binding.workspace_id,artifact_id=model_id,
+            artifact_version=version,generation=generation,llm=NoGeneration(),embedder=NoEmbedding(),dimensions=256,
+            read_only=True,qualification_guard=None,_paid_connection_config=connection_config)
+        self._require_receipt_v1(packet[2],packet[3])
+        request_remaining_v1()
+
+    def _fresh_packet_v1(self):
+        from .request_deadline_v1 import request_remaining_v1
+        request_remaining_v1()
+        packet=self.authority.read_serving_packet_v1(self.model_id,blobs=self.blobs,deadline=self.deadline,
+            valid_at=self.valid_at,known_at=self.known_at)
+        if packet[0].model.version!=self.model_version:raise PermissionError('selected retained model version changed')
+        request_remaining_v1()
+        return packet
+
+    def _require_receipt_v1(self,payload,delivery):
+        from .paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
+        from .consolidated_delivery_v1 import ConsolidatedReadDeliveryV1
+        if type(delivery) is not ConsolidatedReadDeliveryV1:raise PermissionError('actual retained delivery read required')
+        receipt=delivery.retained_receipt
+        inventory=processing_embedding_inventory_v3(payload)
+        if (receipt.graph_name!=self.graph_name or receipt.content_hash!=digest(payload)):
+            raise PermissionError('retained graph/model differs')
+        # Complete SourceRef equality is proved by the actual SQL/private owner;
+        # independently bind every graph digest to that exact immutable body.
+        from .source_receipts import SourceRef
+        refs=tuple(SourceRef.model_validate_json(canonical_bytes(r)) for r in payload['source_refs'])
+        if (len(refs)!=len(delivery.source_refs) or set(refs)!=set(delivery.source_refs)
+                or receipt.record_digest!=digest({'records':self.records(payload)})
+                or receipt.projection_digest!=self.processing_projection_digest(payload)
+                or receipt.embedding_inventory_hash!=digest(inventory.model_dump(mode='json'))):
+            raise PermissionError('complete retained graph record/projection/vector inventory differs')
+        return inventory
+
+    @staticmethod
+    def _same_packet_v1(before,after):
+        from .request_deadline_v1 import request_remaining_v1
+        request_remaining_v1()
+        strip=lambda d:d.model_dump(mode='json',exclude={'checked_at','valid_until'})
+        if (canonical_bytes(before[2])!=canonical_bytes(after[2]) or before[1]!=after[1]
+                or strip(before[3])!=strip(after[3])):
+            raise PermissionError('current complete recipient model/delivery scope changed')
+
+    async def build(self,*args,**kwargs):raise PermissionError('readonly consolidation cannot build or acknowledge')
+
+    async def _verify_actual_graph_v1(self,payload,delivery):
+        inventory=self._require_receipt_v1(payload,delivery)
+        await SDKProjection.verify(self,payload)
+        await _verify_processing_provenance_v1(self,payload)
+        await _verify_metadata_vectors_v1(self,payload,inventory,delivery.retained_receipt)
+
+    async def load(self):
+        before=self._fresh_packet_v1()
+        await self._check_graph_snapshot(before[2])
+        await self._verify_actual_graph_v1(before[2],before[3])
+        after=self._fresh_packet_v1();self._same_packet_v1(before,after)
+        self._loaded_bytes=canonical_bytes(after[2])
+        return after
+
+    async def verify(self,payload):
+        if self._loaded_bytes is None or canonical_bytes(payload)!=self._loaded_bytes:
+            raise PermissionError('actual authorized retained SDK load required')
+        before=self._fresh_packet_v1()
+        if canonical_bytes(before[2])!=self._loaded_bytes:raise PermissionError('retained SDK input changed')
+        await self._check_graph_snapshot(before[2])
+        await self._verify_actual_graph_v1(before[2],before[3])
+        after=self._fresh_packet_v1();self._same_packet_v1(before,after)
+        return after

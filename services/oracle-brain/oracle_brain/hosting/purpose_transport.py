@@ -72,19 +72,11 @@ class PurposeTLSBindingV2:
             raise GatewayDenied("fixed purpose client certificate identity required") from None
 
 
-class _FixedTLSClientV2:
-    def __init__(self, binding: PurposeTLSBindingV2):
-        if type(binding) is not PurposeTLSBindingV2:
-            raise GatewayDenied("typed fixed TLS binding required")
-        self.binding = binding
-        self._dns_lock = threading.Lock()
-        # No system trust, environment proxy, redirects, or caller-supplied URL.
-        self._tls = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        self._tls.minimum_version = ssl.TLSVersion.TLSv1_2
-        self._tls.load_verify_locations(cadata=binding.ca_file.read_text())
-        self._tls.load_cert_chain(binding.certificate_file, binding.key_file)
-
-    def _resolve(self, deadline):
+class _BoundedDNSResolver:
+    """One fixed target, one outstanding DNS operation. No trust/admission."""
+    def __init__(self,hostname,port):
+        self.hostname=hostname;self.port=port;self._dns_lock=threading.Lock()
+    def resolve(self, deadline):
         # OS DNS cannot be cancelled. Bound the caller and permit only one
         # outstanding resolver per fixed client, never a queue or replacement.
         if deadline <= time.monotonic():
@@ -95,8 +87,8 @@ class _FixedTLSClientV2:
         result = {}
         def resolve():
             try:
-                result['addresses'] = socket.getaddrinfo(self.binding.hostname,
-                    self.binding.port, type=socket.SOCK_STREAM)
+                result['addresses'] = socket.getaddrinfo(self.hostname,
+                    self.port, type=socket.SOCK_STREAM)
             except Exception:
                 result['failed'] = True
             finally:
@@ -115,6 +107,22 @@ class _FixedTLSClientV2:
         if result.get('failed') or not result.get('addresses'):
             raise GatewayDenied("purpose DNS resolution refused")
         return result['addresses']
+
+
+class _FixedTLSClientV2:
+    def __init__(self, binding: PurposeTLSBindingV2):
+        if type(binding) is not PurposeTLSBindingV2:
+            raise GatewayDenied("typed fixed TLS binding required")
+        self.binding = binding
+        self._resolver = _BoundedDNSResolver(binding.hostname,binding.port)
+        # No system trust, environment proxy, redirects, or caller-supplied URL.
+        self._tls = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self._tls.minimum_version = ssl.TLSVersion.TLSv1_2
+        self._tls.load_verify_locations(cadata=binding.ca_file.read_text())
+        self._tls.load_cert_chain(binding.certificate_file, binding.key_file)
+
+    def _resolve(self,deadline):
+        return self._resolver.resolve(deadline)
 
     def _connect_addresses(self, addresses, deadline, address, timeout=None, source_address=None):
         if address != (self.binding.hostname, self.binding.port) or source_address is not None:
@@ -142,8 +150,11 @@ class _FixedTLSClientV2:
                 raise
         raise GatewayDenied("purpose connection refused")
 
-    def _post(self, route: str, value: dict, limit: int, *, valid_until: datetime | None = None) -> bytes:
+    def _post(self, route: str, value: dict, limit: int, *, valid_until: datetime | None = None, _absolute_monotonic_end: float | None = None) -> bytes:
         duration = self.binding.timeout
+        if _absolute_monotonic_end is not None:
+            if type(_absolute_monotonic_end) is not float or not math.isfinite(_absolute_monotonic_end):raise GatewayDenied('exact original purpose monotonic end required')
+            duration=min(duration,_absolute_monotonic_end-time.monotonic())
         if valid_until is not None:
             if not isinstance(valid_until, datetime) or valid_until.tzinfo is None or valid_until.utcoffset() is None:
                 raise GatewayDenied("aware trusted RPC horizon required")

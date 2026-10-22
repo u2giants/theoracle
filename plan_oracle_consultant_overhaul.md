@@ -14,13 +14,13 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
-### Current whole-program obligation ledger — October 21, 2026, 8:01 PM EDT
+### Current whole-program obligation ledger — October 21, 2026, 11:31 PM EDT
 
 Accountable owner of **every open row** below: Codex chat
 `01a16013-c8c6-7113-b307-7d4d516f2bc6` on edge-dev3, adopted on
 [#24](https://github.com/u2giants/theoracle/issues/24#issuecomment-6325458712)
 and [#27](https://github.com/u2giants/theoracle/issues/27#issuecomment-6325493394).
-Current landed source is exact upstream `bfd8e047d8a49e53ce8ccae94296795b67cdc623`;
+Current verified landed source is exact upstream `b785acd831a1b2385c459d3496a1d0c4cb4ad4df`;
 the initial audit baseline was `b530f5db96a6a2a41323fb593f12ce3747b03b87`.
 This ledger supersedes older current-status/absence claims below, while retaining
 their failed-operation history. It does not change requirements, appoint runtime
@@ -52,65 +52,112 @@ capabilities, not installed services or completed phases. Current-main
 passed W10 with3822 tests, zero failures/skips/worker/cleanup/evidence errors;
 JUnit SHA256 `a9778852ec0c283d3cd8cb16dae45a2967eb83fb6d4bdec6782f87ce2fafa802`.
 
-Current prospective delivery is [PR181](https://github.com/u2giants/theoracle/pull/181),
-not a merged or accepted program. Its successive real failures are preserved:
-the old task-gate engine lacked its accepted `unchecked_gates` contract; W01
-found a forbidden pure-original import into hosting; S03 correctly refused the
-base database instead of a fresh owned UUID. Reviewed source repairs retain all
-checks, canonical once-only migration inventory, private verify-only schema
-receipts, ten workers and the120-second deadline. Latest actual
-[CI39696268521](https://github.com/u2giants/theoracle/actions/runs/39696268521)
-passed W10 with4365 tests, zero failures/skips/worker/cleanup errors, and passed
-S03. **That run still FAILED:** the later real browser journey expected a whole
-source archive response although the actual4253530-byte corresponding source
-correctly exceeded the unchanged4MiB whole-response limit. The prospective
-browser test now requires the real authenticated bounded download/hash at either
-size and independently exercises small200 and large413 branches; review and full
-CI remain required. No route limit, test population or safety gate was weakened.
+[PR181](https://github.com/u2giants/theoracle/pull/181) is merged at
+`99167ac622d347993888150e227673657ca52e64`. Its final full checks and fresh
+merged-main check passed4365/0fail/0skip/all ten workers/no cleanup or evidence
+errors. The earlier toolkit-contract, core-boundary, fresh-UUID and large-source
+response failures remain historical failures, not erased or relabeled passes.
+Whole archive replies retain the4MiB limit; authenticated bounded download/hash
+and both small200/large413 branches remain required.
 
-The larger, still-unshipped combined candidate now contains actual SQL017 temporal
-consolidation/history/scoped business decisions and review, SQL018 retained-reader
-qualification input, full25MiB bounded original upload, typed PDF/plain-original
-viewing and SQL019 durable conversations. This replaces earlier absence claims
-below only to the extent stated. Independent source review/combined full CI and
-all appropriate runtime/semantic/business gates remain open. No merged source,
-installation, synthetic fixture or issue closure establishes those gates.
+[PR182](https://github.com/u2giants/theoracle/pull/182) is merged at
+`18c6a8b2b3e5efba522091e0ac59745d45903bf1`. Exact source review, full CI and
+fresh merged-main [39702076999](https://github.com/u2giants/theoracle/actions/runs/39702076999)
+passed4699/0fail/0skip/all ten workers/no cleanup or evidence errors. Actual
+source includes SQL017 immutable temporal consolidation/history/scoped decisions,
+SQL018 retained original reading input,25MiB bounded original upload, separate
+PDF/plain-original viewing, concrete raw/text provider custody and SQL019 durable
+conversations. Original program/native semantics, deployment and business
+acceptance remain separate. Actual invented Next/auth/least-privilege employee
+SQL/mTLS/browser, canonical SQL, source revocation and SDK/citation mutation cases
+are proof within their exact source/environment limits, not company execution.
 
-Root's exact combined-source proofs are distinct, not an added acceptance count:
-- Source3d67:38 actual owned SQL cases passed, including raw-factory actual cost,
-  UNKNOWN/overrun handling, crossprocess canonical-schema receipt and fresh phase
-  UUID normal/error cleanup. Earlier187-pass/one-setup-error attempt is retained
-  as FAILED, never relabeled green.
-- Source8026: actual Next16 HTTPS DEV, unchanged verified-user SDK against an
-  explicitly invented HTTPS issuer, actual limited employee identity SQL and
-  mTLS business-review service passed one browser case. Root inspected its
-  screenshot. This is not a real tenant, deployed session or company acceptance.
-- Source9c23: eight actual SQL/SDK/TLS graph cases passed, including typed-core
-  build/rebuild, complete quote/polarity/offset/source lineage mutation denial,
-  retained lineage cases, and refusal to adopt an unacknowledged graph. Repairs
-  retain the exact paid profile and independently pinned typed embedding core;
-  **accepted paid ACK/full-D generation remains unproved**.
-- S06 sourcef459:150 actual SQL/browser/fake-wire cases passed before integration,
-  with immutable original event→actual text custody→metadata link→distinct native
-  byte reader/reviewer→sole SQL014 qualification. Root source d9ce additionally
-  passed the actual text intake/qualification/mTLS viewer/current revocation case.
-  These byte programs prove exact UTF8 roundtrip, not independent semantic quality.
-Every cited owned proof independently verified exact container/network/volume
-absence. Changed-source combined acceptance is still pending. Root found new
-S06 core-to-hosting imports; the runtime agent owns consolidation into actual
-pure core consumers with identical hosting forwarding APIs. No allowlist or
-callback substitute for real SQL/file/claim checks is authorized.
+[PR183](https://github.com/u2giants/theoracle/pull/183) merged the single shared
+protected-file/request-window/payload/mTLS service transport at
+`7530d2349fee3ef037c9e2569beab8be7c278764`. It preserves actual created-inode
+receipt custody, canonical deadlines, the independently selected meeting ingress
+route and exact backend bot mapping. Its PR CI passed4699, but fresh merged-main
+[39710636289](https://github.com/u2giants/theoracle/actions/runs/39710636289)
+FAILED: the shared120-second deadline cut an actual Next/browser case before
+complete JUnit. Zero captured assertions failed and cleanup was complete; this
+was still a failed gate. No positive browser receipt existed.
 
-Active bounded owners are `/root/coverage` (actual invited meeting capture,
-original processing, supervisor and worker), `/root/journey` (SQL021 durable host
-enable/participation/once-claim/UNKNOWN receipts), and `/root/runtime` (S06 core
-boundary repair and generic independently appointed1MiB UTF8 original support,
-then ratified SQL022 authoritative answer/MCP serving). Root owns schema,
-architecture/security, shared integration, independent review, delivery and every
-remaining S/W/U acceptance obligation. Conversation public input remains32KiB;
-source/program changes never renew external permission. S07 normalized participant
-turns prove only currently mapped workspace actors; no employee identity or shared
-company-source grant is inferred. Actual S07/S08/provider/company work is held.
+[PR184](https://github.com/u2giants/theoracle/pull/184) is merged at the current
+head above, identical to independently reviewed
+`32354da7cff152d395cc6b44fd070dc09640687f`. It adds fixed independently installed
+meeting worker purposes and the closed natural-question contract, preserves old
+APIs, and relocates the WHOLE actual Next suite to an existing lighter worker.
+No case/worker was removed; the shared120-second test deadline is unchanged.
+The first [39713733726](https://github.com/u2giants/theoracle/actions/runs/39713733726)
+still FAILED4699/one actual page-navigation failure/zero skips/no global timeout/
+clean cleanup. Owned Node24 HTTPS reproduction identified Next webpack's eager
+unbounded public package-version lookup before handler initialization. The
+reviewed test-only increment selects the maintained Next dev mode, retaining the
+framework/version-check capability, all actual auth/store/browser assertions and
+existing deadlines. No vendor patch, mock auth, network proxy or disabled guard
+was substituted. Final [39715372028](https://github.com/u2giants/theoracle/actions/runs/39715372028)
+passed all4699/0fail/0skip/all ten workers/no cleanup or evidence errors; JUnit
+`aedea0b3690858f392bf95c87254ced9029eab9f3b1ec56f2472b5f0d91b5ae7`.
+Fresh merged-main [39716449695](https://github.com/u2giants/theoracle/actions/runs/39716449695)
+completed successfully and independently read-back canonical evidence confirms
+4699/0fail/0skip/all ten workers/no timeouts/cleanup/evidence errors, exact main
+head and JUnit`8e7756959663241ec89f1a877801cde19692e08f476fd3817a1035f2c0a810d5`.
+The prior failures remain on #24/PRs.
+No phase or parent is accepted from these source checks.
+
+Current unpublished, separately frozen source work is prospective, not delivered:
+- Coverage owns SQL020 invited capture, immutable once claims, retained wire,
+  preinstalled operation-specific STOP relation and actual newly created-bot
+  derivation. The84-case owned SQL/TLS/pure relation proof passed with exact
+  cleanup. Absolute active supervisor→worker currentness, actual normalized
+  source processing/outbox/queue, full product journey and installation remain
+  unfinished. Leave acknowledgment alone is not remote-stop proof; only actual
+  immutable complete terminal metadata can establish that observation.
+- Journey finished the separately frozen SQL021 participation backend and its
+  invented interface/executor proofs. Host enable/cooldown/caps/global once claim,
+  UNKNOWN/no resend and current audience/chat qualifications are preserved.
+  The real producer and full authenticated browser/service/provider-fixture
+  composition remain unqualified. Journey now owns SQL025 recommendations,
+  independent read/feedback/measurement roles and source-derived measurements:
+ 30 actual owned SQL/mTLS cases passed on unpublished source, with177 pure and26
+  retained compiler cases. Current readable selection/UI/source integration is
+  still pending; personal feedback never makes company policy or realized savings.
+- Runtime owns SQL022 current qualified/history/accepted-ACK/read-only SDK serving,
+  natural web/MCP questions and optional S06 evidence; unpublished backend264-case
+  source proof and focused actual service/SQL/SDK cases passed. New SQL024 query
+  embedding/synthesis binds actual SQL019 original questions, separate independent
+  purpose/key/budget appointments and global once identities. Actual invented
+  wire→central reservation/receipt→cost-only reconciliation and SDK/vector tests
+  passed within their recorded scopes. Native paid/provider execution, complete
+  natural/S06/browser integration and semantic quality remain unaccepted.
+- Root owns SQL023 research.52 actual owned SQL/mTLS/current custody cases passed
+  on its declared backend source. The concrete qualified company-context/reference
+  comparison now requires the SAME actual accepted readonly SDK plus independent
+  current retained-reference readers; missing ACK correctly refused. Two actual SDK/reference cases passed on the corrected current source, including
+  installed-reader revocation denial and no refetch. The earlier negative test
+  targeted an obsolete fixture admission; its failed receipt is retained. Actual
+  graph build/ACK/full readonly census and both current independent readers are
+  required; no historical-read bypass was substituted. The source remains
+  unpublished and no complete research/browser/scheduling journey is claimed.
+
+All cited owned resource proofs independently check exact containers/networks/
+volumes absent. The earlier S07 test made an unintended public provider TLS
+attempt before its import-time fixture interception; TLS failed before HTTP,
+credentials or body. Later strict ctor/tripwires repair the test. Historical
+zero-network claims are invalid for that attempt. Root's GLM review invalidated
+by concurrent tracked build is diagnostic only, never approval; no failed GLM
+retry or toolkit repair was used. Valid independent exact-head StepFun reports
+and captured tests gate the subsequent protected source shipments.
+
+Root retains all architecture, security, schema, merge and acceptance judgments.
+Current lanes are coverage=S07, journey=S11 (with frozen S08), runtime=S09/S06,
+and root=S10/shared integration/remaining S12–S16. Pure core/shared transport
+owners are serialized; no duplicate connection, budget, listener or ledger owner
+is authorized. Complete original/current source, independently admitted runtime,
+installation, independent semantic assessment, company acceptance, elapsed
+adoption and recoverable retirement remain separate obligations. Actual S07/S08
+provider/company work is held. Conversation public input remains32KiB; separately
+appointed original UTF8 input supports1MiB without enlarging conversation payloads.
 
 **Owner business ruling, October 21, 2026, 6:43 PM EDT:** Albert answered the
 approval-longevity question directly: “Remain in force until withdrawn”.
@@ -136,17 +183,17 @@ distinct. Incident and cleanup evidence remain retained.
 |---|---|---|
 | S01 / #25 | §S01 frozen corpus/splits, `evals/oracle2/acceptance-spec.md`, `S01-baseline.md`; historical PR42 offline evidence | Preserve offline acceptance. Real baseline and reviewed real answer keys unavailable; separate business hold. |
 | S02 / #26 | §S02 isolated stores/authority/outbox/provider denial; `S02-dependencies.md`, historical PR45 synthetic evidence | Reuse accepted synthetic foundation; current changed-source host/target qualification belongs to Q2b/W11, not inherited admission. |
-| S03 / #27/#58 | §S03 plus full U1–U6/W ledger; landed source and prospective original/control/viewer/review/conversation integrations above are real | Complete protected original→native draft→correction→scoped confirmation→cited answer product journey, actual ACK, U6/Q2b and independent semantic/native/browser proof remain open. |
-| S04 / #28 | §S04 retained binary parsers/revisions/withdrawal plus prospective full25MiB actual custody upload and actual text qualification/viewer proof | Complete source-page/lifecycle/answer invalidation browser integration; original semantic/format breadth and deployed session acceptance remain open. Depends S03. |
-| S05 / #29 | §S05 prospective canonical SQL017 immutable corrections/history/scoped decisions, actual authenticated framework review and typed-core SDK graph proof above | Current ACK/full-D graph projection, complete integrated serving and independent semantic/native/company acceptance remain open. No earlier approval transfers to a corrected version. |
-| S06 / #30 | §S06 prospective SQL019 actual own durable thread/events, eight total interview questions, corrections/pause/recap, original-language intake/qualification and bounded native ordinary chat; frozen150-case proof above | Root combined core-boundary repair/full CI and real installed employee session pending; richer interview answers depend S09. Byte qualification is not semantic/business acceptance. |
-| S07 / #31 | §S07 real capture/ingress/custody/current attributed-turn source and owned SQL proofs are being implemented by coverage | Finish supervisor concrete process/queue witness, worker effects/final text chain/UI and combined verification. Legacy ingestion remains separate; actual meeting/provider use held. |
-| S08 / #32 | §S08 SQL021 durable host generation/once claim/observation/UNKNOWN source is being implemented by journey against exact S07 boundary | Complete current turn/audience/chat observation/composer/worker and actual SQL/browser/fake-provider proof. No supplier idempotency or visible-message guarantee is invented. Depends S07. |
-| S09 / #33 | §S09 root-ratified single canonical history/actual ACK/read-only SDK/answer owner and authenticated web/MCP plan; SQL022 reserved | Implement after S06 boundary freeze; no static token becomes an employee, no unappointed query embedding, provider generation or synthetic ACK becomes live authority. Actual company baseline held. |
-| S10 / #34 | §S10 rights/applicability/freshness/pinned destination/cadence; strict rights/fetch repair PR175 and applicability/freshness contracts PR177 landed; retained scheduler correction is pending combined delivery | Actual durable bounded transport/workflow/worker/UI integration and operational cadence proof still missing. Depends S09 for integration; no source fetching authorized here. |
-| S11 / #35 | §S11 supported options/no-change/math/feedback/measurement; calculation/experiment/export leaves exist | Full diagnosis/options/advice workflow/persistence/APIs/UI and authentic measurement binding missing. Depends S10; analytical slice W04/W07/W08 and real observation remain separate. |
-| S12 / #36 | §S12 complete employee/executive workspace, exports/accessibility/mobile; replacement fixture UI exists | Full source/process/interview/meeting/research/advice/experiment pages and actual durable bindings missing. URL-only phase browser assertions are scaffolding. Depends S11; employee review held. |
-| S13 / #37 | §S13 fresh-store restore/replay/resume with tombstones before reads; ops leaves and native forward-recovery controls exist | Integrate full ledger/blob/projection/checkpoint recovery, scripts/runbook and meaningful staging exercise; no duplicate recovery engine. Depends S12; RTO/RPO/scale UNKNOWN until measured. |
+| S03 / #27/#58 | Full §S03/U/W criteria; merged PR181–184 actual protected source/control/viewer/review/conversation source and exact invented proofs above | Root: finish every integrated original→native draft→correction→scoped confirmation→cited answer journey and U6/Q2b. Current hosting/independent native semantics/business acceptance remain open. |
+| S04 / #28 | Merged bounded25MiB upload, original readers/viewers and source revision/withdrawal guards; actual owned source/browser/SQL cases | Root: finish all source-page/lifecycle/current answer invalidation, format breadth and fresh hosted session proof. Independent original semantic qualification remains distinct. |
+| S05 / #29 | Merged017 temporal core/history/corrections/scoped decisions; owner longevity ruling below; actual synthetic SQL/SDK/browser proof | Root: integrate every current/historical source-rights/accepted-ACK/UI path and qualified scope labels. Earlier decisions survive authority loss only for their exact immutable assertion/version/scope until withdrawn. |
+| S06 / #30 | Merged019 own durable events/threads, original-language custody, corrections/pause/recap and sole SQL-selected interview question; richer runtime consumer unpublished | Runtime: finish natural evidence/query+synthesis factory wired to actual committed019 event and unchanged pending question/count. Full current browser/restart/permission proof and installed employee session remain open. |
+| S07 / #31 | Unpublished020 capture/once custody, actualTLS-worker and84-case STOP relation source proofs; no active installation | Coverage: finish independently active supervisor/fresh currentness, normalization with actual014 intake/reading/review, durable outbox/new-target queue/tasks/UI and full invented pipeline. Actual invitation/provider/producer installation held. |
+| S08 / #32 | Unpublished021 host toggle/cooldown/cap/global once claim and114pure/21SQL backend source proof; invented component/executor TLS proofs | Journey frozen source; root integrates complete browser→actual current turn→sender→provider fixture→receipt. Exact real audience/chat producer remains UNQUALIFIED; no ACK becomes visible-message or provider idempotency guarantee. |
+| S09 / #33 | Unpublished022 actual retained ACK/full readonly SDK serving and natural question source;024 actual centralBudget/native-fixture/SDK proofs above | Runtime: complete concrete019 anchor→024→actual Budget/SDK→S06 and synthesis, natural web/MCP/UI/currentness proof. Scope-label source bridge, held-out semantic quality and company comparison remain separate gaps. |
+| S10 / #34 | Unpublished023 durable cadence/once fetch/custody/read service52-case source proof; qualified typed metadata/actual SDK comparison being integrated | Root: finish current primary-reference/company-context brief, licensed gap, worker/scheduled invocation/outage recovery and actual browser/API/SQL/SDK journey. No publisher purchase, installation or company processing implied. |
+| S11 / #35 | Unpublished025 canonical advice/three lenses/options/no-change, personal feedback/CAS/global repair and authentic source-derived measurement;30actualSQL plus177pure/26compiler checks | Journey: finish bounded readable list/measurement/evidence selectors and UI, exact same-parent/source redaction, mTLS/browser journey. Business cases/actual observation windows/realized savings remain unavailable and unclaimed. |
+| S12 / #36 | Merged protected source/review/conversation screens plus prospective meeting/answer/advice components; full product incomplete | Root: complete home/process/correction/inbox/health/exports/bilingual/mobile/a11y and meaningful two-authorized-user isolation. Current singleton web profile is not enterprise multi-user proof; independently installed bounded recipient selection is still needed. |
+| S13 / #37 | Merged recovery/retirement leaves and existing native forward-recovery; no full restore/adoption acceptance | Root: compose actual event/private blob/projection/checkpoint restore with revocations/tombstones before reads, outage/UNKNOWN dedupe, metrics/alarms/cost partition and retention/quota. Fresh-instance RTO/RPO/scale must be measured, not supplied DTOs. |
 | S14 / #38 | §S14 immutable inventory/map/bounded backfill/watermarks/dual-write prevention/citation redirects and comparison; migration package and registered phase tests landed through PR176 | Source package is now present; actual admitted inventory/reconciliation/comparison/cutover is not proven. Actual private inventory/import/comparison held; depends S13. |
 | S15 / #39 | §S15 cohort/sole-writer/fences/reconciliation/rollback and elapsed actual adoption; W cutover contracts exist | Product cohort routing, release runbook and browser proof missing. Prepare reversible invented checks; actual adoption cannot precede S14/current release authority/separate company instruction. |
 | S16 / #40 | §S16 non-use/retention/old citations/recoverability/stale writer denial; retirement controls and registered phase tests landed through PR176 | Source package is present; actual accepted non-use/retention/recoverability is not proven. No removal before actual S15, retention window and exact recoverable action authority. |
@@ -159,14 +206,14 @@ distinct. Incident and cleanup evidence remain retained.
 | W07 ← W03/W05 | Authenticated synthetic event import/review and minimized export evidence; historical offline receipt | Historical capture continuity/runtime-key/source association and admitted receipt-bound actual intake unproved. Preserve censored/unknown predecessors and spent403. |
 | W08 ← W04/W07 | Deterministic event fixtures | Actual admitted event/solver metrics, denominators and traceable comparison missing. |
 | W09 ← W06 (W08 measured only) | Documentary/measured consulting flow and historical offline receipt | Current independently admitted evidence/role/citation/measurement proof required; company questions and grading remain paused. |
-| W10 ← accepted documentary/event slices | Current-main CI39679867899 records3822/0fail/0skip, ten successful workers, unchanged120s; prior source receipts retained above | Full current original census/candidate/independent assessment and hosted proof still missing. S04–S13 phase families are not all registered here; phase skips/missing files are not concealed by W10 green. |
+| W10 ← accepted documentary/event slices | Final PR184 CI39715372028 actual4699/0fail/0skip/ten successful workers/unchanged120s; historical failed runs preserved above | Root: finish full changed-source registration/integration; main39716449695 source readback passed. Native/full source census/independent assessment/hosted proof remains separate; no skip or absent phase is hidden by W10. |
 | W11 ← accepted W10 slice | Exact-resource forward recovery/topology and one historical invented hosted result | Actual installed isolation/Q2b/cold-warm-restart/full18-role fresh restore/browser/comparison/rollback/cutover unproved under current authority. |
 | W12 ← W11 | Non-destructive route/writer/job census and retirement guards | Actual accepted manifests/non-use/retention/citation restore and all downstream S obligations required; no retirement authorized. |
-| U1 | Real `hosting/original_intake_v1.py` SQL/TLS custody factory and SQL014 qualification functions; raw chain currently offline mirror | Web source handler uses fixture; native response→commit model-content hash/actual model binding needs repair, then validated reading/independent review→real SQL bridge. No fabricated SourceRef or qualification. |
-| U2 | SQL014 actor-pinned reserve/metadata/CAS/cancel exists; `replacement_journey_v1.py` pure control semantics | Protected per-request web identity→SQL/native journal mapping absent. Preserve opaque DTOs, independently appointed jobs, current scope and no self-issued authority. |
-| U3 | `hosting/replacement_result_service_v1.py` current target/mTLS/nonce/graph/SQL service exists | Web result/answer/original viewer still fixture; actual protected current result and separately scoped viewer adapters missing. |
-| U4 | Fixture correction/new-version semantics; SQL014 generic revision-pending review event | Canonical correction original+audit+CAS same-transaction capability and genuinely new complete qualified population/independent version path missing; coordinator owns exact design/schema. |
-| U5 | SQL014 scoped delivered confirmation/ACK/current-role checks and current badge reader exist | Actual web confirmation/withdrawal bindings and exact immutable withdrawal primitive missing; no inherited badge or company-policy promotion. |
+| U1 | Merged actual SQL014 original intake plus protected raw/text factories, original custody/reading review input and separately current viewer; original fake wires explicitly labeled | Root: finish complete integrated original→native processing→independent review→actual qualification with current external appointments and independent semantic/hosted proof. No fabricated SourceRef/native authority. |
+| U2 | Merged current verified user/employee→protected mTLS/window adapters and019 durable conversation/journal source | Root: finish full product lifecycle/restart/lost reply and multi-user authenticated source/job mapping; no fixture actor/token/profile becomes a current employee or runtime grant. |
+| U3 | Merged actual protected result and PDF/text original-viewer source/currentness; invented actual transport/browser cases | Root: complete all currently scoped result/answer/original citation flows through actual SDK/store/current permission and fresh hosted profile. UI-only replay is insufficient. |
+| U4 | Merged017 immutable canonical revisions/correction lineage/history and current review source | Root: finish source-page correction/audit/CAS and whole genuinely fresh qualified source population/independent assessment through final browser/restart paths. Old approval does not transfer. |
+| U5 | Merged exact assertion/version/scope review/withdrawal source and approved-decision longevity ruling | Root: verify every integrated current/historical badge/withdrawal path and source-right revocation. Personal account decisions never imply company-policy approval or entire-model confirmation. |
 | U6 | Native durable purpose journal/resource cleanup and fixture lifecycle displays exist | Actual PDF browser→protected service→durable store→visible result across cancel/lost reply/restart/late result/abstention/revocation/refresh missing. Fixture manually advances/lands output and loses Maps on restart. |
 
 **Current admitted-operation boundaries:** Q2b source already provides catalog-only
@@ -180,18 +227,16 @@ Ansible, app namespace to Coolify. Missing historical analytical builder facts
 cannot be fabricated from adjacent releases or validator success. No upstream
 messaging, purchases or private-company processing is implied.
 
-**Bounded current source owners:** `/root/coverage` implements the actual
-ordinary-browser bounded upload connection after finishing the protected viewer;
-`/root/runtime` implements the composed original reader/reviewer provider and
-actual committed-reading input custody; `/root/journey` implements qualified
-canonical correction/consolidation/history with separate current business/history
-authority contracts. SQL017 is reserved to consolidation; SQL018 to reviewer input.
-Both are authored and proved only against fresh owned invented databases, never
-target installs or production. Coordinator owns the combined source, shared runner
-registration, refresh/lint and partial-response repairs, architecture/security/schema
-decisions, independent review, normal PR/CI/merge, all subsequent S obligations
-and every acceptance judgment. The previous initial source lanes are finished and
-reassigned; no agent preparation is reported as phase completion.
+**Bounded current source owners:** coverage=S07/020 normalization/supervisor/queue,
+journey=S11/025 with frozen S08/021, runtime=S09/022/024 and S06 actual answer
+composition, root=S10/023/shared integration and remaining S12–S16.017/018/019
+are merged;020–025 remain prospective except any separately recorded actual
+landing. Every canonical migration inventory is explicit and applied ONCE per
+fresh owned database. Root serializes common protected SQL/shared web/worker
+hunks and retains final architecture/schema/security/review/merge/acceptance.
+The fixed current source-read purpose is independent of capture, provider,
+processing, employee identity and company business approval. No test material,
+source ledger, role replacement or new admission resets a spent/UNKNOWN effect.
 
 - [ ] live proof — all open W/U/S outcomes above remain on #27/#58 under #24.
 - [ ] Independent exact-source review, meaningful registered checks and normal PR/CI for new source work.

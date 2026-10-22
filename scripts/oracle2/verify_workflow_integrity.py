@@ -12,7 +12,7 @@ from psycopg import sql
 
 ROOT=Path(__file__).resolve().parents[2]
 DOCUMENTARY=('operating_model_verifier','operating_model_boundary','operating_model_coverage','source_receipts','observation_identity','workflow_findings','artifact_storage','operating_model_extraction','operating_model_adapters','process_model','process_coverage','business_operating_model','workflow_lineage','operating_model_sdk','operating_model_retrieval','process_consult','operating_model_cutover','operating_model_restore','operating_model_pipeline','operating_model_native_provider','operating_model_answer','operating_model_summaries','operating_model_comparison','operating_model_retirement','operating_model_actions','operating_model_report_store','workflow_authorization','native_alternate','acceptance_profiles','semantic_acceptance','semantic_runtime','key_coverage','hosting_boundary','hosting_job_authority','hosting_startup','native_factory','provider_runtime','hosting_candidate_permissions','hosting_runtime_permissions','hosting_source_binding','hosting_readonly_projection','synthetic_control_fixtures','hosting_bootstrap','hosting_synthetic_fixture','hosting_result','hosting_synthetic_project','hosting_platform_translation','hosting_executor_jobs','hosting_forward_fixture','hosting_restore_receipts','hosting_forward_recovery','minimized_observations')
-DOCUMENTARY += ('replacement_documentary_journey', 'processing_context', 'processing_profile',
+DOCUMENTARY += ('research_durable_sql','research_public_wire','industry_reference_v1','qualified_industry_brief_v1','qualified_industry_brief_sql','meeting_artifact_transport','replacement_documentary_journey', 'processing_context', 'processing_profile',
                 'assembly_context','assembly_qualification','observed_assembly_capture',
                 'source_processing_qualification','processing_compiler_capabilities',
                 'processing_projection_leases','processing_documentary_journey')
@@ -89,7 +89,8 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql')
+    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql')
+DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2
@@ -179,6 +180,10 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('purpose_coherent_native_journey',),
 # Its measured sibling worker has35s load; preserve the whole suite, all4699
 # cases, ten workers and the unchanged120s deadline.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('consolidation_next_auth_browser_v1',),
+    'purpose_journey',after=True)
+
+DOCUMENTARY=_place_suites(DOCUMENTARY,
+    ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1'),
     'purpose_journey',after=True)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
@@ -368,3 +373,4 @@ def main(argv=None):
     return 0 if report['success'] else 1
 
 if __name__=='__main__':raise SystemExit(main())
+
