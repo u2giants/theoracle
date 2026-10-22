@@ -136,8 +136,27 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
           for file in (mcp_key,mcp_cert):file.chmod(0o600)
           mcp_settings=install_answer(state,authority,h,readonly,generation,certificates,tmp_path/'mcp-answer-install',channel='mcp',peer_certificate=mcp_cert,peer_key=mcp_key,peer_uri=mcp_uri,server_certificate=leaf,listen_host='::1',actors=(settings.peer.issuer_actor,settings.peer.reviewer_actor))
           mcp_server=protected_connected_answer_server_v1(mcp_settings)
+          # Private invented-fixture diagnostics observe the SAME real method;
+          # they neither replace authorization nor turn a refusal into success.
+          mcp_owned=mcp_server.answer_owned_loop.service
+          actual_mcp_handler=mcp_owned.handle_answer_v1
+          async def observed_mcp_handler(raw):
+           try:return await actual_mcp_handler(raw)
+           except Exception as error:
+            (tmp_path/'mcp-owned-refusal.json').write_text(json.dumps(dict(type=type(error).__name__,reason=str(error))))
+            raise
+          mcp_owned.handle_answer_v1=observed_mcp_handler
           mcp_thread=threading.Thread(target=mcp_server.serve_forever,kwargs={'poll_interval':.01},daemon=True);mcp_thread.start()
           try:
+           import ssl,http.client
+           context=ssl.create_default_context(cafile=str(certificates/'ca.pem'));context.load_cert_chain(mcp_cert,mcp_key)
+           direct=http.client.HTTPSConnection('localhost.localdomain',mcp_server.server_port,context=context,timeout=30)
+           try:
+            direct.request('POST','/v1/employee/mcp-answer',body=request(),headers={'Content-Type':'application/json','Connection':'close'})
+            direct_response=direct.getresponse();direct_wire=direct_response.read()
+            assert direct_response.status==200,direct_wire
+            assert json.loads(direct_wire)['channel']=='mcp'
+           finally:direct.close()
            import os
            expected=[]
            for process in payload['consolidation_core']['model']['processes']:
