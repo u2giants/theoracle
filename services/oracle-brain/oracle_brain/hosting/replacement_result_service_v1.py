@@ -141,7 +141,7 @@ class _ResultOwnedLoopV1:
     def __init__(self,service):
         from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
         from .question_effect_factory_v1 import ProtectedQuestionEffectFactoryV1
-        _require(type(service) in (ProtectedReplacementResultServiceV1,ProtectedConnectedAnswerServiceV1,ProtectedQuestionEffectFactoryV1),'exact owned fixed result/answer/question service required')
+        _require(type(service) in (ProtectedReplacementResultServiceV1,ProtectedConnectedAnswerServiceV1,ProtectedQuestionEffectFactoryV1),'exact owned result service or fixed answer/question service required')
         self.service=service;self.requests=set();self.closing=False
         self.records={};self.record_lock=threading.RLock();self.observed_outcomes={'returned':0,'failed':0,'cancelled':0}
         self.loop=asyncio.new_event_loop();self.ready=threading.Event()
