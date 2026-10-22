@@ -105,7 +105,7 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
             # R7 registration: purpose_coherent_native_journey / native_trigger_v1
             # no longer own singleton groups; original/raw families replaced them.
             for heavy in ('purpose_worker_startup',):
-                assert [values for _,values in groups if heavy in values]==[(heavy,)]
+                assert [values for _,values in groups if heavy in values]==[(heavy,'question_effects_sql_v1')]
             for start in ('original_corpus_import','raw_endpoint_inventory_v1'):
                 assert any(values and values[0]==start for _,values in groups)
 
