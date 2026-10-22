@@ -110,7 +110,7 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','027_legacy_migration.sql')
+    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','027_legacy_migration.sql')
 DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
@@ -226,6 +226,26 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
     'replacement_documentary_journey',after=True)
 DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
     'purpose_worker_startup',after=True)
+
+# Canonical 025 recommendation population: existing pure/security/setup
+# suites plus mandatory SQL and Next/browser cases. Register every suite so
+# W10 owns the real surface under the unchanged 120-second deadline and ten
+# workers. Measured setup batching remains UNPROVED savings, not a realized
+# business benefit. Placement estimates only; the whole-run deadline decides.
+RECOMMENDATION_PURE_SUITES=('recommendation_actions_v1','recommendation_presentation_v1',
+    'recommendation_setup_batch_v1','measurement_evidence_v1','protected_sql_connection_v1',
+    'workspace_workflow_fixture_v1')
+RECOMMENDATION_SQL_SUITES=('recommendation_actions_sql','workspace_next_recipients_sql_v1')
+RECOMMENDATION_BROWSER_SUITES=('recommendation_next_auth_browser_v1','recommendation_actions_service_v1')
+DOCUMENTARY += RECOMMENDATION_PURE_SUITES+RECOMMENDATION_SQL_SUITES+RECOMMENDATION_BROWSER_SUITES
+DOCUMENTARY=_place_suites(DOCUMENTARY,RECOMMENDATION_PURE_SUITES,
+    'workflow_authorization')
+# Keep purpose_worker_startup's measured pair (itself + question_effects_sql_v1)
+# untouched; recommendation SQL joins the last documentary group instead.
+DOCUMENTARY=_place_suites(DOCUMENTARY,RECOMMENDATION_SQL_SUITES,
+    'paid_sdk_embeddings_v3',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,RECOMMENDATION_BROWSER_SUITES,
+    'purpose_journey',after=True)
 
 DOCUMENTARY=_place_suites(DOCUMENTARY,MEETING_CAPTURE_CORE_SUITES,
     'workflow_authorization')
