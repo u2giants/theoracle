@@ -14,6 +14,59 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
+**Combined source verification — October 22, 2026, 2:05 AM EDT:** Current merged upstream is
+`ff5569a2cfa8bd63d21d3ce41f889d3fd1b1278a` (PR186). PR185 and PR186
+fresh post-main runs39726932196/39729557782 independently passed4,883 cases
+with zero failures/errors/skips across all10 workers and no launch, timeout,
+cleanup or evidence errors. PR186 canonical aggregate JUnit is
+`902fac820a1b4523fe6e8f8dd01522c523c7429580d7d81c4a6651227053dc7c`.
+This supersedes the pending-main statements in earlier dated receipts.
+
+The complete current-main combined source at
+`f43b85011075b4576d8dcbbc95ead9da25dfd925` adds the S10 read-only research
+experience and separately purposed existing-reference readers, finite independently
+installed employee recipient selection for existing web/MCP profiles, and the
+original viewer's pre-TLS request fence/owned socket timer/two closed SQL passes.
+The neutral HTTP wire parser has one owner with its old public aliases retained.
+Mandatory checks:349 Node24 web cases,268 pure/retained Python cases,7 typechecks,
+lint and guarded clean-commit build passed. Full36-file independent Muse security
+APPROVE source digest
+`8d21f122f032169bbb739e5cbe78cf824585064b1db81ca19363d72708cc30e0`.
+No general issuer, profile/role/grant creation, fetch permission or provider
+fallback was introduced. The old singleton API and original qualification
+fixture defaults remain; configured malformed recipient indexes fail closed.
+
+Actual fresh owned TLS PostgreSQL/FalkorDB/SDK/mTLS/browser/MCP and original
+viewer proof passed19/19, zero failures/errors/skips in66.39 seconds under the
+unchanged120-second ceiling, source hashes unchanged. JUnit
+`4bab0dad6a700bba2686a79b8526ec30c3bc54d81c840a268a3cece6925690d0`.
+A separate fresh database proved the actual Next framework, actual SDK getUser
+HTTPS against an explicitly invented auth service, actual least-privilege employee
+SQL/RLS, review/account decision, and revoked/foreign/no-cookie/disabled refusals:
+1/1 in12.21 seconds, JUnit
+`45c9c4502c6406bf9a220e2e5d77bb1ac2123046f68b5f8c44f74b8b514f01cf`.
+Both complete executed-source manifests remained unchanged; coordinator
+independently verified every exact owned container/network/volume absent.
+The first proof's browser auth-import fixture is explicitly distinct from the
+second actual-framework/auth-protocol/employee-SQL proof; neither is real company
+authentication, installed runtime, qualified native generation or business proof.
+
+Earlier integrated S10 failures remain retained: missing original deadline alias,
+catalog-token versus registered-source UUID decoder mismatch, and exact revoked
+SQL denial occurring during construction rather than only during load. Distinct
+new requests never extend prior authority or qualification; no clocks, test cases,
+expiry negatives or120-second ceiling were relaxed. All failed resources were
+independently cleaned and their source/receipts retained.
+
+Full CI, source merge and fresh-main proof for this combined change remain
+pending. S10 automatic/scheduled worker installation and its actual refresh
+receipt, complete S12 home/process/correction/inbox/health/export/bilingual/mobile/
+a11y and actual two-user browser isolation remain OPEN. S07/S08/S09 paid effects/
+S11/S13/S14/S15/S16 retain their whole outstanding obligations. Real-company,
+paid provider/new platform, expired native-v2, business acceptance, adoption and
+retirement holds are unchanged. No acceptance checkbox or child closes.
+
+
 ### Current whole-program obligation ledger — October 21, 2026, 11:31 PM EDT
 
 **Source-verification continuation — October 22, 2026, 12:57 AM EDT:** Current upstream remains

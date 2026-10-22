@@ -11,6 +11,12 @@ import psycopg
 from pydantic import AwareDatetime, Field
 from oracle_brain.operating_model.contracts import StrictRecord, canonical_bytes
 from oracle_brain.operating_model.artifact_storage import FileBlobStore, OriginalObjectRefV1, ReservationOriginalObjectRefV1
+from oracle_brain.operating_model.protected_sql_connection_v1 import (
+    _connection_v1, require_protected_sql_window_v1,
+)
+from oracle_brain.operating_model.request_deadline_v1 import (
+    request_remaining_v1, sql_execute_v1, _sql_send_window_v1,
+)
 from .original_intake_v1 import _pinned
 from .purpose_journey_v2 import _worker_file
 from .original_view_settings_v1 import OriginalViewerSettingsV1, MAX_BYTES, HASH
@@ -72,6 +78,12 @@ class OriginalViewerFactoryV1:
             raise PermissionError('original viewer deadline elapsed or excessive')
         return max(1, int((deadline - now).total_seconds() * 1000))
 
+    def _query(self, conn, deadline, *args):
+        if request_remaining_v1(required=False) is None:
+            return conn.execute(*args)
+        require_protected_sql_window_v1(conn)
+        return sql_execute_v1(conn, deadline, *args)
+
     def _check(self, conn, target, deadline):
         c = self.settings.config
         remaining = self._current(deadline)
@@ -81,29 +93,35 @@ class OriginalViewerFactoryV1:
                 or conn.info.port != int(target.get('port', 5432))
                 or (target.get('hostaddr') and conn.info.hostaddr != target['hostaddr'])):
             raise PermissionError('actual viewer TLS SQL target differs')
-        conn.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",
-                     (str(min(5000, remaining)), str(min(2000, remaining))))
-        row = conn.execute('SELECT session_user,current_user,rolcanlogin,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname=session_user').fetchone()
+        if request_remaining_v1(required=False) is None:
+            # Retained uncaptured API keeps its original timeout setters.
+            conn.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",
+                         (str(min(5000, remaining)), str(min(2000, remaining))))
+        else:
+            # The single connection owner installed actual startup bounds.
+            # Never replace them with a longer timeout behind the old guard.
+            require_protected_sql_window_v1(conn)
+        row = self._query(conn, deadline, 'SELECT session_user,current_user,rolcanlogin,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname=session_user').fetchone()
         if (not row or row[:2] != (c.expected_session_role, c.expected_session_role)
                 or row[2] is not True or any(row[3:])):
             raise PermissionError('actual viewer login differs')
-        reachable = conn.execute("SELECT rolname::text FROM pg_roles WHERE pg_has_role(session_user,oid,'MEMBER') OR pg_has_role(session_user,oid,'SET') OR pg_has_role(session_user,oid,'USAGE')").fetchall()
+        reachable = self._query(conn, deadline, "SELECT rolname::text FROM pg_roles WHERE pg_has_role(session_user,oid,'MEMBER') OR pg_has_role(session_user,oid,'SET') OR pg_has_role(session_user,oid,'USAGE')").fetchall()
         if {r[0] for r in reachable} != {c.expected_session_role, GROUP}:
             raise PermissionError('exclusive actual viewer role required')
-        flags = conn.execute('SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname=%s', (GROUP,)).fetchone()
+        flags = self._query(conn, deadline, 'SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname=%s', (GROUP,)).fetchone()
         if flags is None or any(flags):
             raise PermissionError('fixed viewer group flags differ')
-        owner = conn.execute("SELECT r.rolname,pg_has_role(session_user,r.oid,'MEMBER') FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname='oracle2'").fetchone()
+        owner = self._query(conn, deadline, "SELECT r.rolname,pg_has_role(session_user,r.oid,'MEMBER') FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname='oracle2'").fetchone()
         if owner != (c.expected_owner_role, False):
             raise PermissionError('viewer schema owner differs')
-        rows = conn.execute(OWNER_QUERY).fetchall()
+        rows = self._query(conn, deadline, OWNER_QUERY).fetchall()
         expected = {(name, 'oracle2', name, c.expected_owner_role, True) for name, _ in FUNCTIONS}
         if len(rows) != len(FUNCTIONS) or set(rows) != expected:
             raise PermissionError('viewer fixed function identities differ')
         self._current(deadline)
 
     def _capability(self, conn, ref, deadline):
-        row = conn.execute('SELECT oracle2.original_revision_view_v1(%s,%s)', (ref.source_id, ref.revision)).fetchone()
+        row = self._query(conn, deadline, 'SELECT oracle2.original_revision_view_v1(%s,%s)', (ref.source_id, ref.revision)).fetchone()
         if row is None:
             raise PermissionError('current original view unavailable')
         cap = ViewerCapabilityV1.model_validate_json(canonical_bytes(row[0]))
@@ -161,6 +179,8 @@ class OriginalViewerFactoryV1:
     def read_original_v1(self, source_id, revision, *, caller_deadline):
         # No cached capability and no retry, including close or uncertain I/O.
         try:
+            if request_remaining_v1(required=False) is not None:
+                return self._read_original_protected_v1(source_id, revision, caller_deadline)
             if type(source_id) is not UUID or type(revision) is not int or revision < 1:
                 raise PermissionError('exact original selector required')
             now = datetime.now(timezone.utc)
@@ -208,3 +228,50 @@ class OriginalViewerFactoryV1:
             return ViewedOriginalV1(data, caller_deadline, ref.media_type)
         except Exception:
             raise OriginalViewerUnavailable('original view unavailable; delivery unproved') from None
+
+    def _read_original_protected_v1(self, source_id, revision, deadline):
+        # Only the existing trusted listener's actual original context enters
+        # this branch. It grants no source, role, custody or viewer authority.
+        if type(source_id) is not UUID or type(revision) is not int or revision < 1:
+            raise PermissionError('exact original selector required')
+        now = datetime.now(timezone.utc)
+        if type(deadline) is not datetime or deadline.tzinfo is None or deadline > now + timedelta(seconds=30):
+            raise PermissionError('bounded original viewer deadline required')
+        self._current(deadline)
+        c = self.settings.config
+        matches = [r for r in c.sources if (r.source_id, r.revision) == (source_id, revision)]
+        if len(matches) != 1:
+            raise PermissionError('externally appointed source required')
+        ref = matches[0]
+        data = None
+        for phase in range(2):
+            # Re-read private installation pins before each actual socket.
+            raw = _pinned(c.database_url.path, c.database_url.sha256, 16384).decode('utf-8')
+            _pinned(c.database_ca.path, c.database_ca.sha256, 131072)
+            target = psycopg.conninfo.conninfo_to_dict(raw)
+            if (set(target) - {'host', 'hostaddr', 'port', 'dbname', 'user', 'password', 'sslmode', 'sslrootcert'}
+                    or target.get('sslmode') != 'verify-full' or target.get('sslrootcert') != c.database_ca.path
+                    or target.get('user') != c.expected_session_role or not target.get('dbname')):
+                raise PermissionError('fixed viewer SQL target required')
+            self._current(deadline)
+            request_remaining_v1()
+            with _connection_v1(raw, deadline) as conn:
+                self._check(conn, target, deadline)
+                before = self._capability(conn, ref, deadline)
+                deadline = min(deadline, before.valid_until)
+                after = self._capability(conn, ref, deadline)
+                deadline = min(deadline, after.valid_until)
+                if before.private_object_key != after.private_object_key:
+                    raise PermissionError('original viewer locator changed')
+                self._check(conn, target, deadline)
+                self._current(deadline)
+                # Narrow the COMMIT send to the actual returned capability,
+                # too. The common owner then commits and actually closes.
+                _sql_send_window_v1(conn, deadline)
+            request_remaining_v1()
+            self._current(deadline)
+            if phase == 0:
+                data = self._private(after, ref, deadline)
+                request_remaining_v1()
+                self._current(deadline)
+        return ViewedOriginalV1(data, deadline, ref.media_type)

@@ -72,7 +72,7 @@ def prepared_brief(admin_url,sql_qualified_v3,tmp_path,certificates,monkeypatch)
     return dict(authority=authority,reader=reader,decision=decision,research=research,posts=posts,prepared=prepared,history=h)
 
 
-async def exercise_brief(f,tmp_path,certificates,bound_tls):
+async def exercise_brief(f,tmp_path,certificates,bound_tls,*,channel_operation=None):
     import os
     from urllib.parse import urlsplit,urlunsplit
     from graphrag_sdk import ConnectionConfig
@@ -125,6 +125,34 @@ async def exercise_brief(f,tmp_path,certificates,bound_tls):
                 return actual.receipt.model_dump(mode='json')|{'signature':actual.signature}
             with processing_reader_scope(container,graph,tmp_path/'graph-reader',receipt=body|{'signature':seal},secret=secret,current_delivery=current) as reader:
                 readonly=tls_url(reader['ORACLE2_TEST_PROCESSING_READONLY_GRAPH_URL'])
+                if channel_operation is not None:
+                    # Actual separately installed reference READ config is pinned
+                    # into the SAME existing answer service; no caller profile.
+                    from test_connected_answer_service_v1 import install_answer,tls_request
+                    from oracle_brain.hosting.connected_answer_service_v1 import protected_connected_answer_server_v1
+                    import threading,json
+                    rs=f['reader']._authority.settings
+                    settings=install_answer(state,f['authority'],f['history'],readonly,generation,certificates,
+                        tmp_path/'industry-answer-install',industry_readers=(dict(path=rs.config_path,sha256=rs.config_sha256),))
+                    server=protected_connected_answer_server_v1(settings)
+                    thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.01},daemon=True);thread.start()
+                    try:
+                        body=canonical_bytes(dict(schema_version=1,protocol='qualified-industry-question-v1',
+                            operation=channel_operation,decision_id=str(f['decision']) if channel_operation=='brief' else None,
+                            caller_deadline=(datetime.now(timezone.utc)+timedelta(seconds=25)).isoformat()))
+                        # TLS call runs outside the current async loop; concrete
+                        # service owns its own original request/SDK close loop.
+                        status,wire=await __import__('asyncio').to_thread(tls_request,server,certificates,body)
+                        assert status==200,wire
+                        packet=json.loads(wire)
+                        assert packet['principal_id']==str(f['history']['actor']) and packet['workspace_id']==str(m.workspace_id)
+                        assert packet['operation']==channel_operation and packet['request_sha256']==__import__('hashlib').sha256(body).hexdigest()
+                        assert packet['company_policy'] is packet['business_accepted'] is packet['automatic_action_authorized'] is False
+                        (tmp_path/'actual-industry-answer.json').write_bytes(wire)
+                        return packet
+                    finally:
+                        await __import__('asyncio').to_thread(server.shutdown);server.server_close();thread.join(timeout=3)
+                        assert not thread.is_alive()
                 with _request_fence_v1(float(time.monotonic()+29)):
                     deadline=datetime.now(timezone.utc)+timedelta(seconds=28)
                     served=ConsolidatedMetadataSDKProjectionV1(readonly,authority=f['authority'],blobs=FileBlobStore(state['blobs'].root),
@@ -153,3 +181,19 @@ def test_actual_reference_revocation_withholds_brief_without_refetch(admin_url,s
     import asyncio
     with pytest.raises(PermissionError):asyncio.run(exercise_brief(f,tmp_path,certificates,bound_tls))
     assert f['posts']==[1]
+
+
+@pytest.mark.parametrize('operation',['contexts','brief'])
+def test_actual_independently_installed_industry_read_uses_same_mTLS_SQL_SDK_owner(admin_url,sql_qualified_v3,tmp_path,certificates,bound_tls,monkeypatch,operation):
+    f=prepared_brief(admin_url,sql_qualified_v3,tmp_path,certificates,monkeypatch)
+    result=__import__('asyncio').run(exercise_brief(f,tmp_path,certificates,bound_tls,channel_operation=operation))
+    assert result['protocol']=='qualified-industry-answer-v1'
+    from pathlib import Path
+    import subprocess
+    checked=subprocess.run(['pnpm','--filter','@oracle/web','exec','tsx','tests/oracle2/industry-answer-wire-proof.ts',str(tmp_path/'actual-industry-answer.json')],cwd=Path(__file__).resolve().parents[3],capture_output=True,text=True,timeout=15)
+    assert checked.returncode==0,checked.stdout+checked.stderr
+    if operation=='contexts':
+        assert result['result']['qualified_context_count']==1 and result['result']['contexts'][0]['decision_id']==str(f['decision'])
+    else:
+        assert [r['comparison']['state'] for r in result['result']['references']]==['APPLICABLE','INAPPLICABLE']
+    assert f['posts']==[1] # Reading never refetches the independently retained original.

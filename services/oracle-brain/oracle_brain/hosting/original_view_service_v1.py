@@ -6,12 +6,14 @@ check and partial client delivery cannot be undone or represented as proven.
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
+import socket
 import time
 from uuid import UUID
 
 from cryptography import x509
 from pydantic import AwareDatetime, Field
 from oracle_brain.operating_model.contracts import StrictRecord
+from oracle_brain.operating_model.request_deadline_v1 import _request_fence_v1, request_remaining_v1
 from .original_intake_v1 import _parse
 from .original_view_settings_v1 import OriginalViewerSettingsV1
 from .original_view_v1 import OriginalViewerFactoryV1, ViewedOriginalV1
@@ -35,13 +37,17 @@ def protected_original_view_server_v1(settings):
     factory = OriginalViewerFactoryV1(settings)
     tls = server_tls(certfile=profile.server_certificate.path, keyfile=profile.server_key.path,
                      cafile=profile.client_ca.path)
-    settings.current()
+    # Immutable startup horizon can only narrow the original30s transport.
+    installed_end = settings.current()
     slot = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
-            self.original_start = datetime.now(timezone.utc)
-            self.original_monotonic_start = time.monotonic()
+            # Captured by this server before the request thread/TLS handshake.
+            # Never start a replacement clock after handshake or body reading.
+            self.original_start = self.request._oracle_view_original_wall_v1
+            self.original_monotonic_start = self.request._oracle_view_original_mono_v1
+            request_remaining_v1()
             super().setup()
 
         def log_message(self, *args):
@@ -94,36 +100,39 @@ def protected_original_view_server_v1(settings):
                 if not datetime.now(timezone.utc) < request.caller_deadline <= transport_end:
                     raise PermissionError('original absolute viewer deadline required')
                 monotonic_end = self.original_monotonic_start + (request.caller_deadline-self.original_start).total_seconds()
-                pins = [r for r in settings.config.sources if (r.source_id,r.revision)==(request.source_id,request.revision)]
-                if len(pins)!=1:raise PermissionError('exact installed original media required')
-                pin=pins[0]
-                read = factory.read_pdf_v1 if pin.media_type=='application/pdf' else factory.read_original_v1
-                result = read(request.source_id, request.revision, caller_deadline=request.caller_deadline)
-                if type(result) is not ViewedOriginalV1 or type(result.data) is not bytes or result.media_type!=pin.media_type:
-                    raise PermissionError('actual original bytes required')
-                end = min(request.caller_deadline, result.valid_until, self._current_peer(), settings.current())
-                monotonic_end = min(monotonic_end, self.original_monotonic_start + (end-self.original_start).total_seconds())
-                if datetime.now(timezone.utc) >= end or time.monotonic() >= monotonic_end:
-                    raise PermissionError('original delivery window elapsed')
-                self.connection.settimeout(max(.001, min((end-datetime.now(timezone.utc)).total_seconds(), monotonic_end-time.monotonic())))
-                started = True
-                self.send_response(200)
-                self.send_header('X-Oracle-Original-Valid-Until', end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
-                self.send_header('Connection', 'close')
-                self.send_header('Content-Type', 'application/pdf' if pin.media_type=='application/pdf' else 'text/plain; charset=utf-8')
-                self.send_header('Content-Length', str(len(result.data)))
-                self.send_header('Content-Disposition', 'inline; filename="original.pdf"' if pin.media_type=='application/pdf' else 'inline; filename="original.txt"')
-                self.send_header('Cache-Control', 'no-store, private')
-                self.send_header('X-Content-Type-Options', 'nosniff')
-                self.end_headers()
-                for offset in range(0, len(result.data), 65536):
-                    bound = min(end, self._current_peer(), settings.current())
-                    remaining = min((bound-datetime.now(timezone.utc)).total_seconds(), monotonic_end-time.monotonic())
-                    if remaining <= 0:
+                # The caller value can only narrow the pre-handshake fence.
+                with _request_fence_v1(float(monotonic_end)):
+                    request_remaining_v1()
+                    pins = [r for r in settings.config.sources if (r.source_id,r.revision)==(request.source_id,request.revision)]
+                    if len(pins)!=1:raise PermissionError('exact installed original media required')
+                    pin=pins[0]
+                    read = factory.read_pdf_v1 if pin.media_type=='application/pdf' else factory.read_original_v1
+                    result = read(request.source_id, request.revision, caller_deadline=request.caller_deadline)
+                    if type(result) is not ViewedOriginalV1 or type(result.data) is not bytes or result.media_type!=pin.media_type:
+                        raise PermissionError('actual original bytes required')
+                    end = min(request.caller_deadline, result.valid_until, self._current_peer(), settings.current())
+                    monotonic_end = min(monotonic_end, self.original_monotonic_start + (end-self.original_start).total_seconds())
+                    if datetime.now(timezone.utc) >= end or time.monotonic() >= monotonic_end:
                         raise PermissionError('original delivery window elapsed')
-                    self.connection.settimeout(remaining)
-                    self.wfile.write(result.data[offset:offset+65536])
-                # Socket delivery is never an acknowledgment of browser receipt.
+                    self.connection.settimeout(max(.001, min((end-datetime.now(timezone.utc)).total_seconds(), monotonic_end-time.monotonic())))
+                    started = True
+                    self.send_response(200)
+                    self.send_header('X-Oracle-Original-Valid-Until', end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
+                    self.send_header('Connection', 'close')
+                    self.send_header('Content-Type', 'application/pdf' if pin.media_type=='application/pdf' else 'text/plain; charset=utf-8')
+                    self.send_header('Content-Length', str(len(result.data)))
+                    self.send_header('Content-Disposition', 'inline; filename="original.pdf"' if pin.media_type=='application/pdf' else 'inline; filename="original.txt"')
+                    self.send_header('Cache-Control', 'no-store, private')
+                    self.send_header('X-Content-Type-Options', 'nosniff')
+                    self.end_headers()
+                    for offset in range(0, len(result.data), 65536):
+                        bound = min(end, self._current_peer(), settings.current())
+                        remaining = min((bound-datetime.now(timezone.utc)).total_seconds(), monotonic_end-time.monotonic())
+                        if remaining <= 0:
+                            raise PermissionError('original delivery window elapsed')
+                        self.connection.settimeout(remaining)
+                        self.wfile.write(result.data[offset:offset+65536])
+                    # Socket delivery is never an acknowledgment of browser receipt.
             except Exception:
                 if not started:
                     self._deny()
@@ -144,14 +153,41 @@ def protected_original_view_server_v1(settings):
             super().__init__((profile.listen_host, profile.listen_port), Handler, tls=tls)
 
         def process_request(self, request, address):
+            # No peer, settings or body work precedes this original capture.
+            request._oracle_view_original_wall_v1 = datetime.now(timezone.utc)
+            request._oracle_view_original_mono_v1 = time.monotonic()
+            request._oracle_view_original_end_v1 = min(
+                request._oracle_view_original_mono_v1 + 30,
+                request._oracle_view_original_mono_v1 + max(0,
+                    (installed_end-request._oracle_view_original_wall_v1).total_seconds()))
             with self._active_condition:
                 if self.closing or not self._connections.acquire(blocking=False):
                     self.shutdown_request(request)
                     return
                 self._active.add(request)
+            def expire_owned_socket():
+                # No selector, authority or retry: only this accepted socket.
+                try:
+                    request.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                finally:
+                    request.close()
+            timer = threading.Timer(max(0, request._oracle_view_original_end_v1-time.monotonic()),
+                                    expire_owned_socket)
+            timer.name = 'oracle-original-view-deadline'
+            timer.daemon = True
+            request._oracle_view_deadline_timer_v1 = timer
             try:
+                timer.start()
                 ThreadingHTTPServer.process_request(self, request, address)
             except BaseException:
+                timer.cancel()
+                if timer.ident is not None:
+                    timer.join(timeout=1)
+                self.shutdown_request(request)
+                if timer.is_alive():
+                    raise PermissionError('owned viewer dispatch timer cleanup remains unknown')
                 self._connections.release()
                 with self._active_condition:
                     self._active.discard(request)
@@ -160,8 +196,16 @@ def protected_original_view_server_v1(settings):
 
         def process_request_thread(self, request, address):
             try:
-                super().process_request_thread(request, address)
+                # SAME thread/context covers the retained actual TLS handshake,
+                # HTTP parsing, current peer/settings, body, SQL and delivery.
+                with _request_fence_v1(float(request._oracle_view_original_end_v1)):
+                    super().process_request_thread(request, address)
             finally:
+                timer = request._oracle_view_deadline_timer_v1
+                timer.cancel()
+                timer.join(timeout=1)
+                if timer.is_alive():
+                    raise PermissionError('owned viewer socket timer cleanup remains unknown')
                 with self._active_condition:
                     self._active.discard(request)
                     self._active_condition.notify_all()

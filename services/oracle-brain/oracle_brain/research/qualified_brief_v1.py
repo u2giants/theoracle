@@ -76,6 +76,37 @@ class QualifiedIndustryBriefV1:
             identities.append(c.source_id)
         if len(set(identities))!=len(identities):raise PermissionError('duplicate reference read owner')
         self._authority,self._projection,self._readers=authority,projection,readers
+        self._verified_packet_v1=None
+        self._verified_reference_receipts_v1=()
+
+    async def contexts_v1(self, *, deadline):
+        """A bounded index from the complete currently authorized qualified model."""
+        if deadline!=self._projection.deadline:raise PermissionError('original SDK deadline required')
+        request_remaining_v1()
+        core,metadata,payload,delivery=await self._projection.load()
+        parsed=[(item,parse_industry_assertion_v1(item)) for item in core.assertions]
+        values=[(item,value) for item,value in parsed if type(value) is CompanyDecisionContextEvidenceV1]
+        if len({v.decision_id for _,v in values})!=len(values):
+            raise PermissionError('one exact qualified context version per decision required')
+        now=datetime.now(timezone.utc)
+        ordered=sorted(values,key=lambda pair:pair[1].decision_id.hex)
+        contexts=[dict(decision_id=str(value.decision_id),assertion_id=str(item.assertion_id),
+            assertion_revision=item.revision,context=value.model_dump(mode='json'),
+            current_state='evidenced' if _current_assertion(item,now) else 'UNKNOWN')
+            for item,value in ordered[:64]]
+        fresh=await self._projection.verify(payload)
+        self._projection._same_packet_v1((core,metadata,payload,delivery),fresh)
+        checked=datetime.now(timezone.utc);until=min(deadline,datetime.fromisoformat(metadata['validUntil']))
+        request_remaining_v1()
+        if checked>=until:raise PermissionError('original context reading window elapsed')
+        self._verified_packet_v1=fresh
+        return dict(schema_version=1,purpose='qualified-industry-contexts-v1',
+            workspace_id=str(self._authority.binding.workspace_id),model_id=str(self._authority.binding.model_id),
+            model_version=core.model.version,model_content_sha256=metadata['manifest']['content_hash'],
+            contexts=contexts,qualified_context_count=len(values),returned_context_count=len(contexts),
+            coverage_complete_within_current_model=len(values)<=64,company_wide_completeness_verified=False,
+            checked_at=checked.isoformat(),valid_until=until.isoformat(),graph_delivery_verified=True,
+            company_policy=False,business_accepted=False,automatic_action_authorized=False)
 
     async def brief_v1(self, *, decision_id, deadline):
         if type(decision_id) is not UUID or deadline!=self._projection.deadline:
@@ -90,6 +121,11 @@ class QualifiedIndustryBriefV1:
         contexts=[(item,value) for item,value in parsed if type(value) is CompanyDecisionContextEvidenceV1 and value.decision_id==decision_id]
         if len(contexts)!=1:raise PermissionError('one exact qualified company decision context required')
         ca,context=contexts[0];rows=[];receipts=[];now=datetime.now(timezone.utc)
+        configured_sources={r._authority.settings.config.source_id for r in self._readers}
+        missing_readers=[value for value in references if value.registered_source_id not in configured_sources]
+        for value in missing_readers:
+            rows.append(dict(registered_source_id=str(value.registered_source_id),reference_id=str(value.reference_id),
+                state='UNKNOWN',reasons=['independent_reference_read_installation_unavailable']))
         for reader in self._readers:
             retained=reader.latest_v1(deadline=deadline);receipts.append((reader,retained))
             candidates=[(item,value) for item,value in parsed if type(value) is IndustryReferenceEvidenceV1
@@ -107,6 +143,7 @@ class QualifiedIndustryBriefV1:
                 if value.original not in core.model.source_refs:
                     raise PermissionError('reference original absent from complete qualified source population')
                 row=_compare_reference_v1(ca,context,assertion,value,retained,now)
+                row['registered_source_id']=retained['source_id']
                 row['evidence']=_review_evidence(payload,assertion.model_dump(mode='json'));rows.append(row)
         # Both independent owners must still authorize the SAME bytes/receipts
         # at delivery. These reads do not renew any source or processing lease.
@@ -120,11 +157,17 @@ class QualifiedIndustryBriefV1:
                   r._profile.expires_at,r._profile.original_horizon) for r in self._readers))
         checked=datetime.now(timezone.utc)
         if checked>=until:raise PermissionError('original comparison authority expired before delivery')
+        self._verified_packet_v1=fresh
+        self._verified_reference_receipts_v1=tuple(receipts)
         return {'schema_version':1,'purpose':'qualified-industry-comparison-v1',
             'workspace_id':str(a.binding.workspace_id),'model_id':str(a.binding.model_id),
             'model_version':core.model.version,'model_content_sha256':metadata['manifest']['content_hash'],
             'decision_id':str(decision_id),'context_assertion_id':str(ca.assertion_id),
             'context_evidence':_review_evidence(payload,ca.model_dump(mode='json')),'references':rows,
+            'context':context.model_dump(mode='json'),
+            'coverage':dict(qualified_reference_count=len(references),independently_installed_reader_count=len(self._readers),
+                qualified_references_without_read_installation=len(missing_readers),
+                company_wide_completeness_verified=False),
             'checked_at':checked.isoformat(),'valid_until':until.isoformat(),
             'comparison_sha256':digest(rows),'company_policy':False,'business_accepted':False,
             'graph_delivery_verified':True,'automatic_action_authorized':False}

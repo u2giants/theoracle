@@ -12,7 +12,7 @@ from psycopg import sql
 
 ROOT=Path(__file__).resolve().parents[2]
 DOCUMENTARY=('operating_model_verifier','operating_model_boundary','operating_model_coverage','source_receipts','observation_identity','workflow_findings','artifact_storage','operating_model_extraction','operating_model_adapters','process_model','process_coverage','business_operating_model','workflow_lineage','operating_model_sdk','operating_model_retrieval','process_consult','operating_model_cutover','operating_model_restore','operating_model_pipeline','operating_model_native_provider','operating_model_answer','operating_model_summaries','operating_model_comparison','operating_model_retirement','operating_model_actions','operating_model_report_store','workflow_authorization','native_alternate','acceptance_profiles','semantic_acceptance','semantic_runtime','key_coverage','hosting_boundary','hosting_job_authority','hosting_startup','native_factory','provider_runtime','hosting_candidate_permissions','hosting_runtime_permissions','hosting_source_binding','hosting_readonly_projection','synthetic_control_fixtures','hosting_bootstrap','hosting_synthetic_fixture','hosting_result','hosting_synthetic_project','hosting_platform_translation','hosting_executor_jobs','hosting_forward_fixture','hosting_restore_receipts','hosting_forward_recovery','minimized_observations')
-DOCUMENTARY += ('research_durable_sql','research_public_wire','industry_reference_v1','qualified_industry_brief_v1','qualified_industry_brief_sql','meeting_artifact_transport','replacement_documentary_journey', 'processing_context', 'processing_profile',
+DOCUMENTARY += ('research_durable_sql','research_public_wire','industry_reference_v1','qualified_industry_brief_v1','industry_answer_v1','qualified_industry_brief_sql','meeting_artifact_transport','replacement_documentary_journey', 'processing_context', 'processing_profile',
                 'assembly_context','assembly_qualification','observed_assembly_capture',
                 'source_processing_qualification','processing_compiler_capabilities',
                 'processing_projection_leases','processing_documentary_journey')
@@ -40,6 +40,7 @@ ORIGINAL_PROCESSING_SUITES=('original_corpus_import','original_corpus_read',
     'binary_documents','original_byte_storage',
     'original_intake_v1','original_native_jobs_v1','original_pdf_image_views',
     'original_view_settings_v1','original_view_service_v1','original_view_sql',
+    'original_view_protected_connection_v1','original_view_listener_window_v1','original_view_socket_deadline_v1','protected_http_wire_v1',
     'original_population_sql','original_qualification_v1','original_qualification_runtime','original_reading',
     'original_response_normalization_v1','original_qualification_authority_sql',
     'replacement_original_lifecycle','replacement_qualification_sql',

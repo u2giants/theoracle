@@ -155,6 +155,14 @@ function reviewEvidence(v:unknown):boolean{
  }));
 }
 
+/** Same closed quote owner for qualified read-only presentation protocols. */
+export function validateQualifiedEvidenceV1(value:unknown,workspace:string):Readonly<Record<string,unknown>>{
+ if(!canonicalUuid(workspace)||!reviewEvidence(value))return failure();
+ const evidence=value as Record<string,{ref:{workspace_id:string}}[]>;
+ if(Object.values(evidence).some(group=>group.some(q=>q.ref.workspace_id!==workspace)))return failure();
+ return value as Readonly<Record<string,unknown>>;
+}
+
 function reviewScope(v:unknown):boolean{
  if(!exact(v,['schema_version','process','customer','product','region'])||v.schema_version!==1)return false;
  return ['process','customer','product','region'].every(k=>{const d=v[k];return exact(d,['schema_version','mode','identities'])&&d.schema_version===1&&reviewEnum(d.mode,['unknown','all','exact'])&&Array.isArray(d.identities)&&d.identities.length<=64&&d.identities.every(canonicalUuid)&&new Set(d.identities).size===d.identities.length&&(d.mode==='exact')===(d.identities.length>0)&&canonicalJson(d.identities)===canonicalJson([...d.identities].sort());});

@@ -228,3 +228,24 @@ def test_qualified_sdk_embedding_context_preserves_core_and_refuses_legacy_or_mo
         paid_case_for(changed,q['manifest'])
     with pytest.raises(PermissionError,match='differs from exact SDK artifact'):
         type(context).model_validate(context.model_dump(mode='python')|{'qualified_artifact_id':uuid4()})
+
+
+@pytest.mark.parametrize('serving_fixture',(False,True))
+def test_two_source_fresh_fixture_lifetimes_and_actual_source_bindings(monkeypatch,serving_fixture):
+    from qualified_source_fixture_v1 import (qualified_two_source_fixture_v1,
+        qualified_two_source_serving_fixture_v1)
+    readings=('First independently retained invented source.',
+        'Second independently retained invented source.')
+    original_bytes=(b'first original bytes',b'second original bytes')
+    constructor=qualified_two_source_serving_fixture_v1 if serving_fixture else qualified_two_source_fixture_v1
+    q=constructor(monkeypatch,readings,original_bytes=original_bytes)
+    ctx=q['wire']['context']; observed=q['wire']['observed'].observed_at
+    assert tuple(r.reading for r in ctx.receipts)==readings
+    import hashlib
+    assert tuple(r.ref.original_sha256 for r in ctx.receipts)==tuple(hashlib.sha256(b).hexdigest() for b in original_bytes)
+    assert (ctx.expires_at-observed).total_seconds()==(120 if serving_fixture else 30)
+    assert (q['admission'].expires_at-observed).total_seconds()==(115 if serving_fixture else 25)
+    # The selected lease existed before the sealed capture and independent
+    # semantic admission; neither existing object was renewed after capture.
+    assert q['admission'].context_hash==sealed(ctx)
+    assert q['wire']['observer'].expires_at==ctx.expires_at
