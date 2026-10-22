@@ -110,7 +110,7 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','027_legacy_migration.sql')
+    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','021_meeting_participation.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','026_operational_recovery.sql','027_legacy_migration.sql')
 DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
