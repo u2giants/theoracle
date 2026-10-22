@@ -61,6 +61,15 @@ def _catalog(connection):
     if any(p.name=='023_maintained_research.sql' for p in canonical_synthetic_migrations()):
         signatures+=('oracle2._research_admission_v1(uuid,text,text,text,text,timestamptz)',
             'oracle2._research_context_v1(oracle2.research_admissions_v1)')
+    if any(p.name=='026_operational_recovery.sql' for p in canonical_synthetic_migrations()):
+        signatures+=('oracle2.recovery_current_v1(uuid,timestamptz)',
+            'oracle2.claim_recovery_phase_v1(uuid,text,timestamptz)',
+            'oracle2.observe_recovery_phase_v1(uuid,text,bytea,timestamptz)',
+            'oracle2.import_recovery_denials_v1(uuid,bytea,timestamptz)',
+            'oracle2._recovery_json_v1(bytea,integer)',
+            'oracle2._recovery_context_v1(uuid,timestamptz)',
+            'oracle2._recovery_census_v1(uuid,timestamptz)',
+            'oracle2._recovery_operational_denials_v1(uuid[],timestamptz)')
     for signature in signatures:
         row = connection.execute('''SELECT oid::text,pg_get_functiondef(oid),pg_get_userbyid(proowner),
             prosecdef,proconfig,proacl::text FROM pg_proc WHERE oid=to_regprocedure(%s)''', (signature,)).fetchone()

@@ -13,7 +13,7 @@ import stat
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel,ConfigDict,Field
+from pydantic import BaseModel,ConfigDict,Field,model_validator,field_validator
 from oracle_brain.operating_model.contracts import canonical_bytes,digest
 from .synthetic_fixture import fixture,fixed_scenario,FORWARD_SCENARIO
 
@@ -267,3 +267,99 @@ def validate_restore(backup,restored):
     require(restored.sdk_graph_name==release.graph_name and restored.sdk_record_digest==release.graph_record_digest and restored.sdk_artifact_digest==manifest.content_hash,'native SDK rebuilt closure differs')
     require(restored.sdk_rebuild_receipt_sha256!=restored.sdk_reload_receipt_sha256 and restored.sdk_was_empty_receipt_sha256!=restored.sdk_rebuild_receipt_sha256,'distinct empty/rebuild/reload evidence required')
     return {'schema':'oracle-forward-restore-receipt-check/v1','fresh_instance_metadata_consistent':True,'canonical_result_sha256':restored.result_sha256,'hosted_accepted':False,'business_accepted':False,'serving_accepted':False}
+
+
+# Current-replacement archive metadata is a separate descriptive format. It does
+# not widen the fixed forward-v2 Backup schema or authenticate recovery authority.
+class ReplacementArchiveInventoryV1(Record):
+    schema_version: Literal[1] = 1
+    protocol: Literal['oracle-replacement-private-archive-v1'] = 'oracle-replacement-private-archive-v1'
+    files: dict[str, Seal] = Field(min_length=1, max_length=4096)
+    total_bytes: int = Field(ge=1, le=MAX_TOTAL)
+
+    @field_validator('schema_version',mode='before')
+    @classmethod
+    def strict_version(cls,value):
+        require(type(value) is int,'exact integer archive schema required')
+        return value
+
+    @model_validator(mode='after')
+    def checked(self):
+        require(list(self.files)==sorted(self.files),'replacement archive inventory must be sorted')
+        require(sum(v.size for v in self.files.values())==self.total_bytes,'replacement archive total differs')
+        for name,seal in self.files.items():
+            require(type(seal) is Seal,'exact replacement member seal required')
+            Seal.model_validate(seal.model_dump(mode='python'))
+            path=PurePosixPath(name)
+            require(type(name) is str and len(name)<=1024 and 2<=len(path.parts)<=16
+                and path.parts[0] in ('databases','originals','models','native','vectors','control')
+                and not path.is_absolute() and '..' not in path.parts and str(path)==name
+                and all(re.fullmatch(r'[a-zA-Z0-9_.-]{1,200}',part) and part not in ('.','..') for part in path.parts),
+                'replacement archive path denied')
+            require(seal.runtime_mode==0o600,'replacement archive entries must stay private')
+        return self
+
+
+class ReplacementDumpTOCV1(Record):
+    schema_version: Literal[1] = 1
+    protocol: Literal['oracle-replacement-dump-toc-v1'] = 'oracle-replacement-dump-toc-v1'
+    archive_sha256: str = Field(pattern=HEX)
+    server_major: Literal[16] = 16
+    # Actual independently observed catalog population, not a grant or caller
+    # table selection. The future concrete admitted source getter supplies it.
+    tables: tuple[str, ...] = Field(min_length=1, max_length=4096)
+
+    @field_validator('schema_version',mode='before')
+    @classmethod
+    def strict_version(cls,value):
+        require(type(value) is int,'exact integer archive schema required')
+        return value
+
+    @model_validator(mode='after')
+    def checked(self):
+        require(tuple(sorted(set(self.tables)))==self.tables,'complete sorted unique dump tables required')
+        require(all(re.fullmatch(r'(oracle2|public)\.[a-z][a-z0-9_]{0,62}',name) for name in self.tables),'replacement table namespace denied')
+        return self
+
+
+def verify_replacement_dump_toc_v1(archive, listing, expected):
+    """Compare supplied actual dump/listing bytes; never invokes pg_restore.
+
+    Completeness/authentication of the source catalog still belongs to the
+    separately installed actual recovery SQL owner, not these descriptive DTOs.
+    """
+    require(type(expected) is ReplacementDumpTOCV1,'exact replacement TOC required')
+    ReplacementDumpTOCV1.model_validate(expected.model_dump(mode='python'))
+    require(type(archive) is bytes and 5<=len(archive)<=512*1024**2 and archive.startswith(b'PGDMP'),'bounded custom dump required')
+    require(hashlib.sha256(archive).hexdigest()==expected.archive_sha256,'actual dump hash differs')
+    require(type(listing) is bytes and 1<=len(listing)<=1024**2 and listing.endswith(b'\n') and b'\0' not in listing,'bounded complete actual TOC listing required')
+    text=listing.decode('utf8',errors='strict');tables=[];data=[]
+    for line in text.splitlines():
+        if not line or line.startswith(';'):continue
+        # pg_restore's TABLE and TABLE DATA rows are distinct. Never match an
+        # arbitrary substring/comment or silently ignore an unknown table row.
+        if re.search(r';\s+[0-9]+\s+[0-9]+\s+TABLE\b',line):
+            match=re.fullmatch(r'[0-9]+; [0-9]+ [0-9]+ (TABLE(?: DATA)?) (oracle2|public) ([a-z][a-z0-9_]{0,62}) [a-zA-Z_][a-zA-Z0-9_]{0,62}',line)
+            require(match is not None,'unknown actual table TOC shape denied')
+            (data if match[1]=='TABLE DATA' else tables).append(match[2]+'.'+match[3])
+    require(len(tables)==len(set(tables)) and tuple(sorted(tables))==expected.tables,'actual dump schema table population differs')
+    require(len(data)==len(set(data)) and tuple(sorted(data))==expected.tables,'actual dump data table population differs')
+    return {'table_count':len(tables),'archive_sha256':expected.archive_sha256,
+        'source_authenticated':False,'serving_authorized':False}
+
+
+def parse_replacement_archive_inventory_v1(raw,*,metadata_bound=1024**2):
+    """Legacy default unchanged; current custody supplies its explicit A bound.
+
+    A larger descriptive limit grants no resource, custody or effect authority.
+    """
+    from ..operating_model.protected_inputs_v1 import _parse
+    require(type(metadata_bound) is int and 1<=metadata_bound<=MAX_TOTAL,'exact bounded metadata ceiling required')
+    require(type(raw) is bytes and 1<=len(raw)<=metadata_bound,'bounded inventory bytes required')
+    return _parse(ReplacementArchiveInventoryV1,raw)
+
+
+def parse_replacement_dump_toc_v1(raw):
+    from ..operating_model.protected_inputs_v1 import _parse
+    require(type(raw) is bytes and 1<=len(raw)<=1024**2,'bounded TOC metadata bytes required')
+    return _parse(ReplacementDumpTOCV1,raw)
