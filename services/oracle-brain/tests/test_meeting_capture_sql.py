@@ -30,6 +30,7 @@ def admin(x):
 @pytest.fixture
 def meeting_sql(tmp_path,request):
     x=dict(admin=os.environ['ORACLE2_TEST_ADMIN_URL'],account='account_'+uuid4().hex,workspace=uuid4(),owner=uuid4(),root=uuid4(),meeting=uuid4(),runtime='a'*64,registry='b'*64,until=datetime.now(timezone.utc)+timedelta(minutes=3))
+    x['bot_id']=getattr(request,'param',{}).get('bot_id','bot1')
     with admin(x) as c:c.execute("INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,expires_at) VALUES(%s,%s,%s,'root',%s,%s)",(x['root'],x['workspace'],x['owner'],uuid4(),x['until']))
     x['verifier_secret']=getattr(request,'param',{}).get('verifier_secret')
     x['verifier_seal']=hashlib.sha256(x['verifier_secret'].encode()).hexdigest() if x['verifier_secret'] else 'c'*64
@@ -37,7 +38,7 @@ def meeting_sql(tmp_path,request):
     if getattr(request,'param',{}).get('participant_turn'):
         from oracle_brain.meetings.participant_epoch import LiveParticipantEpochV1,LiveParticipantLinkV1
         from oracle_brain.operating_model.contracts import digest
-        epoch=LiveParticipantEpochV1(purpose='meeting-live-participant-epoch-v1',epoch_id=uuid4(),epoch_revision=1,workspace_id=x['workspace'],meeting_id=x['meeting'],provider='recall',provider_account=x['account'],tenant_id='tenant1',provider_meeting_id='meeting1',bot_id='bot1',provider_participant_ids=('1',),participant_set_sha256=digest({'provider_participant_ids':['1']}),links=(LiveParticipantLinkV1(provider_participant_id='1',attribution='workspace_actor',actor_id=x['owner'],employee_uuid_metadata=uuid4(),mapping_evidence_sha256='8'*64),),issuer_actor=uuid4(),reviewer_actor=uuid4(),capture_until=x['capture_until'],valid_from=datetime.now(timezone.utc)-timedelta(seconds=1),expires_at=x['capture_until'],original_horizon=x['until'])
+        epoch=LiveParticipantEpochV1(purpose='meeting-live-participant-epoch-v1',epoch_id=uuid4(),epoch_revision=1,workspace_id=x['workspace'],meeting_id=x['meeting'],provider='recall',provider_account=x['account'],tenant_id='tenant1',provider_meeting_id='meeting1',bot_id=x['bot_id'],provider_participant_ids=('1',),participant_set_sha256=digest({'provider_participant_ids':['1']}),links=(LiveParticipantLinkV1(provider_participant_id='1',attribution='workspace_actor',actor_id=x['owner'],employee_uuid_metadata=uuid4(),mapping_evidence_sha256='8'*64),),issuer_actor=uuid4(),reviewer_actor=uuid4(),capture_until=x['capture_until'],valid_from=datetime.now(timezone.utc)-timedelta(seconds=1),expires_at=x['capture_until'],original_horizon=x['until'])
         x['epoch']=epoch
         with admin(x) as c:c.execute('INSERT INTO oracle2.meeting_participant_epochs_v1 VALUES(%s,%s,%s,%s,%s,%s)',(epoch.epoch_id,x['workspace'],x['meeting'],epoch.epoch_revision,epoch.sha256,Jsonb(epoch.model_dump(mode='json'))))
     common=tmp_path/'shared-private-root';common.mkdir(mode=0o700);info=common.stat()
@@ -53,7 +54,7 @@ def meeting_sql(tmp_path,request):
             c.execute('INSERT INTO oracle2.hosting_request_principal_admissions VALUES(%s,%s,%s,%s,%s,%s)',(role,actor,x['workspace'],x['runtime'],x['registry'],x['until']))
             c.execute("INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,'meeting-capture',%s,%s,%s)",(leaf,x['workspace'],actor,x['owner'],x['root'],x['until']))
             c.execute('''INSERT INTO oracle2.meeting_capture_admissions_v1(admission_id,admission_sha256,workspace_id,meeting_id,principal_id,role_name,leaf_appointment_id,provider,provider_account,tenant_id,provider_meeting_id,bot_id,verifier_secret_sha256,consent_packet_sha256,runtime_hash,registry_hash,actions,issuer_actor,reviewer_actor,participant_epoch_id,participant_epoch_sha256,stop_valid_from,stop_until,scheduler_poll_seconds,stop_request_seconds,safety_allowance_seconds,stop_margin_seconds,stop_mapping_sha256,capture_until,valid_from,original_horizon,expires_at)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,'recall',%s,'tenant1','meeting1','bot1',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(admission,seal,x['workspace'],x['meeting'],actor,role,leaf,x['account'],x['verifier_seal'],'d'*64,x['runtime'],x['registry'],actions,issuer,reviewer,x['epoch'].epoch_id if channel=='worker' and 'epoch'in x else None,x['epoch'].sha256 if channel=='worker' and 'epoch'in x else None,datetime.now(timezone.utc)-timedelta(minutes=1),x['until'],getattr(request,'param',{}).get('scheduler_poll_seconds',1),getattr(request,'param',{}).get('stop_request_seconds',3),1,getattr(request,'param',{}).get('stop_margin_seconds',5),'f'*64,x['capture_until'],datetime.now(timezone.utc)-timedelta(seconds=1),x['until'],x['until']))
+            VALUES(%s,%s,%s,%s,%s,%s,%s,'recall',%s,'tenant1','meeting1',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(admission,seal,x['workspace'],x['meeting'],actor,role,leaf,x['account'],x['bot_id'],x['verifier_seal'],'d'*64,x['runtime'],x['registry'],actions,issuer,reviewer,x['epoch'].epoch_id if channel=='worker' and 'epoch'in x else None,x['epoch'].sha256 if channel=='worker' and 'epoch'in x else None,datetime.now(timezone.utc)-timedelta(minutes=1),x['until'],getattr(request,'param',{}).get('scheduler_poll_seconds',1),getattr(request,'param',{}).get('stop_request_seconds',3),1,getattr(request,'param',{}).get('stop_margin_seconds',5),'f'*64,x['capture_until'],datetime.now(timezone.utc)-timedelta(seconds=1),x['until'],x['until']))
         url=psycopg.conninfo.make_conninfo(x['admin'],user=role,password='invented-meeting-only')
         child=x|dict(login=role,actor=actor,url=url,leaf=leaf,admission=admission,seal=seal,channel=channel,issuer=issuer,reviewer=reviewer)
         d=tmp_path/channel;d.mkdir(mode=0o700);host=configured_settings(d,child)
@@ -64,7 +65,7 @@ def meeting_sql(tmp_path,request):
         epoch_files={}
         if channel=='worker' and 'epoch'in x:
             epoch_path=d/'participant-epoch';epoch_raw=canonical_bytes(x['epoch'].model_dump(mode='json'));epoch_path.write_bytes(epoch_raw);epoch_path.chmod(0o600);epoch_files=dict(participant_epoch_file=str(epoch_path),participant_epoch_sha256=x['epoch'].sha256)
-        config=MeetingCaptureConfigV1(purpose='meeting-capture-consumer-v1',host_config_sha256=host.config_sha256,host_appointment_sha256=host.appointment_sha256,admission_id=admission,admission_sha256=seal,meeting_id=x['meeting'],consent_packet_sha256='d'*64,capture_until=x['capture_until'],provider='recall',provider_account=x['account'],tenant_id='tenant1',provider_meeting_id='meeting1',bot_id='bot1',verifier_secret_sha256=x['verifier_seal'],channel=channel,issuer_actor=issuer,reviewer_actor=reviewer,valid_from=datetime.now(timezone.utc)-timedelta(seconds=1),expires_at=host.config.expires_at,original_horizon=host.config.original_horizon,**epoch_files)
+        config=MeetingCaptureConfigV1(purpose='meeting-capture-consumer-v1',host_config_sha256=host.config_sha256,host_appointment_sha256=host.appointment_sha256,admission_id=admission,admission_sha256=seal,meeting_id=x['meeting'],consent_packet_sha256='d'*64,capture_until=x['capture_until'],provider='recall',provider_account=x['account'],tenant_id='tenant1',provider_meeting_id='meeting1',bot_id=x['bot_id'],verifier_secret_sha256=x['verifier_seal'],channel=channel,issuer_actor=issuer,reviewer_actor=reviewer,valid_from=datetime.now(timezone.utc)-timedelta(seconds=1),expires_at=host.config.expires_at,original_horizon=host.config.original_horizon,**epoch_files)
         path=d/'meeting-config';raw=canonical_bytes(config.model_dump(mode='json'));path.write_bytes(raw);path.chmod(0o600)
         settings=load_meeting_capture_settings_v1(host,path,hashlib.sha256(raw).hexdigest());child.update(settings=settings,factory=MeetingCaptureFactoryV1(settings));x[channel]=child
     yield x
@@ -144,14 +145,14 @@ def test_actual_immutable_capture_end_refuses_new_ingress_but_predeclared_proces
             c.execute('SELECT oracle2.meeting_capture_read_v1(%s,%s,%s,%s)',(selected,seal,'ingress',deadline()))
 
 from test_hosting_boundary import certificates,WORKER
-@pytest.mark.parametrize('meeting_sql',[{'capture_seconds':25,'verifier_secret':'whsec_'+__import__('base64').b64encode(bytes([7])*32).decode()}],indirect=True)
+@pytest.mark.parametrize('meeting_sql',[{'capture_seconds':25,'bot_id':'00000000-0000-4000-8000-000000000031','verifier_secret':'whsec_'+__import__('base64').b64encode(bytes([7])*32).decode()}],indirect=True)
 def test_actual_python_mtls_sql_and_shared_web_route_ingress_conformance(meeting_sql,tmp_path,certificates):
     """Actual SQL/TLS/production web source; auth imports explicitly invented."""
     import subprocess,threading,shutil
     from cryptography import x509
     from cryptography.hazmat.primitives.serialization import Encoding
     from oracle_brain.hosting.meeting_capture_service_v1 import (MeetingControlPeerProfileV1,MeetingIngressPeerProfileV1,protected_meeting_control_server_v1,protected_meeting_ingress_server_v1)
-    x=meeting_sql;servers=[];threads=[];meta=dict(scratch=str(tmp_path),meeting_id=str(x['meeting']),provider_account=x['account'],operation_id=str(uuid4()))
+    x=meeting_sql;servers=[];threads=[];meta=dict(scratch=str(tmp_path),meeting_id=str(x['meeting']),bot_id=x['bot_id'],provider_account=x['account'],operation_id=str(uuid4()))
     secret=tmp_path/'verifier.secret';secret.write_text(x['verifier_secret']);secret.chmod(0o600);meta['verifier_secret_file']=str(secret)
     try:
         for name,channel,client,profile_type,constructor in [('control','employee-control','worker',MeetingControlPeerProfileV1,protected_meeting_control_server_v1),('ingress','provider-ingress','other',MeetingIngressPeerProfileV1,protected_meeting_ingress_server_v1)]:
@@ -171,6 +172,7 @@ def test_actual_python_mtls_sql_and_shared_web_route_ingress_conformance(meeting
         result=subprocess.run(['pnpm','--filter','@oracle/web','exec','node','--dns-result-order=ipv4first','--import','tsx','tests/oracle2/meeting-peer-proof.ts',str(path)],cwd=repo,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=20)
         (tmp_path/'meeting-peer-process.txt').write_text(result.stdout);assert result.returncode==0,result.stdout[-5000:]
         proof=json.loads((tmp_path/'meeting-conformance.json').read_text());assert proof['retained']==dict(status=202,opaque_acknowledgement=True)
+        assert proof['rejected_noncanonical_bot']==503
         head=x['worker']['factory'].head_v1(caller_deadline=deadline(),processing=True);assert len(head.pending_ingress)==1;event=head.pending_ingress[0]
         raw,receipt=x['worker']['factory'].reopen_raw_v1(event,caller_deadline=deadline());assert hashlib.sha256(raw).hexdigest()==proof['raw_sha256']
         with admin(x) as conn:

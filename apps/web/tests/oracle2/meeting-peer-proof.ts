@@ -4,10 +4,12 @@ import {registerHooks} from 'node:module';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {X509Certificate,createHmac} from 'node:crypto';
 import {join} from 'node:path';
-import {canonicalJson,sha256} from '../../lib/replacement-server-binding';
+import {canonicalJson,sha256,canonicalUuid} from '../../lib/replacement-server-binding';
 import {captureControlWindow,CONTROL_WINDOW_HEADER,canonicalInstantV1} from '../../lib/replacement-control-window';
 const input=process.argv[2];if(!input)throw new Error('Owned fixture metadata required');
 const meta=JSON.parse(readFileSync(input,'utf8'));
+// The real web bridge requires provider UUIDs; legacy direct-only fixtures may use bot1.
+assert.equal(canonicalUuid(meta.bot_id),true,'canonical independently installed fixture bot required');
 (globalThis as unknown as Record<string,unknown>).__meetingPeerMeta=meta;
 const hooks=registerHooks({
  resolve(specifier,context,next){
@@ -30,9 +32,13 @@ try{
  const wire=canonicalJson({schema_version:1,operation:'invite',meeting_id:meta.meeting_id,expected_head:0,operation_id:meta.operation_id,payload:{explicit_invitation:true,consent_observed:true},caller_deadline:deadline});
  const response=await control.POST(new Request('https://invented-web.example.test/api/consultant/replacement/v1/protected/meetings/control',{method:'POST',headers:{origin:'https://invented-web.example.test','content-type':'application/json',[CONTROL_WINDOW_HEADER]:canonicalJson(captureControlWindow())},body:wire}));
  assert.equal(response.status,200);const invited=await response.json();assert.equal(invited.state,'invited');assert.equal(invited.qualification,false);
- const raw=Buffer.from(JSON.stringify({event:'transcript.data',data:{bot:{id:'bot1'},data:{words:[{text:'原话',start_timestamp:{relative:0},end_timestamp:null}],participant:{id:7,name:'Untrusted label'},language_code:'zh'}}}));
- const id='actual-python-peer-message',stamp=String(Math.floor(Date.now()/1000)),secret=readFileSync(meta.verifier_secret_file,'utf8'),signature=createHmac('sha256',Buffer.from(secret.slice(6),'base64')).update(id+'.'+stamp+'.').update(raw).digest('base64');
- const ingress=await requestReplacementMeetingIngress(new Request('https://invented-web.example.test/api/teams/live/recall',{method:'POST',headers:{'content-type':'application/json','webhook-id':id,'webhook-timestamp':stamp,'webhook-signature':'v1,'+signature,[CONTROL_WINDOW_HEADER]:canonicalJson(captureControlWindow())},body:raw}));
+ const rawFor=(botId:string)=>Buffer.from(JSON.stringify({event:'transcript.data',data:{bot:{id:botId},data:{words:[{text:'原话',start_timestamp:{relative:0},end_timestamp:null}],participant:{id:7,name:'Untrusted label'},language_code:'zh'}}}));
+ const secret=readFileSync(meta.verifier_secret_file,'utf8');
+ const signed=(raw:ReturnType<typeof rawFor>,id:string)=>{const stamp=String(Math.floor(Date.now()/1000)),signature=createHmac('sha256',Buffer.from(secret.slice(6),'base64')).update(id+'.'+stamp+'.').update(raw).digest('base64');return new Request('https://invented-web.example.test/api/teams/live/recall',{method:'POST',headers:{'content-type':'application/json','webhook-id':id,'webhook-timestamp':stamp,'webhook-signature':'v1,'+signature,[CONTROL_WINDOW_HEADER]:canonicalJson(captureControlWindow())},body:raw});};
+ // A correctly signed malformed identity remains refused; it must not create custody.
+ const rejected=await requestReplacementMeetingIngress(signed(rawFor('bot1'),'actual-python-peer-noncanonical'));assert.equal(rejected.status,503);
+ const raw=rawFor(meta.bot_id);
+ const ingress=await requestReplacementMeetingIngress(signed(raw,'actual-python-peer-message'));
  assert.equal(ingress.status,202);assert.equal(await ingress.text(),'');const retained={status:202,opaque_acknowledgement:true};
- writeFileSync(join(meta.scratch,'meeting-conformance.json'),JSON.stringify({invited,retained,raw_sha256:sha256(raw),auth_proof:'invented module hooks; no actual employee session'}));
+ writeFileSync(join(meta.scratch,'meeting-conformance.json'),JSON.stringify({invited,retained,rejected_noncanonical_bot:rejected.status,raw_sha256:sha256(raw),auth_proof:'invented module hooks; no actual employee session'}));
 }finally{hooks.deregister();}
