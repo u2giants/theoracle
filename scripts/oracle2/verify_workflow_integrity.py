@@ -102,12 +102,15 @@ MEETING_CAPTURE_EVENT_SUITES=('meeting_stop_semantics_sql','meeting_capture_sql'
     'meeting_queue_tls_sql','meeting_normalization_tls_sql','meeting_scheduler_process_sql',
     'meeting_worker_tls_sql','meeting_stop_readiness_sql','original_intake_protected_connection_sql')
 DOCUMENTARY += MEETING_CAPTURE_CORE_SUITES+MEETING_CAPTURE_CUSTODY_SUITES
+MIGRATION_CURRENT_CAPTURE_SUITES=('legacy_snapshot_v1','legacy_export_contract_v1',
+    'legacy_storage_capture_v1','legacy_s3_signing_v1','legacy_migration_factory_v1','legacy_migration_sql','legacy_migration_citation_sql')
+DOCUMENTARY += MIGRATION_CURRENT_CAPTURE_SUITES
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql')
+    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','027_legacy_migration.sql')
 DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
@@ -215,6 +218,23 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,MEETING_CAPTURE_CORE_SUITES,
     'workflow_authorization')
 DOCUMENTARY=_place_suites(DOCUMENTARY,MEETING_CAPTURE_CUSTODY_SUITES,
     'replacement_documentary_journey')
+# PR191's first full run reached the unchanged120s limit in documentary04.
+# Keep ALL same cases and ten workers: pure capture checks use documentary01,
+# whole legacy SQL uses documentary03, and citations retain documentary09.
+# Actual full CI decides fit; prior timing estimates are not acceptance.
+DOCUMENTARY=_place_suites(DOCUMENTARY,
+    tuple(name for name in MIGRATION_CURRENT_CAPTURE_SUITES if name not in ('legacy_migration_sql','legacy_migration_citation_sql')),
+    'workflow_authorization')
+DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_sql',),
+    'replacement_documentary_journey',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_citation_sql',),
+    'paid_sdk_embeddings_v3',after=True)
+
+# PR191 run39756405939 exhausted documentary09 at794/795 completed cases.
+# Move the SAME14-case native module to measured documentary03: retain all
+# population, original shared120s ceiling and exactly ten workers.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
+    'replacement_documentary_journey',after=True)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
