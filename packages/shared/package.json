@@ -9,7 +9,17 @@
     ".": "./src/index.ts",
     "./domains": "./src/domains.ts",
     "./business-model-shapes": "./src/business-model-shapes.ts",
-    "./protected-node-https": "./src/protected-node-https.ts"
+    "./protected-node-https": "./src/protected-node-https.ts",
+    "./protected-canonical-json": "./src/protected-canonical-json.ts",
+    "./recall-webhook-verifier": "./src/recall-webhook-verifier.ts",
+    "./protected-server-binding": "./src/protected-server-binding.ts",
+    "./protected-control-window": "./src/protected-control-window.ts",
+    "./protected-conversation-contract": "./src/protected-conversation-contract.ts",
+    "./protected-upload-contract": "./src/protected-upload-contract.ts",
+    "./protected-client-contracts": "./src/protected-client-contracts.ts",
+    "./protected-service-channel": "./src/protected-service-channel.ts",
+    "./protected-meeting-worker": "./src/protected-meeting-worker.ts",
+    "./protected-worker-contract": "./src/protected-worker-contract.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

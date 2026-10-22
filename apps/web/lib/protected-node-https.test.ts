@@ -8,7 +8,7 @@ import {execFileSync} from 'node:child_process';
 import * as tls from 'node:tls';
 import {createRequire,syncBuiltinESMExports} from 'node:module';
 import {X509Certificate,createHash} from 'node:crypto';
-import {inventedLoopbackRecallHTTPSV1,installedRecallHTTPSV1,publicRecallAddressV1,type OriginalWireWindowV1} from '@oracle/shared/protected-node-https';
+import {RecallWireUncertaintyV1,inventedLoopbackRecallHTTPSV1,installedRecallHTTPSV1,publicRecallAddressV1,type OriginalWireWindowV1} from '@oracle/shared/protected-node-https';
 const sha=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 let directory:string,server:tls.Server,port:number,client:ReturnType<typeof inventedLoopbackRecallHTTPSV1>,mode='valid',requests=0,guardCalls=0;const sockets=new Set<tls.TLSSocket>(),seen:Array<{header:string,body:Buffer}>=[];
 const f=(name:string)=>join(directory,name),read=(name:string)=>readFileSync(f(name));
@@ -25,6 +25,8 @@ before(async()=>{
    const status=mode==='redirect'?302:header.startsWith('POST /api/v1/bot/ HTTP')?201:200;
    const reply=Buffer.concat([Buffer.from('HTTP/1.1 '+status+' '+(status===201?'Created':'OK')+'\r\nContent-Type: application/json\r\n'+(mode==='duplicate'?'Content-Type: application/json\r\n':'')+(mode==='chunked'?'Transfer-Encoding: chunked\r\n':'')+'Content-Length: '+body.length+'\r\nConnection: close\r\n\r\n'),body]);
    if(mode==='partial'){socket.write(reply.subarray(0,reply.length-3));socket.destroy();}
+   else if(mode==='retained-partial')socket.end(reply.subarray(0,reply.length-3));
+   else if(mode==='wire-overflow')socket.end(Buffer.concat([Buffer.from('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1048576\r\nConnection: close\r\n\r\n'),Buffer.alloc(1064961,120)]));
    else if(mode==='extra')socket.end(Buffer.concat([reply,Buffer.from('extra')]));
    else if(mode==='delayed-extra'){socket.write(reply);setTimeout(()=>socket.end('extra'),30);}
    else if(mode==='double'){socket.write(reply);setTimeout(()=>socket.end(reply),30);}
@@ -40,7 +42,7 @@ after(async()=>{for(const socket of sockets)socket.destroy();await new Promise<v
 const window=(ms=3000):OriginalWireWindowV1=>({wallDeadline:Date.now()+ms,monotonicDeadline:process.hrtime.bigint()+BigInt(ms)*1000000n,signal:new AbortController().signal,current:()=>{guardCalls++;}});
 const create=()=>client.exchange({kind:'create',body:Buffer.from('{"meeting_url":"https://teams.example.test/invented"}')},window(),async()=>{});
 test('production destination policy denies private mapped transition reserved and mixed answer candidates',()=>{
- for(const address of ['127.0.0.1','0.0.0.0','10.0.0.1','100.64.0.1','169.254.169.254','172.16.0.1','192.168.0.1','192.0.2.1','198.18.0.1','198.51.100.1','203.0.113.1','224.0.0.1','::1','fc00::1','fe80::1','::ffff:7f00:1','::ffff:127.0.0.1','64:ff9b::7f00:1','2002:7f00:1::1','2001:0000::1','2001:db8::1','2001:4860:0:0:0:5efe:7f00:1','3fff::1','bad'])assert.equal(publicRecallAddressV1(address),false,address);
+ for(const address of JSON.parse(readFileSync(new URL('../../../tests/fixtures/recall-denied-addresses.json',import.meta.url),'utf8')) as string[])assert.equal(publicRecallAddressV1(address),false,address);
  for(const address of ['8.8.8.8','1.1.1.1','2001:4860:4860::8888','2606:4700:4700::1111'])assert.equal(publicRecallAddressV1(address),true,address);
  assert.throws(()=>installedRecallHTTPSV1({hostname:'localhost.localdomain',ca:read('ca.crt'),serverDerSha256:'a'.repeat(64),authorization:'invented-key'}));
  assert.throws(()=>inventedLoopbackRecallHTTPSV1({hostname:'localhost.localdomain',ca:read('ca.crt'),serverDerSha256:'a'.repeat(64),authorization:'not-an-invented-fixture-key'},port));
@@ -85,4 +87,14 @@ test('already expired aborted nonfinite or oversized request has zero outbound e
  const count=requests;const aborted=new AbortController();aborted.abort();
  for(const fence of [{...window(),wallDeadline:NaN},{...window(),monotonicDeadline:0n},{...window(),signal:aborted.signal}])await assert.rejects(client.exchange({kind:'create',body:Buffer.from('{}')},fence,async()=>{}));
  await assert.rejects(client.exchange({kind:'create',body:Buffer.alloc(65537)},window(),async()=>{}));assert.equal(requests,count);
+});
+
+for(const state of ['retained-partial','delayed-extra','double','no-eof','wire-overflow'])test('uncertain '+state+' retains bounded observed response bytes without authority or request secrets',async()=>{
+ mode=state;const count=requests;let error:unknown;
+ try{await client.exchange({kind:'create',body:Buffer.from('{}')},window(120),async()=>{});}catch(value){error=value;}
+ assert.ok(error instanceof RecallWireUncertaintyV1);assert.equal(requests,count+1);
+ const raw=error.wire;assert.ok(raw.length>0&&raw.length<=1064960);assert.ok(error.observedBytes>=raw.length);assert.equal(error.wireTruncated,error.observedBytes>raw.length);
+ if(state==='wire-overflow'){assert.ok(raw.length>1048576);}else{assert.match(raw.toString('ascii'),/^HTTP\/1\.1/);assert.equal(error.wireTruncated,false);}
+ assert.doesNotMatch(raw.toString('ascii'),/Authorization:|invented-fixed-account-key|meeting_url/i);
+ raw.fill(0);assert.notDeepEqual(error.wire,raw);for(const socket of sockets)socket.destroy();mode='valid';
 });
