@@ -248,6 +248,20 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
 DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
     'purpose_worker_startup',after=True)
 
+# Measured PR191 run39758616744 whole-module packing for the unchanged
+# question SQL39s/native64s population. No test body, worker or deadline changes.
+# Estimates: doc01~114,04~109,06~116,08~111,09~112; whole CI decides fit.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('consolidation_sql_v1',),
+    'purpose_worker_startup',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
+    'workflow_authorization')
+DOCUMENTARY=_place_suites(DOCUMENTARY,('protected_raw_original_factory_v1',),
+    'purpose_context_v2',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
+    'paid_sdk_embeddings_v3',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
+    'original_corpus_import',after=True)
+
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
     'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
