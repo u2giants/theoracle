@@ -118,8 +118,13 @@ Host: Windows, Python 3.13.15 system / 3.12.14 venv, Node v24.19.0, pnpm 9.5.0.
   misrepresent it).
 - Full 150-case pure suite (same reason; recommendation pure subset measured above).
 - Clean HEAD Next build (`pnpm build:vercel` / licensing source-offer guard) —
-  attempted after commit on a subsequent step if host allows; not claimed until
-  observed.
+  **attempted; blocked by a Windows host limit in the guard**. `verify:vercel-guards`
+  passed (Topical lull-gap fixture, MCP registry checks). `build_source_offer.mjs`
+  then failed at `absolute.startsWith(root+'/')` because `path.resolve` on Windows
+  yields backslashes (`C:\tmp\…`) while the guard compares against `root+'/'`.
+  Verbatim error: `Error: Source archive path is not a regular project file`
+  at `scripts/licensing/build_source_offer.mjs:42`. Guard was **not** bypassed or
+  modified. ac539's Linux clean HEAD build remains the last observed pass.
 - Actual 45 SQL+Next / current multiemployee proof — **not executed** (root owns).
 - Full integrated W10 — **not executed** (root owns).
 
