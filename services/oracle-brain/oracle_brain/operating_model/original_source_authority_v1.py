@@ -59,6 +59,11 @@ class OriginalSourceResolverV1:
         'oracle2.original_population_current_v1(uuid)':frozenset({'oracle2_source_original_reader','oracle2_source_original_reviewer'}),
         'oracle2.original_revision_read_v1(uuid,integer)':frozenset({'oracle2_source_original_reader'}),
         'oracle2.original_revision_review_input_v1(uuid,integer)':frozenset({'oracle2_source_original_reviewer'}),
+        'oracle2.commit_original_reading_response_v1(bytea)':frozenset({'oracle2_source_original_reader'}),
+        'oracle2.commit_original_review_response_v1(bytea)':frozenset({'oracle2_source_original_reviewer'}),
+        'oracle2.finalize_original_reading_qualification_v1(text,text,text)':frozenset({'oracle2_source_original_reviewer'}),
+        'oracle2._commit_original_response(bytea,boolean)':frozenset(),
+        'oracle2._original_model_identity_v1(text,text,name,text,uuid,text)':frozenset(),
         'oracle2._original_revision_access(uuid,integer,text)':frozenset(),
         'oracle2._original_revision_member_access(uuid,integer,text)':frozenset(),
         'oracle2._replacement_scope(uuid,uuid,text)':frozenset(),
@@ -133,3 +138,158 @@ class OriginalSourceResolverV1:
         deadline=min(before.valid_until,after.valid_until,datetime.fromisoformat(value['valid_until']))
         if datetime.now(timezone.utc)>=deadline:raise PermissionError('private original capability expired')
         return value|{'valid_until':deadline.isoformat()}
+
+
+    def _write_original(self, operation):
+        """Own transaction only. Return solely after the real connection commits."""
+        import psycopg
+        attempted=False
+        try:
+            with self._connection() as c:
+                self.original_population_current_v1(self.binding.population.population_id,connection=c)
+                self._check(c)
+                attempted=True
+                value=operation(c)
+                self.original_population_current_v1(self.binding.population.population_id,connection=c)
+                self._check(c)
+            # The write is committed, but its seal is not serving authority.
+            # Independently re-read the actual own-phase population AFTER real
+            # commit/close; never retry a write or borrow a requester getter.
+            snapshot=self.original_population_current_v1(self.binding.population.population_id)
+            b=self.binding
+            if datetime.now(timezone.utc)>=min(value.valid_until,snapshot.valid_until,
+                    b.expires_at,b.original_horizon):
+                raise PermissionError('original SQL seal or current authority expired after transaction close')
+            return value
+        except (psycopg.OperationalError,psycopg.InterfaceError) as exc:
+            if attempted and (exc.sqlstate is None or exc.sqlstate.startswith('08')):
+                raise OriginalWriteOutcomeUnknownV1('original SQL write outcome UNKNOWN; no automatic retry') from exc
+            raise
+
+    def _commit_response_v1(self, raw, phase):
+        from .original_qualification_v1 import parse_original_response_commit_v1
+        import hashlib
+        if type(raw) is not bytes or not 0<len(raw)<=65536:
+            raise ValueError('bounded exact canonical commitment bytes required')
+        commit=parse_original_response_commit_v1(raw,phase=phase)
+        import json
+        if canonical_bytes(json.loads(raw))!=raw:
+            raise ValueError('canonical fixed commitment bytes required')
+        b=self.binding
+        if b.purpose!='source-original-'+phase:
+            raise PermissionError('own exact original phase required')
+        p=b.population
+        if (commit.raw_ref not in p.raw_refs or commit.population_id!=p.population_id
+                or commit.operation_registry_hash!=p.operation_registry_hash
+                or commit.original_root_hash!=p.original_root_hash
+                or commit.allocation_hash!=b.original_allocation_hash
+                or commit.population_hash!=p.population_digest
+                or commit.source_registry_hash!=p.source_registry_hash
+                or commit.original_horizon!=b.original_horizon):
+            raise PermissionError('complete current original commitment pins differ')
+        def write(c):
+            from psycopg import sql
+            name='commit_original_'+phase+'_response_v1'
+            row=c.execute(sql.SQL('SELECT oracle2.{}(%s)').format(sql.Identifier(name)),(raw,)).fetchone()
+            if not row:raise PermissionError('actual original phase seal unavailable')
+            seal=OriginalPhaseSealV1.model_validate_json(canonical_bytes(row[0]))
+            if (seal.commit_sha256!=hashlib.sha256(raw).hexdigest() or seal.principal_id!=b.principal
+                    or seal.session_role!=b.expected_session_role or seal.runtime_hash!=p.runtime_hash
+                    or seal.population_id!=p.population_id or seal.operation_registry_hash!=p.operation_registry_hash
+                    or seal.valid_until>b.expires_at or datetime.now(timezone.utc)>=seal.valid_until):
+                raise PermissionError('actual original phase seal differs')
+            return seal
+        return self._write_original(write)
+
+    def commit_original_reading_response_v1(self, raw):
+        return self._commit_response_v1(raw,'reading')
+
+    def commit_original_review_response_v1(self, raw):
+        return self._commit_response_v1(raw,'review')
+
+    def finalize_original_reading_qualification_v1(self, reading_seal, review_seal, reading_text):
+        """SQL014 is the sole custody owner; no shared/borrowed transaction."""
+        import hashlib
+        b=self.binding
+        if (b.purpose!='source-original-review' or type(reading_seal) is not OriginalPhaseSealV1
+                or type(review_seal) is not OriginalPhaseSealV1
+                or type(reading_text) is not str or not reading_text.strip()
+                or len(reading_text.encode('utf-8'))>25*1024*1024):
+            raise PermissionError('own reviewer and exact completed reading/seals required')
+        if (review_seal.principal_id!=b.principal or review_seal.session_role!=b.expected_session_role
+                or review_seal.population_id!=b.population.population_id
+                or review_seal.runtime_hash!=b.population.runtime_hash
+                or review_seal.operation_registry_hash!=b.population.operation_registry_hash
+                or reading_seal.principal_id==review_seal.principal_id
+                or reading_seal.session_role==review_seal.session_role):
+            raise PermissionError('actual own independent review seal required')
+        def write(c):
+            row=c.execute('SELECT oracle2.finalize_original_reading_qualification_v1(%s,%s,%s)',
+                (reading_seal.commit_sha256,review_seal.commit_sha256,reading_text)).fetchone()
+            if not row:raise PermissionError('actual original qualification unavailable')
+            seal=OriginalQualificationSealV1.model_validate_json(canonical_bytes(row[0]))
+            matches=[ref for ref in b.population.raw_refs if
+                (ref.workspace_id,ref.source_id,ref.revision,ref.original_sha256)==
+                (seal.workspace_id,seal.source_id,seal.revision,seal.original_sha256)]
+            if (len(matches)!=1 or seal.reading_sha256!=hashlib.sha256(reading_text.encode()).hexdigest()
+                    or seal.reader_principal_id!=reading_seal.principal_id
+                    or seal.reviewer_principal_id!=review_seal.principal_id
+                    or seal.reader_commit!=reading_seal.commit_sha256
+                    or seal.reviewer_commit!=review_seal.commit_sha256
+                    or seal.valid_until>b.expires_at or datetime.now(timezone.utc)>=seal.valid_until):
+                raise PermissionError('actual committed original qualification differs')
+            return seal
+        return self._write_original(write)
+
+
+class OriginalWriteOutcomeUnknownV1(RuntimeError):
+    """A write may have committed; do not retry or borrow a requester getter."""
+
+
+class OriginalPhaseSealV1(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True,frozen=True)
+    commit_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    principal_id:UUID
+    session_role:str=Field(pattern=r'^[a-z_][a-z0-9_]{0,62}$')
+    runtime_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    population_id:UUID
+    operation_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    checked_at:AwareDatetime
+    valid_until:AwareDatetime
+
+    @model_validator(mode='after')
+    def finite_window(self):
+        if not self.checked_at<self.valid_until:
+            raise ValueError('finite actual phase seal required')
+        return self
+
+
+class OriginalQualificationSealV1(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True,frozen=True,populate_by_name=False)
+    schema_version:int=Field(ge=1,le=1)
+    workspace_id:UUID=Field(alias='workspaceId')
+    source_id:UUID=Field(alias='sourceId')
+    revision:int=Field(ge=1)
+    original_sha256:str=Field(alias='originalSha256',pattern=r'^[0-9a-f]{64}$')
+    reading_sha256:str=Field(alias='readingSha256',pattern=r'^[0-9a-f]{64}$')
+    parser_id:str=Field(alias='parserId',min_length=1,max_length=255)
+    reader_principal_id:UUID=Field(alias='readerPrincipalId')
+    reviewer_principal_id:UUID=Field(alias='reviewerPrincipalId')
+    reader_commit:str=Field(alias='readerCommit',pattern=r'^[0-9a-f]{64}$')
+    reviewer_commit:str=Field(alias='reviewerCommit',pattern=r'^[0-9a-f]{64}$')
+    qualified:bool
+    checked_at:AwareDatetime
+    valid_until:AwareDatetime
+
+    @model_validator(mode='after')
+    def actual_distinct_review(self):
+        if (self.qualified is not True or self.reader_principal_id==self.reviewer_principal_id
+                or not self.checked_at<self.valid_until):
+            raise ValueError('actual independent finite qualification required')
+        return self
+
+    @property
+    def source_ref(self):
+        from .source_receipts import SourceRef
+        return SourceRef(workspace_id=self.workspace_id,source_id=self.source_id,revision=self.revision,
+            original_sha256=self.original_sha256,reading_sha256=self.reading_sha256,parser_id=self.parser_id)

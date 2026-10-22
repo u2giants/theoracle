@@ -43,10 +43,16 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
   await expect(page.getByText('Unverified review material; it is not a fact.',{exact:true})).toBeVisible();
   await expect(page.getByText('Unverified legacy licensor concern',{exact:true})).toBeVisible();
   await expect(page.getByRole('link',{name:'Download corresponding source (AGPL)'})).toHaveAttribute('href','/api/consultant/source');
-  const download=await browserRequest(page,`${url}/api/consultant/source`);expect(download.ok()).toBeTruthy();
-  const archive=await download.body();const manifest=JSON.parse(readFileSync('.source-offer/manifest.json','utf8'));
+  const archive=readFileSync('.source-offer/oracle-source.tar.gz');
+  const manifest=JSON.parse(readFileSync('.source-offer/manifest.json','utf8'));
   expect(createHash('sha256').update(archive).digest('hex')).toBe(manifest.archive_sha256);
-  expect(download.headers()['x-oracle-source-revision']).toBe(manifest.revision);expect(archive.subarray(0,2).toString('hex')).toBe('1f8b');
+  expect(archive.subarray(0,2).toString('hex')).toBe('1f8b');
+  // The real corresponding source may grow beyond the unchanged whole-response
+  // bound. Its authenticated bounded UI download remains mandatory at any size.
+  const download=await browserRequest(page,`${url}/api/consultant/source`);
+  expect(download.status()).toBe(archive.length>4*1024*1024?413:200);
+  expect(download.headers()['x-oracle-source-revision']).toBe(manifest.revision);
+  if(archive.length<=4*1024*1024)expect(createHash('sha256').update(await download.body()).digest('hex')).toBe(manifest.archive_sha256);
   const metadata=await browserRequest(page,`${url}/api/consultant/source?metadata=1`);expect(metadata.ok()).toBeTruthy();
   const descriptor=await metadata.json();expect(descriptor.bytes).toBe(archive.length);expect(descriptor.sha256).toBe(manifest.archive_sha256);
   expect((await browserRequest(page,`${url}/api/consultant/source`,{headers:{Range:'bytes=0-10','If-Match':'"'+'0'.repeat(64)+'"'}})).status()).toBe(412);
@@ -59,6 +65,15 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
   const oversized=gzipSync(randomBytes(5*1024*1024));
   const oversizedHash=createHash('sha256').update(oversized).digest('hex');
   try{
+    // Both route branches are exercised even when the actual source is large.
+    const small=gzipSync(Buffer.from('Invented bounded transfer fixture only.'));
+    const smallHash=createHash('sha256').update(small).digest('hex');
+    writeFileSync('.source-offer/oracle-source.tar.gz',small);
+    writeFileSync('.source-offer/manifest.json',JSON.stringify({...manifest,archive_sha256:smallHash}));
+    const bounded=await browserRequest(page,`${url}/api/consultant/source`);
+    expect(bounded.status()).toBe(200);
+    expect(createHash('sha256').update(await bounded.body()).digest('hex')).toBe(smallHash);
+    expect(bounded.headers()['x-oracle-source-revision']).toBe(manifest.revision);
     writeFileSync('.source-offer/oracle-source.tar.gz',oversized);
     writeFileSync('.source-offer/manifest.json',JSON.stringify({...manifest,archive_sha256:oversizedHash}));
     expect((await browserRequest(page,`${url}/api/consultant/source`)).status()).toBe(413);

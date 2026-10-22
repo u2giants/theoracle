@@ -2,6 +2,7 @@
 
 // Pilot workspace: upload → draft → correct → confirm → ask → cited answer.
 import { useCallback, useEffect, useState } from 'react';
+import { useSessionValue } from '@/lib/use-session-value';
 
 interface Block {
   blockId: string;
@@ -47,15 +48,21 @@ function jsonHeaders(): Record<string, string> {
 
 export function PilotWorkspace() {
   const [text, setText] = useState('');
-  const [sourceId, setSourceId] = useState<string | null>(null);
-  const [draftId, setDraftId] = useState<string | null>(null);
+  const savedSourceId = useSessionValue('oracle2-source-id');
+  const savedDraftId = useSessionValue('oracle2-draft-id');
+  const savedRunId = useSessionValue('oracle2-run-id');
+  const [chosenSourceId, setSourceId] = useState<string | null | undefined>(undefined);
+  const sourceId = chosenSourceId === undefined ? savedSourceId : chosenSourceId;
+  const [chosenDraftId, setDraftId] = useState<string | null | undefined>(undefined);
+  const draftId = chosenDraftId === undefined ? savedDraftId : chosenDraftId;
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [connections, setConnections] = useState<Array<{ from: number; to: number }>>([]);
   const [status, setStatus] = useState<string>('');
   const [confirmed, setConfirmed] = useState(false);
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
+  const [chosenRunId, setRunId] = useState<string | null | undefined>(undefined);
+  const runId = chosenRunId === undefined ? savedRunId : chosenRunId;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pilotTokenInput, setPilotTokenInput] = useState('');
@@ -63,14 +70,9 @@ export function PilotWorkspace() {
 
   // Persist run/source so the answer survives a page refresh.
   useEffect(() => {
-    const storedRunId = sessionStorage.getItem('oracle2-run-id');
-    const storedSourceId = sessionStorage.getItem('oracle2-source-id');
-    const storedDraftId = sessionStorage.getItem('oracle2-draft-id');
-    if (storedSourceId) setSourceId(storedSourceId);
-    if (storedDraftId) setDraftId(storedDraftId);
-    if (storedRunId) {
-      setRunId(storedRunId);
-      fetch(`/api/consultant/runs/${storedRunId}`)
+    if (runId) {
+      const controller = new AbortController();
+      fetch(`/api/consultant/runs/${encodeURIComponent(runId)}`, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal })
         .then((r) => r.json())
         .then((data) => {
           if (data.status === 'pending' || data.status === 'processing') setStatus('processing');
@@ -82,8 +84,9 @@ export function PilotWorkspace() {
           }
         })
         .catch(() => {});
+      return () => controller.abort();
     }
-  }, []);
+  }, [runId]);
 
   useEffect(() => {
     if (runId) sessionStorage.setItem('oracle2-run-id', runId);

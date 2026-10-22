@@ -248,16 +248,23 @@ def protected_replacement_result_server_v1(settings):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def do_POST(self):
+            started = False
+            self.close_connection = True
             try:
                 end=time.monotonic()+30
                 length=fixed_request_length_v1(self,path='/v3/replacement/result',content_type='application/json',maximum_bytes=4096)
                 peer=peer_der_v1(self.connection,expected_uri=c.client_uri,expected_der_sha256=c.client_certificate_sha256)
                 raw=read_request_body_v1(self,length,absolute_monotonic_deadline=end)
                 result=self.server.owned_result_loop.result(peer,raw,absolute_monotonic_deadline=end)
-                self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store')
+                started = True
+                self.send_response(200);self.send_header('Connection','close');self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store')
                 self.send_header('Content-Length',str(len(result)));self.end_headers();self.wfile.write(result)
             except Exception:
-                self.send_response(503);self.send_header('Content-Length','0');self.send_header('Cache-Control','no-store');self.end_headers()
+                if not started:
+                    try:
+                        self.send_response(503);self.send_header('Content-Length','0');self.send_header('Cache-Control','no-store');self.end_headers()
+                    except OSError:
+                        pass
         def do_GET(self):
             self.send_response(404);self.send_header('Content-Length','0');self.end_headers()
     class ResultServer(MutualTLSServer):

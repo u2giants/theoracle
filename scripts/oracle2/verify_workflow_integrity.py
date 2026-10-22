@@ -39,14 +39,18 @@ GRAPH_HOLISTIC_SUITES=('graph_adapter','graph_evidence_answer','graph_tls_option
 ORIGINAL_PROCESSING_SUITES=('original_corpus_import','original_corpus_read',
     'binary_documents','original_byte_storage',
     'original_intake_v1','original_native_jobs_v1','original_pdf_image_views',
+    'original_view_settings_v1','original_view_service_v1','original_view_sql',
     'original_population_sql','original_qualification_v1','original_qualification_runtime','original_reading',
+    'original_response_normalization_v1','original_qualification_authority_sql',
     'replacement_original_lifecycle','replacement_qualification_sql',
     'q2b_target_catalog_v1','q2b_transaction_freshness_sql','seal_security','seal_wire')
-RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_multimodal_pricing_v1','raw_original_context_v1',
+RAW_ORIGINAL_SUITES=('raw_endpoint_inventory_v1','raw_endpoint_quote_v1','raw_native_metadata_v1',
+    'raw_multimodal_pricing_v1','raw_original_context_v1',
     'raw_original_native_provider_v1','raw_original_observer_v1','raw_original_paid_response_v1',
     'raw_original_request_v1','raw_original_settings_v1','raw_original_views_v1',
     'raw_provider_reservation_hooks','raw_vision_policy_v1')
-REPLACEMENT_RESULT_SUITES=('replacement_executor_target_sql','replacement_public_view_v1',
+REPLACEMENT_RESULT_SUITES=('replacement_confirmation_settings_v1','replacement_confirmation_service_v1','replacement_confirmation_sql',
+    'replacement_executor_target_sql','replacement_public_view_v1',
     'replacement_result_cleanup_v1','replacement_result_settings_v1','replacement_result_v1',
     'replacement_result_tls_sdk_close_v1','replacement_source_authority','replacement_source_intake_sql',
     'replacement_transport_v1','replacement_adversarial_journey_v1','replacement_answer',
@@ -70,7 +74,8 @@ DOCUMENTARY += ('native_trigger_v1',)
 # Parent24 source delivery owns these actual implementations and adversarial
 # suites. They are mandatory source checks, never live/business acceptance.
 DOCUMENTARY += ('replacement_requester_v1','replacement_requester_sql',
-    'owned_worker_database',
+    'replacement_request_service_v1','protected_web_python_conformance_v1','owned_worker_database',
+    'replacement_upload_service_v1','replacement_upload_sql',
     'operations_recovery','recovery_primitives',
     'legacy_mapping','migration_reconcile','migration_resume','migration_delta',
     'legacy_routes_retired','legacy_citation_redirect','retired_writer_denial',
@@ -224,29 +229,10 @@ def run_test_groups(jobs,directory,*,deadline):
 
 
 def aggregate_evidence(jobs,results,directory):
-    combined=ET.Element('testsuites');tests=skips=failures=0;invalid=[]
-    if len(results)!=len(jobs):invalid.append('worker population incomplete')
-    for job,result in zip(jobs,results):
-        output=directory/(job['name']+'.stdout');junit=directory/(job['name']+'.xml')
-        result['stdout_sha256']=hashlib.sha256(output.read_bytes()).hexdigest() if output.is_file() else None
-        if not output.is_file():invalid.append('required worker output missing')
-        result['junit_present']=junit.is_file()
-        if result['timed_out'] or result.get('launch_error') or result['exit_code']!=0:invalid.append('worker did not complete successfully')
-        if not junit.is_file():invalid.append('required junit evidence missing');continue
-        junit.chmod(0o600);raw=junit.read_bytes();result['junit_sha256']=hashlib.sha256(raw).hexdigest()
-        try:root=ET.fromstring(raw)
-        except ET.ParseError:invalid.append('required junit evidence malformed');continue
-        cases=root.findall('.//testcase')
-        if not cases:invalid.append('required worker cases missing')
-        count_skips=sum(c.find('skipped') is not None for c in cases)
-        count_failures=sum(c.find('failure') is not None or c.find('error') is not None for c in cases)
-        tests+=len(cases);skips+=count_skips;failures+=count_failures
-        result.update(tests=len(cases),skipped=count_skips,failures=count_failures)
-        combined.append(root)
-    if skips or failures:invalid.append('required synthetic gate failed or skipped')
-    return {'tests':tests,'skipped':skips,'failures':failures,'exit_code':int(bool(invalid)),
-        'junit_sha256':hashlib.sha256(ET.tostring(combined)).hexdigest(),'worker_results':results,
-        'evidence_errors':invalid}
+    # Preserve the established public test helper; the algorithm has one owner.
+    sys.path.insert(0,str(ROOT))
+    from scripts.oracle2.contract_test_evidence import aggregate_evidence as collect
+    return collect(jobs,results,directory)
 
 
 def cleanup_test_databases(admin,parts,owned):
@@ -264,6 +250,7 @@ def cleanup_test_databases(admin,parts,owned):
 
 
 SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_worker_postgres_fixture.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
+SOURCE_INPUT_PATHS += ('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py','dev/oracle2/test_canonical_schema.py')
 SOURCE_INPUT_PATHS += ('dev/oracle2/native-v2-fixed-identities.json', 'dev/oracle2/hosting/prepare_native_trigger_v2.py', 'dev/oracle2/hosting/install_native_trigger_v2.py', 'dev/oracle2/hosting/project_native_trigger_v2.py', 'dev/oracle2/hosting/falkor_native_proof_acl_v2.py')
 
 
@@ -315,12 +302,11 @@ def main(argv=None):
                 conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
             owned.append(name);targets.append((worker_admin,worker_parts,name))
             target=psycopg.conninfo.make_conninfo(**{**worker_parts,'dbname':name})
-            with psycopg.connect(target) as conn:
-                if conn.execute('SELECT current_database()').fetchone()[0]!=name:
-                    raise PermissionError('actual fresh synthetic target differs')
-                for migration in SYNTHETIC_MIGRATIONS:conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
+            from dev.oracle2.test_canonical_schema import bootstrap_canonical_test_schema
+            schema_receipt=(evidence/(label+'-schema.json')).resolve()
+            schema_seal=bootstrap_canonical_test_schema(target,container_id=identity['container_id'],receipt_path=schema_receipt)
             command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--basetemp={evidence/(label+"-tmp")}',f'--junitxml={evidence/(label+".xml")}']
-            jobs.append({'name':label,'command':command,'env':{**os.environ,**worker_env,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain'),
+            jobs.append({'name':label,'command':command,'env':{**os.environ,**worker_env,'ORACLE2_TEST_ADMIN_URL':target,'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT':str(schema_receipt),'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256':schema_seal,'PYTHONPATH':str(ROOT/'services/oracle-brain'),
                 'OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1','MKL_NUM_THREADS':'1','NUMEXPR_NUM_THREADS':'1'}})
         results,worker_cleanup=run_test_groups(jobs,evidence,deadline=time.monotonic()+120)
         report['cleanup_errors'].extend(worker_cleanup)

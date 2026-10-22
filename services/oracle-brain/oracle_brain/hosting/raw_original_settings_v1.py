@@ -4,18 +4,19 @@ from datetime import datetime,timezone
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
-import os,re
+import os,re,hashlib
 
 from pydantic import AwareDatetime,Field,field_validator,model_validator
 from oracle_brain.operating_model.contracts import StrictRecord,canonical_bytes,digest
 from oracle_brain.operating_model.original_qualification_v1 import RawOriginalPopulationV1
-from oracle_brain.operating_model.original_source_authority_v1 import OriginalSourceBindingV1,OriginalSourceResolverV1
+from oracle_brain.operating_model.original_source_authority_v1 import OriginalSourceBindingV1,OriginalSourceResolverV1,OriginalPopulationSnapshotV1
 from oracle_brain.operating_model.raw_original_context_v1 import RawOriginalPhaseContextV1
 from oracle_brain.operating_model.raw_vision_policy_v1 import RawVisionTokenPolicyV1
-from .purpose_journey_v2 import _worker_file,_worker_json,_require
+from .purpose_journey_v2 import _worker_file,_worker_json,_worker_parse,_require
+from oracle_brain.operating_model.raw_endpoint_inventory_v1 import RawBillingBoundsV1
 from .purpose_transport import PurposeTLSBindingV2
 from .custody import DurableNonceSequenceV2
-from .raw_original_observer_v1 import RawOriginalObserverAdmissionV1,RawOriginalObserverClientV1,RawOriginalCurrentnessConsumerV1
+from .raw_original_observer_v1 import RawOriginalObserverAdmissionV1,RawOriginalObserverClientV1,RawOriginalCurrentnessConsumerV1,RawOriginalObservedCurrentnessV1
 
 HASH=r'^[0-9a-f]{64}$'
 
@@ -42,6 +43,7 @@ class RawOriginalProviderConfigV1(StrictRecord):
     expected_session_role:str
     original_allocation_hash:str=Field(pattern=HASH)
     original_horizon:AwareDatetime
+    billing_bounds:RawPrivateFileV1|None=None
     database_url:RawPrivateFileV1
     database_ca:RawPrivateFileV1
     database_hostname:str
@@ -99,6 +101,54 @@ class RawOriginalProviderAppointmentV1(StrictRecord):
         return v
 
 @dataclass(frozen=True)
+class RawOriginalBillingEvidenceV1:
+    """Protected observed bytes, not proof of route, terms or spend authority.
+
+    Both commitments are named separately even under the canonical-file policy.
+    Caller construction authenticates neither a protected read nor appointment.
+    """
+    raw_bytes:bytes
+    bounds:RawBillingBoundsV1
+    original_file_sha256:str
+    canonical_record_sha256:str
+
+    def __post_init__(self):
+        _require(type(self.raw_bytes) is bytes and 0<len(self.raw_bytes)<=100000
+            and type(self.bounds) is RawBillingBoundsV1,
+            'exact bounded billing evidence required')
+        parsed=_worker_parse(self.raw_bytes,RawBillingBoundsV1)
+        canonical=canonical_bytes(parsed.model_dump(mode='json'))
+        _require(self.raw_bytes==canonical and parsed==self.bounds
+            and type(self.original_file_sha256) is str and re.fullmatch(HASH,self.original_file_sha256)
+            and type(self.canonical_record_sha256) is str and re.fullmatch(HASH,self.canonical_record_sha256)
+            and hashlib.sha256(self.raw_bytes).hexdigest()==self.original_file_sha256
+            and digest(parsed.model_dump(mode='json'))==self.canonical_record_sha256,
+            'original billing bytes and canonical record commitments differ')
+
+
+def _billing_matches_context(bounds,context,now):
+    # These are the billing identity/route/window predicates of the pure endpoint
+    # comparator, not its metadata pricing/capacity verdict. The future factory
+    # must separately supply actual broker identity and actual observed wires.
+    x=RawOriginalPhaseContextV1.model_validate_json(context.model_dump_json())
+    j=x.job;q=j.pricing
+    expected=(q.account,q.key_fingerprint,q.ledger_registry_hash,q.terms_hash)
+    _require(type(bounds) is RawBillingBoundsV1
+        and (bounds.account,bounds.key_fingerprint,bounds.ledger_registry_hash,bounds.terms_hash)==expected
+        and q.account=='key-sha256:'+q.key_fingerprint and bounds.model==q.model
+        and q.admitted_register_hash==j.register_hash
+        and q.terms_hash==j.processing_request.terms_hash
+        and digest(q.model_dump(mode='json'))==x.pricing_quote_hash
+        and q.is_byok==(bounds.route=='byok')
+        and q.valid_from<=now<q.expires_at<=bounds.expires_at and bounds.valid_from<=now,
+        'protected billing bounds differ from current exact context quote')
+    _require(all(getattr(q,name)==getattr(bounds,name) for name in
+        ('upstream_input_per_million_usd','upstream_output_per_million_usd',
+         'upstream_per_image_fee_usd','upstream_per_request_fee_usd')),
+        'protected billing upstream bounds differ from current quote')
+
+
+@dataclass(frozen=True)
 class RawOriginalAuthorityWindowV1:
     current_until:datetime
     operation_horizon:datetime
@@ -114,6 +164,53 @@ class RawOriginalAuthorityWindowV1:
             raise PermissionError('finite exact raw authorization window required')
 
 @dataclass(frozen=True)
+class RawOriginalObservedAuthorityWindowV1:
+    """Captured actual evidence bytes only, never a caller-issued authority.
+
+    Constructing/replaying this descriptive record does not repeat SQL, TLS or
+    replay advancement. Obtain current evidence through the appointed settings.
+    """
+    window:RawOriginalAuthorityWindowV1
+    before_snapshot_bytes:bytes
+    after_snapshot_bytes:bytes
+    observer_evidence:RawOriginalObservedCurrentnessV1
+    observed_at:datetime
+
+    def __post_init__(self):
+        if (type(self.window) is not RawOriginalAuthorityWindowV1
+                or type(self.observer_evidence) is not RawOriginalObservedCurrentnessV1
+                or type(self.observed_at) is not datetime or self.observed_at.tzinfo is None
+                or self.observed_at.utcoffset() is None
+                or any(type(raw) is not bytes or not 0<len(raw)<=100_000
+                    for raw in (self.before_snapshot_bytes,self.after_snapshot_bytes))):
+            raise PermissionError('exact bounded observed raw window evidence required')
+        before=self.before_snapshot;after=self.after_snapshot;observed=self.observer_evidence
+        # Revalidate the signature/bytes too, including constructed/tampered DTOs.
+        RawOriginalObservedCurrentnessV1(**observed.__dict__)
+        RawOriginalAuthorityWindowV1(**self.window.__dict__)
+        _require(before.population==after.population==observed.witness.population
+            and before.actual_principal_id==after.actual_principal_id==observed.admission.principal_id
+            and before.session_role==after.session_role
+            and before.original_allocation_hash==after.original_allocation_hash
+            and before.original_horizon==after.original_horizon,
+            'observed raw SQL/observer identity differs')
+        _require(canonical_bytes(before.model_dump(mode='json'))==self.before_snapshot_bytes
+            and canonical_bytes(after.model_dump(mode='json'))==self.after_snapshot_bytes
+            and self.window.sql_receipt_hash==hashlib.sha256(self.after_snapshot_bytes).hexdigest()
+            and self.window.observer_witness_hash==hashlib.sha256(observed.witness_bytes).hexdigest()
+            and observed.observed_at<=self.observed_at<self.window.current_until,
+            'observed raw window bytes/hash/horizon differ')
+
+    @property
+    def before_snapshot(self):
+        return OriginalPopulationSnapshotV1.model_validate_json(self.before_snapshot_bytes)
+
+    @property
+    def after_snapshot(self):
+        return OriginalPopulationSnapshotV1.model_validate_json(self.after_snapshot_bytes)
+
+
+@dataclass(frozen=True)
 class RawOriginalProviderSettingsV1:
     config:RawOriginalProviderConfigV1
     config_path:Path
@@ -126,17 +223,107 @@ class RawOriginalProviderSettingsV1:
     context:RawOriginalPhaseContextV1
     vision_policy:RawVisionTokenPolicyV1
 
-    def current_window(self):
+    def _current_settings_pins(self):
         c=self.config;now=datetime.now(timezone.utc)
-        _require(_worker_json(self.config_path,self.config_sha256,RawOriginalProviderConfigV1)==c
-            and _worker_json(self.appointment_path,self.appointment_sha256,RawOriginalProviderAppointmentV1)==self.appointment,
-            'raw startup metadata changed')
-        _require(type(self) is RawOriginalProviderSettingsV1 and type(self.resolver) is OriginalSourceResolverV1
-            and type(self.observer) is RawOriginalCurrentnessConsumerV1
-            and c.valid_from<=now<min(c.expires_at,self.appointment.expires_at,self.context.phase_expires_at),
+        _require(type(self) is RawOriginalProviderSettingsV1
+            and type(c) is RawOriginalProviderConfigV1 and type(self.appointment) is RawOriginalProviderAppointmentV1
+            and type(self.context) is RawOriginalPhaseContextV1 and type(self.vision_policy) is RawVisionTokenPolicyV1
+            and type(self.resolver) is OriginalSourceResolverV1 and type(self.observer) is RawOriginalCurrentnessConsumerV1
+            and type(self.resolver.binding) is OriginalSourceBindingV1
+            and type(self.observer.admission) is RawOriginalObserverAdmissionV1
+            and type(self.observer.transport) is RawOriginalObserverClientV1
+            and type(self.observer.transport.binding) is PurposeTLSBindingV2
+            and type(self.observer.replay) is DurableNonceSequenceV2,
             'actual current protected raw settings required')
-        return _current_window(c,self.resolver,self.observer,min(self.context.phase_expires_at,
-            self.vision_policy.expires_at,self.appointment.expires_at))
+        _require(_worker_json(self.config_path,self.config_sha256,RawOriginalProviderConfigV1)==c
+            and _worker_json(self.appointment_path,self.appointment_sha256,RawOriginalProviderAppointmentV1)==self.appointment
+            and _worker_json(c.context.path,c.context.sha256,RawOriginalPhaseContextV1)==self.context
+            and _worker_json(c.vision_policy.path,c.vision_policy.sha256,RawVisionTokenPolicyV1)==self.vision_policy,
+            'raw startup metadata changed')
+        # _FixedTLSClientV2 caches its SSLContext at startup. Recheck BOTH
+        # protected material and actual loaded target pins before every boundary.
+        raw_url=_worker_file(c.database_url.path,c.database_url.sha256,limit=8192)
+        _worker_file(c.database_ca.path,c.database_ca.sha256)
+        from psycopg.conninfo import conninfo_to_dict
+        try:
+            url=raw_url.decode().strip();params=conninfo_to_dict(url);port=int(params.get('port') or 5432)
+        except Exception:
+            raise PermissionError('protected original SQL target changed') from None
+        _require(type(self.resolver.url) is str and self.resolver.url==url
+            and params.get('host')==c.database_hostname and port==c.database_port
+            and params.get('dbname')==c.database_name and params.get('user')==c.expected_session_role
+            and params.get('sslmode')=='verify-full' and params.get('sslrootcert')==c.database_ca.path,
+            'actual own original SQL URL/CA/target differs')
+        admission=_worker_json(c.observer_admission.path,c.observer_admission.sha256,RawOriginalObserverAdmissionV1)
+        _require(admission==self.observer.admission
+            and digest(admission.model_dump(mode='json'))==self.observer.admission_hash==c.observer_admission.sha256,
+            'protected observer admission changed')
+        t=c.observer_tls
+        for material in (t.ca,t.certificate,t.key):
+            _worker_file(material.path,material.sha256)
+        actual=self.observer.transport.binding
+        _require((actual.hostname,actual.port,actual.server_uri,actual.client_uri,
+            actual.ca_file,actual.certificate_file,actual.key_file,actual.timeout)==
+            (t.hostname,t.port,t.server_uri,t.client_uri,Path(t.ca.path),Path(t.certificate.path),Path(t.key.path),5),
+            'actual loaded original observer TLS target differs')
+        # Validate exact field types and current certificate URI too; do not
+        # replace the cached context or silently accept newly rotated material.
+        PurposeTLSBindingV2(**actual.__dict__)
+        a=self.appointment;x=self.context;b=self.resolver.binding
+        _require(a.config_sha256==self.config_sha256 and a.context_sha256==c.context.sha256
+            and a.issuer_actor==c.issuer_actor and a.reviewer_actor==c.reviewer_actor
+            and all(getattr(a,name)==getattr(c,name) for name in
+                ('population','actor_id','expected_session_role','original_allocation_hash','original_horizon'))
+            and x.population==c.population and x.actor_id==c.actor_id and x.expected_session_role==c.expected_session_role
+            and x.job.purpose==c.phase_purpose and x.original_allocation_hash==c.original_allocation_hash
+            and x.original_horizon==c.original_horizon and x.vision_token_policy_hash==c.vision_policy.sha256
+            and b.population==c.population and b.principal==c.actor_id and b.purpose==c.phase_purpose
+            and b.expected_owner_role==c.expected_owner_role and b.expected_session_role==c.expected_session_role
+            and b.original_allocation_hash==c.original_allocation_hash and b.original_horizon==c.original_horizon
+            and b.expires_at==c.expires_at and self.observer.admission.population==c.population
+            and self.observer.admission.principal_id==c.actor_id
+            and self.observer.admission_hash==c.observer_admission.sha256
+            and self.observer.admission.client_uri==c.observer_tls.client_uri
+            and self.observer.admission.observer_uri==c.observer_tls.server_uri,
+            'raw loaded startup/context/consumer pins differ')
+        _require(c.valid_from<=now and self.appointment.valid_from<=now
+            and now<min(c.expires_at,self.appointment.expires_at,self.context.phase_expires_at),
+            'actual current protected raw settings required')
+        return min(self.context.phase_expires_at,self.vision_policy.expires_at,self.appointment.expires_at)
+
+    def current_window(self):
+        horizon=self._current_settings_pins()
+        window=_current_window(self.config,self.resolver,self.observer,horizon)
+        self._current_settings_pins()
+        _require(datetime.now(timezone.utc)<window.current_until,'raw authorization expired before return')
+        return window
+
+    def observed_window(self):
+        horizon=self._current_settings_pins()
+        observed=_observed_current_window(self.config,self.resolver,self.observer,horizon)
+        self._current_settings_pins()
+        _require(datetime.now(timezone.utc)<observed.window.current_until,'raw authorization expired before return')
+        return observed
+
+    def read_billing_bounds(self):
+        """Read actual appointed prospective bounds; never reserve or dispatch.
+
+        No caller DTO, digest or route can substitute for the protected pointer.
+        Legacy settings/current_window do not require this optional source input.
+        """
+        self._current_settings_pins()
+        pointer=self.config.billing_bounds
+        _require(type(pointer) is RawPrivateFileV1,'appointed protected billing pointer required')
+        raw=_worker_file(pointer.path,pointer.sha256,limit=100000)
+        bounds=_worker_parse(raw,RawBillingBoundsV1)
+        record=RawOriginalBillingEvidenceV1(raw,bounds,pointer.sha256,digest(bounds.model_dump(mode='json')))
+        _billing_matches_context(bounds,self.context,datetime.now(timezone.utc))
+        self._current_settings_pins()
+        _require(self.config.billing_bounds==pointer
+            and _worker_file(pointer.path,pointer.sha256,limit=100000)==raw,
+            'protected billing pointer or actual bytes changed before return')
+        _billing_matches_context(bounds,self.context,datetime.now(timezone.utc))
+        return record
 
     def read_pdf_views(self):
         from oracle_brain.operating_model.artifact_storage import FileBlobStore,OriginalObjectRefV1,ReservationOriginalObjectRefV1
@@ -162,22 +349,48 @@ class RawOriginalProviderSettingsV1:
         self.current_window()
         return rendered
 
-def _current_window(c,resolver,observer,phase_horizon):
-    before=resolver.original_population_current_v1(c.population.population_id)
-    witness=observer.current(c.population)
-    after=resolver.original_population_current_v1(c.population.population_id)
-    now=datetime.now(timezone.utc)
+def _window_from_observations(c,before,witness,after,phase_horizon,observer_admission_expires_at,now):
+    """Single pure window rule for both retained and observed currentness paths."""
     _require(before.population==after.population==c.population
         and before.actual_principal_id==after.actual_principal_id==c.actor_id
         and before.session_role==after.session_role==c.expected_session_role
         and before.original_allocation_hash==after.original_allocation_hash==c.original_allocation_hash
         and before.original_horizon==after.original_horizon==c.original_horizon,
         'actual complete raw population changed')
-    horizon=min(before.valid_until,after.valid_until,c.expires_at,c.original_horizon,phase_horizon,observer.admission.expires_at)
+    horizon=min(before.valid_until,after.valid_until,c.expires_at,c.original_horizon,phase_horizon,observer_admission_expires_at)
     current=min(horizon,witness.expires_at)
     _require(now<current,'raw authorization expired at final current boundary')
     return RawOriginalAuthorityWindowV1(current,horizon,digest(after.model_dump(mode='json')),
         digest(witness.model_dump(mode='json')))
+
+
+def _current_window(c,resolver,observer,phase_horizon):
+    # Preserve the retained fake-current unit seam and actual SQL/network order.
+    before=resolver.original_population_current_v1(c.population.population_id)
+    witness=observer.current(c.population)
+    after=resolver.original_population_current_v1(c.population.population_id)
+    return _window_from_observations(c,before,witness,after,phase_horizon,observer.admission.expires_at,
+        datetime.now(timezone.utc))
+
+
+def _observed_current_window(c,resolver,observer,phase_horizon):
+    def capture(snapshot):
+        _require(type(snapshot) is OriginalPopulationSnapshotV1,'actual typed original SQL snapshot required')
+        raw=canonical_bytes(snapshot.model_dump(mode='json'))
+        _require(OriginalPopulationSnapshotV1.model_validate_json(raw)==snapshot,
+            'actual original SQL snapshot changed')
+        return raw
+    before=resolver.original_population_current_v1(c.population.population_id)
+    before_bytes=capture(before)  # Actual snapshot captured BEFORE observer IO.
+    observed=observer.observed_current(c.population)
+    _require(type(observed) is RawOriginalObservedCurrentnessV1,'actual observed raw envelope required')
+    after=resolver.original_population_current_v1(c.population.population_id)
+    after_bytes=capture(after)
+    now=datetime.now(timezone.utc)
+    window=_window_from_observations(c,before,observed.witness,after,phase_horizon,
+        observer.admission.expires_at,now)
+    return RawOriginalObservedAuthorityWindowV1(window,before_bytes,after_bytes,observed,now)
+
 
 def load_raw_original_provider_settings_v1(config_path,expected_config_sha256,*,appointment_path,
         expected_appointment_sha256,issuer_actor,reviewer_actor):

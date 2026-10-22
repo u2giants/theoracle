@@ -1,20 +1,22 @@
 // Next.js 16 proxy (formerly "middleware") — spec Part 3.4 (client/server trust boundary).
 //
-// Runs on every non-static request. Its ONLY job is to call supabase.auth.getUser()
-// so that:
+// Ordinary non-static requests call supabase.auth.getUser() so that:
 //   1. An expiring access token is silently refreshed by @supabase/ssr before it
 //      hits any server component or route handler.
 //   2. The refreshed token is written back to both the request (so server
 //      components see the new value) and the response (so the browser's cookie
 //      store is updated).
 //
-// This proxy does NOT enforce authentication — that is done per-route by
-// requireEmployee() / requireAdmin() in lib/auth-guard.ts.
+// Ordinary routes retain per-route authentication through auth-guard.ts.
+// The exact protected control route additionally bounds refresh inside one
+// original clock window; its handler still independently verifies identity.
 //
 // Reference: https://supabase.com/docs/guides/auth/server-side/nextjs
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { captureControlWindow, controlWindowRemaining, CONTROL_PATH, ORIGINAL_VIEW_PATH, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS, unavailableControl, privateControlHeaders, type ControlWindow } from './lib/replacement-control-window';
+import { canonicalJson, instant, readInstalledBinding, readInstalledViewerBinding } from './lib/replacement-server-binding';
 import { nativeRequestAllowed, nativeForwardingAllowed, readStaticManifest } from './lib/native-browser-runtime.mjs';
 
 export async function proxy(request: NextRequest) {
@@ -29,6 +31,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.next({request});
     }catch{return new NextResponse('Unavailable',{status:503,headers:{'Cache-Control':'no-store'}});}
   }
+  if(request.nextUrl.pathname===CONTROL_PATH||request.nextUrl.pathname===ORIGINAL_VIEW_PATH)return protectedControlProxy(request,captureControlWindow());
   // Preserve the original matcher exclusions for ordinary deployments.
   if(/^\/(?:_next\/(?:static|image)|favicon\.ico|robots\.txt|sitemap\.xml)/.test(request.nextUrl.pathname)
     ||/\.(?:svg|png|jpg|jpeg|gif|webp)$/.test(request.nextUrl.pathname))return NextResponse.next({request});
@@ -72,6 +75,58 @@ export async function proxy(request: NextRequest) {
 
   return supabaseResponse;
 }
+
+
+/** Only this exact ordinary route changes. The native branch above remains the
+ * first boundary, and ordinary auth/cookie refresh below stays unchanged. */
+async function protectedControlProxy(request:NextRequest,window:Readonly<ControlWindow>):Promise<Response>{
+  if(request.method!=='POST')return unavailableControl(405);
+  const viewer=request.nextUrl.pathname===ORIGINAL_VIEW_PATH;
+  if(viewer&&['range','if-range','if-match','if-none-match','if-modified-since','if-unmodified-since','expect','content-encoding'].some(k=>request.headers.has(k)))return unavailableControl();
+  if(CONTROL_BYPASS_HEADERS.some(key=>request.headers.has(key)))return unavailableControl();
+  const controller=new AbortController();let active=true,timer:ReturnType<typeof setTimeout>|undefined;
+  const stop=()=>controller.abort();request.signal.addEventListener('abort',stop,{once:true});
+  try{
+    const readBinding=viewer?readInstalledViewerBinding:readInstalledBinding;
+    const installed=readBinding(),profile=installed.profile;
+    const remaining=()=>{
+      if(!active||request.signal.aborted)return fail();
+      const ms=Math.min(controlWindowRemaining(window),instant(profile.expires_at)-Date.now(),instant(profile.original_horizon)-Date.now());
+      if(ms<=0)return fail();return Math.max(1,Math.floor(ms));
+    };
+    if(request.headers.get('origin')!==profile.web_origin||new URL(request.url).origin!==profile.web_origin)return unavailableControl();
+    const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if(!url||url!==profile.project_url||!key)return unavailableControl();
+    remaining();
+    // An inbound context can only be overwritten; no supplied value is trusted.
+    request.headers.set(CONTROL_WINDOW_HEADER,canonicalJson(window));
+    const next=()=>{const response=NextResponse.next({request:{headers:new Headers(request.headers)}});for(const [k,v]of Object.entries(privateControlHeaders))response.headers.set(k,v);return response;};
+    let response=next();
+    const refreshedCookies=new Map<string,{name:string;value:string;options:CookieOptions}>();
+    timer=setTimeout(stop,remaining());
+    const client=createServerClient(url,key,{
+      global:{fetch:async(input,init)=>{
+        remaining();const signals=[controller.signal,request.signal];if(init?.signal)signals.push(init.signal);if(input instanceof Request)signals.push(input.signal);
+        const result=await fetch(input,{...init,signal:AbortSignal.any(signals)});remaining();return result;
+      }},
+      cookies:{getAll(){return request.cookies.getAll();},setAll(cookies){
+        remaining();
+        cookies.forEach(({name,value})=>request.cookies.set(name,value));
+        cookies.forEach(cookie=>refreshedCookies.set(cookie.name,cookie));
+        response=next();for(const {name,value,options}of refreshedCookies.values())response.cookies.set(name,value,options);
+      }},
+    });
+    if(Reflect.get(client,'supabaseUrl')!==profile.project_url)return unavailableControl();
+    const result=await Promise.race([client.auth.getUser(),new Promise<never>((_,reject)=>{
+      const rejectAbort=()=>reject(new Error('Replacement control unavailable'));controller.signal.addEventListener('abort',rejectAbort,{once:true});if(controller.signal.aborted)rejectAbort();
+    })]);
+    remaining();if(result.error||!result.data.user||result.data.user.id!==profile.auth_user_id)return unavailableControl();
+    if(canonicalJson(readBinding().profile)!==canonicalJson(profile))return unavailableControl();
+    remaining();return response;
+  }catch{return unavailableControl();}
+  finally{active=false;if(timer)clearTimeout(timer);controller.abort();request.signal.removeEventListener('abort',stop);}
+}
+function fail():never{throw new Error('Replacement control unavailable');}
 
 export const config = {
   matcher: [

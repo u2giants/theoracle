@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,20 +23,26 @@ S02_TESTS = [
     "test_preview_settings.py", "test_worker_guard_parity.py",
 ]
 S03_TESTS = [
-    "test_owned_worker_database.py",
+    "test_replacement_request_service_v1.py", "test_protected_web_python_conformance_v1.py",
+    "test_owned_worker_database.py", "test_replacement_upload_service_v1.py",
+    "test_replacement_upload_sql.py",
+    "test_replacement_confirmation_settings_v1.py", "test_replacement_confirmation_service_v1.py", "test_replacement_confirmation_sql.py",
     "test_provider_policy.py", "test_pilot_journey.py", "test_authority.py",
     "test_review_concurrency.py", "test_holistic_graphrag.py",
     "test_holistic_graphrag_integration.py",
     "test_holistic_runtime.py", "test_original_reading.py", "test_original_corpus_import.py", "test_original_corpus_read.py",
     "test_provider_transport.py",
     "test_original_pdf_image_views.py",
+    "test_original_view_settings_v1.py", "test_original_view_service_v1.py", "test_original_view_sql.py",
     "test_graph_evidence_answer.py",
     "test_replacement_original_lifecycle.py", "test_original_qualification_runtime.py",
+    "test_original_response_normalization_v1.py", "test_original_qualification_authority_sql.py",
     "test_replacement_qualification_sql.py", "test_q2b_target_catalog_v1.py",
     "test_q2b_transaction_freshness_sql.py",
     "test_seal_security.py", "test_seal_wire.py",
     "test_replacement_journey_control.py", "test_replacement_job_authority.py",
     "test_replacement_requester_v1.py", "test_replacement_requester_sql.py",
+    "test_raw_endpoint_inventory_v1.py", "test_raw_endpoint_quote_v1.py", "test_raw_native_metadata_v1.py",
 ]
 # S04 — complete source ingestion, revisions and withdrawal
 # (plan_oracle_consultant_overhaul.md §S04 gate list).
@@ -48,6 +55,7 @@ S04_TESTS = [
 ]
 # S05 — confirmed temporal operating model and corrections.
 S05_TESTS = [
+    "test_replacement_confirmation_settings_v1.py", "test_replacement_confirmation_service_v1.py", "test_replacement_confirmation_sql.py",
     "test_identity_resolution.py",
     "test_temporal_facts.py",
     "test_admission.py",
@@ -155,11 +163,42 @@ PHASE_TESTS = {
 FIXTURE_ONLY_PHASES = {"S12", "S14", "S16"}
 
 
+def run_phase_tests(python: Path, tests: list[str], *, env: dict | None = None) -> tuple[int, dict, str]:
+    """Use the existing mandatory evidence check, including skipped/setup cases.
+
+    A zero pytest exit alone cannot establish that every required case ran.
+    Private fresh evidence prevents a prior run's report from satisfying this run.
+    """
+    sys.path.insert(0, str(ROOT))
+    from scripts.oracle2.contract_test_evidence import aggregate_evidence
+
+    with tempfile.TemporaryDirectory(prefix="oracle-phase-evidence-") as temporary:
+        directory = Path(temporary)
+        output = directory / "phase.stdout"
+        junit = directory / "phase.xml"
+        with output.open("xb") as stream:
+            output.chmod(0o600)
+            completed = subprocess.run(
+                [str(python), "-m", "pytest", "-q", *tests, f"--junitxml={junit}"],
+                cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT, check=False, env=env,
+            )
+        evidence = aggregate_evidence(
+            [{"name": "phase"}],
+            [{"name": "phase", "exit_code": completed.returncode,
+              "timed_out": False, "launch_error": False}], directory,
+        )
+        with output.open("rb") as stream:
+            stream.seek(max(0, output.stat().st_size - 4000))
+            tail = stream.read(4000).decode(errors="replace")
+        return completed.returncode or evidence["exit_code"], evidence, tail
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("phase", choices=sorted(PHASE_TESTS))
     parser.add_argument("--mode", choices=["offline", "live"], required=True)
     parser.add_argument("--manifest")
+    parser.add_argument("--owned-phase-worker",action="store_true",help=argparse.SUPPRESS)
     parser.add_argument("--result", type=Path,
                         default=None)
     args = parser.parse_args()
@@ -189,8 +228,22 @@ def main() -> int:
     if not python.exists():
         parser.error("frozen Python environment missing; run uv sync --frozen --extra test")
     tests = [str(SERVICE / "tests" / name) for name in test_list]
-    completed = subprocess.run([str(python), "-m", "pytest", "-q", *tests], cwd=ROOT,
-                               capture_output=True, text=True, check=False)
+    if args.phase not in FIXTURE_ONLY_PHASES:
+        # The ordinary frontdoor remains standard-library only. All actual DB
+        # work runs in the selected frozen interpreter, never the system Python.
+        if not args.owned_phase_worker:
+            return subprocess.run([str(python),str(Path(__file__).resolve()),args.phase,
+                '--mode','offline','--result',str(args.result),'--owned-phase-worker'],cwd=ROOT,check=False).returncode
+        if Path(sys.executable).resolve()!=python.resolve():
+            parser.error('owned phase worker requires the selected frozen interpreter')
+        sys.path.insert(0,str(ROOT))
+        from dev.oracle2.test_canonical_schema import owned_phase_database
+        with tempfile.TemporaryDirectory(prefix='oracle-owned-phase-') as directory:
+            with owned_phase_database(os.environ['ORACLE2_TEST_ADMIN_URL'],
+                    os.environ.get('ORACLE2_SYNTHETIC_POSTGRES_CONTAINER',''),directory) as env:
+                exit_code,evidence,output_tail=run_phase_tests(python,tests,env=env)
+    else:
+        exit_code, evidence, output_tail = run_phase_tests(python, tests)
     # No test output enters a public artifact; raw logs remain in local CI job.
     lock_hash = hashlib.sha256((SERVICE / "uv.lock").read_bytes()).hexdigest()
     result = {
@@ -198,18 +251,17 @@ def main() -> int:
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "lock_sha256": lock_hash,
         "required_test_files": test_list,
-        "test_exit_code": completed.returncode,
-        "passed": completed.returncode == 0,
+        "test_exit_code": evidence["worker_results"][0]["exit_code"],
+        "evidence": evidence,
+        "passed": exit_code == 0,
         "live_accepted": False,
     }
     args.result.parent.mkdir(parents=True, exist_ok=True)
     args.result.write_text(json.dumps(result, indent=2) + "\n")
-    if completed.stdout:
-        print(completed.stdout[-4000:])
-    if completed.stderr:
-        print(completed.stderr[-2000:], file=sys.stderr)
+    if output_tail:
+        print(output_tail)
     print(f"sanitized result: {args.result}")
-    return completed.returncode
+    return exit_code
 
 
 if __name__ == "__main__":

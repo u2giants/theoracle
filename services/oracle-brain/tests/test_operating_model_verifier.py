@@ -241,3 +241,74 @@ def test_worker_cluster_existing_project_refuses_before_any_mutation(tmp_path,mo
         with helper.worker_postgres({'COMPOSE_PROJECT_NAME':'oracle2-synthetic-unit'},tmp_path/'cluster','event'):pass
     assert len(calls)==1 and calls[0][:3]==('docker','ps','-aq')
     assert not (tmp_path/'cluster').exists()
+
+
+@pytest.mark.parametrize(('body', 'exit_code', 'skipped', 'failures'), [
+    ('def test_actual(): assert True\n', 0, 0, 0),
+    ('import pytest\ndef test_actual(): pytest.skip("missing capability")\n', 1, 1, 0),
+    ('def test_actual(): assert False\n', 1, 0, 1),
+    ('import pytest\n@pytest.fixture\ndef broken(): raise RuntimeError("setup failed")\ndef test_actual(broken): pass\n', 1, 0, 1),
+])
+def test_phase_gate_checks_actual_case_evidence_not_only_pytest_exit(tmp_path, body, exit_code, skipped, failures):
+    import sys
+    from scripts.oracle2.verify_phase import run_phase_tests
+    test = tmp_path / 'test_actual_phase.py'
+    test.write_text(body)
+    code, evidence, _ = run_phase_tests(Path(sys.executable), [str(test)])
+    assert bool(code) == bool(exit_code)
+    assert evidence['tests'] == 1
+    assert evidence['skipped'] == skipped
+    assert evidence['failures'] == failures
+    assert bool(evidence['evidence_errors']) == bool(exit_code)
+    assert evidence['worker_results'][0]['junit_present']
+    assert evidence['worker_results'][0]['junit_sha256']
+    if skipped:
+        assert evidence['worker_results'][0]['exit_code'] == 0
+
+
+def test_actual_python_web_peer_conformance_is_mandatory_not_a_skipped_browser_placeholder():
+    from scripts.oracle2.verify_phase import S03_TESTS
+    assert verifier.required_suites('W10').count('protected_web_python_conformance_v1') == 1
+    assert S03_TESTS.count('test_protected_web_python_conformance_v1.py') == 1
+
+
+
+def test_phase_frontdoor_needs_no_worker_database_or_process_dependencies(tmp_path):
+    import subprocess
+    import sys
+    case = tmp_path / 'test_locked_runtime.py'
+    case.write_text('def test_actual(): assert True\n')
+    wrapper = """import builtins,runpy,sys
+from pathlib import Path
+original=builtins.__import__
+def guarded(name,*args,**kwargs):
+    if name.split('.')[0] in ('psutil','psycopg'):
+        raise AssertionError('phase frontdoor imported worker-only dependencies')
+    return original(name,*args,**kwargs)
+builtins.__import__=guarded
+phase=runpy.run_path(sys.argv[1])
+code,evidence,_=phase['run_phase_tests'](Path(sys.argv[2]),[sys.argv[3]])
+assert code==0 and evidence['tests']==1 and evidence['failures']==evidence['skipped']==0
+"""
+    result = subprocess.run([sys.executable, '-I', '-c', wrapper,
+        str(Path(__file__).parents[3] / 'scripts/oracle2/verify_phase.py'),
+        sys.executable, str(case)], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+
+
+
+def test_recorded_source_inventory_binds_shared_evidence_and_phase_frontdoor_bytes(tmp_path,monkeypatch):
+    import subprocess
+    subprocess.run(['git','init','-q',str(tmp_path)],check=True)
+    names=('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py')
+    for name in names:
+        p=tmp_path/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('invented initial source\n')
+    monkeypatch.setattr(verifier,'ROOT',tmp_path)
+    first=verifier.source_input_hashes()
+    assert set(first)==set(names)
+    for index,name in enumerate(names):
+        before=verifier.source_input_hashes()
+        (tmp_path/name).write_text('invented changed source '+str(index)+'\n')
+        after=verifier.source_input_hashes()
+        assert before[name]!=after[name]
+        assert all(before[other]==after[other] for other in names if other!=name)

@@ -74,3 +74,35 @@ def test_exact_versioned_golden_inventory_and_capability_hashes():
 def test_missing_current_pricing_dimension_is_unknown_not_zero(field):
     m,e=catalogue();del e['data']['endpoints'][0]['pricing'][field]
     with pytest.raises(PermissionError):parse(m,e)
+
+
+# Current official flat SDK schema and provider time-window rules:
+# https://github.com/OpenRouterTeam/terraform-provider-openrouter/blob/main/docs/data-sources/model.md
+# https://openrouter.ai/docs/guides/providers/integration#time-of-day-pricing
+@pytest.mark.parametrize('conditions',[
+    {'utc_start':0,'utc_end':2359}, {'utc_start':2300,'utc_end':100},
+    {'utc_start':1,'utc_end':59,'utc_days':['monday','sunday']},
+    {'utc_days':['tuesday']}, {'min_prompt_tokens':0}, {'min_prompt_tokens':10000}])
+def test_documented_time_and_weekday_shapes_are_preserved(conditions):
+    m,e=catalogue();e['data']['endpoints'][0]['pricing']['overrides']=[conditions|{'prompt':'.2'}]
+    body=parse(m,e).canonical_inventory
+    for key in conditions:assert key.encode() in body
+
+@pytest.mark.parametrize('conditions',[
+    {'utc_start':'08:00','utc_end':'16:00'}, # dated invented legacy shape, never current schema
+    {'utc_days':[0,1]}, # dated invented legacy shape, never weekday names
+    {'utc_start':True,'utc_end':1300}, {'utc_start':800.0,'utc_end':1300},
+    {'utc_start':-1,'utc_end':1300}, {'utc_start':2400,'utc_end':1300},
+    {'utc_start':1260,'utc_end':1300}, {'utc_start':800}, {'utc_end':1300},
+    {'utc_start':800,'utc_end':800}, {'utc_days':[]}, {'utc_days':['Monday']},
+    {'utc_days':['monday','monday']}, {'utc_days':['holiday']},
+    {'max_prompt_tokens':10000}])
+def test_legacy_malformed_or_undocumented_conditions_are_refused(conditions):
+    m,e=catalogue();e['data']['endpoints'][0]['pricing']['overrides']=[conditions|{'prompt':'.2'}]
+    with pytest.raises(PermissionError):parse(m,e)
+
+
+def test_endpoint_max_prompt_capacity_is_distinct_from_unsupported_override_condition():
+    m,e=catalogue();assert parse(m,e)
+    e['data']['endpoints'][0]['pricing']['overrides']=[{'max_prompt_tokens':10000,'prompt':'.2'}]
+    with pytest.raises(PermissionError):parse(m,e)
