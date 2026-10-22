@@ -40,3 +40,5 @@ export function matchMeetingWorkerPacketV1(packet:Readonly<MeetingWorkerPacketV1
 export {parseMeetingNormalizationPacketV1,matchMeetingNormalizationPacketV1,parseMeetingNormalizationWakeV1,type MeetingNormalizationPacketV1,type MeetingNormalizationStateV1} from './protected-meeting-normalization-contract';
 
 export {parseMeetingSupervisionPacketV1,matchMeetingSupervisionPacketV1,type MeetingSupervisionPacketV1} from './protected-meeting-supervision-contract';
+
+export {parseMeetingQueuePacketV1,matchMeetingQueuePacketV1,QUEUE_TASK_V1,MAX_QUEUE_WIRE_V1,type MeetingQueuePacketV1} from './protected-meeting-queue-contract';

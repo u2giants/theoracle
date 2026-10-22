@@ -1,7 +1,7 @@
 /** Closed pending-source observations; never reading or qualification authority. */
 import {canonicalJson,canonicalUuid,canonicalHash,instant,parseClosedJson,type MeetingNormalizationBinding} from './protected-server-binding';
 const fail=():never=>{throw new Error('Meeting normalization unavailable');};
-export type MeetingNormalizationStateV1='intake_claimed'|'UNKNOWN'|'awaiting_independently_installed_exact_reading_review'|'source_unavailable';
+export type MeetingNormalizationStateV1='final_artifact_pending'|'intake_claimed'|'UNKNOWN'|'awaiting_independently_installed_exact_reading_review'|'source_unavailable';
 export interface MeetingNormalizationPacketV1 {
  readonly schema_version:1;readonly principal_id:string;readonly workspace_id:string;readonly meeting_id:string;
  readonly ingress_event_id:string;readonly state:MeetingNormalizationStateV1;readonly valid_until:string;
@@ -13,7 +13,7 @@ export function parseMeetingNormalizationPacketV1(bytes:Uint8Array):Readonly<Mee
  const raw=parseClosedJson(bytes,4096);
  if(!raw||typeof raw!=='object'||Array.isArray(raw)||Object.keys(raw).length!==keys.length||!keys.every(k=>Object.hasOwn(raw,k))||canonicalJson(raw)!==new TextDecoder('utf-8',{fatal:true}).decode(bytes))return fail();
  const v=raw as Record<string,unknown>;
- if(v.schema_version!==1||typeof v.state!=='string'||!['intake_claimed','UNKNOWN','awaiting_independently_installed_exact_reading_review','source_unavailable'].includes(v.state)||v.qualification!==false||v.source_read_permission!==false||v.observation_only!==true)return fail();
+ if(v.schema_version!==1||typeof v.state!=='string'||!['final_artifact_pending','intake_claimed','UNKNOWN','awaiting_independently_installed_exact_reading_review','source_unavailable'].includes(v.state)||v.qualification!==false||v.source_read_permission!==false||v.observation_only!==true)return fail();
  for(const key of ['principal_id','workspace_id','meeting_id','ingress_event_id'])if(!canonicalUuid(v[key]))return fail();
  instant(v.valid_until);
  if(v.source_binding!==null){

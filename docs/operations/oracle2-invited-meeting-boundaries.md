@@ -152,3 +152,80 @@ review/UI, exact-head review/mandatory CI and current installed capability remai
 separate gates. Real employee identity, provider account/meeting, platform clock
 domain and live outcome remain unproved until actually verified. Business acceptance
 is a separate hold under parent #24; passing tests or closing issues cannot satisfy it.
+
+
+## Final-artifact processing and queue custody
+
+The same SQL020 capture owner globally fences final-artifact fetch by the actual
+provider population/revision/finality/content tuple. Changing a URL, CA,
+installer or time metadata cannot mint another fetch. The nullable immutable
+installed descriptor and operation UUID must match canonical bytes and the
+retained existing owner formula before the first claim. A terminal status GET,
+webhook text, newest row or matching hash alone is not a complete final artifact.
+Only the actual originating operation's successful complete custody can link the
+raw ingress to its final event. Missing descriptors remain visibly pending.
+
+A separately preinstalled `process_observe` plus `status` admission can retain an
+already-spent operation's genuine final receipt after its effect deadline. This
+is observation-only metadata: it cannot fetch again, intake again, extend the
+original window, create a SourceRef or confer source reading. Normalization
+retains its global once fence and deterministic intake reconciliation; lost ACK
+never authorizes replay. Actual reading/review appointments remain independent.
+
+The queue uses a distinct installed service principal, peer, fixed task target,
+key-to-project/environment/account/task installation receipt and private custody.
+The same owner writes a globally once enqueue claim before the external POST;
+only its fresh first response contains the opaque ingress payload. Reinstallation,
+new admissions, duplicate delivery and uncertain ACK never redispatch the claim.
+Current own SQL is reproved after verified provider TLS before Authorization/body.
+No legacy key, SDK retry, caller URL, actor, profile, task or header selector enters.
+
+The documented Trigger REST response is literal complete `200 {"id":...}`.
+It observes enqueue only, never task completion, source qualification or remote
+STOP. Queue-specific bounds are body 4096, headers 16384, full wire 20480 bytes.
+The exact largest closed hexadecimal mTLS envelope is 41278 bytes, below the
+unchanged 65536 request cap; service responses stay below 4096. Existing Recall
+and employee endpoint bounds remain unchanged. Unknown/oversized/partial/extra
+wire remains UNKNOWN without retry. The full retained queue wire is private
+0600 custody: `x-trigger-jwt` may contain a run-scoped capability, so headers/wire
+are never logged, returned publicly, forwarded as authority or reused. Production
+installation, actual target/account scope and task execution remain unproved.
+
+Primary protocol: <https://trigger.dev/docs/management/tasks/trigger>.
+
+## Invented-test network incident
+
+An earlier fixture-hook failure initiated an unintended public Recall TLS
+handshake on October 21, 2026 at 8:42:26 PM EDT. The preserved diagnostic showed
+refusal before HTTP, Authorization or body; zero network is not claimed. Current
+owned test children bind the actual worker's provider constructor to their exact
+invented peer and install independent external DNS/TLS tripwires before exchange.
+This fixture repair does not weaken the production public-address/TLS policy.
+
+
+## Current shared queue integration
+
+The complete standalone queue dependency is mechanically combined with actual
+main30cf348d98b69e0a1b2a31f334cf5996cb8c7570. The same protected binding loader
+retains recipient-index selection/private origins, bounded recipient caches,
+industry answering, fixed normalization and supervision scopes. Its queue branch
+is a separate fixed service purpose; employee/web identity wrappers explicitly
+refuse it. Current re-reads retain the recipient horizon as well as queue/profile
+pins. The existing transport, monotonic deadline, exclusive-receipt and ABA owners
+are extended narrowly, without another parser/issuer or a larger response cap.
+
+Actual current-main combined Node24 mandatory web suite:361 passed,0 failures,
+cancellations or skips; all7 typechecks and web lint passed. Separate native
+contracts and workflow-trust checks are retained. The12 queue cases use actual
+invented backend/provider mTLS, exact private installation pins, full-wire
+framing/extra/truncated/oversized refusals, actual monotonic expiry after wall
+rollback, and currentness refusal before provider HTTP. That currentness response
+is invented in this fixture. Actual SQL/once/custody42/208-case backend evidence
+is separate, not falsely joined into one end-to-end execution claim.
+
+No actual Trigger API, queue task, provider credential installation or completion
+is established. Seven Trigger consumer configs and unattended Create-to-STOP
+acceptance remain separate unfinished deliverables; source preparation cannot
+close #31/#24 or any live/company/business obligation. Raw x-trigger-jwt response
+headers remain private custody only; public closed observations expose no token
+and explicitly state task_completed_proven:false and remote_stop_proven:false.

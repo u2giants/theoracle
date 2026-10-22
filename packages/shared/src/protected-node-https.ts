@@ -15,6 +15,7 @@ const refused=():never=>{throw new Error('Installed Recall operation unavailable
 export interface RecallWireTargetV1 {readonly hostname:string;readonly ca:Uint8Array;readonly serverDerSha256:string;readonly authorization:string;}
 export interface OriginalWireWindowV1 {readonly wallDeadline:number;readonly monotonicDeadline:bigint;readonly signal:AbortSignal;readonly current:()=>void;}
 export type RecallWireOperationV1=Readonly<{kind:'create';body:Uint8Array}>|Readonly<{kind:'leave'|'retrieve';botId:string}>|Readonly<{kind:'send-chat';botId:string;body:Uint8Array}>;
+export type QueueWireOperationV1=Readonly<{kind:'queue-enqueue';body:Uint8Array}>;
 export interface RecallWireObservationV1 {readonly status:number;readonly headers:ReadonlyArray<readonly[string,string]>;readonly body:Buffer;readonly wire:Buffer;readonly wireSha256:string;}
 /** Bounded observed RESPONSE bytes on refusal, never request/key material.
  * An incomplete or over-bound wire remains UNKNOWN and is never executable.
@@ -39,7 +40,9 @@ export function publicRecallAddressV1(address:string):boolean{
  if(isIP(address)!==6||address.includes('.'))return false;
  const w=ipv6Words(address);return w[0]!>=0x2000&&w[0]!<=0x3fff&&w[0]!==0x2002&&w[0]!==0x3fff&&!(w[0]===0x2001&&(w[1]!<=0x1ff||w[1]===0xdb8))&&!((w[4]===0||w[4]===0x200)&&w[5]===0x5efe);
 }
-function route(operation:RecallWireOperationV1):{method:'GET'|'POST';path:string;body:Buffer}{
+function route(operation:RecallWireOperationV1|QueueWireOperationV1,queue:boolean):{method:'GET'|'POST';path:string;body:Buffer}{
+ if(queue){if(operation.kind!=='queue-enqueue'||!(operation.body instanceof Uint8Array)||!operation.body.length||operation.body.length>4096)return refused();return {method:'POST',path:'/api/v1/tasks/oracle2-meeting-ingress-normalize-v1/trigger',body:Buffer.from(operation.body)};}
+ if(operation.kind==='queue-enqueue')return refused();
  if(operation.kind==='create'){if(!(operation.body instanceof Uint8Array)||!operation.body.length||operation.body.length>65536)return refused();return {method:'POST',path:'/api/v1/bot/',body:Buffer.from(operation.body)};}
  if(!bot.test(operation.botId))return refused();
  if(operation.kind==='leave')return {method:'POST',path:`/api/v1/bot/${operation.botId}/leave_call/`,body:Buffer.alloc(0)};
@@ -50,11 +53,11 @@ function route(operation:RecallWireOperationV1):{method:'GET'|'POST';path:string
 class RecallWireClientV1{
  private dnsBusy=false;private busy=false;
  private readonly ca:Buffer;private readonly fixture:boolean;private readonly fixtureAddress:'127.0.0.1'|'::1';private readonly hostname:string;private readonly port:number;private readonly authorization:string;private readonly der:string;
- constructor(target:RecallWireTargetV1,fixture?:Readonly<{purpose:'invented-loopback-recall-transport-v1';port:number;address:'127.0.0.1'|'::1'}>){
+ constructor(target:RecallWireTargetV1,private readonly queue=false,fixture?:Readonly<{purpose:'invented-loopback-recall-transport-v1';port:number;address:'127.0.0.1'|'::1'}>){
   if(typeof window!=='undefined')throw new Error('Installed Recall operation unavailable');
-  if(!sha.test(target.serverDerSha256)||!(target.ca instanceof Uint8Array)||!target.ca.length||target.ca.length>131072||typeof target.authorization!=='string'||!target.authorization.length||target.authorization.length>4096||/[^\x21-\x7e]/.test(target.authorization))throw new Error('Installed Recall operation unavailable');
-  if(fixture){if(fixture.purpose!=='invented-loopback-recall-transport-v1'||!Number.isSafeInteger(fixture.port)||fixture.port<1||fixture.port>65535||!['127.0.0.1','::1'].includes(fixture.address)||target.hostname!=='localhost.localdomain'||!target.authorization.startsWith('invented-'))throw new Error('Installed Recall operation unavailable');}
-  else if(!regions.has(target.hostname))throw new Error('Installed Recall operation unavailable');
+  if(!sha.test(target.serverDerSha256)||!(target.ca instanceof Uint8Array)||!target.ca.length||target.ca.length>131072||typeof target.authorization!=='string'||!target.authorization.length||target.authorization.length>4096||(queue?!/^Bearer [\x21-\x7e]+$/.test(target.authorization):/[^\x21-\x7e]/.test(target.authorization)))throw new Error('Installed Recall operation unavailable');
+  if(fixture){if(fixture.purpose!=='invented-loopback-recall-transport-v1'||!Number.isSafeInteger(fixture.port)||fixture.port<1||fixture.port>65535||!['127.0.0.1','::1'].includes(fixture.address)||target.hostname!=='localhost.localdomain'||!target.authorization.startsWith(queue?'Bearer invented-':'invented-'))throw new Error('Installed Recall operation unavailable');}
+  else if(queue?target.hostname!=='api.trigger.dev':!regions.has(target.hostname))throw new Error('Installed Recall operation unavailable');
   this.fixture=!!fixture;this.fixtureAddress=fixture?.address??'::1';this.hostname=target.hostname;this.port=fixture?.port??443;this.authorization=target.authorization;this.der=target.serverDerSha256;this.ca=Buffer.from(target.ca);
  }
  private remaining(window:OriginalWireWindowV1):number{
@@ -74,13 +77,13 @@ class RecallWireClientV1{
  private async within<T>(promise:Promise<T>,window:OriginalWireWindowV1):Promise<T>{
   const duration=this.remaining(window);return await new Promise<T>((resolve,reject)=>{let done=false;const finish=(error:unknown,value?:T)=>{if(done)return;done=true;clearTimeout(timer);window.signal.removeEventListener('abort',abort);if(error)reject(new Error('Installed Recall operation unavailable'));else resolve(value!);};const abort=()=>finish(true);const timer=setTimeout(abort,duration);window.signal.addEventListener('abort',abort,{once:true});promise.then(v=>finish(undefined,v),()=>finish(true));});
  }
- async exchange(operation:RecallWireOperationV1,window:OriginalWireWindowV1,beforeWrite:()=>Promise<void>):Promise<Readonly<RecallWireObservationV1>>{
+ async exchange(operation:RecallWireOperationV1|QueueWireOperationV1,window:OriginalWireWindowV1,beforeWrite:()=>Promise<void>):Promise<Readonly<RecallWireObservationV1>>{
   if(this.busy||typeof beforeWrite!=='function')return refused();this.busy=true;
   let connected:tls.TLSSocket|undefined,request:ReturnType<typeof https.request>|undefined,timer:ReturnType<typeof setTimeout>|undefined;
-  const retainedResponse:Buffer[]=[];let observedBytes=0,retainedBytes=0;const maximumRetained=16384+1048576;
+  const retainedResponse:Buffer[]=[];let observedBytes=0,retainedBytes=0;const maximumRetained=16384+(this.queue?4096:1048576);
   const abort=()=>{request?.destroy();connected?.destroy();};
   try{
-   const q=route(operation);this.remaining(window);const answers=await this.addresses(window);this.remaining(window);const selected=answers[0]!;
+   const q=route(operation,this.queue);this.remaining(window);const answers=await this.addresses(window);this.remaining(window);const selected=answers[0]!;
    window.signal.addEventListener('abort',abort,{once:true});timer=setTimeout(abort,this.remaining(window));
    connected=tls.connect({host:selected.address,port:this.port,servername:this.hostname,ca:this.ca,rejectUnauthorized:true,minVersion:'TLSv1.2',ALPNProtocols:['http/1.1'],checkServerIdentity:(name,certificate)=>tls.checkServerIdentity(name,certificate)??(hash(certificate.raw)===this.der?undefined:new Error('Installed Recall operation unavailable'))});
    connected.on('error',()=>undefined);
@@ -89,7 +92,7 @@ class RecallWireClientV1{
    // AFTER actual verified TLS and immediately BEFORE request bytes exist.
    this.remaining(window);await this.within(beforeWrite(),window);this.remaining(window);
    const socket=connected;socket.destroySoon=()=>socket.end();
-   const wireLimit=16384+1048576;let prefix=Buffer.alloc(0),headerLength:number|undefined,wireSize=0,expectedSize:number|undefined,wireBad=false,peerEnd=false,peerClose=false,closedError=false,responseDone=false,status=0,headers:readonly(readonly[string,string])[]=[],body=Buffer.alloc(0);const wire:Buffer[]=[];
+   const wireLimit=16384+(this.queue?4096:1048576);let prefix=Buffer.alloc(0),headerLength:number|undefined,wireSize=0,expectedSize:number|undefined,wireBad=false,peerEnd=false,peerClose=false,closedError=false,responseDone=false,status=0,headers:readonly(readonly[string,string])[]=[],body=Buffer.alloc(0);const wire:Buffer[]=[];
    let rejectWire:((error:Error)=>void)|undefined;
    const fail=()=>{wireBad=true;rejectWire?.(new Error('Installed Recall operation unavailable'));abort();};
    const observe=(chunk:Buffer)=>{observedBytes+=chunk.length;const keep=Math.min(chunk.length,maximumRetained-retainedBytes);if(keep>0){retainedResponse.push(Buffer.from(chunk.subarray(0,keep)));retainedBytes+=keep;}try{this.remaining(window);wireSize+=chunk.length;if(wireSize>wireLimit)return fail();wire.push(Buffer.from(chunk));if(headerLength===undefined){prefix=Buffer.concat([prefix,chunk]);const end=prefix.indexOf('\r\n\r\n');if(end>=0){headerLength=end+4;if(headerLength>16384)return fail();prefix=Buffer.alloc(0);}else if(prefix.length>16384)return fail();}if(expectedSize!==undefined&&wireSize>expectedSize)return fail();}catch{fail();}};
@@ -102,7 +105,7 @@ class RecallWireClientV1{
     request=https.request({hostname:this.hostname,port:this.port,method:q.method,path:q.path,agent,headers:{Authorization:this.authorization,Accept:'application/json','Content-Type':'application/json','Content-Length':String(q.body.length),Connection:'close'}},response=>{
      try{this.remaining(window);const raw=response.rawHeaders,seen=new Set<string>(),pairs:Array<readonly[string,string]>=[];
       for(let i=0;i<raw.length;i+=2){const name=raw[i]!.toLowerCase(),value=raw[i+1]!;if(seen.has(name))return fail();seen.add(name);pairs.push(Object.freeze([name,value]as const));}
-      const len=response.headers['content-length'];if(typeof len!=='string'||!/^(0|[1-9][0-9]{0,6})$/.test(len)||Number(len)>1048576||response.headers['transfer-encoding']!==undefined||response.headers['content-encoding']!==undefined||headerLength===undefined)return fail();
+      const len=response.headers['content-length'];if(typeof len!=='string'||!/^(0|[1-9][0-9]{0,6})$/.test(len)||Number(len)>(this.queue?4096:1048576)||response.headers['transfer-encoding']!==undefined||response.headers['content-encoding']!==undefined||headerLength===undefined)return fail();
       expectedSize=headerLength+Number(len);if(wireSize>expectedSize)return fail();status=response.statusCode??0;headers=Object.freeze(pairs);if(!Number.isInteger(status)||status<200||status>599)return fail();const chunks:Buffer[]=[];let size=0;
       response.on('data',(chunk:Buffer)=>{try{this.remaining(window);size+=chunk.length;if(size>Number(len))return fail();chunks.push(Buffer.from(chunk));}catch{fail();}});
       response.once('aborted',fail);response.once('error',fail);response.once('end',()=>{try{this.remaining(window);if(!response.complete||size!==Number(len)||Object.keys(response.trailers).length)return fail();body=Buffer.concat(chunks,size);responseDone=true;finish();}catch{fail();}});
@@ -115,4 +118,9 @@ class RecallWireClientV1{
 /** Production constructor never admits private/transition DNS answers. */
 export function installedRecallHTTPSV1(target:RecallWireTargetV1):Pick<RecallWireClientV1,'exchange'>{return new RecallWireClientV1(target);}
 /** Explicit owned synthetic peer only; production owners never call this. */
-export function inventedLoopbackRecallHTTPSV1(target:RecallWireTargetV1,port:number,address:'127.0.0.1'|'::1'='::1'):Pick<RecallWireClientV1,'exchange'>{return new RecallWireClientV1(target,{purpose:'invented-loopback-recall-transport-v1',port,address});}
+export function inventedLoopbackRecallHTTPSV1(target:RecallWireTargetV1,port:number,address:'127.0.0.1'|'::1'='::1'):Pick<RecallWireClientV1,'exchange'>{return new RecallWireClientV1(target,false,{purpose:'invented-loopback-recall-transport-v1',port,address});}
+
+/** Fixed minimal Trigger REST enqueue; SAME bounded DNS/TLS/EOF owner. */
+export function installedTriggerQueueHTTPSV1(target:RecallWireTargetV1):Pick<RecallWireClientV1,'exchange'>{return new RecallWireClientV1(target,true);}
+/** Explicit invented peer; never called by an installed production owner. */
+export function inventedLoopbackTriggerQueueHTTPSV1(target:RecallWireTargetV1,port:number,address:'127.0.0.1'|'::1'='::1'):Pick<RecallWireClientV1,'exchange'>{return new RecallWireClientV1(target,true,{purpose:'invented-loopback-recall-transport-v1',port,address});}
