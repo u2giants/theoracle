@@ -11,6 +11,15 @@ export interface ControlWindow { readonly wall_start: number; readonly wall_end:
 export interface ClockSnapshot { readonly wall: number; readonly mono: bigint; readonly domain: string; }
 const unavailable = (): never => { throw new Error('Replacement control unavailable'); };
 const clock = (): ClockSnapshot => ({wall:Date.now(),mono:process.hrtime.bigint(),domain:`${process.pid}:${performance.timeOrigin}`});
+/** Format a supplied original millisecond instant only; never reads a clock.
+ * Python's canonical UTC omits zero fractions and renders nonzero six digits.
+ */
+export function canonicalInstantV1(milliseconds:number):string{
+  if(typeof milliseconds!=='number'||!Number.isSafeInteger(milliseconds))return unavailable();
+  const value=new Date(milliseconds).toISOString();
+  if(!/^[0-9]{4}-/.test(value)||Number(value.slice(0,4))<1)return unavailable();
+  return value.replace('.000Z','Z').replace(/\.(\d{3})Z$/,'.$1000Z');
+}
 export function captureControlWindow(): Readonly<ControlWindow> {
   const now=clock();return Object.freeze({wall_start:now.wall,wall_end:now.wall+30000,mono_end:String(now.mono+30000000000n),clock_domain:now.domain});
 }

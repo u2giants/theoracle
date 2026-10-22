@@ -4,7 +4,7 @@
 import {performance} from 'node:perf_hooks';
 import {readInstalledMeetingWorkerBinding,canonicalJson,instant,parseClosedJson,canonicalUuid,type MeetingWorkerBinding,type MeetingWorkerPurposeV1,type InstalledBinding} from './protected-server-binding';
 import {protectedRead,sha256,type PinnedFile} from './_protected-file';
-import {remaining,type Window} from './protected-control-window';
+import {remaining,canonicalInstantV1,type Window} from './protected-control-window';
 import {openProtectedChannelV1,current} from './protected-service-channel';
 import {parseMeetingWorkerPacketV1,matchMeetingWorkerPacketV1,type MeetingWorkerPacketV1} from './protected-worker-contract';
 import {installedRecallHTTPSV1,type RecallWireObservationV1,type RecallWireOperationV1} from './protected-node-https';
@@ -24,7 +24,7 @@ class InstalledMeetingWorkerV1 {
   this.window={wall,mono,end:wall+30000,signal:AbortSignal.timeout(30000),proxyMonoEnd:originalMono+30000000000n};
   const installed=readInstalledMeetingWorkerBinding(),p=installed.profile;this.installed=installed;this.effect_purpose=p.effect_purpose;
   this.window.end=Math.min(this.window.end,instant(p.expires_at),instant(p.original_horizon),instant(['capture-create','participation-send'].includes(p.effect_purpose)?p.capture_until:p.stop_until));remaining(this.window);
-  this.original_deadline_v1=new Date(Math.floor(this.window.end)).toISOString().replace('.000Z','Z').replace(/\.(\d{3})Z$/,'.$1000Z');
+  this.original_deadline_v1=canonicalInstantV1(Math.floor(this.window.end));
   this.window.end=instant(this.original_deadline_v1);
   this.providerFiles=[protectedRead(p.provider_ca_file,p.provider_ca_sha256),protectedRead(p.provider_key_file,p.provider_key_sha256)];
   const authorization=new TextDecoder('utf-8',{fatal:true}).decode(this.providerFiles[1]!.bytes);

@@ -5,7 +5,7 @@ export {validateConnectedAnswerQuery,parseConnectedAnswerResponse,type Connected
  */
 import {performance} from 'node:perf_hooks';
 import {canonicalHash,canonicalJson,canonicalUuid,instant,matchesIdentity,parseClosedJson,readInstalledBinding,readInstalledViewerBinding,readInstalledUploadBinding,readInstalledMeetingBinding,readInstalledMeetingIngressBinding,verifyInstalledMeetingIngress,readInstalledModelReviewBinding,readInstalledConversationBinding,readInstalledConnectedAnswerBinding,readInstalledMcpAnswerBinding,MAX_ORIGINAL_BYTES,sha256,type InstalledBinding,type ProtectedBinding,type ViewerSourcePin} from './replacement-server-binding';
-import {isConversationPath,readControlWindow,unavailableControl,privateControlHeaders,remaining,within,type Window} from './replacement-control-window';
+import {isConversationPath,readControlWindow,unavailableControl,privateControlHeaders,remaining,within,canonicalInstantV1,type Window} from './replacement-control-window';
 import {parseConversationResponse,validateConversationRequest,type ConversationPacket} from './replacement-conversation-contract';
 import {UPLOAD_CHUNK_BYTES,UPLOAD_MAX_REQUEST_BYTES,type UploadResponse} from './replacement-upload-contract';
 import {openProtectedChannelV1,current} from '@oracle/shared/protected-service-channel';
@@ -171,12 +171,12 @@ export async function requestReplacementMeetingIngress(request:Request):Promise<
   if(words!==undefined&&(!Array.isArray(words)||words.length>4096))return unavailableControl();
   // Canonical initial absolute deadline is generated once; never renewed. Raw
   // signed provider bytes remain byte-identical inside this closed envelope.
-  const deadline=new Date(Math.floor(window.end)).toISOString().replace(/\.([0-9]{3})Z$/,(_,ms:string)=>`.${ms}000Z`);
+  const deadline=canonicalInstantV1(Math.floor(window.end));
   const body=Buffer.from(canonicalJson({schema_version:1,operation:'ingress',provider_event_id:request.headers.get('webhook-id'),bot_id:(bot as Record<string,unknown>).id,event_kind:e.event,verifier_secret_sha256:p.verifier_secret_sha256,raw_base64:raw.toString('base64'),caller_deadline:deadline}));
   current(installed,window);const result=await transport(installed,body,window);
   if(!('meeting_id' in result)||!('ingress_id' in result)||result.meeting_id!==p.meeting_id||!result.ingress_id)return unavailableControl();
   const lease=instant(result.valid_until);if(lease<=Date.now()||lease>window.end)return unavailableControl();window.end=Math.min(window.end,lease);current(installed,window);
-  return new Response(canonicalJson(result),{status:202,headers:{...privateControlHeaders,'Content-Type':'application/json'}});
+  return new Response(null,{status:202,headers:privateControlHeaders});
  }catch{return unavailableControl();}
 }
 /** Page props use the SAME actual identity owner; never disclose the installed
@@ -235,7 +235,7 @@ async function connectedAnswer(request:Request,channel:'web'|'mcp',suppliedQuery
   const proxy=readControlWindow(request.headers);window.end=Math.min(window.end,proxy.wall_end);window.proxyMonoEnd=BigInt(proxy.mono_end);
   const installed=channel==='web'?readInstalledConnectedAnswerBinding():readInstalledMcpAnswerBinding(),p=installed.profile;window.end=Math.min(window.end,instant(p.expires_at),instant(p.original_horizon));
   origin(request,p);await identity(p,window);current(installed,window);
-  const body=suppliedQuery===undefined?await readBody(request,window):Buffer.from(canonicalJson({schema_version:1,caller_deadline:new Date(Math.floor(window.end)).toISOString(),query:validateConnectedAnswerQuery(suppliedQuery)}));
+  const body=suppliedQuery===undefined?await readBody(request,window):Buffer.from(canonicalJson({schema_version:1,caller_deadline:canonicalInstantV1(Math.floor(window.end)),query:validateConnectedAnswerQuery(suppliedQuery)}));
   const wire=parseClosedJson(body,65536);
   if(!exact(wire,['schema_version','caller_deadline','query'])||wire.schema_version!==1||canonicalJson(wire)!==body.toString('utf8'))return unavailableControl();
   const q=validateConnectedAnswerQuery(wire.query),deadline=instant(wire.caller_deadline);if(deadline<=Date.now()||deadline>window.end)return unavailableControl();window.end=Math.min(window.end,deadline);

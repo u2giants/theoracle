@@ -25,8 +25,14 @@ export function beginWorkerReceiptV1(profile:Readonly<MeetingWorkerBinding>,clai
   fd=openSync(path,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
   let offset=0;while(offset<bytes.length){const count=writeSync(fd,bytes,offset,bytes.length-offset);if(count<=0)return fail();offset+=count;}
   fsyncSync(fd);fsyncSync(dir);root(profile);
+  // The path may have undergone ABA while O_EXCL created a different file.
+  // Keep the newly created descriptor open until the final path read proves
+  // this SAME inode/stat, never a preexisting same-digest execution receipt.
+  const created=fstatSync(fd),identity=(s:typeof created)=>[s.dev,s.ino,s.mode,s.uid,s.nlink,s.size,s.ctimeMs,s.mtimeMs].join(':');
+  const receipt=protectedRead(path,sha256(bytes)),after=fstatSync(fd),named=lstatSync(path);
+  if(identity(created)!==identity(after)||identity(created)!==identity(named)||created.gid!==after.gid||created.gid!==named.gid||!receipt.identity.endsWith('|'+identity(created)))return fail();
+  return receipt;
  }finally{if(fd!==undefined)closeSync(fd);if(dir!==undefined)closeSync(dir);}
- return protectedRead(path,sha256(bytes));
 }
 export function currentWorkerReceiptV1(profile:Readonly<MeetingWorkerBinding>,receipt:PinnedFile):void{
  root(profile);const current=protectedRead(receipt.path,receipt.digest);

@@ -22,3 +22,10 @@ test('missing, duplicate, unknown, malformed, noncanonical, stale and foreign pr
   assert.throws(()=>readControlWindow(new Headers()));
   for(const value of ['{}',canonicalJson({...window,actor:'never-authority'}),canonicalJson({...window,clock_domain:'999999999:1'}),canonicalJson({...window,wall_end:window.wall_end+1}),canonicalJson({...window,wall_start:true}),canonicalJson({...window,mono_end:'Infinity'}),'{ '+canonicalJson(window).slice(1),canonicalJson(window)+','+canonicalJson(window),'{"x":1,"x":2}'])assert.throws(()=>readControlWindow(new Headers({[CONTROL_WINDOW_HEADER]:value})));
 });
+
+test('canonical original instant formatter omits zero fractions and preserves nonzero milliseconds',async()=>{
+ const {canonicalInstantV1}=await import('./replacement-control-window');const base=Date.parse('2026-10-21T00:00:00Z');
+ for(const [offset,value]of [[0,'2026-10-21T00:00:00Z'],[1,'2026-10-21T00:00:00.001000Z'],[123,'2026-10-21T00:00:00.123000Z'],[999,'2026-10-21T00:00:00.999000Z']]as const)assert.equal(canonicalInstantV1(base+offset),value);
+ const original=Date.now;try{Date.now=()=>{throw new Error('formatter must not capture or renew a clock')};assert.equal(canonicalInstantV1(base),'2026-10-21T00:00:00Z');}finally{Date.now=original;}
+ for(const invalid of [NaN,Infinity,1.5,'1',true,null,Date.parse('0000-01-01T00:00:00Z'),8640000000000000])assert.throws(()=>canonicalInstantV1(invalid as number));
+});

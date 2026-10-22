@@ -105,8 +105,12 @@ test('installed provider purpose has no employee project cookie or source grant'
  for(const patch of [{auth_user_id:id},{employee_id:employee},{project_url:fixture.project},{web_origin:'https://web.example.test'},{ingress_path:'/arbitrary'},{role:'admin'}])assert.throws(()=>validateMeetingBinding({...binding,...patch},true));
 });
 test('actual mTLS preserves exact signed bytes and durable opaque receipt with zero employee auth',async()=>{
- const bytes=raw(),response=await requestReplacementMeetingIngress(request(bytes));assert.equal(response.status,202);const result=await response.json();assert.equal(result.ingress_id,employee);assert.equal(result.qualification,false);assert.equal(result.remote_stop_proven,false);assert.equal(Object.keys(result).length,11);assert.equal(fixture.calls,0);
- const wire=JSON.parse(received.at(-1)!.toString());assert.deepEqual(Buffer.from(wire.raw_base64,'base64'),bytes);assert.equal(wire.verifier_secret_sha256,binding.verifier_secret_sha256);assert.equal(wire.operation,'ingress');assert.match(wire.caller_deadline,/\.\d{6}Z$/);assert.equal(Object.keys(wire).length,8);
+ const bytes=raw(),response=await requestReplacementMeetingIngress(request(bytes));assert.equal(response.status,202);assert.equal(await response.text(),'');assert.equal(response.headers.get('content-type'),null);assert.equal(response.headers.get('cache-control'),'private, no-store, max-age=0');assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.equal(fixture.calls,0);
+ const wire=JSON.parse(received.at(-1)!.toString());assert.deepEqual(Buffer.from(wire.raw_base64,'base64'),bytes);assert.equal(wire.verifier_secret_sha256,binding.verifier_secret_sha256);assert.equal(wire.operation,'ingress');assert.match(wire.caller_deadline,/\d{2}(?:\.(?!000000)\d{6})?Z$/);assert.equal(Object.keys(wire).length,8);
+});
+test('actual signed ingress at exact second preserves canonical original UTC and zero employee auth',async()=>{
+ const original=Date.now,captured=Math.floor(original()/1000)*1000;
+ try{Date.now=()=>captured;const response=await requestReplacementMeetingIngress(request());assert.equal(response.status,202);const wire=JSON.parse(received.at(-1)!.toString());assert.equal(wire.caller_deadline,new Date(captured+30000).toISOString().replace('.000Z','Z'));assert.equal(fixture.calls,0);}finally{Date.now=original;}
 });
 test('bad signatures timestamp families and canonical provider identity deny before outbound',async()=>{
  const count=requests;
