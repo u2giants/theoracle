@@ -24,5 +24,5 @@ export default defineConfig({
   dirs: ['./src/trigger'],
   // Oracle 2 tasks belong to separately credentialed preview deployments.
   // Never bundle them into the legacy project's credential-bearing runtime.
-  ignorePatterns: ['**/oracle2-run.ts', '**/oracle2-project.ts', '**/oracle2-holistic.ts', '**/oracle2-operating-model.ts', '**/oracle2-native-invented.ts', '**/oracle2-native-invented-v2.ts'],
+  ignorePatterns: ['**/oracle2-run.ts', '**/oracle2-project.ts', '**/oracle2-holistic.ts', '**/oracle2-operating-model.ts', '**/oracle2-native-invented.ts', '**/oracle2-native-invented-v2.ts', '**/oracle2-meeting-capture-create.ts', '**/oracle2-meeting-capture-leave.ts', '**/oracle2-meeting-capture-retrieve-pre-stop.ts', '**/oracle2-meeting-capture-retrieve-post-stop.ts', '**/oracle2-meeting-participation.ts', '**/oracle2-meeting-ingress-normalize.ts', '**/oracle2-meeting-outbox-pump.ts'],
 });

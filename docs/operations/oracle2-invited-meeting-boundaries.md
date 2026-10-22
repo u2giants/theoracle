@@ -229,3 +229,66 @@ acceptance remain separate unfinished deliverables; source preparation cannot
 close #31/#24 or any live/company/business obligation. Raw x-trigger-jwt response
 headers remain private custody only; public closed observations expose no token
 and explicitly state task_completed_proven:false and remote_stop_proven:false.
+
+
+### Executable supervision and task boundaries
+
+The source-only supervised trial uses actual separate Linux scheduler and STOP
+processes, an independently pinned V2 observer/signing role, current own SQL,
+Python mTLS services and an invented provider TLS peer. Its seven-case receipt
+binds the exact full executed source population and independently absent owned
+containers, networks, volumes, child processes and Unix sockets. It is not an
+installed supervisor, real provider/employee session or business acceptance.
+
+A process that has started is only prepared. Running health additionally requires
+its exact PID/UID, start ticks, executable/command/runtime/config and socket
+identity, armed next poll, no busy/error/uncertain state and a fresh successful
+own due-queue read. The observer checks those independently before signing and
+again for currentness after provider TLS, before Authorization/request bytes.
+The witness remains fresh for at most two seconds. Socket presence, a database
+row, self-reported health and a provider ACK do not replace this observation.
+
+All process profiles, action windows, STOP relation and margin are independently
+installed before invitation. The margin covers poll plus the original STOP
+operation plus safety allowance. The demonstrated positive configuration is
+poll 2 seconds, one STOP request 10 seconds and safety 1 second: margin 13
+seconds, with at most 30 read-only waits of 75 milliseconds. This is one supported
+invented configuration, not an availability qualification of every poll setting.
+Retained 1/3/5 defaults and the aggregate 3-second expiry negatives stay intact.
+The local cycle captures wall and monotonic clocks once before config/private
+pins and includes the due-queue read, pre-stop GET, read-only readiness waits,
+Leave and post-stop GET. No stage, wait, body chunk or recovery renews it.
+
+An authenticated `idle` STOP status with exact nonnull operation, bot and request
+SHA and null claim/body is only ready to prepare. The actual stage still prepares,
+claims globally once and rechecks currentness before provider bytes. Claimed,
+uncertain, terminal or missing descriptors cannot supply readiness. A lost or
+uncertain attempt remains spent across restart/reinstallation; there is no
+automatic POST or GET replay. Leave 200 is only an ACK. Only a complete current
+post-stop receipt, exact body hash and terminal event identity can record
+`terminal_observed`; the retained lifecycle can remain `capture_status_unknown`
+while capture remains closed. Public remote-stop/qualification flags stay false.
+
+The isolated meetings task config permits exactly four capture-stage tasks,
+participation, opaque-ingress normalization and an empty outbox wake. Each has
+30-second maximum duration and one attempt, with no schedule or deployment.
+The legacy config explicitly excludes all seven. A distinct protected target
+profile and exact digest select only this task configuration; missing, expired,
+contradictory or previously used legacy/native target references refuse. The
+source never creates a target or installs its credentials. Actual installed
+Trigger target compatibility and dispatch remain unproven.
+
+Task registration tests use the real pinned SDK catalog and real task callbacks;
+closed payload refusals and missing-installation UNKNOWN are source proof, not
+an actual Trigger run. Actual bundled output excludes web/employee/database and
+legacy credential paths. Participation uses only its separately appointed worker;
+capture-only profiles never gain chat authority. Normalization carries only an
+opaque ingress UUID, and the outbox wake carries no selectors. Queue ACK remains
+an observation of enqueue, not completion of any task or source processing.
+
+Normalization still requires the same durable global ingress fence before any
+intake, actual retained intake receipt or read-only deterministic-key
+reconciliation, and separately appointed current exact reading/review phases.
+There are no future source UUIDs, self-issued phase pins or permission renewal.
+Source links and workspace participant attribution do not prove employee
+membership, original-view rights, generated truth or company acceptance.
