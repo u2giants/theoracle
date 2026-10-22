@@ -19,7 +19,9 @@
     "./protected-client-contracts": "./src/protected-client-contracts.ts",
     "./protected-service-channel": "./src/protected-service-channel.ts",
     "./protected-meeting-worker": "./src/protected-meeting-worker.ts",
-    "./protected-worker-contract": "./src/protected-worker-contract.ts"
+    "./protected-worker-contract": "./src/protected-worker-contract.ts",
+    "./recall-capture-contract": "./src/recall-capture-contract.ts",
+    "./protected-natural-question-contract": "./src/protected-natural-question-contract.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

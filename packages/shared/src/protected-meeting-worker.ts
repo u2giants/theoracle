@@ -1,8 +1,9 @@
+import {validateRecallCaptureCreateBodyV1} from './recall-capture-contract';
 /** Fixed installed service worker. Never employee auth, profile issuance or retry.
  * The sole backend operational owner creates/claims/records actual effects.
  */
 import {performance} from 'node:perf_hooks';
-import {readInstalledMeetingWorkerBinding,canonicalJson,instant,parseClosedJson,canonicalUuid,type MeetingWorkerBinding,type MeetingWorkerPurposeV1,type InstalledBinding} from './protected-server-binding';
+import {readInstalledMeetingWorkerBinding,readInstalledMeetingCaptureCreateWorkerBinding,readInstalledMeetingCaptureLeaveWorkerBinding,readInstalledMeetingCapturePreStopRetrieveWorkerBinding,readInstalledMeetingCapturePostStopRetrieveWorkerBinding,readInstalledMeetingParticipationWorkerBinding,canonicalJson,instant,parseClosedJson,canonicalUuid,type MeetingWorkerBinding,type MeetingWorkerPurposeV1,type InstalledBinding} from './protected-server-binding';
 import {protectedRead,sha256,type PinnedFile} from './_protected-file';
 import {remaining,canonicalInstantV1,type Window} from './protected-control-window';
 import {openProtectedChannelV1,current} from './protected-service-channel';
@@ -18,11 +19,11 @@ class InstalledMeetingWorkerV1 {
  private prepared:Readonly<MeetingWorkerPacketV1>|undefined;private claimed:Readonly<MeetingWorkerPacketV1>|undefined;
  private prepareUsed=false;private claimUsed=false;private exchangeUsed=false;private observeUsed=false;private receipt:PinnedFile|undefined;
  readonly effect_purpose:MeetingWorkerPurposeV1;readonly original_deadline_v1:string;
- constructor(){
+ constructor(kind:'legacy'|'create'|'leave'|'pre-stop-retrieve'|'post-stop-retrieve'|'participation'='legacy'){
   // One original wall/monotonic window exists before any profile/key/body read.
   const wall=Date.now(),mono=performance.now(),originalMono=process.hrtime.bigint();
   this.window={wall,mono,end:wall+30000,signal:AbortSignal.timeout(30000),proxyMonoEnd:originalMono+30000000000n};
-  const installed=readInstalledMeetingWorkerBinding(),p=installed.profile;this.installed=installed;this.effect_purpose=p.effect_purpose;
+  const installed=kind==='create'?readInstalledMeetingCaptureCreateWorkerBinding():kind==='leave'?readInstalledMeetingCaptureLeaveWorkerBinding():kind==='pre-stop-retrieve'?readInstalledMeetingCapturePreStopRetrieveWorkerBinding():kind==='post-stop-retrieve'?readInstalledMeetingCapturePostStopRetrieveWorkerBinding():kind==='participation'?readInstalledMeetingParticipationWorkerBinding():readInstalledMeetingWorkerBinding(),p=installed.profile;this.installed=installed;this.effect_purpose=p.effect_purpose;
   this.window.end=Math.min(this.window.end,instant(p.expires_at),instant(p.original_horizon),instant(['capture-create','participation-send'].includes(p.effect_purpose)?p.capture_until:p.stop_until));remaining(this.window);
   this.original_deadline_v1=canonicalInstantV1(Math.floor(this.window.end));
   this.window.end=instant(this.original_deadline_v1);
@@ -72,7 +73,7 @@ class InstalledMeetingWorkerV1 {
   const p=this.installed.profile;this.receipt=beginWorkerReceiptV1(p,claim);this.check();
   const body=Buffer.from(claim.body_base64!,'base64');if(sha256(body)!==claim.request_sha256)return fail();
   let operation:RecallWireOperationV1;
-  if(p.effect_purpose==='capture-create')operation={kind:'create',body};
+  if(p.effect_purpose==='capture-create'){validateRecallCaptureCreateBodyV1(body);operation={kind:'create',body};}
   else{
    if(!claim.bot_id)return fail();
    operation=p.effect_purpose==='capture-leave'?{kind:'leave',botId:claim.bot_id}:p.effect_purpose==='capture-retrieve'?{kind:'retrieve',botId:claim.bot_id}:{kind:'send-chat',botId:claim.bot_id,body};
@@ -89,3 +90,9 @@ class InstalledMeetingWorkerV1 {
 }
 /** One fixed server configuration, captured once; no caller selectors. */
 export function installedMeetingWorkerV1():InstalledMeetingWorkerV1{return new InstalledMeetingWorkerV1();}
+
+export function installedMeetingCaptureCreateWorkerV1():InstalledMeetingWorkerV1{return new InstalledMeetingWorkerV1('create');}
+export function installedMeetingCaptureLeaveWorkerV1():InstalledMeetingWorkerV1{return new InstalledMeetingWorkerV1('leave');}
+export function installedMeetingCapturePreStopRetrieveWorkerV1():InstalledMeetingWorkerV1{return new InstalledMeetingWorkerV1('pre-stop-retrieve');}
+export function installedMeetingCapturePostStopRetrieveWorkerV1():InstalledMeetingWorkerV1{return new InstalledMeetingWorkerV1('post-stop-retrieve');}
+export function installedMeetingParticipationWorkerV1():InstalledMeetingWorkerV1{return new InstalledMeetingWorkerV1('participation');}

@@ -175,6 +175,11 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,
     'original_corpus_import',after=True)
 DOCUMENTARY=_place_suites(DOCUMENTARY,('purpose_coherent_native_journey',),
     'purpose_context_v2',after=True)
+# Post-main39710636289 exhausted the shared budget during actual Next proof.
+# Its measured sibling worker has35s load; preserve the whole suite, all4699
+# cases, ten workers and the unchanged120s deadline.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('consolidation_next_auth_browser_v1',),
+    'purpose_journey',after=True)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',

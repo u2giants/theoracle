@@ -208,6 +208,7 @@ export interface MeetingWorkerBinding extends Omit<ServerBinding,'purpose'|'cont
  readonly provider_server_der_sha256:string;readonly provider_key_file:string;readonly provider_key_sha256:string;
  readonly operation_policy_sha256:string;readonly composer_program_sha256:string|null;
  readonly create_operation_id:string|null;readonly create_request_sha256:string|null;readonly stop_mapping_sha256:string|null;
+ readonly retrieve_stage?:'pre-stop-consistency'|'post-stop-terminal';readonly retrieve_operation_id?:string;
  readonly capture_until:string;readonly stop_until:string;
  readonly receipt_root:string;readonly receipt_device:number;readonly receipt_inode:number;readonly receipt_uid:number;
  readonly receipt_initialization_file:string;readonly receipt_initialization_sha256:string;
@@ -216,8 +217,10 @@ const workerExtra=['worker_path','worker_id','meeting_id','effect_purpose','work
 export function validateMeetingWorkerBinding(value:unknown):Readonly<MeetingWorkerBinding>{
  const removed=['purpose','control_path','intake_appointment_sha256','peer_profile_sha256','project_url','auth_issuer','auth_user_id','employee_id','web_origin'];
  const keys=[...fields.filter(k=>!removed.includes(k)),'purpose',...workerExtra];
+ if(value&&typeof value==='object'&&(Object.hasOwn(value,'retrieve_stage')||Object.hasOwn(value,'retrieve_operation_id')))keys.push('retrieve_stage','retrieve_operation_id');
  if(!exact(value,keys)||value.schema_version!==1||value.purpose!=='replacement-meeting-worker-binding-v1'||value.worker_path!=='/v1/replacement/meetings/worker')return unavailable();
  validateCommonBinding(value);
+ if(Object.hasOwn(value,'retrieve_stage')&&(value.effect_purpose!=='capture-retrieve'||!['pre-stop-consistency','post-stop-terminal'].includes(String(value.retrieve_stage))||!canonicalUuid(value.retrieve_operation_id)))return unavailable();
  for(const k of ['worker_id','meeting_id'])if(!canonicalUuid(value[k]))return unavailable();
  if(typeof value.effect_purpose!=='string'||!['capture-create','capture-leave','capture-retrieve','participation-send'].includes(value.effect_purpose)||!text(value.provider_account,256)||!['us-west-2','us-east-1','eu-central-1','ap-northeast-1'].includes(String(value.provider_region)))return unavailable();
  if(typeof value.provider_region!=='string')return unavailable();
@@ -257,22 +260,35 @@ export function matchesIdentity(binding: Readonly<Pick<ServerBinding,'project_ur
 
 interface BindingCache { readonly path: string; readonly digest: string; readonly identity: string; readonly profile: Readonly<ProtectedBinding>; readonly files: readonly PinnedFile[] }
 let installed:BindingCache|undefined, viewerInstalled:BindingCache|undefined, reviewInstalled:BindingCache|undefined, uploadInstalled:BindingCache|undefined,conversationInstalled:BindingCache|undefined,meetingInstalled:BindingCache|undefined,meetingIngressInstalled:BindingCache|undefined,meetingWorkerInstalled:BindingCache|undefined,answerInstalled:BindingCache|undefined,mcpAnswerInstalled:BindingCache|undefined;
+type FixedWorkerLoader='meeting-worker-create'|'meeting-worker-leave'|'meeting-worker-pre-stop-retrieve'|'meeting-worker-post-stop-retrieve'|'meeting-worker-participation';
+const fixedWorkerCaches=new Map<FixedWorkerLoader,BindingCache>();
+const workerOrigins=new WeakMap<object,'meeting-worker'|FixedWorkerLoader>();
+const fixedWorkerConfiguration={
+ 'meeting-worker-create':['ORACLE2_MEETING_CREATE_WORKER_BINDING','capture-create',null],
+ 'meeting-worker-leave':['ORACLE2_MEETING_LEAVE_WORKER_BINDING','capture-leave',null],
+ 'meeting-worker-pre-stop-retrieve':['ORACLE2_MEETING_PRE_STOP_RETRIEVE_WORKER_BINDING','capture-retrieve','pre-stop-consistency'],
+ 'meeting-worker-post-stop-retrieve':['ORACLE2_MEETING_POST_STOP_RETRIEVE_WORKER_BINDING','capture-retrieve','post-stop-terminal'],
+ 'meeting-worker-participation':['ORACLE2_MEETING_PARTICIPATION_WORKER_BINDING','participation-send',null],
+} as const;
 export interface InstalledBinding<P extends ProtectedBinding=ServerBinding> { readonly profile: Readonly<P>; readonly ca: Buffer; readonly cert: Buffer; readonly key: Buffer; }
 /** Configuration selectors are read only from server configuration, once per instance.
  * File identity changes refuse even when the replacement has identical bytes.
  * The appointment/peer hashes require independent backend installation; this
  * consumer cannot prove their relationship merely by reading a supplied hash.
  */
-function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'meeting-ingress'|'meeting-worker'|'answer'|'mcp-answer'): InstalledBinding<ProtectedBinding> {
+function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'meeting-ingress'|'meeting-worker'|'answer'|'mcp-answer'|FixedWorkerLoader): InstalledBinding<ProtectedBinding> {
+  const fixedWorker=Object.hasOwn(fixedWorkerConfiguration,purpose)?purpose as FixedWorkerLoader:undefined;
+  const fixed=fixedWorker?fixedWorkerConfiguration[fixedWorker]:undefined;
   const answer=purpose==='answer',mcpAnswer=purpose==='mcp-answer';
   const viewer=purpose==='viewer',upload=purpose==='upload',review=purpose==='review',conversation=purpose==='conversation';
-  const meeting=purpose==='meeting',ingress=purpose==='meeting-ingress',worker=purpose==='meeting-worker';
-  const prior=answer?answerInstalled:mcpAnswer?mcpAnswerInstalled:worker?meetingWorkerInstalled:ingress?meetingIngressInstalled:meeting?meetingInstalled:conversation?conversationInstalled:review?reviewInstalled:upload?uploadInstalled:viewer?viewerInstalled:installed;
-  const path = answer?process.env.ORACLE2_CONNECTED_ANSWER_BINDING_FILE:mcpAnswer?process.env.ORACLE2_MCP_ANSWER_BINDING_FILE:worker?process.env.ORACLE2_MEETING_WORKER_BINDING_FILE:ingress?process.env.ORACLE2_MEETING_INGRESS_BINDING_FILE:meeting?process.env.ORACLE2_MEETING_CONTROL_BINDING_FILE:conversation?process.env.ORACLE2_CONVERSATION_BINDING_FILE:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_FILE:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_FILE:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_FILE:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE;
-  const digest = answer?process.env.ORACLE2_CONNECTED_ANSWER_BINDING_SHA256:mcpAnswer?process.env.ORACLE2_MCP_ANSWER_BINDING_SHA256:worker?process.env.ORACLE2_MEETING_WORKER_BINDING_SHA256:ingress?process.env.ORACLE2_MEETING_INGRESS_BINDING_SHA256:meeting?process.env.ORACLE2_MEETING_CONTROL_BINDING_SHA256:conversation?process.env.ORACLE2_CONVERSATION_BINDING_SHA256:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_SHA256:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_SHA256:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_SHA256:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256;
+  const meeting=purpose==='meeting',ingress=purpose==='meeting-ingress',worker=purpose==='meeting-worker'||fixedWorker!==undefined;
+  const prior=fixedWorker?fixedWorkerCaches.get(fixedWorker):answer?answerInstalled:mcpAnswer?mcpAnswerInstalled:worker?meetingWorkerInstalled:ingress?meetingIngressInstalled:meeting?meetingInstalled:conversation?conversationInstalled:review?reviewInstalled:upload?uploadInstalled:viewer?viewerInstalled:installed;
+  const path = fixed?process.env[fixed[0]+'_FILE']:answer?process.env.ORACLE2_CONNECTED_ANSWER_BINDING_FILE:mcpAnswer?process.env.ORACLE2_MCP_ANSWER_BINDING_FILE:worker?process.env.ORACLE2_MEETING_WORKER_BINDING_FILE:ingress?process.env.ORACLE2_MEETING_INGRESS_BINDING_FILE:meeting?process.env.ORACLE2_MEETING_CONTROL_BINDING_FILE:conversation?process.env.ORACLE2_CONVERSATION_BINDING_FILE:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_FILE:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_FILE:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_FILE:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE;
+  const digest = fixed?process.env[fixed[0]+'_SHA256']:answer?process.env.ORACLE2_CONNECTED_ANSWER_BINDING_SHA256:mcpAnswer?process.env.ORACLE2_MCP_ANSWER_BINDING_SHA256:worker?process.env.ORACLE2_MEETING_WORKER_BINDING_SHA256:ingress?process.env.ORACLE2_MEETING_INGRESS_BINDING_SHA256:meeting?process.env.ORACLE2_MEETING_CONTROL_BINDING_SHA256:conversation?process.env.ORACLE2_CONVERSATION_BINDING_SHA256:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_SHA256:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_SHA256:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_SHA256:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256;
   if (!path || !digest || (prior && (path !== prior.path || digest !== prior.digest))) return unavailable();
   const pinned = protectedRead(path, digest);
   const profile = answer||mcpAnswer?validateConnectedAnswerBinding(parseClosedJson(pinned.bytes,16384),answer?'web':'mcp'):worker?validateMeetingWorkerBinding(parseClosedJson(pinned.bytes,65536)):ingress?validateMeetingBinding(parseClosedJson(pinned.bytes,16384),true):meeting?validateMeetingBinding(parseClosedJson(pinned.bytes,16384),false):conversation?validateConversationBinding(parseClosedJson(pinned.bytes,16384)):review?validateModelReviewBinding(parseClosedJson(pinned.bytes,16384)):upload?validateUploadBinding(parseClosedJson(pinned.bytes,16384)):viewer?validateViewerBinding(parseClosedJson(pinned.bytes,65536)):validateBinding(parseClosedJson(pinned.bytes,16384));
+  if(fixed&&(profile.purpose!=='replacement-meeting-worker-binding-v1'||profile.effect_purpose!==fixed[1]||(profile.retrieve_stage??null)!==fixed[2]))return unavailable();
   const now = Date.now();
   if (now < instant(profile.valid_from) || now >= instant(profile.expires_at) || now >= instant(profile.original_horizon)) return unavailable();
   const files = [protectedRead(profile.server_ca_file,profile.server_ca_sha256),protectedRead(profile.client_certificate_file,profile.client_certificate_sha256),protectedRead(profile.client_key_file,profile.client_key_sha256)];
@@ -281,13 +297,14 @@ function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conv
   if (prior && (prior.identity !== pinned.identity || files.some((f,i) => f.identity !== prior.files[i]!.identity || f.path !== prior.files[i]!.path || f.digest !== prior.files[i]!.digest))) return unavailable();
   const cert = new X509Certificate(files[1]!.bytes);
   if (sha256(cert.raw) !== profile.client_certificate_der_sha256 || !cert.subjectAltName?.split(', ').includes('URI:' + profile.client_uri) || now < Date.parse(cert.validFrom) || now >= Date.parse(cert.validTo)) return unavailable();
-  const others=[installed,viewerInstalled,reviewInstalled,uploadInstalled,conversationInstalled,meetingInstalled,meetingIngressInstalled,meetingWorkerInstalled,answerInstalled,mcpAnswerInstalled].filter(other=>other&&other!==prior);
+  const others=[installed,viewerInstalled,reviewInstalled,uploadInstalled,conversationInstalled,meetingInstalled,meetingIngressInstalled,meetingWorkerInstalled,answerInstalled,mcpAnswerInstalled,...fixedWorkerCaches.values()].filter(other=>other&&other!==prior);
   if(others.some(other=>other&&(profile.client_certificate_der_sha256===other.profile.client_certificate_der_sha256||profile.client_uri===other.profile.client_uri||cert.publicKey.equals(new X509Certificate(other.files[1]!.bytes).publicKey))))return unavailable();
   const key = createPrivateKey(files[2]!.bytes);
   if (!cert.checkPrivateKey(key) || !createPublicKey(key).equals(cert.publicKey)) return unavailable();
   const cache=prior??{path,digest,identity:pinned.identity,profile,files};
-  if(answer)answerInstalled=cache;else if(mcpAnswer)mcpAnswerInstalled=cache;else if(worker)meetingWorkerInstalled=cache;else if(ingress)meetingIngressInstalled=cache;else if(meeting)meetingInstalled=cache;else if(conversation)conversationInstalled=cache;else if(review)reviewInstalled=cache;else if(upload)uploadInstalled=cache;else if(viewer)viewerInstalled=cache;else installed=cache;
-  return { profile: cache.profile, ca: files[0]!.bytes,cert:files[1]!.bytes,key:files[2]!.bytes };
+  if(fixedWorker)fixedWorkerCaches.set(fixedWorker,cache);else if(answer)answerInstalled=cache;else if(mcpAnswer)mcpAnswerInstalled=cache;else if(worker)meetingWorkerInstalled=cache;else if(ingress)meetingIngressInstalled=cache;else if(meeting)meetingInstalled=cache;else if(conversation)conversationInstalled=cache;else if(review)reviewInstalled=cache;else if(upload)uploadInstalled=cache;else if(viewer)viewerInstalled=cache;else installed=cache;
+  const result={profile:cache.profile,ca:files[0]!.bytes,cert:files[1]!.bytes,key:files[2]!.bytes};
+  if(worker)workerOrigins.set(result,fixedWorker??'meeting-worker');return result;
 }
 
 /** Fail closed without exposing protected paths or key/parser diagnostics. */
@@ -339,3 +356,12 @@ export function readInstalledConnectedAnswerBinding():InstalledBinding<Connected
 export function readInstalledMcpAnswerBinding():InstalledBinding<ConnectedAnswerBinding>{
  try{return loadInstalledBinding('mcp-answer') as InstalledBinding<ConnectedAnswerBinding>;}catch{return unavailable();}
 }
+
+/** Closed source-selected consumers; no HTTP or caller-selected profile path. */
+export function readInstalledMeetingCaptureCreateWorkerBinding():InstalledBinding<MeetingWorkerBinding>{try{return loadInstalledBinding('meeting-worker-create') as InstalledBinding<MeetingWorkerBinding>;}catch{return unavailable();}}
+export function readInstalledMeetingCaptureLeaveWorkerBinding():InstalledBinding<MeetingWorkerBinding>{try{return loadInstalledBinding('meeting-worker-leave') as InstalledBinding<MeetingWorkerBinding>;}catch{return unavailable();}}
+export function readInstalledMeetingCapturePreStopRetrieveWorkerBinding():InstalledBinding<MeetingWorkerBinding>{try{return loadInstalledBinding('meeting-worker-pre-stop-retrieve') as InstalledBinding<MeetingWorkerBinding>;}catch{return unavailable();}}
+export function readInstalledMeetingCapturePostStopRetrieveWorkerBinding():InstalledBinding<MeetingWorkerBinding>{try{return loadInstalledBinding('meeting-worker-post-stop-retrieve') as InstalledBinding<MeetingWorkerBinding>;}catch{return unavailable();}}
+export function readInstalledMeetingParticipationWorkerBinding():InstalledBinding<MeetingWorkerBinding>{try{return loadInstalledBinding('meeting-worker-participation') as InstalledBinding<MeetingWorkerBinding>;}catch{return unavailable();}}
+/** Only actual objects made by this owner carry their private loader identity. */
+export function rereadInstalledMeetingWorkerBinding(initial:InstalledBinding<MeetingWorkerBinding>):InstalledBinding<MeetingWorkerBinding>{const origin=workerOrigins.get(initial);if(!origin)return unavailable();try{return loadInstalledBinding(origin) as InstalledBinding<MeetingWorkerBinding>;}catch{return unavailable();}}

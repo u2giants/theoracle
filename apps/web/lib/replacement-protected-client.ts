@@ -1,4 +1,6 @@
 import {validateConnectedAnswerQuery,type ConnectedAnswerPacket} from '@oracle/shared/protected-client-contracts';
+import {validateNaturalQuestionV1,naturalQuerySHA256V1,type NaturalQuestionV1} from '@oracle/shared/protected-natural-question-contract';
+export {validateNaturalQuestionV1,parseNaturalAnswerResponseV1,type NaturalAnswerPacketV1} from '@oracle/shared/protected-natural-question-contract';
 export {validateConnectedAnswerQuery,parseConnectedAnswerResponse,type ConnectedAnswerPacket} from '@oracle/shared/protected-client-contracts';
 /** Web-only verified Supabase/employee adapter and retained public wrappers.
  * All wire, protected-file, closed payload and original clock owners are shared.
@@ -229,23 +231,32 @@ export async function authenticatedConnectedAnswerChannel(request:Request,channe
   origin(request,installed.profile);await identity(installed.profile,window);current(installed,window);remaining(window);return true;
  }catch{return false;}
 }
-async function connectedAnswer(request:Request,channel:'web'|'mcp',suppliedQuery?:unknown):Promise<Response>{
+async function connectedAnswer(request:Request,channel:'web'|'mcp',supplied?:{kind:'legacy';query:unknown}|{kind:'natural';question:string}):Promise<Response>{
  const wall=Date.now(),mono=performance.now(),window:Window={wall,mono,end:wall+30000,signal:request.signal,proxyMonoEnd:process.hrtime.bigint()+30000000000n};
  try{
   const proxy=readControlWindow(request.headers);window.end=Math.min(window.end,proxy.wall_end);window.proxyMonoEnd=BigInt(proxy.mono_end);
   const installed=channel==='web'?readInstalledConnectedAnswerBinding():readInstalledMcpAnswerBinding(),p=installed.profile;window.end=Math.min(window.end,instant(p.expires_at),instant(p.original_horizon));
   origin(request,p);await identity(p,window);current(installed,window);
-  const body=suppliedQuery===undefined?await readBody(request,window):Buffer.from(canonicalJson({schema_version:1,caller_deadline:canonicalInstantV1(Math.floor(window.end)),query:validateConnectedAnswerQuery(suppliedQuery)}));
+  const body=supplied===undefined?await readBody(request,window):Buffer.from(canonicalJson(supplied.kind==='legacy'
+   ?{schema_version:1,caller_deadline:canonicalInstantV1(Math.floor(window.end)),query:validateConnectedAnswerQuery(supplied.query)}
+   :validateNaturalQuestionV1({schema_version:1,protocol:'qualified-natural-question-v1',caller_deadline:canonicalInstantV1(Math.floor(window.end)),question:supplied.question})));
   const wire=parseClosedJson(body,65536);
-  if(!exact(wire,['schema_version','caller_deadline','query'])||wire.schema_version!==1||canonicalJson(wire)!==body.toString('utf8'))return unavailableControl();
-  const q=validateConnectedAnswerQuery(wire.query),deadline=instant(wire.caller_deadline);if(deadline<=Date.now()||deadline>window.end)return unavailableControl();window.end=Math.min(window.end,deadline);
+  if(!wire||typeof wire!=='object'||Array.isArray(wire)||canonicalJson(wire)!==body.toString('utf8'))return unavailableControl();
+  const natural=Object.hasOwn(wire,'protocol');let original:NaturalQuestionV1|undefined;let q:Readonly<Record<string,unknown>>|undefined;
+  if(natural)original=validateNaturalQuestionV1(wire);
+  else{if(!exact(wire,['schema_version','caller_deadline','query'])||wire.schema_version!==1)return unavailableControl();q=validateConnectedAnswerQuery(wire.query);}
+  const expectedQuerySHA=original?naturalQuerySHA256V1(original):sha256(Buffer.from(canonicalJson(q)));
+  const deadline=instant(original?original.caller_deadline:(wire as Record<string,unknown>).caller_deadline);if(deadline<=Date.now()||deadline>window.end)return unavailableControl();window.end=Math.min(window.end,deadline);
   current(installed,window);await identity(p,window);current(installed,window);
   const value=await transport(installed,body,window);
-  if(!('protocol'in value)||value.protocol!=='qualified-connected-answer-v1'||value.channel!==channel||value.principal_id!==p.principal_id||value.workspace_id!==p.workspace_id||value.model_id!==p.model_id||value.query_sha256!==sha256(Buffer.from(canonicalJson(q)))||value.answer.mode!==q.mode||(q.expected_version!==null&&value.answer.model_version!==q.expected_version))return unavailableControl();
+  if(!('protocol'in value)||!(value.protocol==='qualified-connected-answer-v1'||value.protocol==='qualified-natural-answer-v1')||value.channel!==channel||value.principal_id!==p.principal_id||value.workspace_id!==p.workspace_id||value.model_id!==p.model_id||value.query_sha256!==expectedQuerySHA)return unavailableControl();
+  if(natural){if(value.protocol!=='qualified-natural-answer-v1'||value.request_sha256!==sha256(body))return unavailableControl();}
+  else if(value.protocol!=='qualified-connected-answer-v1'||!q||value.answer.mode!==q.mode||(q.expected_version!==null&&value.answer.model_version!==q.expected_version))return unavailableControl();
   const end=instant(value.expires_at);if(end<=Date.now()||end>window.end||instant(value.checked_at)>Date.now())return unavailableControl();window.end=Math.min(window.end,end);
   current(installed,window);await identity(p,window);current(installed,window);remaining(window);
   return new Response(canonicalJson(value),{status:200,headers:{...privateControlHeaders,'Content-Type':'application/json'}});
  }catch{return unavailableControl();}
 }
 export async function requestConnectedAnswer(request:Request):Promise<Response>{return connectedAnswer(request,'web');}
-export async function requestEmployeeMcpAnswer(request:Request,query:unknown):Promise<Response>{return connectedAnswer(request,'mcp',query);}
+export async function requestEmployeeMcpAnswer(request:Request,query:unknown):Promise<Response>{return connectedAnswer(request,'mcp',{kind:'legacy',query});}
+export async function requestEmployeeMcpQuestion(request:Request,question:string):Promise<Response>{return connectedAnswer(request,'mcp',{kind:'natural',question});}
