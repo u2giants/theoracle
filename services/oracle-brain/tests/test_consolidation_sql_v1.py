@@ -383,7 +383,9 @@ def original_sql_qualified_fixture_v3(monkeypatch,*,lifetime_seconds):
             observations.append(create_observation(receipt,item.occurrence_key,item.kind,item.scope,item.value,(quote,)))
         return tuple(observations),tuple({'source_refs':[o.ref.model_dump(mode='json')],'observations':[o.model_dump(mode='json')],'findings':[]} for o in observations)
     monkeypatch.setattr(foundation,'invented_inputs',valid_inputs)
-    return qualified_v3.__wrapped__(foundation.original_context_v1(lifetime_seconds=lifetime_seconds))
+    from test_purpose_qualification_v3 import original_qualified_fixture_v3
+    return original_qualified_fixture_v3(foundation.original_context_v1(lifetime_seconds=lifetime_seconds),
+        admission_lifetime_seconds=25 if lifetime_seconds==30 else 115)
 
 
 @pytest.fixture

@@ -30,8 +30,9 @@ def phase_commit(phase,ctx,*,actor,login,runtime,permission,context_hash,job_has
         budget_identity_hash='f'*64,raw_response_hash=raw_hash,native_custody_receipt_hash='0'*64,committed_at=at)
 
 
-@pytest.fixture
-def qualified_v3(context):
+def original_qualified_fixture_v3(context,*,admission_lifetime_seconds):
+    if type(admission_lifetime_seconds) is not int or admission_lifetime_seconds not in (25,115):
+        raise ValueError("fixed fresh invented semantic lifetimes only")
     ctx,model,now=make_v2(context)
     census_commit=phase_commit('census',ctx,actor=uuid4(),login='census_fixture',runtime='3'*64,
         permission='4'*64,context_hash='5'*64,job_hash='6'*64,request_hash='7'*64,raw_hash='8'*64,at=ctx.census.frozen_at)
@@ -76,7 +77,7 @@ def qualified_v3(context):
         census_hash=sealed(census),assessment_hash=sealed(assessment),candidate_hash=captured.candidate_hash,
         permission_hash=assessment.permission_hash,reviewer_report_hash='c'*64,object_evidence_hash=captured.object_evidence_hash,
         candidate_created_at=observed.observed_at,implementer_actor=ctx.actor_id,assessor_actor=assessor,candidate_model='openai/gpt-6.1-sol',
-        purpose='independent-source-semantic-acceptance',expires_at=now+timedelta(seconds=25),final_envelope_hash=digest(core),
+        purpose='independent-source-semantic-acceptance',expires_at=now+timedelta(seconds=admission_lifetime_seconds),final_envelope_hash=digest(core),
         context_hash=sealed(ctx),handoff_hash=sealed(ctx.handoff),compiler_actor=uuid4(),compiler_login='compiler_fixture',
         compiler_permission_hash='d'*64,assembly_permission_hash=ctx.job.permission_hash,assembly_runtime_hash=ctx.runtime_hash,
         assessment_runtime_hash=assessment_commit.runtime_hash,census_commit_hash=sealed(census_commit),
@@ -96,6 +97,10 @@ def qualified_v3(context):
         current_source_identity=lambda w,p,s:refs[s],current_extraction_seal=lambda w,p,a,v:seals[(a,v)],
         admission=admission,commits=commits,wire=wire,assessment=assessment)
 
+
+@pytest.fixture
+def qualified_v3(context):
+    return original_qualified_fixture_v3(context,admission_lifetime_seconds=25)
 
 def serving(q):
     return {k:v for k,v in q.items() if k not in {'admission','commits','wire','assessment'}}
