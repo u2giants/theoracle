@@ -52,7 +52,7 @@ const server=https.createServer({key:readFileSync(meta.server_key_file),cert:rea
    const bytes=Buffer.from(await request.arrayBuffer());const json=JSON.parse(bytes.toString());operations.push(json.method??json.query?.mode??'unknown');
    const rewritten=new Request(request.url,{method:'POST',headers:h,body:bytes});response=incoming.url==='/api/consultant/mcp/mcp'?await mcp.POST(rewritten):await route.POST(rewritten);
   }else response=forward;
-  statuses.push(response.status);outgoing.writeHead(response.status,Object.fromEntries(response.headers));outgoing.end(Buffer.from(await response.arrayBuffer()));
+  statuses.push(response.status);writeFileSync(join(meta.scratch,'http-progress.json'),JSON.stringify({statuses,operations}),{mode:0o600});outgoing.writeHead(response.status,Object.fromEntries(response.headers));outgoing.end(Buffer.from(await response.arrayBuffer()));
  }catch(error){writeFileSync(join(meta.scratch,'web-error.txt'),String(error));outgoing.writeHead(503,{'Cache-Control':'no-store'});outgoing.end();}
 });
 await new Promise<void>(r=>server.listen(0,'::1',r));const address=server.address();assert.ok(address&&typeof address!=='string');const origin='https://localhost.localdomain:'+address.port;

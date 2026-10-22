@@ -138,6 +138,14 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
           mcp_server=protected_connected_answer_server_v1(mcp_settings)
           # Private invented-fixture diagnostics observe the SAME real method;
           # they neither replace authorization nor turn a refusal into success.
+          web_owned=server.answer_owned_loop.service
+          actual_web_handler=web_owned.handle_answer_v1
+          async def observed_web_handler(raw):
+           try:return await actual_web_handler(raw)
+           except Exception as error:
+            path=tmp_path/'web-owned-refusal.json';path.write_text(json.dumps(dict(type=type(error).__name__,reason=str(error))));path.chmod(0o600)
+            raise
+          web_owned.handle_answer_v1=observed_web_handler
           mcp_owned=mcp_server.answer_owned_loop.service
           actual_mcp_handler=mcp_owned.handle_answer_v1
           async def observed_mcp_handler(raw):
