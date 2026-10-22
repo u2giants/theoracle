@@ -1,6 +1,7 @@
 import {validateConnectedAnswerQuery,type ConnectedAnswerPacket} from '@oracle/shared/protected-client-contracts';
 import {validateNaturalQuestionV1,naturalQuerySHA256V1,type NaturalQuestionV1} from '@oracle/shared/protected-natural-question-contract';
 import {validateIndustryQuestionV1,industryQuerySHA256V1,type IndustryQuestionV1} from '@oracle/shared/protected-natural-question-contract';
+import {validateWorkspaceQuestionV1,workspaceQuerySHA256V1,type WorkspaceQuestionV1} from '@oracle/shared/protected-natural-question-contract';
 export {validateNaturalQuestionV1,parseNaturalAnswerResponseV1,type NaturalAnswerPacketV1} from '@oracle/shared/protected-natural-question-contract';
 export {validateConnectedAnswerQuery,parseConnectedAnswerResponse,type ConnectedAnswerPacket} from '@oracle/shared/protected-client-contracts';
 /** Web-only verified Supabase/employee adapter and retained public wrappers.
@@ -257,16 +258,19 @@ async function connectedAnswer(request:Request,channel:'web'|'mcp',supplied?:{ki
   phase='request-schema';const wire=parseClosedJson(body,65536);
   if(!wire||typeof wire!=='object'||Array.isArray(wire)||canonicalJson(wire)!==body.toString('utf8'))return refuse();
   const industry=(wire as Record<string,unknown>).protocol==='qualified-industry-question-v1';
-  const natural=Object.hasOwn(wire,'protocol')&&!industry;let original:NaturalQuestionV1|undefined;let research:IndustryQuestionV1|undefined;let q:Readonly<Record<string,unknown>>|undefined;
-  if(industry)research=validateIndustryQuestionV1(wire);
+  const workspace=(wire as Record<string,unknown>).protocol==='qualified-workspace-question-v1';
+  const natural=Object.hasOwn(wire,'protocol')&&!industry&&!workspace;let original:NaturalQuestionV1|undefined;let research:IndustryQuestionV1|undefined;let overview:WorkspaceQuestionV1|undefined;let q:Readonly<Record<string,unknown>>|undefined;
+  if(workspace)overview=validateWorkspaceQuestionV1(wire);
+  else if(industry)research=validateIndustryQuestionV1(wire);
   else if(natural)original=validateNaturalQuestionV1(wire);
   else{if(!exact(wire,['schema_version','caller_deadline','query'])||wire.schema_version!==1)return refuse();q=validateConnectedAnswerQuery(wire.query);}
-  const expectedQuerySHA=research?industryQuerySHA256V1(research):original?naturalQuerySHA256V1(original):sha256(Buffer.from(canonicalJson(q)));
-  const deadline=instant(research?research.caller_deadline:original?original.caller_deadline:(wire as Record<string,unknown>).caller_deadline);if(deadline<=Date.now()||deadline>window.end)return refuse();window.end=Math.min(window.end,deadline);
+  const expectedQuerySHA=overview?workspaceQuerySHA256V1(overview):research?industryQuerySHA256V1(research):original?naturalQuerySHA256V1(original):sha256(Buffer.from(canonicalJson(q)));
+  const deadline=instant(overview?overview.caller_deadline:research?research.caller_deadline:original?original.caller_deadline:(wire as Record<string,unknown>).caller_deadline);if(deadline<=Date.now()||deadline>window.end)return refuse();window.end=Math.min(window.end,deadline);
   current(installed,window);await identity(p,window);current(installed,window);
   phase='protected-transport';const value=await transport(installed,body,window);
-  phase='response-binding';if(!('protocol'in value)||!(value.protocol==='qualified-connected-answer-v1'||value.protocol==='qualified-natural-answer-v1'||value.protocol==='qualified-industry-answer-v1')||value.channel!==channel||value.principal_id!==p.principal_id||value.workspace_id!==p.workspace_id||value.model_id!==p.model_id||value.query_sha256!==expectedQuerySHA)return refuse();
-  if(industry){if(value.protocol!=='qualified-industry-answer-v1'||!research||value.operation!==research.operation||value.decision_id!==research.decision_id||value.request_sha256!==sha256(body))return refuse();}
+  phase='response-binding';if(!('protocol'in value)||!(value.protocol==='qualified-connected-answer-v1'||value.protocol==='qualified-natural-answer-v1'||value.protocol==='qualified-industry-answer-v1'||value.protocol==='qualified-workspace-answer-v1')||value.channel!==channel||value.principal_id!==p.principal_id||value.workspace_id!==p.workspace_id||value.model_id!==p.model_id||value.query_sha256!==expectedQuerySHA)return refuse();
+  if(workspace){if(value.protocol!=='qualified-workspace-answer-v1'||!overview||value.operation!==overview.operation||value.process_id!==overview.process_id||value.page!==overview.page||value.request_sha256!==sha256(body))return refuse();}
+  else if(industry){if(value.protocol!=='qualified-industry-answer-v1'||!research||value.operation!==research.operation||value.decision_id!==research.decision_id||value.request_sha256!==sha256(body))return refuse();}
   else if(natural){if(value.protocol!=='qualified-natural-answer-v1'||value.request_sha256!==sha256(body))return refuse();}
   else if(value.protocol!=='qualified-connected-answer-v1'||!q||value.answer.mode!==q.mode||(q.expected_version!==null&&value.answer.model_version!==q.expected_version))return refuse();
   phase='response-deadline';const end=instant(value.expires_at);if(end<=Date.now()||end>window.end||instant(value.checked_at)>Date.now())return refuse();window.end=Math.min(window.end,end);

@@ -119,6 +119,27 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
           assert missing_status==200,missing_wire
           missing=json.loads(missing_wire)
           assert missing['answer']['state']=='missing' and missing['answer']['records']==[]
+         if proof_scope=='workspace':
+          from oracle_brain.hosting.qualified_workspace_v1 import WorkspaceRequestV1
+          def workspace_request(operation='overview',process=None):
+           return canonical_bytes(WorkspaceRequestV1(protocol='qualified-workspace-question-v1',operation=operation,process_id=process,page=0,caller_deadline=datetime.now(timezone.utc)+timedelta(seconds=11)).model_dump(mode='json'))
+          process_id=payload['consolidation_core']['model']['processes'][0]['process_id']
+          for operation,selected in [('overview',None),('process',process_id)]:
+           original=workspace_request(operation,selected);workspace_status,workspace_wire=tls_request(server,certificates,original)
+           assert workspace_status==200,workspace_wire
+           actual=json.loads(workspace_wire)
+           assert actual['protocol']=='qualified-workspace-answer-v1' and actual['operation']==operation
+           assert actual['principal_id']==str(h['actor']) and actual['request_sha256']==hashlib.sha256(original).hexdigest()
+           assert actual['result']['process_count']==len(payload['consolidation_core']['model']['processes'])
+           assert actual['result']['company_wide_completeness_verified'] is False and actual['result']['source_health_observed'] is False
+           if selected is not None:assert actual['result']['selected_process']['process_id']==selected
+           response_path=tmp_path/('workspace-'+operation+'.json');response_path.write_bytes(workspace_wire);response_path.chmod(0o600)
+           project_root=Path(__file__).resolve().parents[3]
+           with (tmp_path/('workspace-'+operation+'-decode.txt')).open('w') as decoder_log:
+            checked=subprocess.run(['pnpm','--filter','@oracle/web','exec','tsx','lib/__verify__/qualified-workspace-wire.ts',str(response_path)],cwd=project_root,env={**os.environ},stdout=decoder_log,stderr=subprocess.STDOUT,timeout=10)
+           assert checked.returncode==0,(tmp_path/('workspace-'+operation+'-decode.txt')).read_text()
+          assert tls_request(server,certificates,workspace_request(),client='other')[0]==503
+          assert tls_request(server,certificates,workspace_request('process','not-in-this-model'))[0]==503
          assert public['retained_projection_lease_until']==body['lease_until']
          assert tls_request(server,certificates,request(),client='other')[0]==503
          (tmp_path/'actual-answer-response.json').write_bytes(wire)
@@ -165,7 +186,6 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
             assert direct_response.status==200,direct_wire
             assert json.loads(direct_wire)['channel']=='mcp'
            finally:direct.close()
-           import os
            expected=[]
            for process in payload['consolidation_core']['model']['processes']:
             ids=set(process['observation_ids'])
@@ -189,6 +209,9 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
 
          with psycopg.connect(admin_url) as c:c.execute('INSERT INTO oracle2.processing_model_admission_revocations_v1 VALUES(%s,clock_timestamp())',(h['aid'],))
          status,wire=tls_request(server,certificates,request());assert status==503 and b'reported_step' not in wire
+         if proof_scope=='workspace':
+          denied_status,denied_wire=tls_request(server,certificates,workspace_request())
+          assert denied_status==503 and b'qualified-workspace-answer-v1' not in denied_wire
          from oracle_brain.hosting.conversation_answer_v1 import ConversationAnswerV1
          revoked_interview=ConversationAnswerV1(interview_control,settings)
          try:

@@ -29,6 +29,9 @@ def parse_answer_request_v1(raw):
     if obj.get('protocol')=='qualified-industry-question-v1':
         from .industry_answer_v1 import parse_industry_question_v1
         return parse_industry_question_v1(raw)
+    if obj.get('protocol')=='qualified-workspace-question-v1':
+        from .qualified_workspace_v1 import parse_workspace_request_v1
+        return parse_workspace_request_v1(raw)
     if 'protocol' in obj:
         return parse_natural_question_request_v1(raw)
     if type(obj.get('schema_version')) is not int or obj['schema_version']!=1:raise ValueError('exact answer request version required')
@@ -46,6 +49,8 @@ class ProtectedConnectedAnswerServiceV1:
         request=parse_answer_request_v1(raw);s=self.settings;c=s.config
         from .industry_answer_v1 import IndustryQuestionRequestV1,answer_industry_v1
         if type(request) is IndustryQuestionRequestV1:return await answer_industry_v1(self,request,raw)
+        from .qualified_workspace_v1 import WorkspaceRequestV1,answer_workspace_v1
+        if type(request) is WorkspaceRequestV1:return await answer_workspace_v1(self,request,raw)
         natural=type(request) is NaturalQuestionRequestV1
         if natural:
             intent=natural_intent_v1(request.question,now=datetime.now(timezone.utc))
