@@ -94,7 +94,7 @@ def test_delayed_body_and_utc_rollback_cannot_renew_original_fence_or_write_sql(
 
 
 def test_expired_request_context_prevents_actual_next_sql_effect(conversation,monkeypatch):
- from oracle_brain.hosting import _protected_control_listener_v1 as owner
+ from oracle_brain.operating_model import request_deadline_v1 as owner
  from test_replacement_requester_sql import owned_admin
  from types import SimpleNamespace
  import time

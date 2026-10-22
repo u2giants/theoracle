@@ -232,7 +232,7 @@ class AdmittedProvider:
         except Exception as error:
             liability=maximum
             if purpose=='employee-conversation':
-                from oracle_brain.hosting.conversation_native_v1 import conversation_wire_liability_lower_bound_v1
+                from oracle_brain.operating_model.conversation_native_authority_v1 import conversation_wire_liability_lower_bound_v1
                 liability=max(maximum,conversation_wire_liability_lower_bound_v1(getattr(getattr(self.sender,'__self__',None),'last_response_text',None)))
             self.budget.finish(rid,actual_usd=liability,failed=True,response_hash=None,failure_kind='quota_exhausted' if isinstance(error,ProviderQuotaError) else 'transport_failure')
             raise RuntimeError('admitted extraction dispatch failed; private response not logged') from None
@@ -244,7 +244,7 @@ class AdmittedProvider:
                 if purpose!='employee-conversation':raise
                 observed=getattr(error,'observed_actual_usd',actual)
                 if type(observed) is not Decimal or not observed.is_finite() or observed<0:observed=actual
-                from oracle_brain.hosting.conversation_native_v1 import conversation_wire_liability_lower_bound_v1
+                from oracle_brain.operating_model.conversation_native_authority_v1 import conversation_wire_liability_lower_bound_v1
                 retained=conversation_wire_liability_lower_bound_v1(getattr(getattr(self.sender,'__self__',None),'last_response_text',None))
                 self.budget.finish(rid,actual_usd=max(actual,observed,retained,maximum),failed=True,response_hash=None,failure_kind='transport_failure')
                 raise RuntimeError('conversation outcome UNKNOWN; receipt retained; no automatic resend') from None

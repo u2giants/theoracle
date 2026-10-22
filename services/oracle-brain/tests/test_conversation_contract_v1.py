@@ -28,7 +28,7 @@ def test_utf8_original_negation_and_scope_survive_independent_byte_programs():
  text=read_exact_utf8_v1(raw);assert text.encode()==raw
  assert review_exact_utf8_v1(raw,text)==text
  with pytest.raises(ValueError):review_exact_utf8_v1(raw,text.replace('不允许','允许'))
-@pytest.mark.parametrize('data',[b'',b'\xff',b'\x00',b' '*4,b'x'*32769])
+@pytest.mark.parametrize('data',[b'',b'\xff',b'\x00',b' '*4,b'x'*(1024*1024+1)])
 def test_native_byte_programs_refuse_bad_originals(data):
  with pytest.raises((ValueError,UnicodeError)):read_exact_utf8_v1(data)
  with pytest.raises((ValueError,UnicodeError)):review_exact_utf8_v1(data,'anything')
@@ -65,3 +65,30 @@ def test_duplicate_canonical_request_and_naive_clock_refused():
 def test_no_second_conversation_attempt_or_coercion(attempt):
  j=conversation_job();data=j.model_dump(mode='python')|dict(attempt=attempt)
  with pytest.raises(ValueError):EmployeeConversationDispatchJobV1(**data)
+
+
+def test_generic_native_utf8_one_mib_exact_boundary_and_changed_review():
+ raw=('不允许未经复核就发货。仅限样品。'.encode()+b'x'*(1024*1024))[:1024*1024]
+ # Keep multibyte prefix intact; only the trailing ASCII is sliced.
+ text=read_exact_utf8_v1(raw)
+ assert len(raw)==1024*1024 and text.encode()==raw
+ assert review_exact_utf8_v1(raw,text)==text
+ with pytest.raises(ValueError):review_exact_utf8_v1(raw,text+'changed')
+
+
+def test_hosting_forwarders_preserve_exact_core_class_and_guard_identity():
+ from oracle_brain.hosting import conversation_control_v1 as old_control,conversation_processing_v1 as old_processing,conversation_native_v1 as old_native,original_intake_v1 as old_intake,runtime
+ from oracle_brain.operating_model import conversation_control_v1 as control,conversation_processing_v1 as processing,conversation_native_authority_v1 as native,protected_inputs_v1 as protected
+ assert old_control.ConversationControlV1 is control.ConversationControlV1
+ assert old_control.ConversationSettingsV1 is control.ConversationSettingsV1
+ assert old_processing.ProtectedConversationProcessingV1 is processing.ProtectedConversationProcessingV1
+ assert old_native.current_conversation_dispatch_v1 is native.current_conversation_dispatch_v1
+ assert old_native.validate_conversation_wire_v1 is native.validate_conversation_wire_v1
+ assert old_intake.ProtectedInputV1 is protected.ProtectedInputV1
+ assert old_intake._pinned is protected._pinned and runtime.protected_file is protected.protected_file
+
+
+@pytest.mark.parametrize('raw',[b'{"schema_version":1,"schema_version":1}',b'{"x":NaN}',b'{"x":Infinity}',b'{ "x":1}',b'[]'])
+def test_shared_canonical_parser_refuses_ambiguous_noncanonical_inputs(raw):
+ from oracle_brain.operating_model.protected_inputs_v1 import parse_canonical_object_v1
+ with pytest.raises(ValueError):parse_canonical_object_v1(raw)

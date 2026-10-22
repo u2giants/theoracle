@@ -13,7 +13,8 @@ import json
 from cryptography import x509
 from pydantic import AwareDatetime,Field,model_validator,field_validator
 from oracle_brain.operating_model.contracts import StrictRecord,canonical_bytes
-from .original_intake_v1 import _pinned,_parse,OriginalIntakeSettingsV1,OriginalIntakeFactoryV1
+from .original_intake_v1 import OriginalIntakeSettingsV1,OriginalIntakeFactoryV1
+from oracle_brain.operating_model.protected_inputs_v1 import _pinned,_parse,parse_canonical_object_v1
 from .conversation_control_v1 import ConversationSettingsV1,ConversationControlV1,PUBLIC_OPERATIONS,ConversationDenied,ConversationConflict
 from .replacement_request_service_v1 import RequesterPeerProfileV1
 from ._protected_control_listener_v1 import _protected_control_listener_v1
@@ -69,16 +70,8 @@ class _ConversationPeerSettings:
         return min(bound,p.expires_at)
 
 def parse_conversation_request_v1(raw):
-    if type(raw) is not bytes or not 1<=len(raw)<=65536:raise ValueError('bounded exact conversation request required')
-    def unique(pairs):
-        d={}
-        for k,v in pairs:
-            if k in d:raise ValueError('duplicate conversation field')
-            d[k]=v
-        return d
-    def constant(_):raise ValueError('nonfinite conversation field')
-    q=json.loads(raw,object_pairs_hook=unique,parse_constant=constant)
-    if not isinstance(q,dict) or canonical_bytes(q)!=raw or type(q.get('schema_version')) is not int or q['schema_version']!=1:raise ValueError('canonical conversation request required')
+    q=parse_canonical_object_v1(raw)
+    if type(q.get('schema_version')) is not int or q['schema_version']!=1:raise ValueError('canonical conversation request required')
     deadline=q.get('caller_deadline')
     if not isinstance(deadline,str):raise ValueError('exact conversation deadline required')
     stamp=datetime.fromisoformat(deadline)

@@ -99,3 +99,25 @@ def test_actual_native_byte_phase_refuses_before_any_commit(native_original,drif
    else:c.execute('DELETE FROM oracle2.original_source_population_members_v1 WHERE population_id=%s',(s.config.population.population_id,))
  with pytest.raises((PermissionError,ValueError,psycopg.Error)):NativeConversationOriginalFactoryV1(s).execute_v1()
  with owned_admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.original_phase_response_commits WHERE source_id=%s',(x['ref'].source_id,)).fetchone()==(0,)
+
+
+def test_generic_one_mib_text_original_actual_intake_and_independent_qualification(requester,tmp_path):
+ x=requester;s=configured_settings(tmp_path,x)
+ a=s.appointment.model_copy(update={'media_types':('application/pdf','text/plain')});ah=write(s.appointment_path,a)
+ s=load_original_intake_settings_v1(s.config_path,s.config_sha256,s.appointment_path,ah,s.expected_issuer_actor,s.expected_reviewer_actor)
+ data='不允许未经复核就发货。仅限样品。'.encode()+b'x'*(1024*1024-len('不允许未经复核就发货。仅限样品。'.encode()))
+ snapshot=OriginalIntakeFactoryV1(s).intake_text_v1(source_id=None,expected_head=0,idempotency_key=uuid4(),filename='invented-meeting-limit.txt',original_sha256=hashlib.sha256(data).hexdigest(),data=data)
+ with appointed_native_original_phases_v1(x,snapshot,data,s,tmp_path) as observed:
+  _,qualified=reading_then_review(observed,expire_reader=True)
+  assert qualified.source_ref.original_sha256==hashlib.sha256(data).hexdigest()
+  with owned_admin(x) as c:
+   row=c.execute("SELECT octet_length(receipt->>'reading'),receipt->>'reading' FROM oracle2.operating_model_source_receipts WHERE source_id=%s",(snapshot.sourceId,)).fetchone()
+   assert row==(1024*1024,data.decode())
+
+
+def test_generic_text_over_limit_refuses_before_reservation_or_write(requester,tmp_path,monkeypatch):
+ x=requester;s=configured_settings(tmp_path,x);factory=OriginalIntakeFactoryV1(s)
+ monkeypatch.setattr(factory,'_intake_v1',lambda **kwargs:pytest.fail('oversize text reached reserve/custody'))
+ data=b'x'*(1024*1024+1)
+ with pytest.raises(ValueError):factory.intake_text_v1(source_id=None,expected_head=0,idempotency_key=uuid4(),filename='oversize.txt',original_sha256=hashlib.sha256(data).hexdigest(),data=data)
+ with owned_admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.source_intake_reservations_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(0,)

@@ -347,7 +347,7 @@ class NativeBrokerEgress:
         except (ValueError,TypeError,KeyError):
             raise PermissionError('provider request differs from immutable admitted job') from None
         if job.purpose=='employee-conversation':
-            from oracle_brain.hosting.conversation_native_v1 import current_conversation_dispatch_v1
+            from oracle_brain.operating_model.conversation_native_authority_v1 import current_conversation_dispatch_v1
             if type(job) is not EmployeeConversationDispatchJobV1:raise PermissionError('protected conversation consumer required')
             current_conversation_dispatch_v1(_conversation_control,job,self)
         elif _conversation_control is not None:raise PermissionError('conversation control cannot admit another purpose')
@@ -407,7 +407,7 @@ class NativeBrokerEgress:
                                trusted_coverage_hash=self._coverage_hash,ledger_identity_hash=ledger_identity)
         native._coverage(datetime.now(timezone.utc))
         if job.purpose=='employee-conversation':
-            from oracle_brain.hosting.conversation_native_v1 import current_text_metadata_v1
+            from oracle_brain.operating_model.conversation_native_authority_v1 import current_text_metadata_v1
             current_text_metadata_v1(_conversation_control,job,self,native)
         else:
             current=native.pricing(model=request['model'],max_output_tokens=output_bound,register_hash=job.register_hash)
@@ -432,7 +432,7 @@ class NativeBrokerEgress:
                 if not currently_authorized():
                     raise PermissionError('current validation authority unavailable') if job.purpose=='employee-conversation' else ValueError('current validation authority unavailable')
                 if job.purpose=='employee-conversation':
-                    from oracle_brain.hosting.conversation_native_v1 import validate_conversation_wire_v1
+                    from oracle_brain.operating_model.conversation_native_authority_v1 import validate_conversation_wire_v1
                     validate_conversation_wire_v1(native.last_response_text,job)
                     current_text_metadata_v1(_conversation_control,job,self,native)
                 if embedding:

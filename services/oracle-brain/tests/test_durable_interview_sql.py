@@ -135,3 +135,9 @@ def test_pause_retained_across_invented_days_resumes_same_question_without_reset
  saved=ConversationControlV1(x['control'].settings).snapshot_v1(UUID(s['thread_id']))
  _,resumed=command(x,saved,'resume')
  assert resumed['pending_question_id']==s['pending_question_id'] and resumed['question_count']==2
+
+
+def test_public_employee_turn_stays_32k_despite_generic_text_intake_extension(conversation):
+ x=conversation;_,s=create(x)
+ with pytest.raises(ConversationDenied):command(x,s,text='x'*32769)
+ assert x['control'].snapshot_v1(UUID(s['thread_id']))['revision']==s['revision']

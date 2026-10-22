@@ -50,7 +50,7 @@ class ConversationOriginalConfigV1(_ConversationRecordV1):
     reading_commit_sha256:str|None=Field(default=None,pattern=HASH)
     @model_validator(mode='after')
     def exact_phase(self):
-        if (len(self.population.raw_refs)!=1 or self.population.raw_refs[0].media_type!='text/plain'
+        if (len(self.population.raw_refs)!=1 or self.population.raw_refs[0].media_type!='text/plain' or self.population.raw_refs[0].byte_count>1024*1024
             or self.expected_owner_role==self.expected_session_role
             or not self.expires_at<=self.population.expires_at<=self.original_horizon
             or (self.phase=='source-original-review')!=(self.reading_commit_sha256 is not None)):

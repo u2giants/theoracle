@@ -291,7 +291,11 @@ def test_canonical_consolidation_is_required_once_with_017_before_018():
         assert verifier.required_suites('W10').count(name) == 1
         assert S03_TESTS.count('test_' + name + '.py') == 1
         assert S05_TESTS.count('test_' + name + '.py') == 1
-    assert verifier.SYNTHETIC_MIGRATIONS[-2:] == ('017_processing_model_history.sql', '018_original_review_reading_input.sql')
+    assert verifier.SYNTHETIC_MIGRATIONS.count('017_processing_model_history.sql') == 1
+    assert verifier.SYNTHETIC_MIGRATIONS.count('018_original_review_reading_input.sql') == 1
+    assert verifier.SYNTHETIC_MIGRATIONS.count('019_employee_conversations.sql') == 1
+    start=verifier.SYNTHETIC_MIGRATIONS.index('017_processing_model_history.sql')
+    assert verifier.SYNTHETIC_MIGRATIONS[start:start+3] == ('017_processing_model_history.sql', '018_original_review_reading_input.sql', '019_employee_conversations.sql')
 
 
 def test_phase_frontdoor_needs_no_worker_database_or_process_dependencies(tmp_path):

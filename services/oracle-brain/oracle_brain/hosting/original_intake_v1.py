@@ -8,12 +8,10 @@ import hashlib,json,os,stat
 from pydantic import AwareDatetime,Field,model_validator
 from oracle_brain.operating_model.contracts import StrictRecord,canonical_bytes,digest
 from oracle_brain.operating_model.artifact_storage import FileBlobStore,OriginalObjectRefV1,ReservationOriginalObjectRefV1,_write_private_at
-from .runtime import protected_file
+from oracle_brain.operating_model.protected_inputs_v1 import ProtectedInputV1,protected_file,_pinned,_parse as _strict_parse
 
 HASH=r'^[a-f0-9]{64}$'
 MAX_BYTES=25*1024*1024
-class ProtectedInputV1(StrictRecord):
-    path:str;sha256:str=Field(pattern=HASH)
 class OriginalIntakeConfigV1(StrictRecord):
     schema_version:Literal[1]
     purpose:Literal['original-intake-factory-v1']
@@ -64,24 +62,17 @@ class IntakeReservationV1(StrictRecord):
     reservation_id:UUID;source_id:UUID;revision:int=Field(ge=1)
     expires_at:AwareDatetime;private_object_key:str
 
-def _pinned(path,seal,limit=65536):
-    p=Path(path)
-    if not p.is_absolute() or p.resolve()!=p:raise PermissionError('canonical protected input required')
-    before=p.lstat()
-    if not stat.S_ISREG(before.st_mode) or before.st_uid!=os.getuid() or before.st_nlink!=1 or before.st_mode&0o077:raise PermissionError('private owned input required')
-    raw=protected_file(p,limit=limit);after=p.lstat()
-    if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns) or hashlib.sha256(raw).hexdigest()!=seal:raise PermissionError('protected input changed')
-    return raw
-
 def _parse(cls,raw):
-    value=cls.model_validate_json(raw)
-    if canonical_bytes(value.model_dump(mode='json'))!=raw:
-        # Only the newly optional media admission may be absent in retained PDF
-        # appointments. Preserve its original byte/hash pin; never rewrite it.
-        legacy=(cls is OriginalIntakeAppointmentV1 and 'media_types' not in json.loads(raw)
-            and canonical_bytes(value.model_dump(mode='json',exclude={'media_types'}))==raw)
-        if not legacy:raise ValueError('canonical protected record required')
-    return value
+    try:return _strict_parse(cls,raw)
+    except ValueError:
+        # Preserve only retained PDF appointments with the old omitted media pin.
+        # Full canonical comparison still rejects duplicate/nonfinite/extra bytes.
+        if cls is not OriginalIntakeAppointmentV1:raise
+        value=cls.model_validate_json(raw)
+        if ('media_types' in json.loads(raw)
+                or canonical_bytes(value.model_dump(mode='json',exclude={'media_types'}))!=raw):raise
+        return value
+
 
 @dataclass(frozen=True)
 class OriginalIntakeSettingsV1:
@@ -232,7 +223,7 @@ class OriginalIntakeFactoryV1:
         return self._intake_v1(media_type='application/pdf',**kwargs)
     def intake_text_v1(self,**kwargs):
         data=kwargs.get('data')
-        if type(data) is not bytes or not 1<=len(data)<=32768:raise ValueError('bounded exact UTF8 original required')
+        if type(data) is not bytes or not 1<=len(data)<=1024*1024:raise ValueError('bounded exact UTF8 original required')
         text=data.decode('utf-8',errors='strict')
         if not text.strip() or '\x00' in text or text.encode('utf-8')!=data:raise ValueError('exact nonempty UTF8 original required')
         return self._intake_v1(media_type='text/plain',**kwargs)
