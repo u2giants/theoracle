@@ -257,6 +257,8 @@ class Ledger:
         return manifest,payload
 
     def _read_processing_boundary(self,workspace_id,artifact_id,version,*,include_failed=False):
+        from .request_deadline_v1 import request_remaining_v1
+        request_remaining_v1(required=False)
         if self.processing_read_guard is None:
             raise PermissionError('current trusted processing qualification required')
         manifest,authoritative_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
@@ -267,7 +269,9 @@ class Ledger:
         if manifest.state!='ready' and not include_failed:
             raise PermissionError('failed processing candidate cannot serve')
         self._authorize_processing_blob(manifest)
+        request_remaining_v1(required=False)
         payload=json.loads(self.blobs.read(manifest.private_object_key,manifest.content_hash))
+        request_remaining_v1(required=False)
         refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs'])
         if (len(set(refs))!=len(refs) or set(refs)!=set(authoritative_refs)
                 or digest({'refs':[r.model_dump(mode='json') for r in refs]})!=manifest.source_digest):
@@ -278,6 +282,9 @@ class Ledger:
         current,current_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
         if current!=manifest or set(current_refs)!=set(refs):
             raise PermissionError('processing artifact changed during read')
+        request_remaining_v1(required=False)
+        if validation is not None and validation<=self.clock():
+            raise PermissionError('processing validation expired after actual close')
         return manifest,payload,validation
 
     def _validate_processing_read_guard(self,manifest,payload,now):

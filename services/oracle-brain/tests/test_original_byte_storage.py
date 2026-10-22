@@ -92,3 +92,59 @@ def test_same_object_client_conditional_write_readback_and_bounded_mismatch():
     with pytest.raises(ValueError):store._read_original_bytes(r)
     with pytest.raises(ValueError):store._put_original_bytes(r,data)
     assert all(b.closed for b in client.bodies)
+
+
+@pytest.mark.parametrize('phase',['root','component','file','before-read','after-read'])
+def test_same_original_request_fence_guards_actual_private_open_and_bytes(tmp_path,monkeypatch,phase):
+    from oracle_brain.operating_model import artifact_storage as storage
+    from oracle_brain.operating_model import request_deadline_v1 as fence
+    root=tmp_path/'bounded';root.mkdir(mode=0o700);child=root/'child';child.mkdir(mode=0o700)
+    path=child/'bytes';path.write_bytes(b'actual invented bytes');path.chmod(0o600)
+    tick=[10.];opened=[];reads=[]
+    monkeypatch.setattr(fence.time,'monotonic',lambda:tick[0])
+    original_open=os.open;original_stat=os.fstat;original_fdopen=os.fdopen
+    def tracked_open(name,*args,**kwargs):
+        fd=original_open(name,*args,**kwargs);opened.append(str(name))
+        if phase=='component' and str(name)==str(root):tick[0]=20.
+        return fd
+    def tracked_stat(fd):
+        value=original_stat(fd)
+        if phase=='before-read' and value.st_ino==path.stat().st_ino:tick[0]=20.
+        return value
+    class Stream:
+        def __init__(self,inner):self.inner=inner
+        def __enter__(self):self.inner.__enter__();return self
+        def __exit__(self,*args):return self.inner.__exit__(*args)
+        def fileno(self):return self.inner.fileno()
+        def read(self,limit):
+            reads.append(limit);value=self.inner.read(limit)
+            if phase=='after-read':tick[0]=20.
+            return value
+    monkeypatch.setattr(os,'open',tracked_open)
+    monkeypatch.setattr(os,'fstat',tracked_stat)
+    monkeypatch.setattr(os,'fdopen',lambda *a,**kw:Stream(original_fdopen(*a,**kw)))
+    with fence._request_fence_v1(20.):
+        if phase=='root':
+            tick[0]=20.
+            with pytest.raises(PermissionError):storage._parent_fd(root,['child'],create=False)
+            assert opened==[]
+        elif phase=='component':
+            with pytest.raises(PermissionError):storage._parent_fd(root,['child'],create=False)
+            assert opened==[str(root)]
+        else:
+            parent=storage._parent_fd(root,['child'],create=False)
+            try:
+                if phase=='file':tick[0]=20.
+                with pytest.raises(PermissionError):storage._read_private_at(parent,'bytes',100)
+            finally:os.close(parent)
+            assert ('bytes' in opened)==(phase!='file')
+    assert len(reads)==(1 if phase=='after-read' else 0)
+
+
+def test_same_private_helpers_preserve_uncaptured_legacy_read(tmp_path):
+    from oracle_brain.operating_model import artifact_storage as storage
+    root=tmp_path/'legacy-private';root.mkdir(mode=0o700)
+    path=root/'original';path.write_bytes(b'unchanged');path.chmod(0o600)
+    parent=storage._parent_fd(root,[],create=False)
+    try:assert storage._read_private_at(parent,'original',9)==b'unchanged'
+    finally:os.close(parent)

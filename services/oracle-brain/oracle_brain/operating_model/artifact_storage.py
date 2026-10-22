@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 from .contracts import canonical_bytes
+from .request_deadline_v1 import request_remaining_v1
 
 MAX_ORIGINAL_BYTES=25*1024*1024
 
@@ -58,6 +59,7 @@ def _private_stat(info,*,directory=False):
         raise PermissionError('immutable private storage ownership/type/link/mode differs')
 
 def _parent_fd(root,parts,*,create,strict=True,expected_root=None):
+    request_remaining_v1(required=False)
     fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
     try:
         if strict:_private_stat(os.fstat(fd),directory=True)
@@ -68,6 +70,7 @@ def _parent_fd(root,parts,*,create,strict=True,expected_root=None):
             if create:
                 try:os.mkdir(part,0o700,dir_fd=fd);os.fsync(fd)
                 except FileExistsError:pass
+            request_remaining_v1(required=False)
             child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd)
             try:
                 if strict:_private_stat(os.fstat(child),directory=True)
@@ -77,12 +80,16 @@ def _parent_fd(root,parts,*,create,strict=True,expected_root=None):
     except BaseException:os.close(fd);raise
 
 def _read_private_at(parent,name,limit,*,strict=True):
+    request_remaining_v1(required=False)
     fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=parent)
     with os.fdopen(fd,'rb') as stream:
         before=os.fstat(stream.fileno())
         if strict:_private_stat(before)
         if before.st_size>limit:raise ValueError('private object exceeds exact bounded size')
-        data=stream.read(limit+1);after=os.fstat(stream.fileno())
+        request_remaining_v1(required=False)
+        data=stream.read(limit+1)
+        request_remaining_v1(required=False)
+        after=os.fstat(stream.fileno())
         if strict:_private_stat(after)
         if len(data)>limit or (before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_ino,after.st_size,after.st_mtime_ns):
             raise ValueError('private object changed during read')

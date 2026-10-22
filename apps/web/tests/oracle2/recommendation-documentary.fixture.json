@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "recommendation_id": "11111111-1111-4111-8111-111111111111",
+  "advice": {
+    "evidence": {
+      "evidence_refs": [
+        "assertion:c64a4d79-6815-471b-b715-93a657fda860:1"
+      ],
+      "evidence_seal": "49eff2af8c1adef33aa61cb3980c27436d1496c9a88d17b1063177a37b1e0a6d",
+      "revision_id": "74bd2cb8d8931cd324cc622f3d2f97126bd9897e7665c9c24c4310dfdc609878"
+    },
+    "lens": "approval_exception",
+    "opposing_evidence": [],
+    "opposing_unknown": true,
+    "options": [
+      {
+        "downstream_costs": [
+          {
+            "kind": "missing",
+            "measure": null
+          }
+        ],
+        "evidence_refs": [
+          "assertion:c64a4d79-6815-471b-b715-93a657fda860:1"
+        ],
+        "forecast": null,
+        "is_no_change": true,
+        "measured_basis": [],
+        "option_id": "opt:keep",
+        "title": "Keep current approval path"
+      },
+      {
+        "downstream_costs": [
+          {
+            "kind": "missing",
+            "measure": null
+          }
+        ],
+        "evidence_refs": [
+          "assertion:c64a4d79-6815-471b-b715-93a657fda860:1"
+        ],
+        "forecast": {
+          "alternative": {
+            "amount": "4",
+            "currency": "USD",
+            "period": "per_week",
+            "unit": "money"
+          },
+          "assumptions": [
+            "same workload"
+          ],
+          "baseline": {
+            "amount": "10",
+            "currency": "USD",
+            "period": "per_week",
+            "unit": "money"
+          },
+          "kind": "forecast"
+        },
+        "is_no_change": false,
+        "measured_basis": [],
+        "option_id": "opt:1",
+        "title": "Split approval into one named owner"
+      }
+    ],
+    "recommendation_id": "11111111-1111-4111-8111-111111111111",
+    "scope_note": "Scoped to the cited evidence revision only"
+  },
+  "scope": {
+    "schema_version": 1,
+    "process": {
+      "schema_version": 1,
+      "mode": "all",
+      "identities": []
+    },
+    "customer": {
+      "schema_version": 1,
+      "mode": "all",
+      "identities": []
+    },
+    "product": {
+      "schema_version": 1,
+      "mode": "all",
+      "identities": []
+    },
+    "region": {
+      "schema_version": 1,
+      "mode": "all",
+      "identities": []
+    }
+  },
+  "problem": "Reported approval delay",
+  "competing_explanations": [
+    "Missing information may explain the delay"
+  ],
+  "effort": "Unknown pending measurement",
+  "risks": [
+    "Downstream effort is not yet measured"
+  ],
+  "owner_role_description": "Process owner, not an appointment",
+  "review_due": "2026-10-20T00:00:00Z",
+  "experiments": [
+    {
+      "schema_version": 1,
+      "experiment_id": "22222222-2222-4222-8222-222222222222",
+      "option_id": "opt:1",
+      "metric_id": "11111111-1111-4111-8111-111111111111",
+      "unit": "money",
+      "currency": "USD",
+      "period": "per_week",
+      "population_id": "11111111-1111-4111-8111-111111111111",
+      "baseline_start": "2026-10-01T00:00:00Z",
+      "baseline_end": "2026-10-08T00:00:00Z",
+      "followup_start": "2026-10-08T00:00:00Z",
+      "followup_end": "2026-10-15T00:00:00Z",
+      "success_metric": "Compare reported cost for same population",
+      "reversible_step": "Revert the bounded trial"
+    }
+  ],
+  "expected_benefit": "unknown",
+  "policy_accepted": false,
+  "effect_executed": false,
+  "realized_savings_verified": false
+}

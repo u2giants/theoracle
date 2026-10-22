@@ -35,7 +35,7 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
    valid_time='unknown',supporting_observations=[extraction.payload['observations'][0]['observation_id']])
    for extraction in ctx.extractions]
  state=prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,return_fixture=True,
-  assertion_factory=browser_assertions if proof_scope=='browser' else None)
+  assertion_factory=browser_assertions if proof_scope in ('browser','workspace-next-recipients') else None)
  m=state['manifest'];payload=state['q']['payload'];f=state['f']
  h,authority=own_history(admin_url,f)
  authority=ConsolidationAuthorityV1(h['url'],binding=replace(authority.binding,retained_semantic_admissions=state['q']['trusted_admission_hashes']),delivery_capability_body_hashes=authority.delivery_capability_body_hashes)
@@ -243,6 +243,11 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
          await revoked.load()
        finally:
         if revoked is not None:await revoked.close()
+      # Independent browser journey after BOTH original SDK requests close.
+      # Same live graph population; never extend/reuse either spent fence.
+      if proof_scope=='workspace-next-recipients':
+       from test_workspace_next_recipients_sql_v1 import exercise_workspace_next_recipients_v1
+       exercise_workspace_next_recipients_v1(admin_url=admin_url,state=state,authority=authority,readonly=readonly,generation=generation,settings=settings,certificates=certificates,tmp_path=tmp_path)
     finally:await projection.close()
  asyncio.run(run())
 
