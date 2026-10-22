@@ -16,6 +16,48 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ### Current whole-program obligation ledger — October 21, 2026, 11:31 PM EDT
 
+**Source-verification continuation — October 22, 2026, 12:57 AM EDT:** Current upstream remains
+`b785acd831a1b2385c459d3496a1d0c4cb4ad4df`. Complete prospective S09 answering
+and S10 maintained-reference comparison source at
+`4fb75df209c73f95eed1d2995ca88129f6fd471d` passed an actual fresh owned
+SQL ACK/read-only FalkorDB SDK/graph-TLS/protected-service/browser/MCP proof:
+4 passed, zero failures/errors/skips in49.46 seconds; all executed source hashes
+were unchanged and the coordinator independently verified every owned container,
+network and volume absent. JUnit SHA256
+`7565409f189b606bb9c32864231f878d6d0436275447e41590d4af121b649c7b`.
+The browser proof uses explicit invented Auth import hooks and actual page,
+component, proxy, API and MCP handler in its owned HTTPS harness; it is **not**
+deployed Next routing, real employee authentication or company acceptance.
+Two separately qualified process follow-ups, clarification, actual connected-tool
+initialize/list/answer and disabled/foreign/revoked access refusals are retained.
+Independent full-source and incremental exact-head security approvals are
+retained; full PR CI, actual main integration and fresh merged-main proof remain
+required. No S/W/U row is accepted by this source receipt.
+
+Earlier proof failures remain retained: the first setup exceeded the certificate
+name limit before tests; the first browser fixture lacked a second qualified
+process statement; later serial browser calls outlasted the original invented
+30-second capture and25-second semantic appointments, and one diagnostic debugger
+run timed out. Both old fixture lifetimes and all expiry-negative tests remain
+unchanged. The separate serving fixture starts a new120-second context and
+115-second semantic appointment **before** capture/qualification; no old authority
+is extended or payload relabeled. Every individual request remains at most
+30 seconds, and W10 retains its whole120-second test deadline. The standalone
+MCP test exits only after every assertion and owned browser/server cleanup; no
+vendor timer or capability is removed. Fixed private refusal logs disclose only
+source-controlled operational stage names, never identities or evidence.
+
+S07 local scheduler/currentness and aggregate STOP work, S08 full installed
+participation, S09/S06 paid effects, S10 research screens, S11 authenticated
+recommendations, S12 enterprise experience, S13 current recovery, S14 durable
+reconciliation, S15 adoption and S16 retirement remain separately owned unfinished
+work. New source packets or proposed SQL020–027 are not installed authority.
+Company originals/questions/reports/grading, employee involvement, actual paid
+providers, new platform resources, adoption and business acceptance remain held.
+The business ruling “Remain in force until withdrawn” is unchanged and transfers
+neither approval to a new version nor source permission. No handoff is retired.
+
+
 Accountable owner of **every open row** below: Codex chat
 `01a16013-c8c6-7113-b307-7d4d516f2bc6` on edge-dev3, adopted on
 [#24](https://github.com/u2giants/theoracle/issues/24#issuecomment-6325458712)
