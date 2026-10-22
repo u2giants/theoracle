@@ -6,6 +6,8 @@ from typing import Literal
 import psycopg
 from oracle_brain.knowledge.authority import _lock, _has_authority_conn
 import json
+from contextlib import contextmanager
+from .request_deadline_v1 import sql_execute_current_v1 as _budget_execute_v1,request_remaining_v1
 from pydantic import AwareDatetime, Field,field_validator,model_validator
 from oracle_brain.provider_policy import authorize, ProcessingRequest, ProcessingApproval
 from oracle_brain.provider_transport import transport_options
@@ -56,6 +58,41 @@ class ConversationTextPricingV1(Pricing):
         return self
 
 
+class QualifiedAnswerTextPricingV1(ConversationTextPricingV1):
+    quote_schema:Literal['qualified-answer-synthesis-text-pricing-v1']='qualified-answer-synthesis-text-pricing-v1'
+
+class QualifiedQueryEmbeddingPricingV1(StrictRecord):
+    """Input/request-only quote; no fictitious output/image/view channels."""
+    quote_schema:Literal['qualified-query-embedding-pricing-v1']='qualified-query-embedding-pricing-v1'
+    provider:Literal['openrouter']='openrouter'
+    model:Literal['openai/text-embedding-3-small']='openai/text-embedding-3-small'
+    input_per_million_usd:Decimal=Field(ge=0,allow_inf_nan=False)
+    input_cache_write_per_million_usd:Decimal=Field(ge=0,allow_inf_nan=False)
+    per_request_fee_usd:Decimal=Field(ge=0,allow_inf_nan=False)
+    input_tokens_upper_bound:int=Field(strict=True,gt=0)
+    model_context_tokens:int=Field(strict=True,gt=0)
+    pricing_policy_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    catalogue_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    model_capability_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    account:str=Field(min_length=1,max_length=200)
+    key_fingerprint:str=Field(pattern=r'^[0-9a-f]{64}$')
+    ledger_registry_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    terms_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    admitted_register_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    valid_from:AwareDatetime
+    expires_at:AwareDatetime
+    @field_validator('schema_version',mode='before')
+    @classmethod
+    def exact_version(cls,value):
+        if type(value) is not int or value!=1:raise ValueError('exact query quote version required')
+        return value
+    @model_validator(mode='after')
+    def finite_bound(self):
+        if not self.valid_from<self.expires_at or self.account!='key-sha256:'+self.key_fingerprint or self.input_tokens_upper_bound>self.model_context_tokens:
+            raise ValueError('finite complete exact-key query quote required')
+        return self
+
+
 class AdmittedAllocationLimitV2(StrictRecord):
     """Trusted externally qualified cap projection; fields alone grant nothing.
 
@@ -72,7 +109,7 @@ class AdmittedAllocationLimitV2(StrictRecord):
 class Budget:
     """Single Oracle-key central ledger; never a workspace-specific budget shard."""
     def __init__(self,url: str,*,ledger_identity_hash: str | None = None,
-                 admitted_allocation: AdmittedAllocationLimitV2 | None = None):
+                 admitted_allocation: AdmittedAllocationLimitV2 | None = None,protected_deadline=None):
         import re
         if ledger_identity_hash is not None and not re.fullmatch('[0-9a-f]{64}',ledger_identity_hash):
             raise PermissionError('verified central ledger identity required')
@@ -80,45 +117,58 @@ class Budget:
             raise PermissionError('exact externally admitted allocation cap required')
         self.url=url;self.ledger_identity_hash=ledger_identity_hash
         self.admitted_allocation=admitted_allocation
+        self.protected_deadline=protected_deadline
+    @contextmanager
+    def _connection_v1(self):
+        if self.protected_deadline is None:
+            with psycopg.connect(self.url) as connection:yield connection
+        else:
+            from .protected_sql_connection_v1 import _connection_v1
+            request_remaining_v1()
+            with _connection_v1(self.url,self.protected_deadline,require_pinned_address=True) as connection:yield connection
+
     def reserve(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 maximum: Decimal,pricing_hash: str, account_remaining: Decimal | None = None, correction_hash: str | None = None) -> UUID:
-        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance','source-original-reading','source-original-review','employee-conversation'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
+        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance','source-original-reading','source-original-review','employee-conversation','qualified-query-embedding-v1','qualified-answer-synthesis-v1'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
             raise PermissionError('private dispatch purpose/attempt/cost not admitted')
-        if purpose=='employee-conversation' and attempt!=1:raise PermissionError('conversation UNKNOWN never grants another attempt')
+        if purpose in {'employee-conversation','qualified-query-embedding-v1','qualified-answer-synthesis-v1'} and(type(attempt) is not int or attempt!=1):raise PermissionError('conversation UNKNOWN never grants another attempt')
+        if purpose in {'qualified-query-embedding-v1','qualified-answer-synthesis-v1'} and self.protected_deadline is None:raise PermissionError('actual original bounded question budget window required')
         # Historical keyword account_remaining denotes this one Oracle key,
         # not unrelated application keys or the provider's whole account.
         if account_remaining is not None and (not account_remaining.is_finite() or account_remaining<0):raise PermissionError('invalid exact Oracle-key allowance')
         maximum=maximum.quantize(Decimal("0.000001"),rounding=ROUND_CEILING)
         reservation_id=uuid4()
-        with psycopg.connect(self.url) as conn:
-            conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',))
+        with self._connection_v1() as conn:
+            _budget_execute_v1(conn,'SELECT pg_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',))
+            if _budget_execute_v1(conn,"SELECT EXISTS(SELECT 1 FROM oracle2.operating_dispatch_reservations r LEFT JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) WHERE r.purpose IN ('qualified-query-embedding-v1','qualified-answer-synthesis-v1') AND s.reservation_id IS NULL)").fetchone()[0]:
+                raise PermissionError('unsettled question liability blocks this dedicated key ledger; reconciliation only')
             allocation=self.admitted_allocation
             if allocation is not None:
                 AdmittedAllocationLimitV2.model_validate(allocation.model_dump(mode='python'))
-                if batch_id!=allocation.batch_id or conn.execute('SELECT clock_timestamp()<%s',
+                if batch_id!=allocation.batch_id or _budget_execute_v1(conn,'SELECT clock_timestamp()<%s',
                         (allocation.expires_at,)).fetchone()[0] is not True:
                     raise PermissionError('original allocation batch or expiry unavailable')
-            prior=conn.execute('SELECT reservation_id FROM oracle2.operating_dispatch_reservations WHERE workspace_id=%s AND artifact_id=%s AND purpose=%s AND attempt=%s',(workspace_id,artifact_id,purpose,attempt)).fetchone()
+            prior=_budget_execute_v1(conn,'SELECT reservation_id FROM oracle2.operating_dispatch_reservations WHERE workspace_id=%s AND artifact_id=%s AND purpose=%s AND attempt=%s',(workspace_id,artifact_id,purpose,attempt)).fetchone()
             if prior: raise PermissionError('attempt already dispatched; replay cannot charge again')
             if attempt==2:
-                first=conn.execute('SELECT d.diagnosed_by FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) JOIN oracle2.operating_dispatch_diagnoses d USING(reservation_id) WHERE d.failure_kind!=%s AND s.failure_kind IS DISTINCT FROM %s AND d.correction_hash=%s AND r.workspace_id=%s AND r.artifact_id=%s AND r.purpose=%s AND r.attempt=1 AND r.batch_id=%s AND s.status=%s',('quota_exhausted','quota_exhausted',correction_hash,workspace_id,artifact_id,purpose,batch_id,'failed')).fetchone()
+                first=_budget_execute_v1(conn,'SELECT d.diagnosed_by FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) JOIN oracle2.operating_dispatch_diagnoses d USING(reservation_id) WHERE d.failure_kind!=%s AND s.failure_kind IS DISTINCT FROM %s AND d.correction_hash=%s AND r.workspace_id=%s AND r.artifact_id=%s AND r.purpose=%s AND r.attempt=1 AND r.batch_id=%s AND s.status=%s',('quota_exhausted','quota_exhausted',correction_hash,workspace_id,artifact_id,purpose,batch_id,'failed')).fetchone()
                 if not first: raise PermissionError('one correction requires a diagnosed failed receipt')
                 _lock(conn,workspace_id)
                 if not _has_authority_conn(conn,workspace_id,first[0],'dispatch-correction:'+str(artifact_id)):raise PermissionError('correction diagnosis authority expired or revoked')
-            if conn.execute("SELECT 1 FROM oracle2.operating_dispatch_receipts WHERE status='overrun' LIMIT 1").fetchone():
+            if _budget_execute_v1(conn,"SELECT 1 FROM oracle2.operating_dispatch_receipts WHERE status='overrun' LIMIT 1").fetchone():
                 raise PermissionError('unresolved provider overrun blocks further reservations')
             # Midnight cannot release in-flight or unknown-cost requests. A call
             # reserved yesterday but completed today charges today's allowance.
             # Unknown failures retain the full hold across days until separately
             # reconciled; no automatic refund or fabricated zero-charge receipt.
-            day=conn.execute("""SELECT COALESCE(sum(GREATEST(r.reserved_usd,COALESCE(s.actual_usd,0))),0)
+            day=_budget_execute_v1(conn,"""SELECT COALESCE(sum(GREATEST(r.reserved_usd,COALESCE(s.actual_usd,0))),0)
                 FROM oracle2.operating_dispatch_reservations r
                 LEFT JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)
                 WHERE r.reserved_at >= (date_trunc('day',now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')
                    OR s.created_at >= (date_trunc('day',now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')
                    OR s.reservation_id IS NULL
                    OR (s.status='failed' AND s.failure_kind IS DISTINCT FROM 'invalid_output')""").fetchone()[0]
-            batch=conn.execute('SELECT COALESCE(sum(reserved_usd),0) FROM oracle2.operating_dispatch_reservations WHERE batch_id=%s',(batch_id,)).fetchone()[0]
+            batch=_budget_execute_v1(conn,'SELECT COALESCE(sum(reserved_usd),0) FROM oracle2.operating_dispatch_reservations WHERE batch_id=%s',(batch_id,)).fetchone()[0]
             # Include ALL workspaces' reservations for this single key under one
             # central lock. Key totals may include finished calls; double-counting
             # is conservative. This store must never mix unrelated provider keys.
@@ -126,10 +176,10 @@ class Budget:
             batch_ceiling=min(Decimal(5),allocation.ceiling_usd) if allocation is not None else Decimal(5)
             if day+maximum>ceiling or batch+maximum>batch_ceiling:
                 raise PermissionError('daily or batch reservation ceiling exceeded')
-            if allocation is not None and conn.execute('SELECT clock_timestamp()<%s',
+            if allocation is not None and _budget_execute_v1(conn,'SELECT clock_timestamp()<%s',
                     (allocation.expires_at,)).fetchone()[0] is not True:
                 raise PermissionError('original allocation expired before reservation commit')
-            conn.execute('INSERT INTO oracle2.operating_dispatch_reservations(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,reserved_usd,pricing_hash) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,maximum,pricing_hash))
+            _budget_execute_v1(conn,'INSERT INTO oracle2.operating_dispatch_reservations(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,reserved_usd,pricing_hash) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,maximum,pricing_hash))
         return reservation_id
 
     def diagnose(self, *, reservation_id: UUID, actor_id: UUID, failure_kind: str, correction_hash: str, diagnosis_hash: str):
@@ -137,34 +187,34 @@ class Budget:
         import re
         if failure_kind not in {'invalid_output','truncated_output','transport_failure','quota_exhausted'} or any(not re.fullmatch('[0-9a-f]{64}',h) for h in (correction_hash,diagnosis_hash)):
             raise ValueError('sealed exact failure diagnosis required')
-        with psycopg.connect(self.url) as conn:
-            row=conn.execute('SELECT r.workspace_id,r.artifact_id,s.status FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) WHERE r.reservation_id=%s AND r.attempt=1',(reservation_id,)).fetchone()
+        with self._connection_v1() as conn:
+            row=_budget_execute_v1(conn,'SELECT r.workspace_id,r.artifact_id,s.status FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) WHERE r.reservation_id=%s AND r.attempt=1',(reservation_id,)).fetchone()
             if row is None or row[2]!='failed':raise PermissionError('diagnosis requires the failed first artifact receipt')
             workspace,artifact,_=row;_lock(conn,workspace)
             if not _has_authority_conn(conn,workspace,actor_id,'dispatch-correction:'+str(artifact)):
                 raise PermissionError('current rooted artifact correction authority required')
-            conn.execute('INSERT INTO oracle2.operating_dispatch_diagnoses(reservation_id,diagnosed_by,failure_kind,correction_hash,diagnosis_hash) VALUES(%s,%s,%s,%s,%s)',(reservation_id,actor_id,failure_kind,correction_hash,diagnosis_hash))
+            _budget_execute_v1(conn,'INSERT INTO oracle2.operating_dispatch_diagnoses(reservation_id,diagnosed_by,failure_kind,correction_hash,diagnosis_hash) VALUES(%s,%s,%s,%s,%s)',(reservation_id,actor_id,failure_kind,correction_hash,diagnosis_hash))
 
     def finish(self,reservation_id: UUID, *, actual_usd: Decimal, failed: bool, response_hash: str | None, failure_kind: str | None = None):
         if failure_kind not in {None,'transport_failure','quota_exhausted','invalid_output'} or (failure_kind and not failed):raise ValueError('invalid failure classification')
         if not actual_usd.is_finite() or actual_usd<0:raise ValueError('invalid dispatch accounting')
         actual_usd=actual_usd.quantize(Decimal('0.000001'),rounding=ROUND_CEILING)
-        with psycopg.connect(self.url) as conn:
-            conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',))
-            row=conn.execute('SELECT reserved_usd FROM oracle2.operating_dispatch_reservations WHERE reservation_id=%s',(reservation_id,)).fetchone()
+        with self._connection_v1() as conn:
+            _budget_execute_v1(conn,'SELECT pg_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',))
+            row=_budget_execute_v1(conn,'SELECT reserved_usd FROM oracle2.operating_dispatch_reservations WHERE reservation_id=%s',(reservation_id,)).fetchone()
             if row is None or not actual_usd.is_finite() or actual_usd<0: raise ValueError('invalid dispatch accounting')
             overrun=actual_usd>row[0]
             status='overrun' if overrun else ('failed' if failed else 'completed')
-            prior=conn.execute('SELECT actual_usd,status,response_hash,failure_kind FROM oracle2.operating_dispatch_receipts WHERE reservation_id=%s',(reservation_id,)).fetchone()
+            prior=_budget_execute_v1(conn,'SELECT actual_usd,status,response_hash,failure_kind FROM oracle2.operating_dispatch_receipts WHERE reservation_id=%s',(reservation_id,)).fetchone()
             if prior and prior!=(actual_usd,status,response_hash,failure_kind): raise ValueError('dispatch receipt tampering')
-            conn.execute('INSERT INTO oracle2.operating_dispatch_receipts(reservation_id,actual_usd,status,response_hash,failure_kind) VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',(reservation_id,actual_usd,status,response_hash,failure_kind))
+            _budget_execute_v1(conn,'INSERT INTO oracle2.operating_dispatch_receipts(reservation_id,actual_usd,status,response_hash,failure_kind) VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',(reservation_id,actual_usd,status,response_hash,failure_kind))
         if overrun: raise RuntimeError('provider cost overrun; further dispatch denied pending diagnosis')
 
 class AdmittedProvider:
     def __init__(self, *, request: ProcessingRequest, approvals: list[ProcessingApproval], pricing: Pricing, budget: Budget, sender, remaining_daily_allowance=None, admitted_register_hash=None, operation="chat"):
         from .native_provider import NativeOpenRouter
         if operation not in {'chat','embedding'}:raise PermissionError('fixed provider operation required')
-        if operation=='embedding' and (pricing.model!='openai/text-embedding-3-small' or pricing.max_output_tokens!=1 or pricing.output_per_million_usd!=0):
+        if operation=='embedding' and (pricing.model!='openai/text-embedding-3-small' or (type(pricing) is not QualifiedQueryEmbeddingPricingV1 and (pricing.max_output_tokens!=1 or pricing.output_per_million_usd!=0))):
             raise PermissionError('fixed input-only embedding pricing required')
         self.operation=operation
         native=getattr(sender,'__self__',None)
@@ -194,8 +244,14 @@ class AdmittedProvider:
             raise ValueError('input reservation does not cover the complete dispatch payload')
 
     def _reservation_maximum(self, *, input_tokens_upper_bound):
-        if self.request.purpose=='employee-conversation':
-            if type(self.pricing) is not ConversationTextPricingV1 or input_tokens_upper_bound!=self.pricing.input_tokens_upper_bound:
+        if self.request.purpose=='qualified-query-embedding-v1':
+            if type(self.pricing) is not QualifiedQueryEmbeddingPricingV1 or input_tokens_upper_bound!=self.pricing.input_tokens_upper_bound:raise PermissionError('closed full query input/request quote required')
+            from decimal import localcontext
+            with localcontext() as context:
+                context.prec=200
+                return Decimal(input_tokens_upper_bound)*max(self.pricing.input_per_million_usd,self.pricing.input_cache_write_per_million_usd)/Decimal(1000000)+self.pricing.per_request_fee_usd
+        if self.request.purpose in {'employee-conversation','qualified-answer-synthesis-v1'}:
+            if type(self.pricing) is not (QualifiedAnswerTextPricingV1 if self.request.purpose=='qualified-answer-synthesis-v1' else ConversationTextPricingV1) or input_tokens_upper_bound!=self.pricing.input_tokens_upper_bound:
                 raise PermissionError('closed full text quote required; generic price unavailable')
             from decimal import localcontext
             with localcontext() as context:
@@ -231,7 +287,7 @@ class AdmittedProvider:
                 response,actual=self.sender(messages=messages,model=self.pricing.model,max_output_tokens=self.pricing.max_output_tokens,store=False,**opts)
         except Exception as error:
             liability=maximum
-            if purpose=='employee-conversation':
+            if purpose in {'employee-conversation','qualified-query-embedding-v1','qualified-answer-synthesis-v1'}:
                 from oracle_brain.operating_model.conversation_native_authority_v1 import conversation_wire_liability_lower_bound_v1
                 liability=max(maximum,conversation_wire_liability_lower_bound_v1(getattr(getattr(self.sender,'__self__',None),'last_response_text',None)))
             self.budget.finish(rid,actual_usd=liability,failed=True,response_hash=None,failure_kind='quota_exhausted' if isinstance(error,ProviderQuotaError) else 'transport_failure')
@@ -241,7 +297,7 @@ class AdmittedProvider:
             try:response_validator(response)
             except (ValueError,TypeError,KeyError):valid=False
             except Exception as error:
-                if purpose!='employee-conversation':raise
+                if purpose not in {'employee-conversation','qualified-query-embedding-v1','qualified-answer-synthesis-v1'}:raise
                 observed=getattr(error,'observed_actual_usd',actual)
                 if type(observed) is not Decimal or not observed.is_finite() or observed<0:observed=actual
                 from oracle_brain.operating_model.conversation_native_authority_v1 import conversation_wire_liability_lower_bound_v1

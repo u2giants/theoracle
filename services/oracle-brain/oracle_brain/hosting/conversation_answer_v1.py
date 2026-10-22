@@ -16,7 +16,7 @@ from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
 from .replacement_result_service_v1 import _ResultOwnedLoopV1
 
 class ConversationAnswerV1:
-    def __init__(self,control,settings):
+    def __init__(self,control,settings,*,effects=None):
         if type(control) is not ConversationControlV1 or type(settings) is not ConnectedAnswerSettingsV1:
             raise TypeError('actual own conversation and separately appointed evidence consumer required')
         c=control.settings.config;s=settings.config
@@ -24,13 +24,55 @@ class ConversationAnswerV1:
             raise PermissionError('independent answer recipient differs from conversation owner')
         control.settings.current();settings.current();self.control=control;self.settings=settings
         self.owned=_ResultOwnedLoopV1(ProtectedConnectedAnswerServiceV1(settings))
-    def close(self):self.owned.close()
+        self.effect_owned=None
+        if effects is not None:
+            from .question_effect_factory_v1 import ProtectedQuestionEffectFactoryV1
+            if type(effects) is not ProtectedQuestionEffectFactoryV1 or(effects.owner.config.enduser_principal_id,effects.owner.config.workspace_id)!=(c.principal_id,c.workspace_id):
+                self.owned.close();raise PermissionError('exact separate same employee question effect installation required')
+            try:self.effect_owned=_ResultOwnedLoopV1(effects)
+            except BaseException:self.owned.close();raise
+    def close(self):
+        try:
+            if self.effect_owned is not None:self.effect_owned.close()
+        finally:self.owned.close()
+    def _unobserved_v1(self,snapshot,state):
+        from oracle_brain.operating_model.question_effect_public_v1 import nonobserved_question_effect_v1
+        request_remaining_v1();checked=datetime.now(timezone.utc)
+        end=min(self.control.settings.current(),checked+timedelta(seconds=min(30,request_remaining_v1())))
+        return nonobserved_question_effect_v1(snapshot,state=state,checked_at=checked,expires_at=end).model_dump(mode='json')
     def present_turn_v1(self,snapshot,turn_id):
         from oracle_brain.workflows.interview import present
         request_remaining_v1();self.control.settings.current()
         events=[e for e in snapshot['recap']['events'] if e['origin']=='employee' and e['turn_id']==turn_id]
         if len(events)!=1:raise PermissionError('exact immutable employee original required for evidence question')
         event=events[0];thread=UUID(snapshot['thread_id']);revision=snapshot['revision']
+        capability_gap=None
+        if self.effect_owned is not None:
+            from .question_effect_factory_v1 import QuestionEffectUnknown
+            try:
+                effect=self.effect_owned.result(self.control,snapshot,absolute_monotonic_deadline=_request_end_v1.get())
+            except QuestionEffectUnknown:
+                # The employee turn is already durable. Never rerun lexical or
+                # native work after a possible claim/paid/uncertain effect.
+                latest=self.control.snapshot_v1(thread)
+                if latest['revision']!=revision:raise PermissionError('conversation changed after uncertain question effect')
+                result=present(latest);result['qualified_answer']=None
+                result['qualified_effect']=self._unobserved_v1(latest,'unknown')
+                result['answer_first']='The response outcome is unknown. Your original words are saved; no request has been repeated.'
+                return result
+            except (PermissionError,psycopg.Error,ValueError):
+                if self.effect_owned.service._cleanup_unknown:raise
+                capability_gap='The independently authorized search or synthesis capability is unavailable. This answer uses existing qualified records only.'
+            else:
+                latest=self.control.snapshot_v1(thread)
+                if latest['revision']!=revision:raise PermissionError('conversation changed after qualified effect')
+                result=present(latest);result['qualified_answer']=None
+                if effect['state']=='clarification' and latest['mode']=='interview':
+                    # No extra scope question can bypass the one SQL question.
+                    effect=self._unobserved_v1(latest,'unavailable')
+                result['qualified_effect']=effect
+                result['answer_first']='Current qualified evidence is shown below.' if effect.get('answer') is not None else 'Current qualified records do not establish an answer. The existing interview question is unchanged.'
+                return result
         packet=None;gap='Current qualified records do not establish an answer. No extra interview question has been added.'
         try:
             self.settings.current()
@@ -58,5 +100,8 @@ class ConversationAnswerV1:
         result=present(latest)
         result['qualified_answer']=packet
         result['answer_first']='Current qualified evidence is shown below.' if packet is not None else gap
+        if capability_gap is not None:
+            result['qualified_effect']=self._unobserved_v1(latest,'unavailable')
+            result['answer_first']=capability_gap+' '+result['answer_first']
         # The existing present() receives unchanged actual pending question/count.
         return result

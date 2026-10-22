@@ -110,7 +110,7 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','027_legacy_migration.sql')
+    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','027_legacy_migration.sql')
 DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
@@ -235,6 +235,18 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_citation_sql',),
 # population, original shared120s ceiling and exactly ten workers.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
     'replacement_documentary_journey',after=True)
+# Preserve every current suite and the existing ten workers /120s deadline.
+QUESTION_EFFECT_PURE_SUITES=('question_core_forwarding_v1','qualified_synthesis_v1',
+    'question_effect_pricing_v1','question_effect_public_v1','question_vector_packing_v1')
+DOCUMENTARY += QUESTION_EFFECT_PURE_SUITES+('question_effects_sql_v1','question_effect_native_sql_v1')
+DOCUMENTARY=_place_suites(DOCUMENTARY,QUESTION_EFFECT_PURE_SUITES,
+    'workflow_authorization')
+# Prior exact native64s + current doc03 46s; SQL39s +doc08 79s.
+# Measured estimates only; the unchanged whole-run deadline decides success.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
+    'replacement_documentary_journey',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
+    'purpose_worker_startup',after=True)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
