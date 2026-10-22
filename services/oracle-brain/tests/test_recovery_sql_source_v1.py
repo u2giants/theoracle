@@ -91,6 +91,7 @@ def test_direct_sql_uses_same_complete_catalog_expression_without_new_digest_own
 
 def test_independent_canonicalizer_pin_is_exact_retained_source_body():
  import hashlib
+ import pytest; pytest.importorskip('pglast')
  from pglast import parse_sql
  source=(ROOT/'services/oracle-brain/sql/014_replacement_source_custody.sql').read_text()
  body=None
@@ -130,6 +131,7 @@ def test_embedded_catalog_aliases_do_not_shadow_plpgsql_records():
 
 def _normalize_context_record_identifiers(text):
  # Scanner token ranges exclude SQL literals, quoted identifiers and comments.
+ import pytest; pytest.importorskip('pglast')
  from pglast import scan
  assert text.isascii()
  result=text
@@ -158,6 +160,7 @@ def test_record_rename_preserves_every_original_nonidentifier_byte():
 
 
 def _rename_unqualified_scope_token(text,before,after):
+ import pytest; pytest.importorskip('pglast')
  from pglast import scan
  tokens=list(scan(text));result=text;count=0
  for index in reversed(range(len(tokens))):
@@ -198,6 +201,7 @@ def test_identifier_normalization_never_rewrites_literals_or_comments():
 
 
 def test_no_removed_record_identifier_remains_in_executable_context():
+ import pytest; pytest.importorskip('pglast')
  from pglast import scan
  source=SOURCE.read_text()
  whole=source.split('CREATE FUNCTION oracle2._recovery_context_v1',1)[1].split('END $f$;',1)[0]

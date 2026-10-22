@@ -123,3 +123,8 @@ This is source freeze only. Before any fresh runner10 / actual 27-case proof:
 5. All 27 actual PASS with 0 E/S, current catalog, permission/revocation/direct entry negatives meaningful, complete source unchanged, exact owned resource absence
 
 Then continue full recovery. Metadata success is not full restore.
+
+
+## Independent review follow-up (2026-10-22)
+
+DeepSeek final-check of 1738f945 returned REJECT. Actionable finding: unguarded `from pglast import` in `test_recovery_sql_source_v1.py` would fail CI where pglast is undeclared. Fixed with `pytest.importorskip('pglast')` at those four sites. Low-severity doc count mismatch noted (actual composed delta is 32 files +9467/-34 vs earlier 30-file note). Provenance of 2633 delta head remains as recorded in the composition method. No other confirmed defects from that review.
