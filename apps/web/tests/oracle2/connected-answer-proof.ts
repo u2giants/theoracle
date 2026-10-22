@@ -1,5 +1,6 @@
 /** Source-only invented auth hooks, actual browser/proxy/API/mTLS/SQL/SDK graph. */
 import assert from 'node:assert/strict';
+import {Session} from 'node:inspector';
 // Native package loading precedes the test-only web auth import hooks.
 import 'mcp-handler';
 import 'zod';
@@ -15,6 +16,9 @@ import { chromium } from '@playwright/test';
 import { NextRequest } from 'next/server';
 import { canonicalJson,sha256,readInstalledConnectedAnswerBinding,readInstalledMcpAnswerBinding,type ConnectedAnswerBinding } from '../../lib/replacement-server-binding';
 const meta=JSON.parse(readFileSync(process.argv[2]!,'utf8'));
+// Invented-fixture diagnostic only. Exception behavior and every access guard remain unchanged.
+const inspector=new Session();inspector.connect();inspector.post('Debugger.enable');inspector.post('Debugger.setPauseOnExceptions',{state:'all'});
+const exceptions:unknown[]=[];inspector.on('Debugger.paused',event=>{try{const data=event.params;if(data.callFrames.some(f=>f.url.includes('replacement-protected-client')||f.url.includes('protected-control-window'))){exceptions.push({reason:data.reason,data:data.data,frames:data.callFrames.map(f=>({function:f.functionName,url:f.url,line:f.location.lineNumber}))});writeFileSync(join(meta.scratch,'client-exceptions.json'),JSON.stringify(exceptions),{mode:0o600});}}finally{inspector.post('Debugger.resume');}});
 const identity={user:meta.auth_user_id,employee:meta.employee_id,project:meta.project_url,disabledAt:null as string|null,calls:0};
 (globalThis as unknown as Record<string,unknown>).__connectedProofIdentity=identity;
 (globalThis as unknown as Record<string,unknown>).React=React;
@@ -81,7 +85,9 @@ try{
   await page.getByText('Reported account',{exact:false}).first().waitFor({timeout:20000});
  }
  await page.getByLabel('Your question').fill('What happens to it next?');await page.getByRole('button',{name:'Ask',exact:true}).click();await page.getByText('Which process or reported action do you mean in this question?',{exact:true}).waitFor();assert.equal(await page.getByRole('link',{name:'Open original under current access'}).count(),0);
- await page.getByLabel('Your question').fill('What is reported across all processes?');await page.getByRole('button',{name:'Ask',exact:true}).click();await page.getByRole('link',{name:'Open original under current access'}).first().waitFor();
+ await page.getByLabel('Your question').fill('What is reported across all processes?');
+ const finalResponse=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/consultant/replacement/v1/protected/answer'&&r.request().postDataJSON().question==='What is reported across all processes?',{timeout:20000});
+ await page.getByRole('button',{name:'Ask',exact:true}).click();const finalObserved=await finalResponse;writeFileSync(join(meta.scratch,'final-global-response.json'),JSON.stringify({status:finalObserved.status(),body:await finalObserved.text()}),{mode:0o600});assert.equal(finalObserved.status(),200);await page.getByRole('link',{name:'Open original under current access'}).first().waitFor();
  const rpc=await page.evaluate<Record<'initialize'|'list'|'answer',{status:number;text:string}>>(`(async()=>{
   async function call(method,params,id){const r=await fetch('/api/consultant/mcp/mcp',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json, text/event-stream','MCP-Protocol-Version':'2025-03-26'},body:JSON.stringify({jsonrpc:'2.0',id,method,params})});const text=await r.text();return {status:r.status,text};}
   const initialize=await call('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'invented-employee-browser-MCP',version:'1'}},1);
@@ -100,4 +106,4 @@ try{
  identity.disabledAt=null;identity.user='00000000-0000-0000-0000-000000000001';const foreign=await page.evaluate(async()=>{const r=await fetch('/api/consultant/replacement/v1/protected/answer',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});return r.status;});assert.equal(foreign,503);
  assert.equal(errors.length,0,JSON.stringify(errors));await page.screenshot({path:join(meta.scratch,'browser-answer-access-denied.png')});
  writeFileSync(join(meta.scratch,'browser-receipt.json'),JSON.stringify({actual_browser:true,auth:'explicit invented existing import hooks',framework:'actual page/component+proxy/API/mcp-handler in explicit HTTPS harness; not deployed Next routing',operations,statuses,identity_calls:identity.calls,page_errors:errors})+'\n');
-}finally{await browser.close();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));hook.deregister();}
+}finally{await browser.close();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));hook.deregister();inspector.disconnect();}
