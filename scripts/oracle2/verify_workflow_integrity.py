@@ -257,6 +257,9 @@ def cleanup_test_databases(admin,parts,owned):
 
 SOURCE_INPUT_PATHS=('services/oracle-brain/oracle_brain','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/compose.yaml','dev/oracle2/test_tls_bootstrap.py','dev/oracle2/test_worker_postgres_fixture.py','dev/oracle2/test_readonly_graph_fixture.py','dev/oracle2/test_graph_tls_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics')
 SOURCE_INPUT_PATHS += ('scripts/oracle2/contract_test_evidence.py','scripts/oracle2/verify_phase.py','dev/oracle2/test_canonical_schema.py')
+# Actual browser/framework child cases read these same public sources. Never
+# bind only the Python caller while omitting its executed web/identity code.
+SOURCE_INPUT_PATHS += ('apps/web/app','apps/web/components/consultant','apps/web/lib','apps/web/tests/oracle2','apps/web/proxy.ts','apps/web/next.config.ts','apps/web/package.json','packages/db/src','packages/auth/src','packages/shared/src','pnpm-lock.yaml','pnpm-workspace.yaml','.github/workflows/oracle2-contracts.yml')
 SOURCE_INPUT_PATHS += ('dev/oracle2/native-v2-fixed-identities.json', 'dev/oracle2/hosting/prepare_native_trigger_v2.py', 'dev/oracle2/hosting/install_native_trigger_v2.py', 'dev/oracle2/hosting/project_native_trigger_v2.py', 'dev/oracle2/hosting/falkor_native_proof_acl_v2.py')
 
 
@@ -283,6 +286,7 @@ def main(argv=None):
     missing=[p.name for p in paths if not p.is_file()]
     if missing:raise RuntimeError('required tests missing: '+','.join(missing))
     public_hashes=required_public_chain_hashes()
+    source_snapshot=source_input_hashes()
     admin=os.environ['ORACLE2_TEST_ADMIN_URL'];parts=psycopg.conninfo.conninfo_to_dict(admin)
     if parts.get('host') not in {'localhost','127.0.0.1'}:raise PermissionError('synthetic loopback proof required')
     destination=ROOT/args.result;destination.parent.mkdir(parents=True,exist_ok=True)
@@ -320,6 +324,7 @@ def main(argv=None):
         report['versions']={package:version(package) for package in ('graphrag-sdk','langgraph','pydantic','psycopg')}
         report['head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
         hashes=source_input_hashes()
+        if hashes!=source_snapshot:raise RuntimeError('required executed source changed during tests')
         current_public_hashes=required_public_chain_hashes()
         if current_public_hashes!=public_hashes:raise RuntimeError('required public source changed during tests')
         hashes.update(current_public_hashes)

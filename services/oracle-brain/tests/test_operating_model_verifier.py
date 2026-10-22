@@ -344,3 +344,22 @@ def test_recorded_source_inventory_binds_shared_evidence_and_phase_frontdoor_byt
         after=verifier.source_input_hashes()
         assert before[name]!=after[name]
         assert all(before[other]==after[other] for other in names if other!=name)
+
+
+def test_actual_web_identity_and_framework_source_are_in_recorded_execution_inventory(tmp_path,monkeypatch):
+    import subprocess
+    subprocess.run(['git','init','-q',str(tmp_path)],check=True)
+    names=('apps/web/app/api/consultant/replacement/v1/protected/model-review/route.ts',
+        'apps/web/lib/replacement-protected-client.ts','apps/web/proxy.ts',
+        'apps/web/tests/oracle2/model-review-next-auth-proof.ts',
+        'packages/db/src/schema.ts','packages/auth/src/index.ts',
+        'packages/shared/src/protected-node-https.ts','pnpm-lock.yaml')
+    for name in names:
+        path=tmp_path/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'invented executed source')
+    private=tmp_path/'apps/web/lib/.env.local';private.write_bytes(b'invented excluded private fixture')
+    cache=tmp_path/'apps/web/.next/cache';cache.parent.mkdir(parents=True);cache.write_bytes(b'invented cache')
+    monkeypatch.setattr(verifier,'ROOT',tmp_path)
+    before=verifier.source_input_hashes()
+    assert set(before)==set(names)
+    (tmp_path/'apps/web/lib/replacement-protected-client.ts').write_bytes(b'changed actual executed peer')
+    assert before!=verifier.source_input_hashes()
