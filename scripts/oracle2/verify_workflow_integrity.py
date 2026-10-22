@@ -218,12 +218,15 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,MEETING_CAPTURE_CORE_SUITES,
     'workflow_authorization')
 DOCUMENTARY=_place_suites(DOCUMENTARY,MEETING_CAPTURE_CUSTODY_SUITES,
     'replacement_documentary_journey')
-# S14 keeps all26 actual SQL cases and the existing120s/ten-worker limits.
-# Frozen backend case timings estimate38s+pure3s in documentary04 and34s in
-# documentary09. Current workspace additions and full CI still decide fit.
+# PR191's first full run reached the unchanged120s limit in documentary04.
+# Keep ALL same cases and ten workers: pure capture checks use documentary01,
+# whole legacy SQL uses documentary03, and citations retain documentary09.
+# Actual full CI decides fit; prior timing estimates are not acceptance.
 DOCUMENTARY=_place_suites(DOCUMENTARY,
-    tuple(name for name in MIGRATION_CURRENT_CAPTURE_SUITES if name!='legacy_migration_citation_sql'),
-    'original_corpus_import',after=True)
+    tuple(name for name in MIGRATION_CURRENT_CAPTURE_SUITES if name not in ('legacy_migration_sql','legacy_migration_citation_sql')),
+    'workflow_authorization')
+DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_sql',),
+    'replacement_documentary_journey',after=True)
 DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_citation_sql',),
     'paid_sdk_embeddings_v3',after=True)
 

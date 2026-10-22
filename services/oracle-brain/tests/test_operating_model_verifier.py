@@ -405,7 +405,8 @@ def test_current_capture_migration_uses_existing_workers_and_actual_S14_admissio
     assert {f'test_{name}.py' for name in verifier.MIGRATION_CURRENT_CAPTURE_SUITES}<=set(phase['S14_TESTS'])
     assert len(phase['S14_TESTS'])==11
     groups=dict(verifier.test_groups('W10'))
-    assert set(verifier.MIGRATION_CURRENT_CAPTURE_SUITES)-{'legacy_migration_citation_sql'}<=set(groups['documentary-04'])
+    assert set(verifier.MIGRATION_CURRENT_CAPTURE_SUITES)-{'legacy_migration_sql','legacy_migration_citation_sql'}<=set(groups['documentary-01'])
+    assert 'legacy_migration_sql' in groups['documentary-03']
     assert 'legacy_migration_citation_sql' in groups['documentary-09']
 
 
