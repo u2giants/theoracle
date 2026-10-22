@@ -202,9 +202,24 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
         finally:
          server.shutdown();server.server_close();thread.join(3)
          assert not thread.is_alive() and not server.answer_owned_loop.thread.is_alive()
-        # Full graph lineage is checked, not just a completed marker/digest.
-        with pytest.raises(psycopg.errors.InsufficientPrivilege):await served.load()
        finally:await served.close()
+      # A distinct current read AFTER the browser/MCP journey has its own
+      # original request. Never reuse/extend the earlier SDK object's spent
+      # 29-second request merely to observe an exact SQL privilege refusal.
+      # Same actual graph/ACK/source population; no qualification/lease renewal.
+      with _request_fence_v1(float(time.monotonic()+12)):
+       revoked=None
+       try:
+        # The real constructor already checks current SQL permission; an early
+        # exact denial is required, not a reason to bypass that check for load.
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+         revoked=ConsolidatedMetadataSDKProjectionV1(readonly,authority=authority,
+             blobs=FileBlobStore(state['blobs'].root),model_id=m.artifact_id,
+             version=m.version,generation=generation,connection_config=config_for(readonly),
+             deadline=datetime.now(timezone.utc)+timedelta(seconds=11))
+         await revoked.load()
+       finally:
+        if revoked is not None:await revoked.close()
     finally:await projection.close()
  asyncio.run(run())
 

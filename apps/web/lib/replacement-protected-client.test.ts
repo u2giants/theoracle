@@ -6,11 +6,11 @@ import { registerHooks } from 'node:module';
 import { mkdtempSync, readFileSync, writeFileSync, chmodSync, rmSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync,execFile } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
 import * as tls from 'node:tls';
 import { captureControlWindow, CONTROL_WINDOW_HEADER } from './replacement-control-window';
-import { canonicalJson, instant, matchesIdentity, parseClosedJson, sha256, validateBinding, type ServerBinding } from './replacement-server-binding';
+import { validateEmployeeRecipientIndexV1,canonicalJson, instant, matchesIdentity, parseClosedJson, sha256, validateBinding, type ServerBinding } from './replacement-server-binding';
 import { parseControlMetadata, requestReplacementControl, validateControlRequest } from './replacement-protected-client';
 
 const id = '11111111-1111-4111-8111-111111111111', employee = '22222222-2222-4222-8222-222222222222';
@@ -229,4 +229,23 @@ test('mid-transport identical file replacement refuses reply and later entry (la
   renameSync(file('binding.json'),file('old-binding.json')); writeFileSync(file('binding.json'),canonicalJson(binding),{mode:0o600});
   assert.deepEqual(await pending,{available:false}); assert.equal(requests,count+1);
   await refused(request()); assert.equal(requests,count+1);
+});
+
+
+test('finite independently installed recipient index is closed and never a grant',()=>{
+ const index={schema_version:1,purpose:'replacement-employee-recipient-index-v1',issuer_actor:id,reviewer_actor:employee,valid_from:binding.valid_from,expires_at:binding.expires_at,original_horizon:binding.original_horizon,
+  recipients:[{project_url:binding.project_url,auth_issuer:binding.auth_issuer,auth_user_id:id,employee_id:employee,bindings:{control:{path:file('recipient.json'),sha256:h}}}]};
+ assert.equal(validateEmployeeRecipientIndexV1(JSON.parse(canonicalJson(index))).recipients.length,1);
+ const variants=[{...index,schema_version:true},{...index,issuer_actor:employee},{...index,grant:true},{...index,recipients:[]},{...index,recipients:[...index.recipients,...index.recipients]},
+  {...index,recipients:[{...index.recipients[0],actor:id}]},{...index,recipients:[{...index.recipients[0],auth_issuer:'https://foreign.test/auth/v1'}]},
+  {...index,recipients:[{...index.recipients[0],bindings:{worker:index.recipients[0]!.bindings.control}}]},
+  {...index,recipients:[{...index.recipients[0],bindings:{control:{path:'relative',sha256:h}}}]},
+  {...index,recipients:[{...index.recipients[0],bindings:{control:{path:file('recipient.json'),sha256:'A'.repeat(64)}}}]},
+  {...index,recipients:[{...index.recipients[0],bindings:{control:index.recipients[0]!.bindings.control,answer:index.recipients[0]!.bindings.control}}]}];
+ for(const value of variants)assert.throws(()=>validateEmployeeRecipientIndexV1(JSON.parse(canonicalJson(value))));
+});
+test('two recipient profiles remain isolated through actual TLS and invented identity adapter',async()=>{
+ const environment={...process.env};delete environment.NODE_TEST_CONTEXT;
+ const result=await new Promise<{stdout:string;stderr:string}>((resolve,reject)=>execFile('pnpm',['--filter','@oracle/web','exec','tsx','tests/oracle2/employee-recipient-wire-proof.ts'],{cwd:new URL('../',import.meta.url),env:environment,timeout:15000},(error,stdout,stderr)=>error?reject(new Error(stdout+'\n'+stderr)):resolve({stdout,stderr})));
+ assert.match(result.stdout,/INVENTED_RECIPIENT_WIRE_PROOF_PASS/);
 });

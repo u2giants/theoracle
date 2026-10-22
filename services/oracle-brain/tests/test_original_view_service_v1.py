@@ -58,6 +58,10 @@ def recording_sql(f,monkeypatch):
         def __enter__(self): return self
         def __exit__(self,*args):
             self.closed=True
+            if getattr(self, 'autocommit', False) and args[0] is None:
+                # Real psycopg context commits an explicit BEGIN on clean exit,
+                # including connections opened with autocommit=True.
+                self.committed=True
             if f.close_error:raise RuntimeError('invented uncertain connection close')
             if f.after_close:f.after_close(self.number)
         def commit(self):self.committed=True
@@ -84,7 +88,9 @@ def recording_sql(f,monkeypatch):
             raise AssertionError(self.q)
     def connect(raw,**kwargs):
         assert 1<=kwargs['connect_timeout']<=5 and kwargs['tcp_user_timeout']<=30000
-        return Connection()
+        connection=Connection()
+        connection.autocommit=kwargs.get('autocommit',False)
+        return connection
     monkeypatch.setattr('psycopg.connect',connect)
 
 
@@ -178,9 +184,9 @@ def test_private_custody_or_startup_drift_denies_pdf(tmp_path,certificates,monke
 def test_late_private_read_stops_before_second_getter_or_sql_pass(tmp_path,certificates,monkeypatch):
     f=configured_viewer(tmp_path,certificates);recording_sql(f,monkeypatch)
     original=FileBlobStore._read_original_bytes
-    def late(self,ref):time.sleep(1.35);return original(self,ref)
+    def late(self,ref):time.sleep(3.35);return original(self,ref)
     monkeypatch.setattr(FileBlobStore,'_read_original_bytes',late)
-    with running(f) as server:assert send(server,certificates,wire(f,seconds=1.25))[:2]==(503,b'')
+    with running(f) as server:assert send(server,certificates,wire(f,seconds=3.25))[:2]==(503,b'')
     assert len(f.connections)==1 and f.caps==2
     assert f.connections[0].closed
 

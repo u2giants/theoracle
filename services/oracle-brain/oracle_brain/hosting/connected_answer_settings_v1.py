@@ -9,7 +9,7 @@ from pydantic import AwareDatetime,Field,model_validator
 from cryptography import x509
 from oracle_brain.operating_model.contracts import StrictRecord
 from oracle_brain.operating_model.consolidation_authority_v1 import ConsolidationAuthorityV1,ConsolidationBindingV1
-from oracle_brain.operating_model.protected_inputs_v1 import ProtectedInputV1,_pinned,_parse
+from oracle_brain.operating_model.protected_inputs_v1 import ProtectedInputV1,_pinned,_parse,parse_canonical_object_v1
 from oracle_brain.operating_model.artifact_storage import FileBlobStore
 from oracle_brain.operating_model.request_deadline_v1 import request_remaining_v1
 from .consolidation_review_settings_v1 import ReviewConsumerV1,_with_identity
@@ -48,6 +48,21 @@ class ConnectedAnswerConfigV1(StrictRecord):
             raise ValueError('exact separately appointed history recipient/projection population required')
         return self
 
+
+class ConnectedIndustryAnswerConfigV1(ConnectedAnswerConfigV1):
+    """A distinct independently installed profile; original v1 bytes stay valid."""
+    purpose:Literal['qualified-connected-industry-answer-v1']='qualified-connected-industry-answer-v1'
+    industry_readers:tuple[ProtectedInputV1,...]=Field(min_length=1,max_length=32)
+
+
+def _answer_config_v1(raw):
+    purpose=parse_canonical_object_v1(raw,limit=max(65536,len(raw))).get('purpose')
+    cls={'qualified-connected-answer-v1':ConnectedAnswerConfigV1,
+         'qualified-connected-industry-answer-v1':ConnectedIndustryAnswerConfigV1}.get(purpose)
+    if cls is None:raise PermissionError('fixed independently installed answer purpose required')
+    return _parse(cls,raw)
+
+
 class ConnectedAnswerPeerV1(StrictRecord):
     purpose:Literal['qualified-connected-answer-peer-v1']='qualified-connected-answer-peer-v1'
     config_sha256:str=Field(pattern=HASH)
@@ -68,23 +83,23 @@ class ConnectedAnswerPeerV1(StrictRecord):
 class ConnectedAnswerSettingsV1:
     config_path:str;config_sha256:str;peer_path:str;peer_sha256:str
     expected_issuer_actor:UUID;expected_reviewer_actor:UUID
-    config:ConnectedAnswerConfigV1;peer:ConnectedAnswerPeerV1
+    config:ConnectedAnswerConfigV1|ConnectedIndustryAnswerConfigV1;peer:ConnectedAnswerPeerV1
     file_identities:tuple;protected_identities:tuple
     @classmethod
     def load(cls,*,config_path,config_sha256,peer_path,peer_sha256,expected_issuer_actor,expected_reviewer_actor):
         raw,ci=_with_identity(config_path,config_sha256);other,pi=_with_identity(peer_path,peer_sha256)
-        c=_parse(ConnectedAnswerConfigV1,raw);p=_parse(ConnectedAnswerPeerV1,other)
+        c=_answer_config_v1(raw);p=_parse(ConnectedAnswerPeerV1,other)
         result=cls(str(config_path),config_sha256,str(peer_path),peer_sha256,expected_issuer_actor,expected_reviewer_actor,c,p,(ci,pi),cls._identities(c,p))
         result.current();return result
     @staticmethod
     def _identities(c,p):
-        inputs=(c.history.database_url,ProtectedInputV1(path=c.history.ca_path,sha256=c.history.ca_sha256),c.graph_ca,c.graph_certificate,c.graph_key,p.client_ca,p.server_certificate,p.server_key,*(t.graph_url for t in c.projections))
+        inputs=(c.history.database_url,ProtectedInputV1(path=c.history.ca_path,sha256=c.history.ca_sha256),c.graph_ca,c.graph_certificate,c.graph_key,p.client_ca,p.server_certificate,p.server_key,*(t.graph_url for t in c.projections),*(c.industry_readers if type(c) is ConnectedIndustryAnswerConfigV1 else ()))
         return tuple((v.path,v.sha256,_with_identity(v.path,v.sha256)[1]) for v in inputs)
     def current(self):
         request_remaining_v1(required=False)
         c,p=self.config,self.peer
         raw,ci=_with_identity(self.config_path,self.config_sha256);other,pi=_with_identity(self.peer_path,self.peer_sha256)
-        if (ci,pi)!=self.file_identities or _parse(ConnectedAnswerConfigV1,raw)!=c or _parse(ConnectedAnswerPeerV1,other)!=p:
+        if (ci,pi)!=self.file_identities or _answer_config_v1(raw)!=c or _parse(ConnectedAnswerPeerV1,other)!=p:
             raise PermissionError('protected answer installation changed')
         if (p.config_sha256!=self.config_sha256 or (p.principal_id,p.workspace_id,p.model_id,p.history_appointment_id)!=(c.principal_id,c.workspace_id,c.model_id,c.history.appointment_id)
             or (p.issuer_actor,p.reviewer_actor)!=(self.expected_issuer_actor,self.expected_reviewer_actor)
@@ -106,6 +121,18 @@ class ConnectedAnswerSettingsV1:
         return end
     def consumer(self):
         self.current();return self.config.history.authority(),FileBlobStore(Path(self.config.storage_root))
+    def reference_readers_v1(self):
+        """Use separately installed research READ appointments, never fetch roles."""
+        from ..research.durable_authority_v1 import load_research_settings_v1,ResearchAuthorityV1
+        from ..research.maintained_read_v1 import MaintainedResearchReaderV1
+        self.current();request_remaining_v1();readers=[]
+        if type(self.config) is not ConnectedIndustryAnswerConfigV1:raise PermissionError('independent reference read installation unavailable')
+        for pin in self.config.industry_readers:
+            settings=load_research_settings_v1(pin.path,pin.sha256);c=settings.config
+            if c.operation!='read' or (c.principal_id,c.workspace_id)!=(self.config.principal_id,self.config.workspace_id):
+                raise PermissionError('independently installed own reference reader required')
+            readers.append(MaintainedResearchReaderV1(ResearchAuthorityV1(settings)))
+        self.current();return tuple(readers)
     def projection(self,version,*,deadline,valid_at=None,known_at=None):
         from graphrag_sdk import ConnectionConfig
         from oracle_brain.operating_model.sdk_projection import ConsolidatedMetadataSDKProjectionV1

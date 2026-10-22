@@ -10,8 +10,24 @@ from oracle_brain.operating_model.observations import create_observation
 
 
 def qualified_two_source_fixture_v1(monkeypatch,readings,*,original_bytes=None):
+    return _qualified_two_source_fixture_v1(monkeypatch,readings,original_bytes=original_bytes,
+        lifetime_seconds=30,admission_lifetime_seconds=25)
+
+
+def qualified_two_source_serving_fixture_v1(monkeypatch,readings,*,original_bytes=None):
+    """Fresh invented browser fixture, selected BEFORE any capture/qualification.
+
+    Never extends a retained fixture or an individual request's 30-second limit.
+    The old constructor and its expiry-negative cases retain 30/25 seconds.
+    """
+    return _qualified_two_source_fixture_v1(monkeypatch,readings,original_bytes=original_bytes,
+        lifetime_seconds=120,admission_lifetime_seconds=115)
+
+
+def _qualified_two_source_fixture_v1(monkeypatch,readings,*,original_bytes,
+        lifetime_seconds,admission_lifetime_seconds):
     import test_assembly_context as foundation
-    from test_purpose_qualification_v3 import qualified_v3
+    from test_purpose_qualification_v3 import original_qualified_fixture_v3
     if (type(readings) is not tuple or len(readings)!=2
             or any(type(text) is not str or not text for text in readings)):
         raise ValueError('two actual invented reading texts required')
@@ -32,4 +48,5 @@ def qualified_two_source_fixture_v1(monkeypatch,readings,*,original_bytes=None):
     monkeypatch.setattr(foundation,'invented_inputs',actual_inputs)
     # This creates fresh actual wire/census/assessment/whole semantic fixtures
     # AFTER sources are fixed; callers cannot retrofit an already qualified body.
-    return qualified_v3.__wrapped__(foundation.context.__wrapped__())
+    return original_qualified_fixture_v3(foundation.original_context_v1(lifetime_seconds=lifetime_seconds),
+        admission_lifetime_seconds=admission_lifetime_seconds)

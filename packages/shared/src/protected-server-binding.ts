@@ -291,6 +291,61 @@ export function matchesIdentity(binding: Readonly<Pick<ServerBinding,'project_ur
   return snapshot.configuredProjectUrl === binding.project_url && snapshot.actualProjectUrl === binding.project_url && binding.auth_issuer === snapshot.actualProjectUrl + '/auth/v1' && snapshot.verifiedUserId === binding.auth_user_id && snapshot.employeeId === binding.employee_id && snapshot.disabledAt === null;
 }
 
+/** Independently installed finite recipient index. It selects separate existing
+ * profiles; it never issues a backend grant or accepts a request/cookie actor.
+ * Production callers must obtain this snapshot from real getUser + employee SQL
+ * and reverify that identity around the existing protected transport.
+ */
+export type EmployeeBindingPurposeV1='control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'answer'|'mcp-answer';
+interface EmployeeBindingsV1 {control:ServerBinding;viewer:ViewerBinding;upload:UploadBinding;review:ModelReviewBinding;conversation:ConversationBinding;meeting:MeetingControlBinding;answer:ConnectedAnswerBinding;'mcp-answer':ConnectedAnswerBinding;}
+interface RecipientEntryV1 {readonly project_url:string;readonly auth_issuer:string;readonly auth_user_id:string;readonly employee_id:string;readonly bindings:Readonly<Partial<Record<EmployeeBindingPurposeV1,Readonly<{path:string;sha256:string}>>>>;}
+interface RecipientIndexV1 {readonly schema_version:1;readonly purpose:'replacement-employee-recipient-index-v1';readonly issuer_actor:string;readonly reviewer_actor:string;readonly valid_from:string;readonly expires_at:string;readonly original_horizon:string;readonly recipients:readonly Readonly<RecipientEntryV1>[];}
+const employeePurposesV1=['control','viewer','upload','review','conversation','meeting','answer','mcp-answer'] as const;
+export function validateEmployeeRecipientIndexV1(value:unknown):Readonly<RecipientIndexV1>{
+ if(!exact(value,['schema_version','purpose','issuer_actor','reviewer_actor','valid_from','expires_at','original_horizon','recipients'])||value.schema_version!==1||value.purpose!=='replacement-employee-recipient-index-v1'||!canonicalUuid(value.issuer_actor)||!canonicalUuid(value.reviewer_actor)||value.issuer_actor===value.reviewer_actor||!Array.isArray(value.recipients)||value.recipients.length<1||value.recipients.length>64)return unavailable();
+ if(!(instant(value.valid_from)<instant(value.expires_at)&&instant(value.expires_at)<=instant(value.original_horizon)))return unavailable();
+ const identities=new Set<string>(),paths=new Set<string>();
+ for(const entry of value.recipients){
+  if(!exact(entry,['project_url','auth_issuer','auth_user_id','employee_id','bindings'])||!httpsOrigin(entry.project_url)||entry.auth_issuer!==entry.project_url+'/auth/v1'||!canonicalUuid(entry.auth_user_id)||!canonicalUuid(entry.employee_id)||!entry.bindings||typeof entry.bindings!=='object'||Array.isArray(entry.bindings))return unavailable();
+  const key=canonicalJson([entry.project_url,entry.auth_issuer,entry.auth_user_id]);if(identities.has(key))return unavailable();identities.add(key);
+  const purposes=Object.keys(entry.bindings);if(purposes.length<1||purposes.length>8)return unavailable();
+  for(const kind of purposes){
+   if(!employeePurposesV1.includes(kind as EmployeeBindingPurposeV1))return unavailable();const pin=(entry.bindings as Record<string,unknown>)[kind];
+   if(!exact(pin,['path','sha256'])||!text(pin.path,2048)||!isAbsolute(pin.path)||resolve(pin.path)!==pin.path||!canonicalHash(pin.sha256)||paths.has(pin.path))return unavailable();paths.add(pin.path);Object.freeze(pin);
+  }
+  Object.freeze(entry.bindings);Object.freeze(entry);
+ }
+ Object.freeze(value.recipients);return Object.freeze(value) as unknown as Readonly<RecipientIndexV1>;
+}
+let recipientIndexCacheV1:Readonly<{path:string;sha256:string;identity:string;index:Readonly<RecipientIndexV1>}>|undefined;
+interface RecipientSelectionV1 {readonly key:string;readonly kind:EmployeeBindingPurposeV1;readonly entry:Readonly<RecipientEntryV1>;readonly index:Readonly<RecipientIndexV1>;readonly path:string;readonly digest:string;}
+const recipientSelectionsV1=new WeakSet<object>();
+const recipientBindingCachesV1=new Map<string,BindingCache>();
+const recipientBindingOriginsV1=new WeakMap<object,RecipientSelectionV1>();
+const recipientProfilesV1=new WeakSet<object>();
+export function employeeRecipientIndexConfiguredV1():boolean{return process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_FILE!==undefined||process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_SHA256!==undefined;}
+function currentRecipientIndexV1():Readonly<RecipientIndexV1>{
+ const path=process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_FILE,digest=process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_SHA256,prior=recipientIndexCacheV1;
+ if(!path||!digest||prior&&(prior.path!==path||prior.sha256!==digest))return unavailable();
+ const file=protectedRead(path,digest),index=validateEmployeeRecipientIndexV1(parseClosedJson(file.bytes,65536));
+ if(canonicalJson(index)!==file.bytes.toString('utf8')||prior&&prior.identity!==file.identity)return unavailable();
+ const now=Date.now();if(now<instant(index.valid_from)||now>=Math.min(instant(index.expires_at),instant(index.original_horizon)))return unavailable();
+ recipientIndexCacheV1=prior??Object.freeze({path,sha256:digest,identity:file.identity,index});return recipientIndexCacheV1.index;
+}
+export function readInstalledEmployeeBindingV1<P extends EmployeeBindingPurposeV1>(kind:P,snapshot:IdentitySnapshot):InstalledBinding<EmployeeBindingsV1[P]>{
+ if(!employeePurposesV1.includes(kind)||!snapshot||snapshot.disabledAt!==null||snapshot.actualProjectUrl!==snapshot.configuredProjectUrl||!canonicalUuid(snapshot.verifiedUserId)||!canonicalUuid(snapshot.employeeId))return unavailable();
+ const index=currentRecipientIndexV1(),entries=index.recipients.filter(e=>matchesIdentity(e,snapshot));if(entries.length!==1)return unavailable();
+ const entry=entries[0]!,pin=entry.bindings[kind];if(!pin)return unavailable();
+ const selected=Object.freeze({key:canonicalJson([entry.project_url,entry.auth_user_id,entry.employee_id,kind]),kind,entry,index,path:pin.path,digest:pin.sha256});recipientSelectionsV1.add(selected);
+ return loadInstalledBinding(kind,selected) as InstalledBinding<EmployeeBindingsV1[P]>;
+}
+export function rereadInstalledEmployeeBindingV1(initial:InstalledBinding<ProtectedBinding>):InstalledBinding<ProtectedBinding>|undefined{
+ const selected=recipientBindingOriginsV1.get(initial);if(!selected){if(recipientProfilesV1.has(initial.profile))return unavailable();return undefined;}return loadInstalledBinding(selected.kind,selected);
+}
+export function installedEmployeeRecipientHorizonV1(initial:InstalledBinding<ProtectedBinding>):number{
+ const selected=recipientBindingOriginsV1.get(initial);if(!selected)return Infinity;currentRecipientIndexV1();return Math.min(instant(selected.index.expires_at),instant(selected.index.original_horizon));
+}
+
 interface BindingCache { readonly path: string; readonly digest: string; readonly identity: string; readonly profile: Readonly<ProtectedBinding>; readonly files: readonly PinnedFile[] }
 let installed:BindingCache|undefined, viewerInstalled:BindingCache|undefined, reviewInstalled:BindingCache|undefined, uploadInstalled:BindingCache|undefined,conversationInstalled:BindingCache|undefined,meetingInstalled:BindingCache|undefined,meetingIngressInstalled:BindingCache|undefined,meetingWorkerInstalled:BindingCache|undefined,answerInstalled:BindingCache|undefined,mcpAnswerInstalled:BindingCache|undefined,normalizationInstalled:BindingCache|undefined;
 type FixedSupervisionLoader='meeting-supervision-scheduler'|'meeting-supervision-stop';
@@ -316,7 +371,8 @@ export interface InstalledBinding<P extends ProtectedBinding=ServerBinding> { re
  * The appointment/peer hashes require independent backend installation; this
  * consumer cannot prove their relationship merely by reading a supplied hash.
  */
-function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'meeting-ingress'|'meeting-worker'|'answer'|'mcp-answer'|'meeting-normalization'|FixedSupervisionLoader|FixedWorkerLoader): InstalledBinding<ProtectedBinding> {
+function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'meeting-ingress'|'meeting-worker'|'answer'|'mcp-answer'|'meeting-normalization'|FixedSupervisionLoader|FixedWorkerLoader,recipient?:RecipientSelectionV1): InstalledBinding<ProtectedBinding> {
+  if(recipient){if(!recipientSelectionsV1.has(recipient)||recipient.kind!==purpose||currentRecipientIndexV1()!==recipient.index)return unavailable();}
   const supervision=Object.hasOwn(supervisionConfiguration,purpose)?purpose as FixedSupervisionLoader:undefined;
   const supervisionFixed=supervision?supervisionConfiguration[supervision]:undefined;
   const fixedWorker=Object.hasOwn(fixedWorkerConfiguration,purpose)?purpose as FixedWorkerLoader:undefined;
@@ -324,14 +380,15 @@ function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conv
   const answer=purpose==='answer',mcpAnswer=purpose==='mcp-answer',normalization=purpose==='meeting-normalization';
   const viewer=purpose==='viewer',upload=purpose==='upload',review=purpose==='review',conversation=purpose==='conversation';
   const meeting=purpose==='meeting',ingress=purpose==='meeting-ingress',worker=purpose==='meeting-worker'||fixedWorker!==undefined;
-  const prior=supervision?supervisionCaches.get(supervision):normalization?normalizationInstalled:fixedWorker?fixedWorkerCaches.get(fixedWorker):answer?answerInstalled:mcpAnswer?mcpAnswerInstalled:worker?meetingWorkerInstalled:ingress?meetingIngressInstalled:meeting?meetingInstalled:conversation?conversationInstalled:review?reviewInstalled:upload?uploadInstalled:viewer?viewerInstalled:installed;
-  const path = supervisionFixed?process.env[supervisionFixed[0]+'_FILE']:normalization?process.env.ORACLE2_MEETING_NORMALIZATION_BINDING_FILE:fixed?process.env[fixed[0]+'_FILE']:answer?process.env.ORACLE2_CONNECTED_ANSWER_BINDING_FILE:mcpAnswer?process.env.ORACLE2_MCP_ANSWER_BINDING_FILE:worker?process.env.ORACLE2_MEETING_WORKER_BINDING_FILE:ingress?process.env.ORACLE2_MEETING_INGRESS_BINDING_FILE:meeting?process.env.ORACLE2_MEETING_CONTROL_BINDING_FILE:conversation?process.env.ORACLE2_CONVERSATION_BINDING_FILE:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_FILE:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_FILE:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_FILE:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE;
-  const digest = supervisionFixed?process.env[supervisionFixed[0]+'_SHA256']:normalization?process.env.ORACLE2_MEETING_NORMALIZATION_BINDING_SHA256:fixed?process.env[fixed[0]+'_SHA256']:answer?process.env.ORACLE2_CONNECTED_ANSWER_BINDING_SHA256:mcpAnswer?process.env.ORACLE2_MCP_ANSWER_BINDING_SHA256:worker?process.env.ORACLE2_MEETING_WORKER_BINDING_SHA256:ingress?process.env.ORACLE2_MEETING_INGRESS_BINDING_SHA256:meeting?process.env.ORACLE2_MEETING_CONTROL_BINDING_SHA256:conversation?process.env.ORACLE2_CONVERSATION_BINDING_SHA256:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_SHA256:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_SHA256:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_SHA256:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256;
+  const prior=recipient?recipientBindingCachesV1.get(recipient.key):supervision?supervisionCaches.get(supervision):normalization?normalizationInstalled:fixedWorker?fixedWorkerCaches.get(fixedWorker):answer?answerInstalled:mcpAnswer?mcpAnswerInstalled:worker?meetingWorkerInstalled:ingress?meetingIngressInstalled:meeting?meetingInstalled:conversation?conversationInstalled:review?reviewInstalled:upload?uploadInstalled:viewer?viewerInstalled:installed;
+  const path = recipient?recipient.path:supervisionFixed?process.env[supervisionFixed[0]+'_FILE']:normalization?process.env.ORACLE2_MEETING_NORMALIZATION_BINDING_FILE:fixed?process.env[fixed[0]+'_FILE']:answer?process.env.ORACLE2_CONNECTED_ANSWER_BINDING_FILE:mcpAnswer?process.env.ORACLE2_MCP_ANSWER_BINDING_FILE:worker?process.env.ORACLE2_MEETING_WORKER_BINDING_FILE:ingress?process.env.ORACLE2_MEETING_INGRESS_BINDING_FILE:meeting?process.env.ORACLE2_MEETING_CONTROL_BINDING_FILE:conversation?process.env.ORACLE2_CONVERSATION_BINDING_FILE:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_FILE:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_FILE:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_FILE:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE;
+  const digest = recipient?recipient.digest:supervisionFixed?process.env[supervisionFixed[0]+'_SHA256']:normalization?process.env.ORACLE2_MEETING_NORMALIZATION_BINDING_SHA256:fixed?process.env[fixed[0]+'_SHA256']:answer?process.env.ORACLE2_CONNECTED_ANSWER_BINDING_SHA256:mcpAnswer?process.env.ORACLE2_MCP_ANSWER_BINDING_SHA256:worker?process.env.ORACLE2_MEETING_WORKER_BINDING_SHA256:ingress?process.env.ORACLE2_MEETING_INGRESS_BINDING_SHA256:meeting?process.env.ORACLE2_MEETING_CONTROL_BINDING_SHA256:conversation?process.env.ORACLE2_CONVERSATION_BINDING_SHA256:review?process.env.ORACLE2_REPLACEMENT_REVIEW_BINDING_SHA256:upload?process.env.ORACLE2_REPLACEMENT_UPLOAD_BINDING_SHA256:viewer?process.env.ORACLE2_REPLACEMENT_VIEWER_BINDING_SHA256:process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256;
   if (!path || !digest || (prior && (path !== prior.path || digest !== prior.digest))) return unavailable();
   const pinned = protectedRead(path, digest);
   const profile = supervision?validateMeetingSupervisionBinding(parseClosedJson(pinned.bytes,16384)):normalization?validateMeetingNormalizationBinding(parseClosedJson(pinned.bytes,16384)):answer||mcpAnswer?validateConnectedAnswerBinding(parseClosedJson(pinned.bytes,16384),answer?'web':'mcp'):worker?validateMeetingWorkerBinding(parseClosedJson(pinned.bytes,65536)):ingress?validateMeetingBinding(parseClosedJson(pinned.bytes,16384),true):meeting?validateMeetingBinding(parseClosedJson(pinned.bytes,16384),false):conversation?validateConversationBinding(parseClosedJson(pinned.bytes,16384)):review?validateModelReviewBinding(parseClosedJson(pinned.bytes,16384)):upload?validateUploadBinding(parseClosedJson(pinned.bytes,16384)):viewer?validateViewerBinding(parseClosedJson(pinned.bytes,65536)):validateBinding(parseClosedJson(pinned.bytes,16384));
   if(supervisionFixed&&(profile.purpose!=='meeting-supervision-service-binding-v1'||profile.process_purpose!==supervisionFixed[1]))return unavailable();
   if(fixed&&(profile.purpose!=='replacement-meeting-worker-binding-v1'||profile.effect_purpose!==fixed[1]||(profile.retrieve_stage??null)!==fixed[2]))return unavailable();
+  if(recipient&&([recipient.index.issuer_actor,recipient.index.reviewer_actor].includes(profile.principal_id)||!matchesIdentity(profile as ServerBinding,{configuredProjectUrl:recipient.entry.project_url,actualProjectUrl:recipient.entry.project_url,verifiedUserId:recipient.entry.auth_user_id,employeeId:recipient.entry.employee_id,disabledAt:null})||instant(profile.expires_at)>instant(recipient.index.expires_at)||instant(profile.original_horizon)>instant(recipient.index.original_horizon)))return unavailable();
   const now = Date.now();
   if (now < instant(profile.valid_from) || now >= instant(profile.expires_at) || now >= instant(profile.original_horizon)) return unavailable();
   const files = [protectedRead(profile.server_ca_file,profile.server_ca_sha256),protectedRead(profile.client_certificate_file,profile.client_certificate_sha256),protectedRead(profile.client_key_file,profile.client_key_sha256)];
@@ -340,13 +397,14 @@ function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conv
   if (prior && (prior.identity !== pinned.identity || files.some((f,i) => f.identity !== prior.files[i]!.identity || f.path !== prior.files[i]!.path || f.digest !== prior.files[i]!.digest))) return unavailable();
   const cert = new X509Certificate(files[1]!.bytes);
   if (sha256(cert.raw) !== profile.client_certificate_der_sha256 || !cert.subjectAltName?.split(', ').includes('URI:' + profile.client_uri) || now < Date.parse(cert.validFrom) || now >= Date.parse(cert.validTo)) return unavailable();
-  const others=[installed,viewerInstalled,reviewInstalled,uploadInstalled,conversationInstalled,meetingInstalled,meetingIngressInstalled,meetingWorkerInstalled,answerInstalled,mcpAnswerInstalled,normalizationInstalled,...supervisionCaches.values(),...fixedWorkerCaches.values()].filter(other=>other&&other!==prior);
+  const others=[installed,viewerInstalled,reviewInstalled,uploadInstalled,conversationInstalled,meetingInstalled,meetingIngressInstalled,meetingWorkerInstalled,answerInstalled,mcpAnswerInstalled,normalizationInstalled,...supervisionCaches.values(),...fixedWorkerCaches.values(),...recipientBindingCachesV1.values()].filter(other=>other&&other!==prior);
   if(others.some(other=>other&&(profile.client_certificate_der_sha256===other.profile.client_certificate_der_sha256||profile.client_uri===other.profile.client_uri||cert.publicKey.equals(new X509Certificate(other.files[1]!.bytes).publicKey))))return unavailable();
   const key = createPrivateKey(files[2]!.bytes);
   if (!cert.checkPrivateKey(key) || !createPublicKey(key).equals(cert.publicKey)) return unavailable();
   const cache=prior??{path,digest,identity:pinned.identity,profile,files};
-  if(supervision)supervisionCaches.set(supervision,cache);else if(normalization)normalizationInstalled=cache;else if(fixedWorker)fixedWorkerCaches.set(fixedWorker,cache);else if(answer)answerInstalled=cache;else if(mcpAnswer)mcpAnswerInstalled=cache;else if(worker)meetingWorkerInstalled=cache;else if(ingress)meetingIngressInstalled=cache;else if(meeting)meetingInstalled=cache;else if(conversation)conversationInstalled=cache;else if(review)reviewInstalled=cache;else if(upload)uploadInstalled=cache;else if(viewer)viewerInstalled=cache;else installed=cache;
+  if(recipient)recipientBindingCachesV1.set(recipient.key,cache);else if(supervision)supervisionCaches.set(supervision,cache);else if(normalization)normalizationInstalled=cache;else if(fixedWorker)fixedWorkerCaches.set(fixedWorker,cache);else if(answer)answerInstalled=cache;else if(mcpAnswer)mcpAnswerInstalled=cache;else if(worker)meetingWorkerInstalled=cache;else if(ingress)meetingIngressInstalled=cache;else if(meeting)meetingInstalled=cache;else if(conversation)conversationInstalled=cache;else if(review)reviewInstalled=cache;else if(upload)uploadInstalled=cache;else if(viewer)viewerInstalled=cache;else installed=cache;
   const result={profile:cache.profile,ca:files[0]!.bytes,cert:files[1]!.bytes,key:files[2]!.bytes};
+  if(recipient){recipientProfilesV1.add(cache.profile);recipientBindingOriginsV1.set(result,recipient);}
   if(supervision)supervisionOrigins.set(result,supervision);if(normalization)normalizationOrigins.add(result);if(worker)workerOrigins.set(result,fixedWorker??'meeting-worker');return result;
 }
 

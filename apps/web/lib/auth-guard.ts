@@ -71,3 +71,16 @@ export async function requireAdmin(): Promise<Employee> {
   if (!me.isAdmin) redirect('/channels');
   return me;
 }
+
+
+/** Current protected recipient selection requires one actual identity row.
+ * Duplicate mappings refuse rather than picking an arbitrary first employee.
+ * Existing ordinary application lookup and retries retain their old API.
+ */
+export async function getUniqueEmployeeForAuthUserV1(userId:string):Promise<Employee|null>{
+  const db=getPooledDb();
+  const rows=await db.select({employee:employees}).from(employees)
+    .innerJoin(employeeIdentities,eq(employeeIdentities.employeeId,employees.id))
+    .where(eq(employeeIdentities.authUserId,userId)).limit(2);
+  return rows.length===1?rows[0]!.employee:null;
+}
