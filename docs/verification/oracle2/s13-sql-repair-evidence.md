@@ -128,3 +128,9 @@ Then continue full recovery. Metadata success is not full restore.
 ## Independent review follow-up (2026-10-22)
 
 DeepSeek final-check of 1738f945 returned REJECT. Actionable finding: unguarded `from pglast import` in `test_recovery_sql_source_v1.py` would fail CI where pglast is undeclared. Fixed with `pytest.importorskip('pglast')` at those four sites. Low-severity doc count mismatch noted (actual composed delta is 32 files +9467/-34 vs earlier 30-file note). Provenance of 2633 delta head remains as recorded in the composition method. No other confirmed defects from that review.
+
+
+## Independent review outcomes
+
+- DeepSeek final-check 1738f945: REJECT (unguarded pglast). Fixed ce06f249.
+- GLM final-check 1738f945: APPROVE. Both ratified fixes verified correct. Medium finding: ship only as a true three-way merge so main's post-bf788080 records (S07 diagnostics, S12-04 brief, S14 writer-cut design) are not deleted by a two-dot-diff apply. Before runner10: Linux pglast test + sha256 of 021/024/025 pins + 27 actual SQL bodies.
