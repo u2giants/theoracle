@@ -15,7 +15,7 @@ from oracle_brain.operating_model.paid_sdk_embeddings_v3 import PaidProjectionEm
 from oracle_brain.operating_model.projection_delivery import signature
 from oracle_brain.operating_model.request_deadline_v1 import _request_fence_v1
 from oracle_brain.operating_model.sdk_projection import PaidConsolidationSDKProjectionV1,ConsolidatedMetadataSDKProjectionV1
-from test_consolidation_sql_v1 import sql_qualified_v3,prepared_qualified_model,RUNTIME,REGISTRY
+from test_consolidation_sql_v1 import sql_qualified_v3,sql_qualified_serving_v3,prepared_qualified_model,RUNTIME,REGISTRY
 from test_connected_answer_sql_v1 import own_history
 from test_paid_sdk_embeddings_v3 import paid_case_for
 from test_purpose_transport import bound_tls,certificates,SERVER
@@ -215,5 +215,5 @@ def test_actual_qualified_SQL_ACK_readonly_SDK_and_current_permission_before_aft
  return _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tls,certificates,proof_scope='backend')
 
 
-def test_actual_employee_browser_and_MCP_current_answer_and_denied_refresh(admin_url,sql_qualified_v3,tmp_path,bound_tls,certificates):
- return _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tls,certificates,proof_scope='browser')
+def test_actual_employee_browser_and_MCP_current_answer_and_denied_refresh(admin_url,sql_qualified_serving_v3,tmp_path,bound_tls,certificates):
+ return _exercise_owned_answer_graph_v1(admin_url,sql_qualified_serving_v3,tmp_path,bound_tls,certificates,proof_scope='browser')

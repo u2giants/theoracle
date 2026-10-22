@@ -38,8 +38,10 @@ def test_pure_candidate_rejects_self_coverage_and_duplicate_source_input():
         assembly_inputs((*payloads, payloads[0]), enforce_unique_sources=True)
 
 
-@pytest.fixture
-def context():
+def original_context_v1(*, lifetime_seconds):
+    # Select a FRESH invented appointment before any sealed context/capture.
+    if type(lifetime_seconds) is not int or lifetime_seconds not in (30,120):
+        raise ValueError("fixed original invented fixture lifetimes only")
     from datetime import datetime, timedelta, timezone
     from uuid import uuid4
     from test_native_factory import job
@@ -72,9 +74,13 @@ def context():
     ctx=AssemblyJobContext(actor_id=uuid4(),runtime_hash='1'*64,source_registry_hash='2'*64,
         compiler_digest='b'*64,parent_registry_hash='3'*64,envelope_hash='4'*64,job=j,receipts=receipts,
         extractions=extractions,census=census,reviewed_inventories={},model_id=m.model_id,model_version=1,
-        issuer_actor=uuid4(),reviewer_actor=uuid4(),expires_at=now+timedelta(seconds=30))
+        issuer_actor=uuid4(),reviewer_actor=uuid4(),expires_at=now+timedelta(seconds=lifetime_seconds))
     return ctx,m,now
 
+
+@pytest.fixture
+def context():
+    return original_context_v1(lifetime_seconds=30)
 
 def test_versioned_assembly_context_uses_all_originals_and_exact_ids(context):
     ctx,m,now=context

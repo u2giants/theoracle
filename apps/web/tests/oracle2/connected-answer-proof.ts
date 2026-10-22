@@ -103,3 +103,8 @@ try{
  assert.equal(errors.length,0,JSON.stringify(errors));await page.screenshot({path:join(meta.scratch,'browser-answer-access-denied.png')});
  writeFileSync(join(meta.scratch,'browser-receipt.json'),JSON.stringify({actual_browser:true,auth:'explicit invented existing import hooks',framework:'actual page/component+proxy/API/mcp-handler in explicit HTTPS harness; not deployed Next routing',operations,statuses,identity_calls:identity.calls,page_errors:errors})+'\n');
 }finally{await browser.close();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));hook.deregister();}
+
+// The actual MCP package retains its server cleanup interval in this standalone
+// CLI. All assertions and the owned browser/server cleanup above must finish
+// before ending this test process; no production timer or capability is changed.
+process.exit(0);

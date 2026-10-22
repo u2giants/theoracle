@@ -363,8 +363,7 @@ from test_purpose_qualification_v3 import qualified_v3
 from test_assembly_context import context
 
 
-@pytest.fixture
-def sql_qualified_v3(monkeypatch):
+def original_sql_qualified_fixture_v3(monkeypatch,*,lifetime_seconds):
     # Build FRESH wire/census/assessment fixtures from SQL-valid original parser
     # identity before any context/capture/admission is produced; never retrofit
     # raw response bindings or relax the canonical SQL provenance guard.
@@ -384,7 +383,19 @@ def sql_qualified_v3(monkeypatch):
             observations.append(create_observation(receipt,item.occurrence_key,item.kind,item.scope,item.value,(quote,)))
         return tuple(observations),tuple({'source_refs':[o.ref.model_dump(mode='json')],'observations':[o.model_dump(mode='json')],'findings':[]} for o in observations)
     monkeypatch.setattr(foundation,'invented_inputs',valid_inputs)
-    return qualified_v3.__wrapped__(foundation.context.__wrapped__())
+    return qualified_v3.__wrapped__(foundation.original_context_v1(lifetime_seconds=lifetime_seconds))
+
+
+@pytest.fixture
+def sql_qualified_v3(monkeypatch):
+    return original_sql_qualified_fixture_v3(monkeypatch,lifetime_seconds=30)
+
+
+@pytest.fixture
+def sql_qualified_serving_v3(monkeypatch):
+    # A separate freshly installed invented serving appointment, not renewal
+    # of a completed capture. Every individual request remains at most30s.
+    return original_sql_qualified_fixture_v3(monkeypatch,lifetime_seconds=120)
 
 
 def prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,*,return_fixture=False,return_stage=False,predecessor=None,assertion_factory=None):
