@@ -1,0 +1,395 @@
+{
+  "head": "ac5392355b19a025e3371e36bfee903583773b90",
+  "worktree": "/tmp/oracle-parent24-wy02uT/recommendation-recipients",
+  "genuine_base": "c187bfc36723ca891ad7558fe202a258ee2f27f8",
+  "class": "deployment",
+  "prerequisite_commit": "b0362f3914710abf028d6c61249c71f50b385300",
+  "complete_net_scope_count": 95,
+  "complete_net_scope": [
+    ".github/workflows/oracle2-contracts.yml",
+    "apps/web/app/api/consultant/replacement/v1/protected/recommendation-actions/route.ts",
+    "apps/web/app/consultant/recommendations/page.tsx",
+    "apps/web/app/consultant/recommendations/recommendation-controls.tsx",
+    "apps/web/components/consultant/interview-panel.tsx",
+    "apps/web/components/consultant/qualified-answer-view.tsx",
+    "apps/web/components/consultant/qualified-workspace.tsx",
+    "apps/web/lib/replacement-protected-client.ts",
+    "apps/web/lib/replacement-protected-control-route.test.ts",
+    "apps/web/lib/replacement-question-effect.test.ts",
+    "apps/web/lib/replacement-recipient-origin.test.ts",
+    "apps/web/lib/replacement-recommendation-client.test.ts",
+    "apps/web/lib/replacement-recommendation-contract.test.ts",
+    "apps/web/proxy.ts",
+    "apps/web/tests/oracle2/employee-recipient-wire-proof.ts",
+    "apps/web/tests/oracle2/invented-auth-service.ts",
+    "apps/web/tests/oracle2/question-effect-view-proof.ts",
+    "apps/web/tests/oracle2/question-effect-wire-proof.ts",
+    "apps/web/tests/oracle2/recommendation-documentary.fixture.json",
+    "apps/web/tests/oracle2/recommendation-next-auth-proof.ts",
+    "apps/web/tests/oracle2/recommendation-ui-proof.ts",
+    "apps/web/tests/oracle2/workspace-next-recipients-proof.ts",
+    "dev/oracle2/test_canonical_schema.py",
+    "packages/shared/src/index.ts",
+    "packages/shared/src/protected-client-contracts.ts",
+    "packages/shared/src/protected-control-window.ts",
+    "packages/shared/src/protected-conversation-contract.ts",
+    "packages/shared/src/protected-question-effect-contract.ts",
+    "packages/shared/src/protected-recommendation-contract.ts",
+    "packages/shared/src/protected-server-binding.ts",
+    "packages/shared/src/protected-service-channel.ts",
+    "scripts/oracle2/verify_workflow_integrity.py",
+    "services/oracle-brain/oracle_brain/hosting/conversation_answer_v1.py",
+    "services/oracle-brain/oracle_brain/hosting/conversation_service_v1.py",
+    "services/oracle-brain/oracle_brain/hosting/question_effect_factory_v1.py",
+    "services/oracle-brain/oracle_brain/hosting/recommendation_actions_service_v1.py",
+    "services/oracle-brain/oracle_brain/hosting/recommendation_actions_settings_v1.py",
+    "services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py",
+    "services/oracle-brain/oracle_brain/hosting/replacement_result_service_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/artifact_storage.py",
+    "services/oracle-brain/oracle_brain/operating_model/authority_adapter.py",
+    "services/oracle-brain/oracle_brain/operating_model/consolidation_contracts_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/consolidation_recommendations_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/consultant/measurement_evidence_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_actions_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_authority_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_compiler_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_presentation_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/ledger.py",
+    "services/oracle-brain/oracle_brain/operating_model/native_factory.py",
+    "services/oracle-brain/oracle_brain/operating_model/native_provider.py",
+    "services/oracle-brain/oracle_brain/operating_model/natural_question_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/processing_ledger.py",
+    "services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/provider_adapter.py",
+    "services/oracle-brain/oracle_brain/operating_model/purpose_qualification_v3.py",
+    "services/oracle-brain/oracle_brain/operating_model/qualified_answer_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/qualified_synthesis_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/question_cost_settlement_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/question_effect_public_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/question_effects_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/question_native_authority_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/question_signals_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py",
+    "services/oracle-brain/oracle_brain/operating_model/sdk_projection.py",
+    "services/oracle-brain/oracle_brain/operating_model/source_binding.py",
+    "services/oracle-brain/oracle_brain/retrieval/planner.py",
+    "services/oracle-brain/oracle_brain/workflows/answer.py",
+    "services/oracle-brain/oracle_brain/workflows/natural_answer_v1.py",
+    "services/oracle-brain/oracle_brain/workflows/qualified_synthesis_v1.py",
+    "services/oracle-brain/sql/024_question_effects.sql",
+    "services/oracle-brain/sql/025_recommendation_actions.sql",
+    "services/oracle-brain/tests/invented_next_employee_fixture_v1.py",
+    "services/oracle-brain/tests/test_connected_answer_sdk_sql_v1.py",
+    "services/oracle-brain/tests/test_connected_answer_sql_v1.py",
+    "services/oracle-brain/tests/test_consolidation_next_auth_browser_v1.py",
+    "services/oracle-brain/tests/test_measurement_evidence_v1.py",
+    "services/oracle-brain/tests/test_operating_model_verifier.py",
+    "services/oracle-brain/tests/test_original_byte_storage.py",
+    "services/oracle-brain/tests/test_protected_sql_connection_v1.py",
+    "services/oracle-brain/tests/test_qualified_synthesis_v1.py",
+    "services/oracle-brain/tests/test_question_core_forwarding_v1.py",
+    "services/oracle-brain/tests/test_question_effect_native_sql_v1.py",
+    "services/oracle-brain/tests/test_question_effect_pricing_v1.py",
+    "services/oracle-brain/tests/test_question_effect_public_v1.py",
+    "services/oracle-brain/tests/test_question_effects_sql_v1.py",
+    "services/oracle-brain/tests/test_question_vector_packing_v1.py",
+    "services/oracle-brain/tests/test_recommendation_actions_service_v1.py",
+    "services/oracle-brain/tests/test_recommendation_actions_sql.py",
+    "services/oracle-brain/tests/test_recommendation_actions_v1.py",
+    "services/oracle-brain/tests/test_recommendation_next_auth_browser_v1.py",
+    "services/oracle-brain/tests/test_recommendation_presentation_v1.py",
+    "services/oracle-brain/tests/test_recommendation_setup_batch_v1.py",
+    "services/oracle-brain/tests/test_workspace_next_recipients_sql_v1.py",
+    "services/oracle-brain/tests/test_workspace_workflow_fixture_v1.py"
+  ],
+  "prerequisites": [
+    {
+      "head": "b985583296a34b9367a4961c41231423015ca307",
+      "true_base": "9903fbb394ce76e812e19bafabe7c753e14177a9",
+      "entire_additive_paths": 86
+    },
+    {
+      "head": "7defd1eeeaccad46ba04b96952c439305065c796",
+      "true_base": "c187bfc36723ca891ad7558fe202a258ee2f27f8",
+      "entire_additive_paths": 11
+    }
+  ],
+  "serial_union_conflicts": [
+    "scripts/oracle2/verify_workflow_integrity.py",
+    "services/oracle-brain/tests/test_operating_model_verifier.py",
+    "apps/web/proxy.ts",
+    "packages/shared/src/protected-server-binding.ts",
+    "services/oracle-brain/tests/invented_next_employee_fixture_v1.py"
+  ],
+  "owned_files": [
+    {
+      "path": "apps/web/lib/replacement-protected-client.ts",
+      "size": 33004,
+      "sha256": "c2d72648373fbc19804af1870c3c5ecaa69e49707679740f8f8fcdc49fa917b0"
+    },
+    {
+      "path": "apps/web/lib/replacement-protected-control-route.test.ts",
+      "size": 31072,
+      "sha256": "18cce64d2d3b5b474140a5be89335286fae3c2568b4470fed46078a565579290"
+    },
+    {
+      "path": "apps/web/lib/replacement-recipient-origin.test.ts",
+      "size": 9211,
+      "sha256": "91faf17b39f2ce999008711397c63aa15b10130e662d5e71fed9146ae8f4972c"
+    },
+    {
+      "path": "apps/web/proxy.ts",
+      "size": 13496,
+      "sha256": "bceed322cf8b5c81e81c55b8e13a6e56b85236d1c0b900dddaa0f38010d6ad7c"
+    },
+    {
+      "path": "apps/web/tests/oracle2/employee-recipient-wire-proof.ts",
+      "size": 15544,
+      "sha256": "86d187f1612e43b0693de80c08aaca82bb8d9285fbd4e6e6c62ba8e5e80a4670"
+    },
+    {
+      "path": "packages/shared/src/protected-server-binding.ts",
+      "size": 67732,
+      "sha256": "5d7e6aec56accddcee69a6988448e5ef0b9e48f289fab2cf445d8b66544e3f39"
+    }
+  ],
+  "main_since_9903_retained": {
+    "docs/agents/03-documentation-map.md": {
+      "genuine_main_sha256": "80a020dd08d0711e2465bbf2daf1dfd017171d0c289c538acec81005391a049b",
+      "current_sha256": "80a020dd08d0711e2465bbf2daf1dfd017171d0c289c538acec81005391a049b",
+      "unchanged": true
+    },
+    "docs/oracle2-migration.md": {
+      "genuine_main_sha256": "045e7f85c6928ae8276282739e4b030bbb917f14e9fabd59ad309067a95ea5ad",
+      "current_sha256": "045e7f85c6928ae8276282739e4b030bbb917f14e9fabd59ad309067a95ea5ad",
+      "unchanged": true
+    },
+    "scripts/oracle2/verify_phase.py": {
+      "genuine_main_sha256": "5abd23b92c75382d72c042a70e121213c27cffaaa15c5381882323408839f48b",
+      "current_sha256": "5abd23b92c75382d72c042a70e121213c27cffaaa15c5381882323408839f48b",
+      "unchanged": true
+    },
+    "scripts/oracle2/verify_workflow_integrity.py": {
+      "genuine_main_sha256": "59ab2fa5b4442bccc0cdaddbc91fbf5a75a9e7155ee8c1b9046ddd2a887ea174",
+      "current_sha256": "67b394bc2380d1715e4f009b077f7b316aa500bc7e3d5a35bf1a5c5265475a01",
+      "unchanged": false
+    },
+    "services/oracle-brain/oracle_brain/hosting/legacy_migration_v1.py": {
+      "genuine_main_sha256": "3bca746c6b8ceab5d5496757191b5b09c2108222f67500eca32838043a4699da",
+      "current_sha256": "3bca746c6b8ceab5d5496757191b5b09c2108222f67500eca32838043a4699da",
+      "unchanged": true
+    },
+    "services/oracle-brain/oracle_brain/migration/_legacy_s3_signing_v1.py": {
+      "genuine_main_sha256": "7cf3693756d0a137efda7988ce942c2dd7ea245f31954f0b99570ba8618a703a",
+      "current_sha256": "7cf3693756d0a137efda7988ce942c2dd7ea245f31954f0b99570ba8618a703a",
+      "unchanged": true
+    },
+    "services/oracle-brain/oracle_brain/migration/legacy_export_reader_v1.py": {
+      "genuine_main_sha256": "735335c452cbbb627d4912d0f82ff1c10922fddfde583f746dbbfbb753a8fd55",
+      "current_sha256": "735335c452cbbb627d4912d0f82ff1c10922fddfde583f746dbbfbb753a8fd55",
+      "unchanged": true
+    },
+    "services/oracle-brain/oracle_brain/migration/legacy_snapshot_v1.py": {
+      "genuine_main_sha256": "6cf4fa2a8623cf2ac4848fe22d6dc5af01cbd8a4ae9e9af580c5f7807c793b03",
+      "current_sha256": "6cf4fa2a8623cf2ac4848fe22d6dc5af01cbd8a4ae9e9af580c5f7807c793b03",
+      "unchanged": true
+    },
+    "services/oracle-brain/oracle_brain/migration/legacy_storage_capture_v1.py": {
+      "genuine_main_sha256": "1fd09ab06883beb9c3bd7427d43a6e326c75154c750daab77d0e2145c12259e2",
+      "current_sha256": "1fd09ab06883beb9c3bd7427d43a6e326c75154c750daab77d0e2145c12259e2",
+      "unchanged": true
+    },
+    "services/oracle-brain/oracle_brain/migration/migration_authority_v1.py": {
+      "genuine_main_sha256": "95b520c265c79058bed9c57f35cda6fda96cbf14943756bdcf2ce0d6b463ddf6",
+      "current_sha256": "95b520c265c79058bed9c57f35cda6fda96cbf14943756bdcf2ce0d6b463ddf6",
+      "unchanged": true
+    },
+    "services/oracle-brain/oracle_brain/migration/migration_settings_v1.py": {
+      "genuine_main_sha256": "0922fc90a3056cc229ad497e741228f730ff9a5e386ad09f3ad7fe838f38fa81",
+      "current_sha256": "0922fc90a3056cc229ad497e741228f730ff9a5e386ad09f3ad7fe838f38fa81",
+      "unchanged": true
+    },
+    "services/oracle-brain/sql/027_legacy_migration.sql": {
+      "genuine_main_sha256": "034d60c201b100acf22d0eafac5a9b623dfc14b053140a514d57da048f091143",
+      "current_sha256": "034d60c201b100acf22d0eafac5a9b623dfc14b053140a514d57da048f091143",
+      "unchanged": true
+    },
+    "services/oracle-brain/tests/test_legacy_export_contract_v1.py": {
+      "genuine_main_sha256": "b4010289c542742480b7cd13c24da44c2f221140f5b8296836d1dda654b20fac",
+      "current_sha256": "b4010289c542742480b7cd13c24da44c2f221140f5b8296836d1dda654b20fac",
+      "unchanged": true
+    },
+    "services/oracle-brain/tests/test_legacy_migration_citation_sql.py": {
+      "genuine_main_sha256": "2a94fb602c4ff45324ab796cd788d6e10363c12ef1114e37e2fdb357fb59c3d3",
+      "current_sha256": "2a94fb602c4ff45324ab796cd788d6e10363c12ef1114e37e2fdb357fb59c3d3",
+      "unchanged": true
+    },
+    "services/oracle-brain/tests/test_legacy_migration_factory_v1.py": {
+      "genuine_main_sha256": "b280287caaa59f5a8e2b6356d6e835c6f9b853f183f6072b3d3070e139be2e11",
+      "current_sha256": "b280287caaa59f5a8e2b6356d6e835c6f9b853f183f6072b3d3070e139be2e11",
+      "unchanged": true
+    },
+    "services/oracle-brain/tests/test_legacy_migration_sql.py": {
+      "genuine_main_sha256": "2646e1438578e4ba81bb8d07a8bbeeb6a182d953a90b74218453242f8122b843",
+      "current_sha256": "2646e1438578e4ba81bb8d07a8bbeeb6a182d953a90b74218453242f8122b843",
+      "unchanged": true
+    },
+    "services/oracle-brain/tests/test_legacy_s3_signing_v1.py": {
+      "genuine_main_sha256": "fac828b95165873f9f60df5d619bb40f1a625385772adac9502c727b320e0478",
+      "current_sha256": "fac828b95165873f9f60df5d619bb40f1a625385772adac9502c727b320e0478",
+      "unchanged": true
+    },
+    "services/oracle-brain/tests/test_legacy_snapshot_v1.py": {
+      "genuine_main_sha256": "755568edac797872c045e930f651ee85d8cb25d70064f5ba8cc79268f56854aa",
+      "current_sha256": "755568edac797872c045e930f651ee85d8cb25d70064f5ba8cc79268f56854aa",
+      "unchanged": true
+    },
+    "services/oracle-brain/tests/test_legacy_storage_capture_v1.py": {
+      "genuine_main_sha256": "be89cb0479539346dafc5f4a8c52c648bce1656ab7a3717cf270730251a39387",
+      "current_sha256": "be89cb0479539346dafc5f4a8c52c648bce1656ab7a3717cf270730251a39387",
+      "unchanged": true
+    },
+    "services/oracle-brain/tests/test_operating_model_verifier.py": {
+      "genuine_main_sha256": "3aec68f5cfac8c34928a0cf9e9977d75e8f5a504a9e2a2b5e5ca973477cc9a70",
+      "current_sha256": "1717e6d5089511ca0c977a668e8488ba0afdaeceeba67bcd228e25636643a749",
+      "unchanged": false
+    }
+  },
+  "full_source_manifest": {
+    "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-full-source-manifest.json",
+    "sha256": "03d6100c9ec447cb25a8a2202f1c981e6094eaa76488c318e47a5b2428172564",
+    "file_count": 1751
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-owned.patch",
+      "size": 43782,
+      "sha256": "23153fa01e7b30ba7ae8c22abafbafa6f4d76591c7f50ada69e131e49458d8bf"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-complete.patch",
+      "size": 933547,
+      "sha256": "80023d28e8a681ab1cdab15bd54aa58b2d762275a04e879fa1edb88e1b6cea21"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-entire-b985-prerequisite.patch",
+      "size": 827068,
+      "sha256": "460235809a119590a6435acdbecf724237eb36982df70f36d3cca69e4cbb0013"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-entire-s12-prerequisite.patch",
+      "size": 91858,
+      "sha256": "d566a9ce099da20c6005d59e8b6128fa22793489d747d6e7e0f6119ccbda16da"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-web-final.txt",
+      "size": 109223,
+      "sha256": "b4e55d08ea6835003a94f1ad0ae0aa29458ae6a98fbaf67298ab979dbf4f9578"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-web-final-command.json",
+      "size": 1425,
+      "sha256": "a7e1c3c19dca966ffe3546dacc4ec8b24b37c032332ff5ce52eab9314b375b58"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-pure-final.xml",
+      "size": 23913,
+      "sha256": "2167a331a4840e2d24a461f655d41d5bfaaa5012df15b52419dfac9137956a11"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-pure-final.txt",
+      "size": 1004,
+      "sha256": "7c82e4213c8c8a6ec54d397e3d96a9f9e1ac7dd6b77cf4e13b09f8641775a680"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-web-build.txt",
+      "size": 1453,
+      "sha256": "36e689544cc0a1cbf9f196bce505fb1c8c3a3938dca1e9edd0d255849feddabd"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-web-build-final.txt",
+      "size": 4715,
+      "sha256": "a95e0d3fdcdc682d46ca6497e797e62adf444e9884c78e132281e925ff447e63"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-shared-type.txt",
+      "size": 120,
+      "sha256": "b31a311711c55ac5b82f7fe5458a106bdd79dd0f8dada5f7be35d8b89dfae9b5"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-web-type.txt",
+      "size": 368,
+      "sha256": "12c10c5ed815fd4d0d4c37f430ea91d14fdf0468a8693c5e3601bfa81ee19023"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-web-type-02.txt",
+      "size": 368,
+      "sha256": "cf87996ae3ac3561f89559a2630afec9900158a6234c928a01b5a687acc1b7db"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-web-type-final.txt",
+      "size": 110,
+      "sha256": "a5b268e1a8f74b62586c9cafd8bef38961817b8b026f382a62d1664528dbe814"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-workers-type.txt",
+      "size": 118,
+      "sha256": "dae3dfd405690b623fe41a4c2e5737d2d1c81a58079e61a221be8c85eb77f38d"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-web-lint.txt",
+      "size": 118,
+      "sha256": "719894cb51eaf66f054cc81834eae5a806ebb64d8cd4c3f873a2cde3d2db2ada"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-install.txt",
+      "size": 369,
+      "sha256": "657ee3ac4842b977c3a0473a60047da6a3aacf8ed7940c5dc6c7799624242a8e"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-build-generated-next-env.d.ts",
+      "size": 247,
+      "sha256": "7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s12-current-preauth-full-manifest.json",
+      "size": 286959,
+      "sha256": "50b8cf562e057e791593205101e87d53274425c78de6338abf92d827734564e4"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-frozen-manifest.json",
+      "size": 4390,
+      "sha256": "7b889ee4ea80662257bb7bf847204415696353cd2156095c1431b7fa094fd91d"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-nofallback-final.txt",
+      "size": 6824,
+      "sha256": "6161fd6cd23ee49524d615940fd464c3333187f9e514e6d5c25dc0c2d3f8641a"
+    }
+  ],
+  "checks": {
+    "web": "469 passed,0 failed/skipped,19227.720184ms",
+    "python_pure": "150 passed,0 failed/skipped,1 inherited warning,24.17s",
+    "types": [
+      "shared",
+      "web",
+      "workers"
+    ],
+    "web_lint": "PASS",
+    "standard_clean_head_build": "PASS;generated next-env exact build variant retained then restored to original HEAD;no code/vendor/policy bypass",
+    "doc_safety": "UNKNOWN/INVALID;repair NOT installed;no invocation",
+    "actual_DB_Next_browser_company_provider_review": "NOT EXECUTED",
+    "mandatory_suite_registration": "root retains landing ownership",
+    "push": false,
+    "business_acceptance": false,
+    "runtime": {
+      "node": "v22.22.1",
+      "pnpm": "9.5.0",
+      "python": "frozen3.13 via /tmp/tmp.lrqZMK7jpg/w10-venv/bin/python"
+    }
+  },
+  "own_commits": [
+    "3d71e9b8be86d4b59eb3495e4e641d9427c326fc",
+    "ac5392355b19a025e3371e36bfee903583773b90"
+  ]
+}

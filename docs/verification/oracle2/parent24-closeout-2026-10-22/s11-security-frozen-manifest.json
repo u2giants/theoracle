@@ -1,0 +1,113 @@
+{
+  "head": "b985583296a34b9367a4961c41231423015ca307",
+  "worktree": "/tmp/oracle-parent24-wy02uT/recommendation-security",
+  "genuine_main_base": "9903fbb394ce76e812e19bafabe7c753e14177a9",
+  "prerequisite_head": "8051fa5b224cc7ce6c5cc224836ac7f226105ba6",
+  "prerequisite_source": "ed20e6da9fe7b1d2742761ff1d336cb79326c6f7",
+  "true_prerequisite_mergebase": "aac932c0675368912cb1b88e41fd8a4601f2f1e8",
+  "task_class": "deployment",
+  "unowned_complete_additive_prerequisites": 82,
+  "union_conflicts": [
+    "scripts/oracle2/verify_workflow_integrity.py",
+    "services/oracle-brain/tests/test_operating_model_verifier.py"
+  ],
+  "owned_files": [
+    {
+      "path": "services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py",
+      "size": 12889,
+      "sha256": "84d33baaf3930dc1ca783a9500fe00d0a470d4cda88d339e3641a630c92f33b4"
+    },
+    {
+      "path": "services/oracle-brain/oracle_brain/operating_model/artifact_storage.py",
+      "size": 12761,
+      "sha256": "09ab336c0ca04eb8aa742882432b199abec3ae1cf6e8218f52eda10b339183d4"
+    },
+    {
+      "path": "services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py",
+      "size": 3891,
+      "sha256": "dbec0a0dad6d0792b9f9ad2fcdd620900b1e2aa5f4b73c5d1acbcb342639bbfb"
+    },
+    {
+      "path": "services/oracle-brain/tests/test_connected_answer_sql_v1.py",
+      "size": 26942,
+      "sha256": "d9cfec5064406320fa3cbca0131623d307a7d7aec91673669f56c3ff0bb69e8a"
+    },
+    {
+      "path": "services/oracle-brain/tests/test_original_byte_storage.py",
+      "size": 8275,
+      "sha256": "a322ec9f2e69049e03e33926fca9456b403f6ef14952dfe47bd72f475beefaa8"
+    },
+    {
+      "path": "services/oracle-brain/tests/test_protected_sql_connection_v1.py",
+      "size": 12217,
+      "sha256": "53c1d5641e65e0e8d87f6335184756cdfa1b751e53279d37b246a3c3226ecc92"
+    },
+    {
+      "path": "services/oracle-brain/tests/test_recommendation_actions_service_v1.py",
+      "size": 10100,
+      "sha256": "261735b8ad5fe4de53dc68a298bbbf10899151f82db947f83b11339bac8d811c"
+    },
+    {
+      "path": "services/oracle-brain/tests/test_recommendation_actions_sql.py",
+      "size": 55822,
+      "sha256": "f7e94b66fd24ae98be7af44608947a1f96948b316064035c4fbad202e29749b0"
+    }
+  ],
+  "full_source_manifest": {
+    "path": "/tmp/oracle-parent24-wy02uT/s11-security-full-source-manifest.json",
+    "sha256": "05a3168bab1b54b6ef49f13a2a17c119345b0a08cf844e86500459c89742e83f",
+    "files": 1731
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-owned.patch",
+      "size": 27176,
+      "sha256": "6ea2d5152af5171349300610ef42827de05c28d5a93fc6ae2a64b4a533f69cfd"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-complete.patch",
+      "size": 827068,
+      "sha256": "460235809a119590a6435acdbecf724237eb36982df70f36d3cca69e4cbb0013"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-ed20-complete-additive.patch",
+      "size": 809956,
+      "sha256": "f86a6f9a57b35eea692515119cd5d73b45ba5520c1327efeb73613d3af6cc66e"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-union-record.json",
+      "size": 562,
+      "sha256": "4ca447771349dc014ce867240b7f36fc21c4096783973c6f10072317c7dc3a32"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-pure-final.xml",
+      "size": 64073,
+      "sha256": "390ead7b4c64c276f734d15553f35c26ae4a6fefdc7e73ecfe9d6c4e84789c5f"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-pure-final.txt",
+      "size": 1164,
+      "sha256": "32f9e350736b8b5aac9f337601cfc2f4ccc3e7a5124250cbed996a714c6691e2"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-legacy-boundaries.txt",
+      "size": 842,
+      "sha256": "565289a1103419fdf408ac080498a3593927bee157fb25aafbd06ace6287fed8"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-focused-01.txt",
+      "size": 14398,
+      "sha256": "4e4f2913958065130a78fef11f776a8224d79d8e71c70346c620994ff5c4ce3b"
+    }
+  ],
+  "proof": {
+    "pure_final": "326 passed, 1 warning in 24.25s",
+    "retained_boundaries": "15 passed, 1 warning in 0.44s",
+    "actual_sql_executed": false,
+    "provider_executed": false,
+    "review_executed": false,
+    "doc_safety": "INVALID/pending installed tool repair; no repeat invocation",
+    "push": false,
+    "business_acceptance": false
+  }
+}
