@@ -64,7 +64,8 @@ DOCUMENTARY += ('research_rights','research_fetch','research_scheduler')
 DOCUMENTARY += ('research_freshness','applicability','recommendation_contract',
     'recommendation_identity','scenario_math','experiment_outcomes')
 DOCUMENTARY += ('report_v2_codec','report_v2_workflow','report_v2_store')
-DOCUMENTARY += ('consolidation_contracts_v1','consolidation_sql_v1','consolidation_review_v1','consolidation_review_browser_v1','consolidation_next_auth_browser_v1','consolidation_sdk_sql_v1')
+CONSOLIDATION_SUITES = ('consolidation_contracts_v1','consolidation_sql_v1','consolidation_review_v1','consolidation_review_browser_v1','consolidation_next_auth_browser_v1','consolidation_sdk_sql_v1')
+DOCUMENTARY += CONSOLIDATION_SUITES
 DOCUMENTARY += REPLACEMENT_RESULT_SUITES
 # Keep the light hosting/operator tail with documentary fixtures so every
 # heavy native suite owns one worker without exceeding the ten-worker cap.
@@ -154,6 +155,26 @@ def required_suites(stage):
 DOCUMENTARY += ('durable_interview_sql','conversation_contract_v1','conversation_service_sql',
     'conversation_processing_sql','conversation_original_sql','conversation_browser_sql',
     'conversation_native_sql','conversation_text_pricing_v1','conversation_fence_v1','conversation_registration_sql')
+
+# Actual CI timings place the retained native journey near the 120-second
+# ceiling in its old worker. Place the new families in measured lighter workers;
+# the exact population, nine documentary workers and deadline are unchanged.
+def _place_suites(population, selected, anchor, *, after=False):
+    if any(population.count(name)!=1 for name in (*selected,anchor)) or anchor in selected:
+        raise RuntimeError('suite placement requires unique existing names')
+    remaining=tuple(name for name in population if name not in selected)
+    position=remaining.index(anchor)+int(after)
+    result=remaining[:position]+tuple(selected)+remaining[position:]
+    if len(result)!=len(population) or set(result)!=set(population):
+        raise RuntimeError('suite placement changed required population')
+    return result
+
+DOCUMENTARY=_place_suites(DOCUMENTARY,CONSOLIDATION_SUITES,'workflow_authorization')
+DOCUMENTARY=_place_suites(DOCUMENTARY,
+    ('protected_raw_original_factory_v1','protected_raw_original_factory_sql','original_review_reading_input_sql'),
+    'original_corpus_import',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('purpose_coherent_native_journey',),
+    'purpose_context_v2',after=True)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
