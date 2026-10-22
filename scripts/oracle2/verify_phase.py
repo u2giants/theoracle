@@ -138,13 +138,20 @@ S13_TESTS = [
     "test_operations_recovery.py",
     "test_operations_offline.py",
 ]
-# S14 — migrate and compare historical knowledge (pattern from
-# origin/claude/s14-historical-migration; pure fixture contracts).
+# S14 — retained migration contracts plus actual owned SQL/current-capture
+# custody, once/CAS/UNKNOWN, and independently authorized citation checks.
 S14_TESTS = [
     "test_legacy_mapping.py",
     "test_migration_resume.py",
     "test_migration_delta.py",
     "test_migration_reconcile.py",
+    "test_legacy_snapshot_v1.py",
+    "test_legacy_export_contract_v1.py",
+    "test_legacy_storage_capture_v1.py",
+    "test_legacy_s3_signing_v1.py",
+    "test_legacy_migration_factory_v1.py",
+    "test_legacy_migration_sql.py",
+    "test_legacy_migration_citation_sql.py",
 ]
 # S16 — retire the superseded system (pattern from s16-retire-offline;
 # pure fixture tests: no store, provider or live target).
@@ -175,7 +182,7 @@ PHASE_TESTS = {
     "S16": S16_TESTS,
 }
 # Pure-fixture phases need no isolated Postgres/FalkorDB target.
-FIXTURE_ONLY_PHASES = {"S12", "S14", "S16"}
+FIXTURE_ONLY_PHASES = {"S12", "S16"}
 
 
 def run_phase_tests(python: Path, tests: list[str], *, env: dict | None = None) -> tuple[int, dict, str]:

@@ -91,7 +91,7 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
         '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
         '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-        '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql')
+        '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','027_legacy_migration.sql')
 
 
 def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
@@ -199,7 +199,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
-    assert verifier.SYNTHETIC_MIGRATIONS[-7:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql')
+    assert verifier.SYNTHETIC_MIGRATIONS[-8:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','027_legacy_migration.sql')
 
 
 @pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])
@@ -383,3 +383,38 @@ def test_new_database_browser_and_native_families_use_distinct_existing_worker_c
         (('a','b'),('missing',),'b'),(('a','b'),('a',),'a')):
         with pytest.raises(RuntimeError):
             verifier._place_suites(population,selected,anchor)
+
+
+def test_current_capture_migration_source_and_actual_SQL_are_mandatory_once():
+    expected=('legacy_snapshot_v1','legacy_export_contract_v1','legacy_storage_capture_v1',
+        'legacy_s3_signing_v1','legacy_migration_factory_v1','legacy_migration_sql','legacy_migration_citation_sql')
+    assert verifier.MIGRATION_CURRENT_CAPTURE_SUITES==expected
+    suites=verifier.required_suites('W10')
+    assert all(suites.count(name)==1 for name in expected)
+    assert all((Path(__file__).parent/f'test_{name}.py').is_file() for name in expected)
+    assert verifier.SYNTHETIC_MIGRATIONS.count('027_legacy_migration.sql')==1
+    assert verifier.SYNTHETIC_MIGRATIONS[-1]=='027_legacy_migration.sql'
+    assert (verifier.ROOT/'services/oracle-brain/sql/027_legacy_migration.sql').is_file()
+    assert len(verifier.test_groups('W10'))==10
+
+
+def test_current_capture_migration_uses_existing_workers_and_actual_S14_admission():
+    import runpy
+    phase=runpy.run_path(str(verifier.ROOT/'scripts/oracle2/verify_phase.py'))
+    assert phase['FIXTURE_ONLY_PHASES']=={'S12','S16'}
+    assert {f'test_{name}.py' for name in verifier.MIGRATION_CURRENT_CAPTURE_SUITES}<=set(phase['S14_TESTS'])
+    assert len(phase['S14_TESTS'])==11
+    groups=dict(verifier.test_groups('W10'))
+    assert set(verifier.MIGRATION_CURRENT_CAPTURE_SUITES)-{'legacy_migration_citation_sql'}<=set(groups['documentary-04'])
+    assert 'legacy_migration_citation_sql' in groups['documentary-09']
+
+
+def test_actual_S14_gate_refuses_absent_store_before_any_success_receipt(tmp_path):
+    import os,subprocess,sys
+    environment={key:value for key,value in os.environ.items() if key not in ('ORACLE2_TEST_ADMIN_URL','ORACLE2_TEST_CONFIRMED_URL')}
+    result=tmp_path/'result.json'
+    completed=subprocess.run([sys.executable,str(verifier.ROOT/'scripts/oracle2/verify_phase.py'),'S14','--mode','offline','--result',str(result)],
+        env=environment,capture_output=True,text=True,timeout=10,check=False)
+    assert completed.returncode==2
+    assert 'real isolated Postgres and FalkorDB test URLs required' in completed.stderr
+    assert not result.exists()
