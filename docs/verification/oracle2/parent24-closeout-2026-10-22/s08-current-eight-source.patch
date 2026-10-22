@@ -1,0 +1,1955 @@
+diff --git a/services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py b/services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py
+new file mode 100644
+index 00000000..09295a80
+--- /dev/null
++++ b/services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py
+@@ -0,0 +1,64 @@
++"""Fixed host control mTLS listener; no sender body/observer/worker endpoint.
++
++Shares the existing protected peer/framing/lifecycle owner. It is not installed
++or selected automatically and cannot appoint a host, sender or observer.
++"""
++from dataclasses import dataclass
++from typing import Literal
++
++from oracle_brain.operating_model.contracts import StrictRecord, canonical_bytes
++from oracle_brain.meetings.participation_control_contracts_v1 import (
++    ParticipationControlV1,parse_participation_control_v1,
++)
++
++
++def _host_metadata(value):
++    # Internal SQL observation and source selectors are never browser authority.
++    keys=('meeting_id','head_revision','generation','host_enabled','proactive_enabled','proactive_count',
++          'visible_message_proven','remote_stop_proven','executable','valid_until')
++    return {key:value[key] for key in keys}
++
++
++def protected_meeting_participation_server_v1(factory,peer_profile_path,expected_peer_profile_sha256):
++    from pydantic import Field
++    from .meeting_participation_v1 import MeetingParticipationFactoryV1
++    from .replacement_request_service_v1 import RequesterPeerProfileV1,_load_peer_settings_v1
++    from ._protected_control_listener_v1 import _protected_control_listener_v1
++
++    if type(factory) is not MeetingParticipationFactoryV1 or factory.settings.config.kind!='host':
++        raise PermissionError('exact installed host participation owner required')
++
++    class HostParticipationPeerV1(RequesterPeerProfileV1):
++        purpose: Literal['meeting-participation-host-peer-v1']
++        participation_config_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
++        capture_config_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
++
++    peer=_load_peer_settings_v1(factory.settings.capture_settings.host,peer_profile_path,
++                                expected_peer_profile_sha256,HostParticipationPeerV1)
++
++    @dataclass(frozen=True)
++    class BoundHostPeer:
++        profile: object = peer.profile
++
++        def current(self):
++            p=self.profile;s=factory.settings
++            if (p.participation_config_sha256!=s.config_sha256
++                    or p.capture_config_sha256!=s.capture_settings.config_sha256):
++                raise PermissionError('exact installed host peer/participation pins changed')
++            return min(peer.current(),s.current())
++
++    class HostControl:
++        def execute_v1(self,raw):
++            request=parse_participation_control_v1(raw)
++            if type(request) is ParticipationControlV1:
++                value=factory.control_v1(expected_head=request.expected_head,operation=request.command_id,
++                    enabled=request.enabled,proactive_enabled=request.proactive_enabled,
++                    cooldown_seconds=request.cooldown_seconds,max_proactive=request.max_proactive,
++                    caller_deadline=request.caller_deadline)
++            else:
++                value=factory.status_v1(caller_deadline=request.caller_deadline)
++            return _host_metadata(value)
++
++    return _protected_control_listener_v1(BoundHostPeer(),HostControl(),
++        path='/v1/replacement/meetings/participation/control',parse_request=parse_participation_control_v1,
++        encode_response=canonical_bytes,maximum_request_bytes=65536,maximum_response_bytes=4096)
+diff --git a/services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py b/services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py
+index b88eaba1..0478c729 100644
+--- a/services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py
++++ b/services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py
+@@ -18,6 +18,8 @@ from typing import Callable
+ import psycopg
+ from psycopg.types.json import Jsonb
+ from oracle_brain.operating_model.contracts import canonical_bytes
++from oracle_brain.operating_model.protected_sql_connection_v1 import _connection_v1
++from oracle_brain.operating_model.request_deadline_v1 import sql_execute_v1
+ 
+ _PUBLIC = (
+     'meeting_capture_current_turn_v1(uuid,text,uuid,timestamp with time zone)',
+@@ -162,7 +164,7 @@ class ParticipationAuthorityV1:
+         self.binding, self._url, self._runtime_recheck = binding, url, _runtime_recheck
+         params = psycopg.conninfo.conninfo_to_dict(url)
+         if (set(params) - {'host','hostaddr', 'port', 'dbname', 'user', 'password', 'sslmode', 'sslrootcert'}
+-                or not params.get('host') or not params.get('dbname')
++                or not all(params.get(k) for k in ('host','port','dbname','password'))
+                 or params.get('sslmode') != 'verify-full' or params.get('sslrootcert') != binding.ca_path
+                 or params.get('user') != binding.session_login):
+             raise PermissionError('fixed verify-full own-role URL required')
+@@ -181,15 +183,9 @@ class ParticipationAuthorityV1:
+     @contextmanager
+     def _connection(self,deadline):
+         self._guard(deadline)
+-        remaining=self._remaining(deadline)
+-        # libpq's actual connect timeout floor is two seconds per target.
+-        # One pinned address means no DNS/multihost multiplication or fallback.
+-        if remaining<2:
+-            raise PermissionError('insufficient original window for bounded SQL connection')
+-        milliseconds=max(1,min(2000,int(remaining*1000)))
+-        with psycopg.connect(self._url,connect_timeout=2,tcp_user_timeout=milliseconds,
+-                options=f'-c statement_timeout={milliseconds} -c lock_timeout={milliseconds}') as connection:
++        with _connection_v1(self._url,deadline) as connection:
+             yield connection
++        self._guard(deadline)
+ 
+     def _ca(self):
+         path = Path(self.binding.ca_path)
+@@ -232,11 +228,11 @@ class ParticipationAuthorityV1:
+         if (not connection.pgconn.ssl_in_use or actual.host!=t['host'] or actual.dbname!=t['dbname']
+                 or actual.user!=t['user'] or actual.port!=int(t.get('port',5432))
+                 or t.get('hostaddr') and actual.hostaddr!=t['hostaddr']
+-                or connection.execute('SELECT SESSION_USER,CURRENT_USER').fetchone() != (b.session_login, b.session_login)):
++                or sql_execute_v1(connection,deadline,'SELECT SESSION_USER,CURRENT_USER').fetchone() != (b.session_login, b.session_login)):
+             raise PermissionError('actual own-role verified TLS session required')
+-        connection.execute("SELECT pg_catalog.set_config('statement_timeout',%s,true),pg_catalog.set_config('lock_timeout',%s,true)",
++        sql_execute_v1(connection,deadline,"SELECT pg_catalog.set_config('statement_timeout',%s,true),pg_catalog.set_config('lock_timeout',%s,true)",
+                            (str(remaining)+'ms', str(remaining)+'ms'))
+-        rows = connection.execute('''SELECT wanted.sig,n.nspname,p.proname,r.rolname,p.prosecdef,p.proconfig,
++        rows = sql_execute_v1(connection,deadline,'''SELECT wanted.sig,n.nspname,p.proname,r.rolname,p.prosecdef,p.proconfig,
+           pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc,'UTF8')),'hex'),
+           ARRAY(SELECT CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee)::text END||':'||x.privilege_type||':'||x.is_grantable::text
+             FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) x ORDER BY 1)
+@@ -279,7 +275,7 @@ class ParticipationAuthorityV1:
+         b = self.binding
+         with self._connection(deadline) as connection:
+             self._check(connection, deadline)
+-            result = connection.execute('SELECT oracle2.meeting_participation_status_v1(%s,%s,%s,%s)',
++            result = sql_execute_v1(connection,deadline,'SELECT oracle2.meeting_participation_status_v1(%s,%s,%s,%s)',
+                                         (b.admission_id,b.admission_sha256,wanted,deadline)).fetchone()[0]
+             until = self._context(result, deadline)
+             self._check(connection, deadline)
+@@ -410,12 +406,15 @@ class ParticipationAuthorityV1:
+     def _write(self, statement, arguments, *, wanted, deadline, claim=False, expected_metadata=None):
+         """Internal fixed SQL only; no request/transport-selected function name."""
+         self._deadline(deadline)
+-        returned = False
++        mutation_attempted = False
+         try:
+             with self._connection(deadline) as connection:
+                 self._check(connection, deadline)
+-                result = connection.execute(statement, arguments).fetchone()[0]
+-                returned = True
++                # The guarded send may finish after the original deadline and
++                # refuse before returning its result. Never present that as
++                # a safe-to-resubmit denial, even if rollback may have occurred.
++                mutation_attempted = True
++                result = sql_execute_v1(connection,deadline,statement, arguments).fetchone()[0]
+                 until = self._context(result, deadline)
+                 self._check(connection, deadline)
+             # Every failure after a possible commit is uncertain, including the
+@@ -440,7 +439,7 @@ class ParticipationAuthorityV1:
+             metadata=self._public_metadata(fresh)
+             return ParticipationClaimV1(metadata,None,min(until,fresh_until)) if claim else metadata
+         except Exception as exc:
+-            if returned or isinstance(exc,(psycopg.OperationalError,psycopg.InterfaceError,OSError,TimeoutError)):
++            if mutation_attempted or isinstance(exc,(psycopg.OperationalError,psycopg.InterfaceError,OSError,TimeoutError)):
+                 raise ParticipationOutcomeUnknown('participation outcome UNKNOWN; read-only reconciliation only, no resend') from None
+             raise
+ 
+diff --git a/services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py b/services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py
+new file mode 100644
+index 00000000..f43beaf9
+--- /dev/null
++++ b/services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py
+@@ -0,0 +1,38 @@
++"""Closed control selectors. Never participant bytes, observation or send body."""
++from typing import Annotated, Literal
++from uuid import UUID
++from pydantic import AwareDatetime, Field, TypeAdapter
++from oracle_brain.operating_model.contracts import StrictRecord, canonical_bytes
++
++
++class ParticipationStatusV1(StrictRecord):
++    operation: Literal['status']
++    caller_deadline: AwareDatetime
++
++
++class ParticipationControlV1(StrictRecord):
++    operation: Literal['control']
++    expected_head: int = Field(strict=True,ge=0,le=16383)
++    command_id: UUID
++    enabled: bool = Field(strict=True)
++    proactive_enabled: bool = Field(default=False,strict=True)
++    cooldown_seconds: int = Field(default=120,strict=True,ge=120,le=86400)
++    max_proactive: int = Field(default=3,strict=True,ge=0,le=3)
++    caller_deadline: AwareDatetime
++
++
++_REQUEST = TypeAdapter(Annotated[ParticipationStatusV1 | ParticipationControlV1,Field(discriminator='operation')])
++
++
++def parse_participation_control_v1(raw):
++    # Shared strict parser rejects duplicates/nonfinite/noncanonical bytes. A
++    # validated roundtrip additionally refuses omitted/default/replayed fields.
++    from oracle_brain.operating_model.protected_inputs_v1 import parse_canonical_object_v1
++    parse_canonical_object_v1(raw)
++    value = _REQUEST.validate_json(raw)
++    if canonical_bytes(value.model_dump(mode='json')) != raw:
++        raise ValueError('exact canonical participation control required')
++    if isinstance(value,ParticipationControlV1) and not value.enabled and (
++            value.proactive_enabled or value.cooldown_seconds != 120 or value.max_proactive != 3):
++        raise ValueError('disable cannot carry enabling controls')
++    return value
+diff --git a/services/oracle-brain/sql/021_meeting_participation.sql b/services/oracle-brain/sql/021_meeting_participation.sql
+new file mode 100644
+index 00000000..4ac6cebf
+--- /dev/null
++++ b/services/oracle-brain/sql/021_meeting_participation.sql
+@@ -0,0 +1,665 @@
++-- Dedicated Oracle operational participation. No provider/meeting activation,
++-- appointment issuer, accepted truth, supplier dedup or visible-message proof.
++DO $owner$ DECLARE o oid;p record; BEGIN
++ SELECT nspowner INTO o FROM pg_namespace WHERE nspname='oracle2';
++ SELECT proowner,prosecdef,proconfig,proacl INTO p FROM pg_proc
++ WHERE oid=to_regprocedure('oracle2._meeting_capture_current_v1(uuid,text,timestamp with time zone)');
++ IF o IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname=CURRENT_USER)
++ OR p.proowner IS DISTINCT FROM o OR p.prosecdef IS DISTINCT FROM true
++ OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, oracle2']::text[]
++ OR EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',o))) WHERE grantee<>o AND privilege_type='EXECUTE') THEN
++  RAISE EXCEPTION 'reviewed private current capture owner required';
++ END IF;
++END $owner$;
++CREATE TABLE oracle2.meeting_participation_admissions_v1 (
++ admission_id uuid PRIMARY KEY,admission_sha256 text NOT NULL CHECK(admission_sha256~'^[a-f0-9]{64}$'),
++ workspace_id uuid NOT NULL,meeting_id uuid NOT NULL,principal_id uuid NOT NULL,role_name name NOT NULL,
++ kind text NOT NULL CHECK(kind IN('host','sender','observer')),
++ leaf_appointment_id uuid NOT NULL REFERENCES oracle2.appointments(appointment_id),
++ capture_admission_id uuid NOT NULL,capture_admission_sha256 text NOT NULL CHECK(capture_admission_sha256~'^[a-f0-9]{64}$'),
++ provider text NOT NULL CHECK(provider='recall'),platform text NOT NULL CHECK(platform='microsoft_teams'),
++ provider_account text NOT NULL CHECK(length(btrim(provider_account)) BETWEEN 1 AND 256),
++ tenant_id text NOT NULL CHECK(length(btrim(tenant_id)) BETWEEN 1 AND 256),
++ provider_meeting_id text NOT NULL CHECK(length(btrim(provider_meeting_id)) BETWEEN 1 AND 2048),bot_id uuid NOT NULL,
++ runtime_hash text NOT NULL CHECK(runtime_hash~'^[a-f0-9]{64}$'),registry_hash text NOT NULL CHECK(registry_hash~'^[a-f0-9]{64}$'),
++ observation_owner_sha256 text NOT NULL CHECK(observation_owner_sha256~'^[a-f0-9]{64}$'),
++ composer_sha256 text NOT NULL CHECK(composer_sha256~'^[a-f0-9]{64}$'),
++ actions text[] NOT NULL CHECK(cardinality(actions) BETWEEN 1 AND 5),
++ issuer_actor uuid NOT NULL,reviewer_actor uuid NOT NULL CHECK(issuer_actor<>reviewer_actor),
++ valid_from timestamptz NOT NULL,expires_at timestamptz NOT NULL,original_horizon timestamptz NOT NULL,
++ CHECK(principal_id<>issuer_actor AND principal_id<>reviewer_actor),
++ CHECK(isfinite(valid_from) AND isfinite(expires_at) AND isfinite(original_horizon) AND valid_from<expires_at AND expires_at<=original_horizon),
++ CHECK((kind='host' AND actions<@ARRAY['enable','disable','status']) OR
++       (kind='sender' AND actions<@ARRAY['prepare','claim','receipt','status']) OR
++       (kind='observer' AND actions<@ARRAY['observe','status'])));
++CREATE TABLE oracle2.meeting_participation_revocations_v1 (
++ revocation_id uuid PRIMARY KEY,admission_id uuid NOT NULL REFERENCES oracle2.meeting_participation_admissions_v1(admission_id),
++ revoked_at timestamptz NOT NULL CHECK(isfinite(revoked_at)),reason_sha256 text NOT NULL CHECK(reason_sha256~'^[a-f0-9]{64}$'));
++CREATE TABLE oracle2.meeting_participation_heads_v1 (
++ workspace_id uuid NOT NULL,meeting_id uuid NOT NULL,version integer NOT NULL DEFAULT 0 CHECK(version BETWEEN 0 AND 16384),
++ generation integer NOT NULL DEFAULT 0 CHECK(generation>=0),enabled boolean NOT NULL DEFAULT false,proactive_enabled boolean NOT NULL DEFAULT false,
++ cooldown_seconds integer NOT NULL DEFAULT 120 CHECK(cooldown_seconds BETWEEN 120 AND 86400),
++ max_proactive integer NOT NULL DEFAULT 3 CHECK(max_proactive BETWEEN 0 AND 3),
++ proactive_count integer NOT NULL DEFAULT 0 CHECK(proactive_count BETWEEN 0 AND 3),last_proactive_at timestamptz,
++ last_event_id uuid,active_intent_id uuid,PRIMARY KEY(workspace_id,meeting_id));
++CREATE TABLE oracle2.meeting_participation_observations_v1 (
++ observation_id uuid PRIMARY KEY,workspace_id uuid NOT NULL,meeting_id uuid NOT NULL,
++ admission_id uuid NOT NULL REFERENCES oracle2.meeting_participation_admissions_v1(admission_id),actor_id uuid NOT NULL,
++ payload jsonb NOT NULL,payload_sha256 text NOT NULL CHECK(payload_sha256~'^[a-f0-9]{64}$'),
++ observed_at timestamptz NOT NULL,valid_until timestamptz NOT NULL,
++ CHECK(isfinite(observed_at) AND isfinite(valid_until) AND observed_at<valid_until AND valid_until<=observed_at+interval '30 seconds'));
++CREATE TABLE oracle2.meeting_participation_events_v1 (
++ event_id uuid PRIMARY KEY,workspace_id uuid NOT NULL,meeting_id uuid NOT NULL,version integer NOT NULL CHECK(version>0),
++ generation integer NOT NULL,admission_id uuid NOT NULL REFERENCES oracle2.meeting_participation_admissions_v1(admission_id),actor_id uuid NOT NULL,
++ action text NOT NULL,payload jsonb NOT NULL,payload_sha256 text NOT NULL CHECK(payload_sha256~'^[a-f0-9]{64}$'),
++ operation_id uuid NOT NULL,created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
++ UNIQUE(workspace_id,meeting_id,version),UNIQUE(workspace_id,meeting_id,operation_id));
++CREATE TABLE oracle2.meeting_participation_intents_v1 (
++ intent_id uuid PRIMARY KEY,workspace_id uuid NOT NULL,meeting_id uuid NOT NULL,generation integer NOT NULL,
++ sender_admission_id uuid NOT NULL REFERENCES oracle2.meeting_participation_admissions_v1(admission_id),actor_id uuid NOT NULL,
++ turn_event_id uuid NOT NULL,raw_sha256 text NOT NULL CHECK(raw_sha256~'^[a-f0-9]{64}$'),turn_frame jsonb NOT NULL,capture_event_id uuid NOT NULL,
++ capture_sha256 text NOT NULL CHECK(capture_sha256~'^[a-f0-9]{64}$'),capture_revision integer NOT NULL CHECK(capture_revision>0),
++ body text NOT NULL CHECK(char_length(body) BETWEEN 1 AND 4096 AND length(btrim(body))>0),body_sha256 text NOT NULL CHECK(body_sha256~'^[a-f0-9]{64}$'),
++ proactive boolean NOT NULL,evidence_scope text NOT NULL CHECK(evidence_scope='meeting_only'),
++ observation_id uuid NOT NULL REFERENCES oracle2.meeting_participation_observations_v1(observation_id),
++ request_sha256 text NOT NULL CHECK(request_sha256~'^[a-f0-9]{64}$'),created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
++ -- A host toggle is never a resend key, including after UNKNOWN.
++ UNIQUE(workspace_id,meeting_id,turn_event_id));
++CREATE TABLE oracle2.meeting_participation_delivery_heads_v1 (
++ intent_id uuid PRIMARY KEY REFERENCES oracle2.meeting_participation_intents_v1(intent_id),revision integer NOT NULL DEFAULT 0,
++ state text NOT NULL CHECK(state IN('intent','inflight','provider-response-observed','UNKNOWN','suppressed')),
++ claim_event_id uuid,claim_operation_id uuid,claim_deadline timestamptz,last_event_id uuid,
++ CHECK((state='intent' AND claim_event_id IS NULL) OR state<>'intent'));
++CREATE TABLE oracle2.meeting_participation_delivery_events_v1 (
++ event_id uuid PRIMARY KEY,intent_id uuid NOT NULL REFERENCES oracle2.meeting_participation_intents_v1(intent_id),revision integer NOT NULL CHECK(revision>0),
++ admission_id uuid NOT NULL REFERENCES oracle2.meeting_participation_admissions_v1(admission_id),actor_id uuid NOT NULL,
++ action text NOT NULL CHECK(action IN('claim','provider-response-observed','UNKNOWN','suppressed')),
++ operation_id uuid NOT NULL,payload jsonb NOT NULL,payload_sha256 text NOT NULL CHECK(payload_sha256~'^[a-f0-9]{64}$'),
++ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),UNIQUE(intent_id,revision),UNIQUE(intent_id,operation_id));
++DO $private$ DECLARE n text; BEGIN
++ FOREACH n IN ARRAY ARRAY['meeting_participation_admissions_v1','meeting_participation_revocations_v1','meeting_participation_observations_v1','meeting_participation_events_v1','meeting_participation_intents_v1','meeting_participation_delivery_events_v1'] LOOP
++  EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON oracle2.%I FOR EACH ROW EXECUTE FUNCTION oracle2.deny_operating_model_mutation()','immutable_'||n,n);
++ END LOOP;
++ FOREACH n IN ARRAY ARRAY['meeting_participation_admissions_v1','meeting_participation_revocations_v1','meeting_participation_heads_v1','meeting_participation_observations_v1','meeting_participation_events_v1','meeting_participation_intents_v1','meeting_participation_delivery_heads_v1','meeting_participation_delivery_events_v1'] LOOP
++  EXECUTE format('ALTER TABLE oracle2.%I ENABLE ROW LEVEL SECURITY',n);
++  EXECUTE format('REVOKE ALL ON oracle2.%I FROM PUBLIC,oracle2_replacement_requester',n);
++ END LOOP;
++END $private$;
++
++CREATE FUNCTION oracle2._meeting_participation_lineage_v1(m oracle2.meeting_participation_admissions_v1)
++ RETURNS timestamptz LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE p oracle2.appointments%ROWTYPE;seen uuid[]:='{}';until timestamptz:=m.expires_at;
++BEGIN
++ SELECT * INTO p FROM oracle2.appointments WHERE appointment_id=m.leaf_appointment_id FOR SHARE;
++ IF p.appointment_id IS NULL OR p.workspace_id<>m.workspace_id OR p.actor_id<>m.principal_id OR p.scope<>'meeting-participation-'||m.kind THEN
++  RAISE insufficient_privilege USING MESSAGE='exact participation leaf denied';END IF;
++ LOOP
++  IF p.appointment_id=ANY(seen) OR cardinality(seen)>=16 OR p.workspace_id<>m.workspace_id OR p.revoked_at IS NOT NULL
++  OR (p.expires_at IS NOT NULL AND(NOT isfinite(p.expires_at) OR p.expires_at<=clock_timestamp())) THEN
++   RAISE insufficient_privilege USING MESSAGE='current participation root denied';END IF;
++  seen:=array_append(seen,p.appointment_id);until:=least(until,coalesce(p.expires_at,until));
++  IF p.parent_id IS NULL THEN
++   IF p.scope<>'root' OR until<=clock_timestamp() THEN RAISE insufficient_privilege USING MESSAGE='participation root denied';END IF;
++   RETURN until;
++  END IF;
++  SELECT parent.* INTO p FROM oracle2.appointments parent WHERE parent.appointment_id=p.parent_id
++   AND parent.actor_id=p.granted_by AND parent.scope IN('meeting-participation-'||m.kind,'root') FOR SHARE;
++  IF p.appointment_id IS NULL THEN RAISE insufficient_privilege USING MESSAGE='participation root broken';END IF;
++ END LOOP;
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_lineage_v1(oracle2.meeting_participation_admissions_v1) FROM PUBLIC,oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2._meeting_participation_peer_current_v1(m oracle2.meeting_participation_admissions_v1,wanted_kind text)
++ RETURNS timestamptz LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE until timestamptz;root_until timestamptz;
++BEGIN
++ IF wanted_kind NOT IN('host','observer') OR wanted_kind IS NULL OR m.kind IS DISTINCT FROM wanted_kind THEN
++  RAISE insufficient_privilege USING MESSAGE='closed installed participation peer required';END IF;
++ PERFORM 1 FROM oracle2.meeting_participation_admissions_v1 WHERE admission_id=m.admission_id AND admission_sha256=m.admission_sha256 FOR SHARE;
++ IF NOT FOUND THEN RAISE insufficient_privilege USING MESSAGE='actual immutable peer admission required';END IF;
++ SELECT least(a.expires_at,r.expires_at,m.expires_at,m.original_horizon) INTO until
++ FROM oracle2.hosting_request_principal_admissions a JOIN oracle2.hosting_role_runtime_admissions r USING(role_name)
++ WHERE a.role_name=m.role_name AND a.principal_id=m.principal_id AND a.workspace_id=m.workspace_id
++ AND a.runtime_hash=m.runtime_hash AND a.registry_hash=m.registry_hash
++ AND r.runtime_hash=a.runtime_hash AND r.registry_hash=a.registry_hash
++ AND isfinite(a.expires_at) AND isfinite(r.expires_at) FOR SHARE OF a,r;
++ IF until IS NULL OR until<=clock_timestamp() OR m.valid_from>clock_timestamp()
++ OR EXISTS(SELECT 1 FROM oracle2.meeting_participation_revocations_v1 WHERE admission_id=m.admission_id)
++ OR NOT EXISTS(SELECT 1 FROM pg_roles login JOIN pg_roles g ON g.rolname='oracle2_replacement_requester'
++  WHERE login.rolname=m.role_name AND login.rolcanlogin AND NOT(login.rolsuper OR login.rolcreatedb OR login.rolcreaterole OR login.rolreplication OR login.rolbypassrls)
++  AND pg_has_role(login.oid,g.oid,'MEMBER') AND NOT EXISTS(SELECT 1 FROM pg_roles x WHERE x.oid NOT IN(login.oid,g.oid)
++   AND(pg_has_role(login.oid,x.oid,'MEMBER') OR pg_has_role(login.oid,x.oid,'SET') OR pg_has_role(login.oid,x.oid,'USAGE')))) THEN
++  RAISE insufficient_privilege USING MESSAGE='current exact installed participation peer denied';END IF;
++ root_until:=oracle2._meeting_participation_lineage_v1(m);
++ RETURN least(until,root_until);
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_peer_current_v1(oracle2.meeting_participation_admissions_v1,text) FROM PUBLIC,oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2._meeting_participation_host_v1(m oracle2.meeting_participation_admissions_v1,wanted_generation integer,deadline timestamptz)
++ RETURNS timestamptz LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE authority oracle2.meeting_participation_admissions_v1%ROWTYPE;event oracle2.meeting_participation_events_v1%ROWTYPE;
++BEGIN
++ SELECT * INTO event FROM oracle2.meeting_participation_events_v1 e
++ WHERE e.workspace_id=m.workspace_id AND e.meeting_id=m.meeting_id AND e.generation=wanted_generation AND e.action='enable';
++ SELECT * INTO authority FROM oracle2.meeting_participation_admissions_v1 WHERE admission_id=event.admission_id FOR SHARE;
++ IF event.event_id IS NULL OR event.actor_id IS DISTINCT FROM authority.principal_id
++ OR authority.workspace_id IS DISTINCT FROM m.workspace_id OR authority.meeting_id IS DISTINCT FROM m.meeting_id
++ OR authority.provider IS DISTINCT FROM m.provider OR authority.platform IS DISTINCT FROM m.platform
++ OR authority.provider_account IS DISTINCT FROM m.provider_account OR authority.tenant_id IS DISTINCT FROM m.tenant_id
++ OR authority.provider_meeting_id IS DISTINCT FROM m.provider_meeting_id OR authority.bot_id IS DISTINCT FROM m.bot_id THEN
++  RAISE insufficient_privilege USING MESSAGE='actual current enabling host denied';END IF;
++ RETURN least(deadline,m.expires_at,oracle2._meeting_participation_peer_current_v1(authority,'host'));
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_host_v1(oracle2.meeting_participation_admissions_v1,integer,timestamptz) FROM PUBLIC,oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2._meeting_participation_admission_v1(selected uuid,seal text,act text,deadline timestamptz)
++ RETURNS oracle2.meeting_participation_admissions_v1 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;m oracle2.meeting_participation_admissions_v1%ROWTYPE;
++BEGIN
++ a:=oracle2._replacement_request_context();
++ SELECT * INTO m FROM oracle2.meeting_participation_admissions_v1 WHERE admission_id=selected FOR SHARE;
++ IF m.admission_id IS NULL OR m.admission_sha256 IS DISTINCT FROM seal OR m.workspace_id<>a.workspace_id OR m.principal_id<>a.principal_id
++ OR m.role_name<>SESSION_USER OR m.runtime_hash<>a.runtime_hash OR m.registry_hash<>a.registry_hash OR NOT(act=ANY(m.actions))
++ OR deadline IS NULL OR act IS NULL OR NOT isfinite(deadline) OR deadline<=clock_timestamp() OR deadline>clock_timestamp()+interval '30 seconds'
++ OR m.valid_from>clock_timestamp() OR m.expires_at<=clock_timestamp() OR m.original_horizon<=clock_timestamp()
++ OR EXISTS(SELECT 1 FROM oracle2.meeting_participation_revocations_v1 WHERE admission_id=selected) THEN
++  RAISE insufficient_privilege USING MESSAGE='current participation admission denied';END IF;
++ m.expires_at:=least(a.expires_at,m.expires_at,m.original_horizon,deadline);
++ m.expires_at:=oracle2._meeting_participation_lineage_v1(m);RETURN m;
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_admission_v1(uuid,text,text,timestamptz) FROM PUBLIC,oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2._meeting_participation_capture_v1(m oracle2.meeting_participation_admissions_v1,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE c jsonb;
++BEGIN
++ c:=oracle2._meeting_capture_current_v1(m.capture_admission_id,m.capture_admission_sha256,deadline);
++ IF c->>'workspace_id' IS DISTINCT FROM m.workspace_id::text OR c->>'meeting_id' IS DISTINCT FROM m.meeting_id::text
++ OR c->>'provider' IS DISTINCT FROM m.provider OR c->>'provider_account' IS DISTINCT FROM m.provider_account
++ OR c->>'tenant_id' IS DISTINCT FROM m.tenant_id OR c->>'provider_meeting_id' IS DISTINCT FROM m.provider_meeting_id
++ OR c->>'bot_id' IS DISTINCT FROM m.bot_id::text THEN RAISE insufficient_privilege USING MESSAGE='exact current capture differs';END IF;
++ RETURN c;
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_capture_v1(oracle2.meeting_participation_admissions_v1,timestamptz) FROM PUBLIC,oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2._meeting_participation_observation_v1(m oracle2.meeting_participation_admissions_v1,wanted uuid,c jsonb,deadline timestamptz)
++ RETURNS oracle2.meeting_participation_observations_v1 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE o oracle2.meeting_participation_observations_v1%ROWTYPE;authority oracle2.meeting_participation_admissions_v1%ROWTYPE;until timestamptz;observer_until timestamptz;
++BEGIN
++ SELECT * INTO o FROM oracle2.meeting_participation_observations_v1 WHERE observation_id=wanted FOR SHARE;
++ SELECT * INTO authority FROM oracle2.meeting_participation_admissions_v1 WHERE admission_id=o.admission_id FOR SHARE;
++ observer_until:=oracle2._meeting_participation_peer_current_v1(authority,'observer');
++ PERFORM 1 FROM oracle2.meeting_participation_audience_heads_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR SHARE;
++ IF o.observation_id IS NULL OR o.workspace_id<>m.workspace_id OR o.meeting_id<>m.meeting_id OR authority.kind<>'observer'
++ OR authority.provider_account<>m.provider_account OR authority.tenant_id<>m.tenant_id OR authority.provider_meeting_id<>m.provider_meeting_id
++ OR authority.bot_id<>m.bot_id OR authority.observation_owner_sha256<>m.observation_owner_sha256
++ OR observer_until IS NULL OR observer_until<=clock_timestamp()
++ OR NOT EXISTS(SELECT 1 FROM oracle2.meeting_participation_audience_heads_v1 h WHERE h.workspace_id=m.workspace_id AND h.meeting_id=m.meeting_id AND h.observation_id=wanted)
++ OR authority.valid_from>clock_timestamp() OR authority.expires_at<=clock_timestamp() OR authority.original_horizon<=clock_timestamp()
++ OR EXISTS(SELECT 1 FROM oracle2.meeting_participation_revocations_v1 WHERE admission_id=authority.admission_id)
++ OR o.observed_at>clock_timestamp() OR o.valid_until<=clock_timestamp()
++ OR o.payload->>'capture_event_id' IS DISTINCT FROM c->>'capture_event_id' OR o.payload->>'capture_sha256' IS DISTINCT FROM c->>'capture_event_sha256'
++ OR o.payload->>'capture_revision' IS DISTINCT FROM c->>'capture_revision' OR o.payload->>'platform' IS DISTINCT FROM 'microsoft_teams'
++ OR o.payload->'channel_meeting' IS DISTINCT FROM 'false'::jsonb OR o.payload->'chat_available' IS DISTINCT FROM 'true'::jsonb THEN
++  RAISE insufficient_privilege USING MESSAGE='current independently appointed Teams capability denied';END IF;
++ -- Current observer exact rooted path is rechecked; a stored fact is not a lease.
++ until:=oracle2._meeting_participation_lineage_v1(authority);
++ o.valid_until:=least(o.valid_until,until,observer_until,authority.original_horizon,deadline,(c->>'valid_until')::timestamptz,m.expires_at);
++ IF o.valid_until<=clock_timestamp() THEN RAISE insufficient_privilege USING MESSAGE='current audience observation expired';END IF;
++ RETURN o;
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_observation_v1(oracle2.meeting_participation_admissions_v1,uuid,jsonb,timestamptz) FROM PUBLIC,oracle2_replacement_requester;
++CREATE TABLE oracle2.meeting_participation_audience_heads_v1 (
++ workspace_id uuid NOT NULL,meeting_id uuid NOT NULL,revision integer NOT NULL CHECK(revision>0),
++ observation_id uuid NOT NULL REFERENCES oracle2.meeting_participation_observations_v1(observation_id),PRIMARY KEY(workspace_id,meeting_id));
++ALTER TABLE oracle2.meeting_participation_audience_heads_v1 ENABLE ROW LEVEL SECURITY;
++REVOKE ALL ON oracle2.meeting_participation_audience_heads_v1 FROM PUBLIC,oracle2_replacement_requester;
++CREATE FUNCTION oracle2._meeting_participation_revoke_lock_v1() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,oracle2 AS $f$
++BEGIN
++ PERFORM 1 FROM oracle2.meeting_participation_admissions_v1 WHERE admission_id=NEW.admission_id FOR UPDATE;
++ RETURN NEW;
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_revoke_lock_v1() FROM PUBLIC;
++CREATE TRIGGER participation_revocation_serial BEFORE INSERT ON oracle2.meeting_participation_revocations_v1 FOR EACH ROW EXECUTE FUNCTION oracle2._meeting_participation_revoke_lock_v1();
++
++CREATE FUNCTION oracle2.meeting_participation_observe_audience_v1(selected uuid,seal text,expected_revision integer,observation uuid,body jsonb,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE m oracle2.meeting_participation_admissions_v1%ROWTYPE;c jsonb;old oracle2.meeting_participation_observations_v1%ROWTYPE;
++ head oracle2.meeting_participation_audience_heads_v1%ROWTYPE;hash text;at timestamptz;until timestamptz;entry jsonb;ids text[]:='{}';required text[];
++BEGIN
++ m:=oracle2._meeting_participation_admission_v1(selected,seal,'observe',deadline);
++ IF m.kind<>'observer' THEN RAISE insufficient_privilege USING MESSAGE='independently appointed observation owner required';END IF;
++ required:=ARRAY['observation_owner_sha256','provider_observation_sha256','capture_event_id','capture_sha256','capture_revision','platform','channel_meeting','chat_available','audience_complete','participants','observed_at','valid_until'];
++ IF observation IS NULL OR expected_revision IS NULL OR expected_revision<0 OR jsonb_typeof(body) IS DISTINCT FROM 'object'
++ OR NOT(body ?& required) OR body-required<>'{}'::jsonb OR octet_length(body::text)>262144
++ OR body->>'observation_owner_sha256' IS DISTINCT FROM m.observation_owner_sha256
++ OR jsonb_typeof(body->'provider_observation_sha256') IS DISTINCT FROM 'string' OR body->>'provider_observation_sha256'!~'^[a-f0-9]{64}$'
++ OR jsonb_typeof(body->'capture_event_id') IS DISTINCT FROM 'string' OR body->>'capture_event_id'!~'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
++ OR jsonb_typeof(body->'capture_sha256') IS DISTINCT FROM 'string' OR body->>'capture_sha256'!~'^[a-f0-9]{64}$'
++ OR jsonb_typeof(body->'capture_revision') IS DISTINCT FROM 'number' OR body->>'capture_revision'!~'^[1-9][0-9]{0,8}$'
++ OR body->>'platform' NOT IN('microsoft_teams','unknown') OR jsonb_typeof(body->'platform') IS DISTINCT FROM 'string'
++ OR jsonb_typeof(body->'channel_meeting') NOT IN('boolean','null') OR jsonb_typeof(body->'chat_available') NOT IN('boolean','null')
++ OR jsonb_typeof(body->'audience_complete') IS DISTINCT FROM 'boolean' OR jsonb_typeof(body->'participants') IS DISTINCT FROM 'array'
++ OR jsonb_array_length(body->'participants')>1000
++ OR jsonb_typeof(body->'observed_at') IS DISTINCT FROM 'string' OR jsonb_typeof(body->'valid_until') IS DISTINCT FROM 'string' THEN
++  RAISE EXCEPTION 'closed current provider observation required';END IF;
++ FOR entry IN SELECT value FROM jsonb_array_elements(body->'participants') LOOP
++  IF jsonb_typeof(entry) IS DISTINCT FROM 'object' OR NOT(entry ?& ARRAY['provider_participant_id','actor_id'])
++  OR entry-ARRAY['provider_participant_id','actor_id']<>'{}'::jsonb OR jsonb_typeof(entry->'provider_participant_id') IS DISTINCT FROM 'string'
++  OR length(btrim(entry->>'provider_participant_id')) NOT BETWEEN 1 AND 256 OR entry->>'provider_participant_id'<>btrim(entry->>'provider_participant_id')
++  OR entry->>'provider_participant_id'~'[[:cntrl:]]' OR entry->>'provider_participant_id'=ANY(ids)
++  OR jsonb_typeof(entry->'actor_id') NOT IN('string','null')
++  OR (jsonb_typeof(entry->'actor_id')='string' AND entry->>'actor_id'!~'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$') THEN
++   RAISE EXCEPTION 'attributed canonical audience required';END IF;
++  ids:=array_append(ids,entry->>'provider_participant_id');
++ END LOOP;
++ IF ids IS DISTINCT FROM ARRAY(SELECT unnest(ids) ORDER BY 1) OR (body->'audience_complete'='true'::jsonb AND cardinality(ids)=0) THEN
++  RAISE EXCEPTION 'closed ordered audience required';END IF;
++ at:=(body->>'observed_at')::timestamptz;until:=(body->>'valid_until')::timestamptz;
++ IF NOT isfinite(at) OR NOT isfinite(until) OR at>clock_timestamp() OR until<=clock_timestamp() OR until>at+interval '30 seconds'
++ OR until>m.expires_at THEN RAISE insufficient_privilege USING MESSAGE='finite observation window denied';END IF;
++ c:=oracle2._meeting_participation_capture_v1(m,deadline);
++ IF body->>'capture_event_id' IS DISTINCT FROM c->>'capture_event_id' OR body->>'capture_sha256' IS DISTINCT FROM c->>'capture_event_sha256'
++ OR body->>'capture_revision' IS DISTINCT FROM c->>'capture_revision' OR until>(c->>'valid_until')::timestamptz THEN
++  RAISE insufficient_privilege USING MESSAGE='exact current capture observation differs';END IF;
++ PERFORM pg_advisory_xact_lock(hashtext('oracle2-participation:'||m.workspace_id::text||':'||m.meeting_id::text));
++ hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(body),'UTF8')),'hex');
++ SELECT * INTO old FROM oracle2.meeting_participation_observations_v1 WHERE observation_id=observation;
++ IF old.observation_id IS NOT NULL THEN
++  IF old.admission_id<>selected OR old.actor_id<>m.principal_id OR old.payload_sha256<>hash THEN RAISE EXCEPTION 'observation collision';END IF;
++  RETURN jsonb_build_object('observation_id',observation,'created',false,'valid_until',least(until,m.expires_at),'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),least(until,m.expires_at)));
++ END IF;
++ SELECT * INTO head FROM oracle2.meeting_participation_audience_heads_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR UPDATE;
++ IF coalesce(head.revision,0)<>expected_revision OR expected_revision>=16384 THEN RAISE EXCEPTION 'current audience revision conflict';END IF;
++ INSERT INTO oracle2.meeting_participation_observations_v1 VALUES(observation,m.workspace_id,m.meeting_id,selected,m.principal_id,body,hash,at,until);
++ INSERT INTO oracle2.meeting_participation_audience_heads_v1 VALUES(m.workspace_id,m.meeting_id,expected_revision+1,observation)
++ ON CONFLICT(workspace_id,meeting_id) DO UPDATE SET revision=EXCLUDED.revision,observation_id=EXCLUDED.observation_id;
++ RETURN jsonb_build_object('observation_id',observation,'created',true,'valid_until',until,'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),until));
++END $f$;
++REVOKE ALL ON FUNCTION oracle2.meeting_participation_observe_audience_v1(uuid,text,integer,uuid,jsonb,timestamptz) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION oracle2.meeting_participation_observe_audience_v1(uuid,text,integer,uuid,jsonb,timestamptz) TO oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2.meeting_participation_control_v1(selected uuid,seal text,expected_head integer,operation uuid,act text,body jsonb,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE m oracle2.meeting_participation_admissions_v1%ROWTYPE;h oracle2.meeting_participation_heads_v1%ROWTYPE;
++ old oracle2.meeting_participation_events_v1%ROWTYPE;c jsonb;o oracle2.meeting_participation_observations_v1%ROWTYPE;hash text;event uuid;
++BEGIN
++ m:=oracle2._meeting_participation_admission_v1(selected,seal,act,deadline);
++ IF m.kind<>'host' OR act NOT IN('enable','disable') OR operation IS NULL OR expected_head IS NULL OR expected_head<0
++ OR jsonb_typeof(body) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'closed actual host action required';END IF;
++ PERFORM pg_advisory_xact_lock(hashtext('oracle2-participation:'||m.workspace_id::text||':'||m.meeting_id::text));
++ IF act='enable' THEN
++  IF NOT(body ?& ARRAY['proactive_enabled','cooldown_seconds','max_proactive','observation_id'])
++  OR body-ARRAY['proactive_enabled','cooldown_seconds','max_proactive','observation_id']<>'{}'::jsonb
++  OR jsonb_typeof(body->'proactive_enabled') IS DISTINCT FROM 'boolean'
++  OR jsonb_typeof(body->'cooldown_seconds') IS DISTINCT FROM 'number' OR body->>'cooldown_seconds'!~'^[1-9][0-9]{0,4}$'
++  OR (body->>'cooldown_seconds')::integer NOT BETWEEN 120 AND 86400
++  OR jsonb_typeof(body->'max_proactive') IS DISTINCT FROM 'number' OR body->>'max_proactive'!~'^[0-3]$'
++  OR jsonb_typeof(body->'observation_id') IS DISTINCT FROM 'string' THEN RAISE EXCEPTION 'bounded explicit host settings required';END IF;
++  c:=oracle2._meeting_participation_capture_v1(m,deadline);
++  o:=oracle2._meeting_participation_observation_v1(m,(body->>'observation_id')::uuid,c,deadline);
++  m.expires_at:=least(m.expires_at,o.valid_until);
++ ELSIF body<>'{}'::jsonb THEN RAISE EXCEPTION 'disable accepts no selectors';END IF;
++ hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(jsonb_build_object('action',act,'body',body)),'UTF8')),'hex');
++ SELECT * INTO old FROM oracle2.meeting_participation_events_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id AND operation_id=operation;
++ IF old.event_id IS NOT NULL THEN
++  IF old.admission_id<>selected OR old.actor_id<>m.principal_id OR old.action<>act OR old.payload_sha256<>hash THEN RAISE EXCEPTION 'participation operation collision';END IF;
++  RETURN jsonb_build_object('event_id',old.event_id,'created',false,'meeting_id',m.meeting_id,'valid_until',m.expires_at,'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),m.expires_at));
++ END IF;
++ INSERT INTO oracle2.meeting_participation_heads_v1(workspace_id,meeting_id) VALUES(m.workspace_id,m.meeting_id) ON CONFLICT DO NOTHING;
++ SELECT * INTO h FROM oracle2.meeting_participation_heads_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR UPDATE;
++ IF h.version<>expected_head OR h.version>=16384 THEN RAISE EXCEPTION 'participation head conflict';END IF;
++ event:=gen_random_uuid();
++ INSERT INTO oracle2.meeting_participation_events_v1 VALUES(event,m.workspace_id,m.meeting_id,h.version+1,h.generation+1,selected,m.principal_id,act,body,hash,operation,clock_timestamp());
++ UPDATE oracle2.meeting_participation_heads_v1 SET version=h.version+1,generation=h.generation+1,enabled=(act='enable'),
++ proactive_enabled=CASE WHEN act='enable' THEN (body->>'proactive_enabled')::boolean ELSE false END,
++ cooldown_seconds=CASE WHEN act='enable' THEN (body->>'cooldown_seconds')::integer ELSE h.cooldown_seconds END,
++ max_proactive=CASE WHEN act='enable' THEN (body->>'max_proactive')::integer ELSE h.max_proactive END,last_event_id=event
++ WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id;
++ -- Off changes participation only; it never edits capture or claims remote stop.
++ RETURN jsonb_build_object('event_id',event,'created',true,'meeting_id',m.meeting_id,'valid_until',m.expires_at,'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),m.expires_at));
++END $f$;
++REVOKE ALL ON FUNCTION oracle2.meeting_participation_control_v1(uuid,text,integer,uuid,text,jsonb,timestamptz) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION oracle2.meeting_participation_control_v1(uuid,text,integer,uuid,text,jsonb,timestamptz) TO oracle2_replacement_requester;
++CREATE FUNCTION oracle2._meeting_participation_current_v1(m oracle2.meeting_participation_admissions_v1,wanted uuid,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE i oracle2.meeting_participation_intents_v1%ROWTYPE;h oracle2.meeting_participation_heads_v1%ROWTYPE;
++ c jsonb;t jsonb;o oracle2.meeting_participation_observations_v1%ROWTYPE;host_until timestamptz;
++BEGIN
++ SELECT * INTO i FROM oracle2.meeting_participation_intents_v1 WHERE intent_id=wanted FOR SHARE;
++ SELECT * INTO h FROM oracle2.meeting_participation_heads_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR SHARE;
++ IF i.intent_id IS NULL OR i.workspace_id<>m.workspace_id OR i.meeting_id<>m.meeting_id OR i.sender_admission_id<>m.admission_id
++ OR i.actor_id<>m.principal_id OR h.meeting_id IS NULL OR NOT h.enabled OR h.generation<>i.generation THEN
++  RAISE insufficient_privilege USING MESSAGE='current enabled exact participation intent denied';END IF;
++ host_until:=oracle2._meeting_participation_host_v1(m,h.generation,deadline);
++ c:=oracle2._meeting_participation_capture_v1(m,deadline);
++ IF c->>'capture_event_id' IS DISTINCT FROM i.capture_event_id::text OR c->>'capture_event_sha256' IS DISTINCT FROM i.capture_sha256
++ OR c->>'capture_revision' IS DISTINCT FROM i.capture_revision::text THEN
++  RAISE insufficient_privilege USING MESSAGE='current capture turn changed';END IF;
++ o:=oracle2._meeting_participation_observation_v1(m,i.observation_id,c,deadline);
++ t:=oracle2._meeting_participation_turn_v1(m,i.turn_event_id,i.turn_frame,deadline);
++ RETURN jsonb_build_object('generation',h.generation,'head_revision',h.version,'valid_until',least(m.expires_at,host_until,o.valid_until,(t->>'valid_until')::timestamptz),
++  'capture',c,'observation_id',o.observation_id,'audience_sha256',o.payload_sha256);
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_current_v1(oracle2.meeting_participation_admissions_v1,uuid,timestamptz) FROM PUBLIC,oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2._meeting_participation_prepare_binding_v1(m oracle2.meeting_participation_admissions_v1,h oracle2.meeting_participation_heads_v1,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE c jsonb;t jsonb;prior oracle2.meeting_participation_intents_v1%ROWTYPE;
++ o oracle2.meeting_participation_observations_v1%ROWTYPE;audience uuid;until timestamptz;
++BEGIN
++ IF m.kind<>'sender' OR NOT('prepare'=ANY(m.actions)) OR h.workspace_id IS DISTINCT FROM m.workspace_id
++ OR h.meeting_id IS DISTINCT FROM m.meeting_id OR NOT h.enabled OR h.version>=16384 THEN
++  RAISE insufficient_privilege USING MESSAGE='current independently installed composer denied';END IF;
++ until:=oracle2._meeting_participation_host_v1(m,h.generation,deadline);
++ c:=oracle2._meeting_participation_capture_v1(m,deadline);
++ SELECT observation_id INTO audience FROM oracle2.meeting_participation_audience_heads_v1
++ WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR SHARE;
++ o:=oracle2._meeting_participation_observation_v1(m,audience,c,deadline);
++ -- SAME S07 current epoch/event/actor metadata owner before any private bytes.
++ t:=oracle2.meeting_capture_current_turn_v1(m.capture_admission_id,m.capture_admission_sha256,(c->>'capture_event_id')::uuid,deadline);
++ SELECT * INTO prior FROM oracle2.meeting_participation_intents_v1 WHERE workspace_id=m.workspace_id
++ AND meeting_id=m.meeting_id AND turn_event_id=(c->>'capture_event_id')::uuid FOR SHARE;
++ IF prior.intent_id IS NOT NULL AND(prior.sender_admission_id<>m.admission_id OR prior.actor_id<>m.principal_id) THEN
++  RAISE insufficient_privilege USING MESSAGE='old turn receipt cannot borrow another appointment';END IF;
++ RETURN jsonb_build_object('capture_event_id',c->'capture_event_id','head_revision',h.version,'generation',h.generation,
++  'existing_intent_id',prior.intent_id,'valid_until',least(until,m.expires_at,o.valid_until,(t->>'valid_until')::timestamptz));
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_prepare_binding_v1(oracle2.meeting_participation_admissions_v1,oracle2.meeting_participation_heads_v1,timestamptz) FROM PUBLIC,oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2.meeting_participation_claim_v1(selected uuid,seal text,wanted uuid,expected_revision integer,operation uuid,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE m oracle2.meeting_participation_admissions_v1%ROWTYPE;i oracle2.meeting_participation_intents_v1%ROWTYPE;
++ d oracle2.meeting_participation_delivery_heads_v1%ROWTYPE;h oracle2.meeting_participation_heads_v1%ROWTYPE;
++ current jsonb;event uuid;payload jsonb;hash text;until timestamptz;
++BEGIN
++ m:=oracle2._meeting_participation_admission_v1(selected,seal,'claim',deadline);
++ IF m.kind<>'sender' OR wanted IS NULL OR operation IS NULL OR expected_revision IS NULL OR expected_revision<0 THEN
++  RAISE EXCEPTION 'closed exact sender claim required';END IF;
++ PERFORM pg_advisory_xact_lock(hashtext('oracle2-participation:'||m.workspace_id::text||':'||m.meeting_id::text));
++ SELECT * INTO i FROM oracle2.meeting_participation_intents_v1 WHERE intent_id=wanted FOR SHARE;
++ IF i.intent_id IS NULL OR i.workspace_id<>m.workspace_id OR i.meeting_id<>m.meeting_id OR i.sender_admission_id<>selected OR i.actor_id<>m.principal_id THEN
++  RAISE insufficient_privilege USING MESSAGE='own exact participation intent required';END IF;
++ SELECT * INTO d FROM oracle2.meeting_participation_delivery_heads_v1 WHERE intent_id=wanted FOR UPDATE;
++ IF d.intent_id IS NULL THEN RAISE EXCEPTION 'durable intent missing';END IF;
++ IF d.state<>'intent' THEN
++  -- A replay NEVER returns provider bytes, even if the original claim ACK was lost.
++  RETURN jsonb_build_object('intent_id',wanted,'state',d.state,
++   'outcome',CASE WHEN d.state='inflight' THEN 'UNKNOWN' ELSE d.state END,'created',false,'executable',false,'claim_event_id',d.claim_event_id,'revision',d.revision,'valid_until',m.expires_at,
++   'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),m.expires_at));
++ END IF;
++ IF d.revision<>expected_revision THEN RAISE EXCEPTION 'delivery revision conflict';END IF;
++ SELECT * INTO h FROM oracle2.meeting_participation_heads_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR UPDATE;
++ current:=oracle2._meeting_participation_current_v1(m,wanted,deadline);until:=(current->>'valid_until')::timestamptz;
++ IF h.active_intent_id IS NOT NULL OR (i.proactive AND(NOT h.proactive_enabled OR h.proactive_count>=h.max_proactive
++  OR(h.last_proactive_at IS NOT NULL AND clock_timestamp()<h.last_proactive_at+make_interval(secs=>h.cooldown_seconds)))) THEN
++  RAISE insufficient_privilege USING MESSAGE='bounded participation attempt denied';END IF;
++ event:=gen_random_uuid();payload:=jsonb_build_object('intent_id',wanted,'request_sha256',i.request_sha256,'generation',i.generation);
++ hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(payload),'UTF8')),'hex');
++ INSERT INTO oracle2.meeting_participation_delivery_events_v1 VALUES(event,wanted,d.revision+1,selected,m.principal_id,'claim',operation,payload,hash,clock_timestamp());
++ UPDATE oracle2.meeting_participation_delivery_heads_v1 SET revision=d.revision+1,state='inflight',claim_event_id=event,claim_operation_id=operation,claim_deadline=until,last_event_id=event WHERE intent_id=wanted;
++ UPDATE oracle2.meeting_participation_heads_v1 SET active_intent_id=wanted,
++ proactive_count=h.proactive_count+CASE WHEN i.proactive THEN 1 ELSE 0 END,
++ last_proactive_at=CASE WHEN i.proactive THEN clock_timestamp() ELSE h.last_proactive_at END
++ WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id;
++ RETURN jsonb_build_object('intent_id',wanted,'state','inflight','created',true,'executable',true,'claim_event_id',event,'revision',d.revision+1,
++  'body',oracle2._replacement_metadata_json(jsonb_build_object('to','everyone','message',i.body)),
++  'request_sha256',i.request_sha256,'bot_id',m.bot_id,'valid_until',until,
++  'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),until));
++END $f$;
++REVOKE ALL ON FUNCTION oracle2.meeting_participation_claim_v1(uuid,text,uuid,integer,uuid,timestamptz) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION oracle2.meeting_participation_claim_v1(uuid,text,uuid,integer,uuid,timestamptz) TO oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2.meeting_participation_observe_v1(selected uuid,seal text,wanted uuid,claim uuid,operation uuid,body jsonb,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE m oracle2.meeting_participation_admissions_v1%ROWTYPE;i oracle2.meeting_participation_intents_v1%ROWTYPE;
++ d oracle2.meeting_participation_delivery_heads_v1%ROWTYPE;old oracle2.meeting_participation_delivery_events_v1%ROWTYPE;
++ hash text;target text;event uuid;still_current boolean:=false;required text[];
++BEGIN
++ -- Forensic completion can record one already-inflight own attempt after host
++ -- disable. It grants no body/claim/send and still requires its OWN current root.
++ m:=oracle2._meeting_participation_admission_v1(selected,seal,'receipt',deadline);
++ required:=ARRAY['request_sha256','complete','http_status','response_sha256','response_byte_count','response_object_key','error'];
++ IF m.kind<>'sender' OR wanted IS NULL OR claim IS NULL OR operation IS NULL OR jsonb_typeof(body) IS DISTINCT FROM 'object'
++ OR NOT(body ?& required) OR body-required<>'{}'::jsonb OR octet_length(body::text)>2048
++ OR jsonb_typeof(body->'request_sha256') IS DISTINCT FROM 'string' OR body->>'request_sha256'!~'^[a-f0-9]{64}$'
++ OR jsonb_typeof(body->'complete') IS DISTINCT FROM 'boolean'
++ OR jsonb_typeof(body->'http_status') NOT IN('number','null')
++ OR(jsonb_typeof(body->'http_status')='number' AND body->>'http_status'!~'^[1-5][0-9]{2}$')
++ OR jsonb_typeof(body->'response_sha256') IS DISTINCT FROM 'string'
++ OR body->>'response_sha256'!~'^[a-f0-9]{64}$'
++ OR jsonb_typeof(body->'response_byte_count') IS DISTINCT FROM 'number' OR body->>'response_byte_count'!~'^(0|[1-9][0-9]{0,6})$'
++ OR(body->>'response_byte_count')::integer>1064960
++ OR body->>'response_object_key' IS DISTINCT FROM 'meeting-participation/'||m.workspace_id::text||'/'||m.meeting_id::text||'/'||wanted::text||'/'||claim::text||'/provider-response.wire'
++ OR jsonb_typeof(body->'error') NOT IN('string','null')
++ OR(jsonb_typeof(body->'error')='string' AND body->>'error' NOT IN('network','timeout','framing','expired','unknown'))
++ OR(body->'complete'='true'::jsonb AND(body->'http_status'='null'::jsonb OR body->'response_sha256'='null'::jsonb OR body->'error'<>'null'::jsonb)) THEN
++  RAISE EXCEPTION 'exact bounded observed wire outcome required';END IF;
++ PERFORM pg_advisory_xact_lock(hashtext('oracle2-participation:'||m.workspace_id::text||':'||m.meeting_id::text));
++ SELECT * INTO i FROM oracle2.meeting_participation_intents_v1 WHERE intent_id=wanted FOR SHARE;
++ IF i.intent_id IS NULL OR i.workspace_id<>m.workspace_id OR i.meeting_id<>m.meeting_id OR i.sender_admission_id<>selected
++ OR i.actor_id<>m.principal_id OR body->>'request_sha256'<>i.request_sha256 THEN
++  RAISE insufficient_privilege USING MESSAGE='exact own inflight receipt denied';END IF;
++ SELECT * INTO d FROM oracle2.meeting_participation_delivery_heads_v1 WHERE intent_id=wanted FOR UPDATE;
++ IF d.intent_id IS NULL OR d.claim_event_id IS DISTINCT FROM claim THEN RAISE EXCEPTION 'actual own claim required';END IF;
++ hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(body),'UTF8')),'hex');
++ SELECT * INTO old FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=wanted AND operation_id=operation;
++ IF old.event_id IS NOT NULL THEN
++  IF old.admission_id<>selected OR old.actor_id<>m.principal_id OR old.payload_sha256<>hash OR old.action='claim' THEN RAISE EXCEPTION 'receipt operation collision';END IF;
++  RETURN jsonb_build_object('intent_id',wanted,'event_id',old.event_id,'state',d.state,'revision',d.revision,'created',false,'executable',false,
++   'visible_message_proven',false,'remote_stop_proven',false,'current',false,'valid_until',m.expires_at,
++   'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),m.expires_at));
++ END IF;
++ IF d.state<>'inflight' THEN RAISE EXCEPTION 'terminal receipt cannot be replaced';END IF;
++ target:=CASE WHEN body->'complete'='true'::jsonb AND body->'http_status'='200'::jsonb AND body->'error'='null'::jsonb THEN 'provider-response-observed' ELSE 'UNKNOWN' END;
++ event:=gen_random_uuid();
++ INSERT INTO oracle2.meeting_participation_delivery_events_v1 VALUES(event,wanted,d.revision+1,selected,m.principal_id,target,operation,body,hash,clock_timestamp());
++ UPDATE oracle2.meeting_participation_delivery_heads_v1 SET revision=d.revision+1,state=target,last_event_id=event WHERE intent_id=wanted;
++ UPDATE oracle2.meeting_participation_heads_v1 SET active_intent_id=NULL WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id AND active_intent_id=wanted;
++ BEGIN
++  PERFORM oracle2._meeting_participation_current_v1(m,wanted,deadline);still_current:=true;
++ EXCEPTION WHEN insufficient_privilege THEN still_current:=false;
++ END;
++ RETURN jsonb_build_object('intent_id',wanted,'event_id',event,'state',target,'revision',d.revision+1,'created',true,'executable',false,
++  'visible_message_proven',false,'remote_stop_proven',false,'current',still_current,'valid_until',m.expires_at,
++  'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),m.expires_at));
++END $f$;
++REVOKE ALL ON FUNCTION oracle2.meeting_participation_observe_v1(uuid,text,uuid,uuid,uuid,jsonb,timestamptz) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION oracle2.meeting_participation_observe_v1(uuid,text,uuid,uuid,uuid,jsonb,timestamptz) TO oracle2_replacement_requester;
++CREATE FUNCTION oracle2.meeting_participation_status_v1(selected uuid,seal text,wanted uuid,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE m oracle2.meeting_participation_admissions_v1%ROWTYPE;h oracle2.meeting_participation_heads_v1%ROWTYPE;
++ i oracle2.meeting_participation_intents_v1%ROWTYPE;d oracle2.meeting_participation_delivery_heads_v1%ROWTYPE;current jsonb;live boolean:=false;
++ audience oracle2.meeting_participation_audience_heads_v1%ROWTYPE;observation oracle2.meeting_participation_observations_v1%ROWTYPE;prepare_binding jsonb;reconcile_intent uuid;
++BEGIN
++ m:=oracle2._meeting_participation_admission_v1(selected,seal,'status',deadline);
++ -- Same lock order as writes: admission, meeting, then mutable heads/receipt.
++ -- This cannot claim or mutate a body; it prevents status/claim row inversion.
++ PERFORM pg_advisory_xact_lock(hashtext('oracle2-participation:'||m.workspace_id::text||':'||m.meeting_id::text));
++ SELECT * INTO audience FROM oracle2.meeting_participation_audience_heads_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR SHARE;
++ SELECT * INTO observation FROM oracle2.meeting_participation_observations_v1 WHERE observation_id=audience.observation_id FOR SHARE;
++ SELECT * INTO h FROM oracle2.meeting_participation_heads_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR SHARE;
++ IF m.kind='sender' THEN
++  SELECT selected_intent.intent_id INTO reconcile_intent
++  FROM oracle2.meeting_participation_intents_v1 selected_intent JOIN oracle2.meeting_participation_events_v1 prepared
++   ON prepared.workspace_id=selected_intent.workspace_id AND prepared.meeting_id=selected_intent.meeting_id
++   AND prepared.action='prepare' AND prepared.payload->'answer'->>'intent_id'=selected_intent.intent_id::text
++  WHERE selected_intent.workspace_id=m.workspace_id AND selected_intent.meeting_id=m.meeting_id
++   AND selected_intent.sender_admission_id=m.admission_id AND selected_intent.actor_id=m.principal_id
++  ORDER BY (selected_intent.intent_id=h.active_intent_id) DESC NULLS LAST,prepared.version DESC LIMIT 1;
++ END IF;
++ IF wanted IS NULL AND m.kind='sender' AND 'prepare'=ANY(m.actions) THEN
++  BEGIN
++   prepare_binding:=oracle2._meeting_participation_prepare_binding_v1(m,h,deadline);
++  EXCEPTION WHEN insufficient_privilege THEN prepare_binding:=NULL;
++  END;
++ END IF;
++ IF wanted IS NOT NULL THEN
++  SELECT * INTO i FROM oracle2.meeting_participation_intents_v1 WHERE intent_id=wanted FOR SHARE;
++  IF m.kind<>'sender' OR i.intent_id IS NULL OR i.workspace_id<>m.workspace_id OR i.meeting_id<>m.meeting_id OR i.sender_admission_id<>selected OR i.actor_id<>m.principal_id THEN
++   RAISE insufficient_privilege USING MESSAGE='own receipt metadata denied';END IF;
++  SELECT * INTO d FROM oracle2.meeting_participation_delivery_heads_v1 WHERE intent_id=wanted FOR SHARE;
++  BEGIN
++   current:=oracle2._meeting_participation_current_v1(m,wanted,deadline);live:=true;
++  EXCEPTION WHEN insufficient_privilege THEN live:=false;
++  END;
++  -- A later readonly call cannot renew the original once-claim send window.
++  -- Forensic receipts remain possible under their own finite current scope.
++  IF d.state='inflight' AND(d.claim_deadline IS NULL OR d.claim_deadline<=clock_timestamp()) THEN live:=false;END IF;
++ END IF;
++ RETURN jsonb_build_object('meeting_id',m.meeting_id,'head_revision',coalesce(h.version,0),'generation',coalesce(h.generation,0),
++  'host_enabled',coalesce(h.enabled,false),'proactive_enabled',coalesce(h.proactive_enabled,false),'proactive_count',coalesce(h.proactive_count,0),
++  'intent_id',wanted,'state',d.state,'outcome',CASE WHEN d.state='inflight' THEN 'UNKNOWN' WHEN d.state='intent' THEN 'not-dispatched' ELSE d.state END,'delivery_revision',d.revision,
++  'claim_event_id',d.claim_event_id,'claim_current',live AND d.state='inflight','request_sha256',i.request_sha256,
++  'intent_current',live,
++  -- Private same-role reconciliation only. Hosting reopens these SAME bytes
++  -- through S07; public/browser metadata strips this frame, never body replay.
++  'turn_binding',CASE WHEN wanted IS NULL THEN NULL ELSE i.turn_frame END,
++  'intent_proactive',i.proactive,
++  'receipt_permitted',m.kind='sender' AND 'receipt'=ANY(m.actions),
++  -- Private immutable same-admission forensic identity, never a send grant.
++  'receipt_bot_id',CASE WHEN wanted IS NOT NULL AND d.claim_event_id IS NOT NULL AND m.kind='sender' AND 'receipt'=ANY(m.actions) THEN m.bot_id ELSE NULL END,
++  'prepare_binding',prepare_binding,
++  'reconcile_intent_id',reconcile_intent,
++  'visible_message_proven',false,'remote_stop_proven',false,'executable',false,
++  'observation_id',audience.observation_id,'observation_revision',coalesce(audience.revision,0),'observation_sha256',observation.payload_sha256,'observation_valid_until',observation.valid_until,
++  'valid_until',CASE WHEN live AND d.state='inflight' THEN least(m.expires_at,d.claim_deadline,(current->>'valid_until')::timestamptz) ELSE m.expires_at END,
++  'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),
++   CASE WHEN live AND d.state='inflight' THEN least(m.expires_at,d.claim_deadline,(current->>'valid_until')::timestamptz) ELSE m.expires_at END));
++END $f$;
++REVOKE ALL ON FUNCTION oracle2.meeting_participation_status_v1(uuid,text,uuid,timestamptz) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION oracle2.meeting_participation_status_v1(uuid,text,uuid,timestamptz) TO oracle2_replacement_requester;
++CREATE FUNCTION oracle2._meeting_participation_turn_v1(m oracle2.meeting_participation_admissions_v1,wanted uuid,frame jsonb,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE t jsonb;c jsonb;e jsonb;link jsonb;keys text[];name text;
++BEGIN
++ keys:=ARRAY['capture_event_id','capture_event_sha256','capture_revision','raw_sha256','normalized_sha256','participant_epoch_id','participant_epoch_revision','participant_epoch_sha256','participant_set_sha256','provider_speaker_id','actor_id'];
++ IF wanted IS NULL OR jsonb_typeof(frame) IS DISTINCT FROM 'object' OR NOT(frame ?& keys) OR frame-keys<>'{}'::jsonb THEN
++  RAISE EXCEPTION 'closed current turn provenance required';END IF;
++ FOREACH name IN ARRAY ARRAY['capture_event_id','participant_epoch_id','actor_id'] LOOP
++  IF jsonb_typeof(frame->name) IS DISTINCT FROM 'string' OR frame->>name!~'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$' THEN RAISE EXCEPTION 'canonical current turn identity required';END IF;
++ END LOOP;
++ FOREACH name IN ARRAY ARRAY['capture_event_sha256','raw_sha256','normalized_sha256','participant_epoch_sha256','participant_set_sha256'] LOOP
++  IF jsonb_typeof(frame->name) IS DISTINCT FROM 'string' OR frame->>name!~'^[a-f0-9]{64}$' THEN RAISE EXCEPTION 'separate exact turn hashes required';END IF;
++ END LOOP;
++ FOREACH name IN ARRAY ARRAY['capture_revision','participant_epoch_revision'] LOOP
++  IF jsonb_typeof(frame->name) IS DISTINCT FROM 'number' OR frame->>name!~'^[1-9][0-9]{0,8}$' THEN RAISE EXCEPTION 'strict turn revision required';END IF;
++ END LOOP;
++ IF jsonb_typeof(frame->'provider_speaker_id') IS DISTINCT FROM 'string' OR length(btrim(frame->>'provider_speaker_id')) NOT BETWEEN 1 AND 256
++ OR frame->>'provider_speaker_id'<>btrim(frame->>'provider_speaker_id') OR frame->>'provider_speaker_id'~'[[:cntrl:]]' THEN RAISE EXCEPTION 'stable attributed speaker required';END IF;
++ -- SAME canonical S07 owner: no direct raw-table/file access or role borrowing.
++ t:=oracle2.meeting_capture_current_turn_v1(m.capture_admission_id,m.capture_admission_sha256,wanted,deadline);
++ c:=t->'capture';e:=t->'epoch';
++ IF c->>'workspace_id' IS DISTINCT FROM m.workspace_id::text OR c->>'meeting_id' IS DISTINCT FROM m.meeting_id::text
++ OR c->>'provider' IS DISTINCT FROM m.provider OR c->>'provider_account' IS DISTINCT FROM m.provider_account
++ OR c->>'tenant_id' IS DISTINCT FROM m.tenant_id OR c->>'provider_meeting_id' IS DISTINCT FROM m.provider_meeting_id
++ OR c->>'bot_id' IS DISTINCT FROM m.bot_id::text OR c->>'capture_event_id' IS DISTINCT FROM wanted::text
++ OR frame->>'capture_event_id' IS DISTINCT FROM wanted::text OR frame->>'capture_event_sha256' IS DISTINCT FROM c->>'capture_event_sha256'
++ OR frame->>'capture_revision' IS DISTINCT FROM c->>'capture_revision'
++ OR frame->>'raw_sha256' IS DISTINCT FROM t->'receipt'->'payload'->>'raw_sha256'
++ OR frame->>'participant_epoch_id' IS DISTINCT FROM e->>'epoch_id' OR frame->>'participant_epoch_revision' IS DISTINCT FROM e->>'epoch_revision'
++ OR frame->>'participant_epoch_sha256' IS DISTINCT FROM t->>'epoch_sha256' OR frame->>'participant_set_sha256' IS DISTINCT FROM e->>'participant_set_sha256' THEN
++  RAISE insufficient_privilege USING MESSAGE='actual current turn event epoch or raw provenance differs';END IF;
++ SELECT value INTO link FROM jsonb_array_elements(e->'links') WHERE value->>'provider_participant_id'=frame->>'provider_speaker_id';
++ IF link IS NULL OR link->>'attribution' IS DISTINCT FROM 'workspace_actor' OR link->>'actor_id' IS DISTINCT FROM frame->>'actor_id' THEN
++  RAISE insufficient_privilege USING MESSAGE='current mapped workspace participant required';END IF;
++ -- normalized_sha256 is verified by the actual protected S07 normalizer and
++ -- installed deterministic composer. SQL binds it immutably; it does NOT
++ -- independently parse private raw bytes or fabricate qualification/employee ID.
++ RETURN t;
++END $f$;
++REVOKE ALL ON FUNCTION oracle2._meeting_participation_turn_v1(oracle2.meeting_participation_admissions_v1,uuid,jsonb,timestamptz) FROM PUBLIC,oracle2_replacement_requester;
++
++CREATE FUNCTION oracle2.meeting_participation_prepare_v1(selected uuid,seal text,expected_head integer,operation uuid,turn jsonb,answer jsonb,deadline timestamptz)
++ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
++DECLARE m oracle2.meeting_participation_admissions_v1%ROWTYPE;h oracle2.meeting_participation_heads_v1%ROWTYPE;
++ old oracle2.meeting_participation_events_v1%ROWTYPE;o oracle2.meeting_participation_observations_v1%ROWTYPE;
++ t jsonb;c jsonb;payload jsonb;hash text;event uuid;wanted uuid;message text;proactive boolean;until timestamptz;entry jsonb;host_until timestamptz;
++BEGIN
++ m:=oracle2._meeting_participation_admission_v1(selected,seal,'prepare',deadline);
++ IF m.kind<>'sender' OR operation IS NULL OR expected_head IS NULL OR expected_head<0
++ OR jsonb_typeof(answer) IS DISTINCT FROM 'object' OR NOT(answer ?& ARRAY['intent_id','proactive','observation_id','composer_sha256','turn_text'])
++ OR answer-ARRAY['intent_id','proactive','observation_id','composer_sha256','turn_text']<>'{}'::jsonb
++ OR jsonb_typeof(answer->'intent_id') IS DISTINCT FROM 'string' OR jsonb_typeof(answer->'observation_id') IS DISTINCT FROM 'string'
++ OR jsonb_typeof(answer->'proactive') IS DISTINCT FROM 'boolean' OR jsonb_typeof(answer->'turn_text') IS DISTINCT FROM 'string'
++ OR answer->>'composer_sha256' IS DISTINCT FROM m.composer_sha256
++ OR char_length(answer->>'turn_text') NOT BETWEEN 1 AND 4096 OR length(btrim(answer->>'turn_text'))=0
++ OR encode(sha256(convert_to(answer->>'turn_text','UTF8')),'hex') IS DISTINCT FROM turn->>'normalized_sha256' THEN
++  RAISE EXCEPTION 'exact installed deterministic current-turn composer required';END IF;
++ wanted:=(answer->>'intent_id')::uuid;proactive:=(answer->>'proactive')::boolean;
++ IF NOT proactive AND (lower(answer->>'turn_text') COLLATE "C")!~'^@?oracle([[:space:][:punct:]]|$)' THEN
++  RAISE insufficient_privilege USING MESSAGE='explicit leading Oracle address required';END IF;
++ -- Exact fixed composer's presentation fence, not another raw normalizer:
++ -- authenticated original text/hash stays separate from HTML-escaped body.
++ message:=CASE WHEN proactive THEN 'Could you clarify: ' ELSE 'You asked: ' END||replace(replace(replace(answer->>'turn_text','&','&amp;'),'<','&lt;'),'>','&gt;');
++ IF char_length(message)>4096 THEN RAISE EXCEPTION 'complete reply exceeds provider bound; no truncation';END IF;
++ PERFORM pg_advisory_xact_lock(hashtext('oracle2-participation:'||m.workspace_id::text||':'||m.meeting_id::text));
++ SELECT * INTO h FROM oracle2.meeting_participation_heads_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id FOR UPDATE;
++ IF h.meeting_id IS NULL OR NOT h.enabled OR h.version<>expected_head OR h.version>=16384
++ OR(proactive AND(NOT h.proactive_enabled OR h.proactive_count>=h.max_proactive)) THEN
++  RAISE insufficient_privilege USING MESSAGE='current exact enabled host generation denied';END IF;
++ host_until:=oracle2._meeting_participation_host_v1(m,h.generation,deadline);
++ t:=oracle2._meeting_participation_turn_v1(m,(turn->>'capture_event_id')::uuid,turn,deadline);c:=t->'capture';
++ o:=oracle2._meeting_participation_observation_v1(m,(answer->>'observation_id')::uuid,c,deadline);
++ IF o.payload->'audience_complete'='true'::jsonb THEN
++  IF (SELECT coalesce(jsonb_agg(value->'provider_participant_id' ORDER BY value->>'provider_participant_id'),'[]'::jsonb) FROM jsonb_array_elements(o.payload->'participants')) IS DISTINCT FROM t->'epoch'->'provider_participant_ids' THEN
++   RAISE insufficient_privilege USING MESSAGE='current complete recipient population differs';END IF;
++  FOR entry IN SELECT value FROM jsonb_array_elements(o.payload->'participants') LOOP
++   IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(t->'epoch'->'links') link WHERE link->>'provider_participant_id'=entry->>'provider_participant_id'
++    AND link->'actor_id'=entry->'actor_id') THEN RAISE insufficient_privilege USING MESSAGE='independent current audience attribution differs';END IF;
++  END LOOP;
++ END IF;
++ -- Unknown audience is restricted to this exact SAME-current-turn reply only.
++ -- No SourceRef/shared-access/policy facts are accepted by this capability.
++ until:=least(m.expires_at,host_until,o.valid_until,(t->>'valid_until')::timestamptz);
++ payload:=jsonb_build_object('turn',turn,'answer',answer);hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(payload),'UTF8')),'hex');
++ SELECT * INTO old FROM oracle2.meeting_participation_events_v1 WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id AND operation_id=operation;
++ IF old.event_id IS NOT NULL THEN
++  IF old.admission_id<>selected OR old.actor_id<>m.principal_id OR old.action<>'prepare' OR old.payload_sha256<>hash THEN RAISE EXCEPTION 'immutable reply operation collision';END IF;
++  RETURN jsonb_build_object('intent_id',wanted,'created',false,'executable',false,'valid_until',until,
++   'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),until));
++ END IF;
++ event:=gen_random_uuid();
++ INSERT INTO oracle2.meeting_participation_intents_v1(intent_id,workspace_id,meeting_id,generation,sender_admission_id,actor_id,turn_event_id,raw_sha256,turn_frame,capture_event_id,capture_sha256,capture_revision,body,body_sha256,proactive,evidence_scope,observation_id,request_sha256)
++ VALUES(wanted,m.workspace_id,m.meeting_id,h.generation,selected,m.principal_id,(turn->>'capture_event_id')::uuid,turn->>'raw_sha256',turn,(c->>'capture_event_id')::uuid,
++ c->>'capture_event_sha256',(c->>'capture_revision')::integer,message,encode(sha256(convert_to(message,'UTF8')),'hex'),proactive,'meeting_only',o.observation_id,
++ encode(sha256(convert_to(oracle2._replacement_metadata_json(jsonb_build_object('to','everyone','message',message)),'UTF8')),'hex'));
++ INSERT INTO oracle2.meeting_participation_delivery_heads_v1(intent_id,state) VALUES(wanted,'intent');
++ INSERT INTO oracle2.meeting_participation_events_v1 VALUES(event,m.workspace_id,m.meeting_id,h.version+1,h.generation,selected,m.principal_id,'prepare',payload,hash,operation,clock_timestamp());
++ UPDATE oracle2.meeting_participation_heads_v1 SET version=h.version+1,last_event_id=event WHERE workspace_id=m.workspace_id AND meeting_id=m.meeting_id;
++ RETURN jsonb_build_object('intent_id',wanted,'created',true,'executable',false,'valid_until',until,
++  'context',oracle2._replacement_private_context(oracle2._replacement_request_context(),until));
++END $f$;
++REVOKE ALL ON FUNCTION oracle2.meeting_participation_prepare_v1(uuid,text,integer,uuid,jsonb,jsonb,timestamptz) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION oracle2.meeting_participation_prepare_v1(uuid,text,integer,uuid,jsonb,jsonb,timestamptz) TO oracle2_replacement_requester;
++
++-- Installation/catalog invariant, not a new runtime issuer. Unexpected default
++-- grants or foreign owners fail migration; never silently borrow their rights.
++DO $catalog$
++DECLARE owner_id oid;item record;allowed oid[];
++BEGIN
++ SELECT nspowner INTO owner_id FROM pg_namespace WHERE nspname='oracle2';
++ FOR item IN SELECT c.oid,c.relowner,c.relacl,c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
++  WHERE n.nspname='oracle2' AND c.relname=ANY(ARRAY[
++   'meeting_participation_admissions_v1','meeting_participation_revocations_v1','meeting_participation_heads_v1',
++   'meeting_participation_observations_v1','meeting_participation_events_v1','meeting_participation_intents_v1',
++   'meeting_participation_delivery_heads_v1','meeting_participation_delivery_events_v1','meeting_participation_audience_heads_v1']) LOOP
++  IF item.relowner<>owner_id OR NOT item.relrowsecurity OR EXISTS(
++   SELECT 1 FROM aclexplode(coalesce(item.relacl,acldefault('r',item.relowner))) a WHERE a.grantee<>owner_id) THEN
++   RAISE EXCEPTION 'participation private table catalog denied';END IF;
++ END LOOP;
++ FOR item IN SELECT p.*,n.nspname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
++  WHERE n.nspname='oracle2' AND(p.proname LIKE 'meeting_participation_%' OR p.proname LIKE '\_meeting_participation\_%' ESCAPE '\') LOOP
++  allowed:=ARRAY[owner_id];
++  IF left(item.proname,1)<>'_' THEN
++   allowed:=array_append(allowed,(SELECT oid FROM pg_roles WHERE rolname='oracle2_replacement_requester'));
++  END IF;
++  IF item.proowner<>owner_id OR item.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, oracle2']::text[]
++  OR item.prosecdef IS DISTINCT FROM (item.proname<>'_meeting_participation_revoke_lock_v1')
++  OR EXISTS(SELECT 1 FROM aclexplode(coalesce(item.proacl,acldefault('f',item.proowner))) a
++    WHERE NOT(a.grantee=ANY(allowed)) OR a.privilege_type<>'EXECUTE' OR a.is_grantable)
++  OR EXISTS(SELECT 1 FROM unnest(allowed) expected WHERE NOT EXISTS(
++    SELECT 1 FROM aclexplode(coalesce(item.proacl,acldefault('f',item.proowner))) a WHERE a.grantee=expected AND a.privilege_type='EXECUTE')) THEN
++   RAISE EXCEPTION 'fixed participation function owner ACL denied';END IF;
++ END LOOP;
++END $catalog$;
+diff --git a/services/oracle-brain/tests/test_meeting_participation_control_v1.py b/services/oracle-brain/tests/test_meeting_participation_control_v1.py
+new file mode 100644
+index 00000000..2591c229
+--- /dev/null
++++ b/services/oracle-brain/tests/test_meeting_participation_control_v1.py
+@@ -0,0 +1,46 @@
++"""Closed host input contract; no SQL/provider/browser acceptance."""
++from datetime import datetime,timezone,timedelta
++from uuid import uuid4
++import json
++import pytest
++from oracle_brain.operating_model.contracts import canonical_bytes
++from oracle_brain.meetings.participation_control_contracts_v1 import parse_participation_control_v1
++
++
++def body():
++    return dict(schema_version=1,operation='control',expected_head=0,command_id=str(uuid4()),enabled=True,
++        proactive_enabled=False,cooldown_seconds=120,max_proactive=3,
++        caller_deadline=(datetime.now(timezone.utc)+timedelta(seconds=20)).isoformat().replace('+00:00','Z'))
++
++
++def test_exact_host_controls_roundtrip():
++    value=body();parsed=parse_participation_control_v1(canonical_bytes(value))
++    assert parsed.enabled and not parsed.proactive_enabled and parsed.max_proactive==3
++
++
++@pytest.mark.parametrize('key,value',[('actor',str(uuid4())),('workspace',str(uuid4())),('role','sender'),
++    ('observation_id',str(uuid4())),('chat_available',True),('text','Oracle invented caller bytes'),
++    ('body',{'to':'everyone','message':'invented'}),('provider','recall'),('bot_id',str(uuid4())),
++    ('config','self-appointed'),('audience_complete',True)])
++def test_authority_observation_or_body_selectors_refused(key,value):
++    original=body();original[key]=value
++    with pytest.raises(ValueError):parse_participation_control_v1(canonical_bytes(original))
++
++
++@pytest.mark.parametrize('change',[dict(expected_head=True),dict(expected_head=-1),dict(enabled=1),
++    dict(proactive_enabled='false'),dict(cooldown_seconds=119),dict(max_proactive=4),
++    dict(operation='send'),dict(enabled=False,proactive_enabled=True)])
++def test_noncanonical_or_widened_control_refused(change):
++    original=body();original.update(change)
++    with pytest.raises(ValueError):parse_participation_control_v1(canonical_bytes(original))
++
++
++def test_duplicates_and_noncanonical_order_refused():
++    original=body();raw=canonical_bytes(original)
++    with pytest.raises(ValueError):parse_participation_control_v1(raw.replace(b'"enabled":true',b'"enabled":false,"enabled":true'))
++    with pytest.raises(ValueError):parse_participation_control_v1(json.dumps(original).encode())
++
++
++def test_omitted_defaults_do_not_manufacture_fresh_permissions():
++    original=body();original.pop('proactive_enabled')
++    with pytest.raises(ValueError):parse_participation_control_v1(canonical_bytes(original))
+diff --git a/services/oracle-brain/tests/test_meeting_participation_sql.py b/services/oracle-brain/tests/test_meeting_participation_sql.py
+new file mode 100644
+index 00000000..24d43571
+--- /dev/null
++++ b/services/oracle-brain/tests/test_meeting_participation_sql.py
+@@ -0,0 +1,534 @@
++"""Actual owned synthetic SQL/privatebytes proof. Observation facts INVENTED.
++
++No provider/Teams/employee/business acceptance is established by this fixture.
++Canonical001..014+frozen020+021 runs once in the exact-owned fresh UUID wrapper.
++"""
++from contextlib import contextmanager
++from datetime import datetime,timezone,timedelta
++from hashlib import sha256
++from pathlib import Path
++from uuid import UUID,uuid4
++import json,os,time
++
++import psycopg
++from psycopg import sql
++from psycopg.types.json import Jsonb
++import pytest
++from dev.oracle2.test_worker_postgres_fixture import owned_worker_database
++from oracle_brain.operating_model.contracts import canonical_bytes,digest
++from oracle_brain.hosting.original_intake_v1 import load_original_intake_settings_v1
++from oracle_brain.hosting.meeting_capture_v1 import MeetingCaptureConfigV1,MeetingCaptureFactoryV1,load_meeting_capture_settings_v1
++from oracle_brain.hosting.meeting_participation_v1 import MeetingParticipationConfigV1,MeetingParticipationFactoryV1,load_meeting_participation_settings_v1
++from oracle_brain.meetings.participation_authority_v1 import ParticipationAuthorityV1,ParticipationSQLBindingV1,CAPABILITIES,ParticipationOutcomeUnknown
++from oracle_brain.meetings.participant_epoch import LiveParticipantEpochV1,LiveParticipantLinkV1
++from oracle_brain.meetings import participation_runtime_v1
++from test_replacement_requester_sql import configured_settings
++from test_hosting_boundary import certificates, WORKER
++
++
++def deadline():return datetime.now(timezone.utc)+timedelta(seconds=20)
++
++
++@pytest.fixture(autouse=True)
++def original_request_fence():
++    from oracle_brain.hosting._protected_control_listener_v1 import _request_fence_v1
++    with _request_fence_v1(float(time.monotonic()+29)):
++        yield
++
++
++@contextmanager
++def admin(x):
++    owned_worker_database(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'],x['admin'])
++    with psycopg.connect(x['admin']) as c:
++        assert c.pgconn.ssl_in_use
++        assert c.execute('SELECT SESSION_USER,current_database()').fetchone()==('oracle2_admin',psycopg.conninfo.conninfo_to_dict(x['admin'])['dbname'])
++        yield c
++
++
++def insert(c,table,value):
++    # Test-only exact table names are call-site constants, never HTTP input.
++    names=tuple(value)
++    c.execute(sql.SQL('INSERT INTO oracle2.{} ({}) VALUES ({})').format(sql.Identifier(table),
++        sql.SQL(',').join(map(sql.Identifier,names)),sql.SQL(',').join(sql.Placeholder() for _ in names)),
++        tuple(Jsonb(v) if type(v) is dict else v for v in value.values()))
++
++
++def private(path,raw):
++    path.write_bytes(raw);path.chmod(0o600);return sha256(raw).hexdigest()
++
++
++@pytest.fixture
++def participation_sql(tmp_path,request):
++    now=datetime.now(timezone.utc)
++    options=getattr(request,'param',{})
++    capture_seconds=options.get('capture_seconds',25) if type(options) is dict else 25
++    assert type(capture_seconds) is int and 10<=capture_seconds<=110
++    x=dict(admin=os.environ['ORACLE2_TEST_ADMIN_URL'],workspace=uuid4(),owner=uuid4(),root=uuid4(),meeting=uuid4(),
++        account='invented-'+uuid4().hex,bot=uuid4(),runtime='a'*64,registry='b'*64,until=now+timedelta(minutes=2),capture_until=now+timedelta(seconds=capture_seconds))
++    common=tmp_path/'private';common.mkdir(mode=0o700);info=common.stat();x['private']=common
++    with admin(x) as c:
++        insert(c,'appointments',dict(appointment_id=x['root'],workspace_id=x['workspace'],actor_id=x['owner'],scope='root',granted_by=uuid4(),expires_at=x['until']))
++    epoch=LiveParticipantEpochV1(purpose='meeting-live-participant-epoch-v1',epoch_id=uuid4(),epoch_revision=1,
++        workspace_id=x['workspace'],meeting_id=x['meeting'],provider='recall',provider_account=x['account'],tenant_id='invented-tenant',provider_meeting_id='invented-meeting',bot_id=str(x['bot']),
++        provider_participant_ids=('1',),participant_set_sha256=digest({'provider_participant_ids':['1']}),
++        links=(LiveParticipantLinkV1(provider_participant_id='1',attribution='workspace_actor',actor_id=x['owner'],employee_uuid_metadata=None,mapping_evidence_sha256='c'*64),),
++        issuer_actor=uuid4(),reviewer_actor=uuid4(),capture_until=x['capture_until'],valid_from=now-timedelta(seconds=1),expires_at=x['capture_until'],original_horizon=x['until'])
++    x['epoch']=epoch
++    with admin(x) as c:insert(c,'meeting_participant_epochs_v1',dict(epoch_id=epoch.epoch_id,workspace_id=x['workspace'],meeting_id=x['meeting'],epoch_revision=1,epoch_sha256=epoch.sha256,epoch_payload=epoch.model_dump(mode='json')))
++    for name,channel,actions in [('host','employee-control',['invite','status']),('ingress','provider-ingress',['ingress','status','outbox']),('sender','worker',['process','status','participant_turn','outbox'])]:
++        role='part_'+uuid4().hex[:16];actor=uuid4();leaf=uuid4();admission=uuid4();seal=sha256(str(admission).encode()).hexdigest();issuer,reviewer=uuid4(),uuid4()
++        with admin(x) as c:
++            c.execute(sql.SQL('CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD {}').format(sql.Identifier(role),sql.Literal('invented-participation-only')))
++            c.execute(sql.SQL('GRANT oracle2_replacement_requester TO {}').format(sql.Identifier(role)))
++            c.execute('INSERT INTO oracle2.hosting_role_runtime_admissions VALUES(%s,%s,%s,%s)',(role,x['runtime'],x['registry'],x['until']))
++            c.execute('INSERT INTO oracle2.hosting_request_principal_admissions VALUES(%s,%s,%s,%s,%s,%s)',(role,actor,x['workspace'],x['runtime'],x['registry'],x['until']))
++            insert(c,'appointments',dict(appointment_id=leaf,workspace_id=x['workspace'],actor_id=actor,scope='meeting-capture',granted_by=x['owner'],parent_id=x['root'],expires_at=x['until']))
++            insert(c,'meeting_capture_admissions_v1',dict(admission_id=admission,admission_sha256=seal,workspace_id=x['workspace'],meeting_id=x['meeting'],principal_id=actor,role_name=role,leaf_appointment_id=leaf,
++                provider='recall',provider_account=x['account'],tenant_id='invented-tenant',provider_meeting_id='invented-meeting',bot_id=str(x['bot']),verifier_secret_sha256='d'*64,consent_packet_sha256='e'*64,runtime_hash=x['runtime'],registry_hash=x['registry'],actions=actions,issuer_actor=issuer,reviewer_actor=reviewer,
++                participant_epoch_id=epoch.epoch_id if name=='sender' else None,participant_epoch_sha256=epoch.sha256 if name=='sender' else None,
++                stop_valid_from=now-timedelta(seconds=1),stop_until=x['until'],scheduler_poll_seconds=1,stop_request_seconds=3,safety_allowance_seconds=1,stop_margin_seconds=5,stop_mapping_sha256='f'*64,
++                capture_until=x['capture_until'],valid_from=now-timedelta(seconds=1),original_horizon=x['until'],expires_at=x['until']))
++        url=psycopg.conninfo.make_conninfo(x['admin'],user=role,password='invented-participation-only',hostaddr='127.0.0.1')
++        child=x|dict(login=role,actor=actor,url=url,leaf=leaf,admission=admission,seal=seal,issuer=issuer,reviewer=reviewer)
++        folder=tmp_path/name;folder.mkdir(mode=0o700);host=configured_settings(folder,child)
++        cfg=host.config.model_copy(update=dict(storage_root=str(common),storage_device=info.st_dev,storage_inode=info.st_ino,storage_uid=info.st_uid))
++        cseal=private(host.config_path,canonical_bytes(cfg.model_dump(mode='json')))
++        apt=host.appointment.model_copy(update={'config_sha256':cseal});aseal=private(host.appointment_path,canonical_bytes(apt.model_dump(mode='json')))
++        host=load_original_intake_settings_v1(host.config_path,cseal,host.appointment_path,aseal,host.expected_issuer_actor,host.expected_reviewer_actor)
++        epoch_fields={}
++        if name=='sender':
++            ep=folder/'epoch';private(ep,canonical_bytes(epoch.model_dump(mode='json')));epoch_fields=dict(participant_epoch_file=str(ep),participant_epoch_sha256=epoch.sha256)
++        cfg=MeetingCaptureConfigV1(purpose='meeting-capture-consumer-v1',host_config_sha256=host.config_sha256,host_appointment_sha256=host.appointment_sha256,
++            admission_id=admission,admission_sha256=seal,meeting_id=x['meeting'],consent_packet_sha256='e'*64,capture_until=x['capture_until'],provider='recall',provider_account=x['account'],tenant_id='invented-tenant',provider_meeting_id='invented-meeting',bot_id=str(x['bot']),verifier_secret_sha256='d'*64,channel=channel,issuer_actor=issuer,reviewer_actor=reviewer,valid_from=now-timedelta(seconds=1),expires_at=host.config.expires_at,original_horizon=host.config.original_horizon,**epoch_fields)
++        p=folder/'capture';seal_config=private(p,canonical_bytes(cfg.model_dump(mode='json')))
++        settings=load_meeting_capture_settings_v1(host,p,seal_config)
++        child.update(settings=settings,capture=MeetingCaptureFactoryV1(settings),folder=folder);x[name]=child
++    x['host']['capture'].transition_v1(expected_head=0,operation_id=uuid4(),action='invite',payload={'consent_packet_sha256':'e'*64},caller_deadline=deadline())
++    first_word,second_word=options.get('words',('Oracle,','<exact>&')) if type(options) is dict else options
++    raw=canonical_bytes({'event':'transcript.data','data':{'bot':{'id':str(x['bot'])},'data':{'words':[{'text':first_word,'start_timestamp':{'relative':0},'end_timestamp':None},{'text':second_word,'start_timestamp':{'relative':1},'end_timestamp':None}],'participant':{'id':1,'name':'Untrusted display label'},'language_code':'en'}}})
++    receipt=x['ingress']['capture'].retain_ingress_v1(raw=raw,provider_event_id='invented-'+uuid4().hex,bot_id=str(x['bot']),event_kind='transcript.data',verifier_secret_sha256='d'*64,expected_head=1,caller_deadline=deadline())
++    x.update(raw=raw,event=receipt.event_id,composer=sha256(Path(participation_runtime_v1.__file__).read_bytes()).hexdigest())
++    with admin(x) as c:
++        catalog=tuple((signature,c.execute("SELECT encode(sha256(convert_to(prosrc,'UTF8')),'hex') FROM pg_proc WHERE oid=to_regprocedure(%s)",(signature,)).fetchone()[0]) for signature in CAPABILITIES)
++    for kind,source in [('host',x['host']),('sender',x['sender']),('observer',x['sender'])]:
++        admission,leaf=uuid4(),uuid4();seal=sha256(str(admission).encode()).hexdigest();issuer,reviewer=uuid4(),uuid4()
++        actions={'host':['enable','disable','status'],'sender':['prepare','claim','receipt','status'],'observer':['observe','status']}[kind]
++        with admin(x) as c:
++            insert(c,'appointments',dict(appointment_id=leaf,workspace_id=x['workspace'],actor_id=source['actor'],scope='meeting-participation-'+kind,granted_by=x['owner'],parent_id=x['root'],expires_at=x['until']))
++            insert(c,'meeting_participation_admissions_v1',dict(admission_id=admission,admission_sha256=seal,workspace_id=x['workspace'],meeting_id=x['meeting'],principal_id=source['actor'],role_name=source['login'],kind=kind,leaf_appointment_id=leaf,
++                capture_admission_id=source['admission'],capture_admission_sha256=source['seal'],provider='recall',platform='microsoft_teams',provider_account=x['account'],tenant_id='invented-tenant',provider_meeting_id='invented-meeting',bot_id=x['bot'],runtime_hash=x['runtime'],registry_hash=x['registry'],observation_owner_sha256='1'*64,composer_sha256=x['composer'],actions=actions,issuer_actor=issuer,reviewer_actor=reviewer,valid_from=now-timedelta(seconds=1),expires_at=x['until'],original_horizon=x['until']))
++        cfg=MeetingParticipationConfigV1(schema_version=1,purpose='meeting-participation-factory-v1',host_config_sha256=source['settings'].host.config_sha256,host_appointment_sha256=source['settings'].host.appointment_sha256,capture_config_sha256=source['settings'].config_sha256,admission_id=admission,admission_sha256=seal,principal_id=source['actor'],workspace_id=x['workspace'],meeting_id=x['meeting'],kind=kind,runtime_hash=x['runtime'],registry_hash=x['registry'],composer_sha256=x['composer'],observation_owner_sha256='1'*64,capability_hashes=catalog,issuer_actor=issuer,reviewer_actor=reviewer,valid_from=now-timedelta(seconds=1),expires_at=source['settings'].host.config.expires_at,original_horizon=source['settings'].host.config.original_horizon)
++        path=source['folder']/('participation-'+kind);seal_config=private(path,canonical_bytes(cfg.model_dump(mode='json')))
++        settings=load_meeting_participation_settings_v1(source['settings'],path,seal_config,issuer,reviewer)
++        factory=MeetingParticipationFactoryV1(settings,source['capture'])
++        x[kind+'-participation']=dict(admission=admission,seal=seal,leaf=leaf,factory=factory,source=source)
++    yield x
++
++
++def invent_observation(x,*,chat=True,complete=True,seconds=15):
++    # EXPLICIT INVENTED finite facts. No provider capability/roster producer exists.
++    worker=x['sender-participation']['factory'];capture=worker._capture.read_current_participant_turn_v1(x['event'],caller_deadline=deadline()).capture
++    now=datetime.now(timezone.utc);until=min(x['capture_until'],now+timedelta(seconds=seconds))
++    payload=dict(observation_owner_sha256='1'*64,provider_observation_sha256='2'*64,capture_event_id=str(capture.capture_event_id),capture_sha256=capture.capture_event_sha256,capture_revision=capture.capture_revision,
++        platform='microsoft_teams',channel_meeting=False,chat_available=chat,audience_complete=complete,participants=[dict(provider_participant_id='1',actor_id=str(x['owner']))],observed_at=now.isoformat(),valid_until=until.isoformat())
++    selected=x['observer-participation']['factory']._authority
++    status=selected.status_v1(None,deadline=deadline())
++    return selected.observe_audience_v1(expected_revision=status['observation_revision'],observation_id=uuid4(),observation=payload,deadline=deadline())
++
++
++def enable(x,*,proactive=False):
++    f=x['host-participation']['factory'];s=f.status_v1(caller_deadline=deadline())
++    return f.control_v1(expected_head=s['head_revision'],operation=uuid4(),enabled=True,proactive_enabled=proactive,caller_deadline=deadline())
++
++
++def test_actual_current_source_intent_once_claim_wire_custody_and_restart(participation_sql):
++    x=participation_sql;invent_observation(x);enable(x);f=x['sender-participation']['factory']
++    from oracle_brain.meetings.participation_authority_v1 import participation_operation_policy_sha256_v1
++    assert f.operation_policy_sha256==participation_operation_policy_sha256_v1(x['composer'],f.settings.config.capability_hashes)
++    prepared=f.prepare_latest_v1(caller_deadline=deadline());intent=UUID(prepared['intent_id'])
++    claim=f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    assert claim.body==canonical_bytes({'message':'You asked: Oracle, &lt;exact&gt;&amp;','to':'everyone'}) and claim.bot_id==x['bot']
++    assert claim.metadata['state']=='inflight' and claim.metadata['outcome']=='UNKNOWN' and not claim.metadata['executable']
++    f.current_claim_v1(intent,UUID(claim.metadata['claim_event_id']),claim.metadata['request_sha256'],caller_deadline=deadline())
++    wire=b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}'
++    operation=uuid4();observed=f.receipt_v1(intent,claim_event_id=UUID(claim.metadata['claim_event_id']),operation=operation,raw_wire=wire,caller_deadline=deadline())
++    assert observed['state']=='provider-response-observed' and not observed['remote_stop_proven'] and not observed['visible_message_proven']
++    assert list(x['private'].glob('meeting-participation/**/provider-response.wire'))[0].read_bytes()==wire
++    fresh=MeetingParticipationFactoryV1(f.settings,x['sender']['capture'])
++    assert fresh.status_latest_v1(caller_deadline=deadline())['state']=='provider-response-observed'
++    assert fresh.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline()).body is None
++    with admin(x) as c:
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_intents_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(1,)
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(2,)
++        assert c.execute('SELECT count(*) FROM oracle2.accepted WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(0,)
++
++
++def prepared_claim(x,*,seconds=None):
++    invent_observation(x);enable(x);f=x['sender-participation']['factory']
++    prepared=f.prepare_latest_v1(caller_deadline=deadline());intent=UUID(prepared['intent_id'])
++    claim=f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline() if seconds is None else datetime.now(timezone.utc)+timedelta(seconds=seconds))
++    assert claim.body is not None
++    return f,intent,claim
++
++
++def test_actual_unknown_chat_declines_before_privatebytes_and_capture_continues(participation_sql,monkeypatch):
++    from oracle_brain.meetings.participation_runtime_v1 import ParticipationDeclined
++    x=participation_sql;f=x['sender-participation']['factory'];reads=[]
++    with monkeypatch.context() as patch:
++        patch.setattr(f._capture,'_read_raw_receipt_bytes_v1',lambda *a,**k:reads.append(a))
++        with pytest.raises(ParticipationDeclined):f.prepare_latest_v1(caller_deadline=deadline())
++    assert reads==[]
++    invent_observation(x,chat=None)
++    with pytest.raises(psycopg.errors.InsufficientPrivilege):enable(x)
++    with admin(x) as c:
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_intents_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(0,)
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_events_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(2,)
++    assert f._capture.read_current_participant_turn_v1(x['event'],caller_deadline=deadline()).text=='Oracle, <exact>&'
++
++
++def test_actual_selected_host_root_revocation_not_rescued_by_alternate_leaf(participation_sql,monkeypatch):
++    from oracle_brain.meetings.participation_runtime_v1 import ParticipationDeclined
++    x=participation_sql;invent_observation(x);enable(x);f=x['sender-participation']['factory'];reads=[]
++    with admin(x) as c:
++        c.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(x['host-participation']['leaf'],))
++        insert(c,'appointments',dict(appointment_id=uuid4(),workspace_id=x['workspace'],actor_id=x['host']['actor'],scope='meeting-participation-host',granted_by=x['owner'],parent_id=x['root'],expires_at=x['until']))
++    with monkeypatch.context() as patch:
++        patch.setattr(f._capture,'_read_raw_receipt_bytes_v1',lambda *a,**k:reads.append(a))
++        with pytest.raises(ParticipationDeclined):f.prepare_latest_v1(caller_deadline=deadline())
++    assert reads==[]
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_intents_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(0,)
++
++
++def test_actual_observer_revocation_denies_claim_before_bytes(participation_sql,monkeypatch):
++    x=participation_sql;invent_observation(x);enable(x);f=x['sender-participation']['factory'];p=f.prepare_latest_v1(caller_deadline=deadline());reads=[]
++    with admin(x) as c:c.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(x['observer-participation']['leaf'],))
++    with monkeypatch.context() as patch:
++        patch.setattr(f._capture,'_read_raw_receipt_bytes_v1',lambda *a,**k:reads.append(a))
++        with pytest.raises(PermissionError):f.claim_v1(UUID(p['intent_id']),expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    assert reads==[]
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(UUID(p['intent_id']),)).fetchone()==(0,)
++
++
++def test_actual_unknown_receipt_and_host_toggles_cannot_resend_same_turn(participation_sql):
++    x=participation_sql;f,intent,claim=prepared_claim(x)
++    unknown=f.receipt_v1(intent,claim_event_id=UUID(claim.metadata['claim_event_id']),operation=uuid4(),raw_wire=b'partial observed bytes',error='network',caller_deadline=deadline())
++    assert unknown['state']=='UNKNOWN'
++    host=x['host-participation']['factory'];head=host.status_v1(caller_deadline=deadline())
++    host.control_v1(expected_head=head['head_revision'],operation=uuid4(),enabled=False,caller_deadline=deadline())
++    enable(x)
++    repeated=f.prepare_latest_v1(caller_deadline=deadline())
++    assert repeated['intent_id']==str(intent) and repeated['state']=='UNKNOWN'
++    assert f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline()).body is None
++    with admin(x) as c:
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_intents_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(1,)
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(2,)
++
++
++def test_actual_forensic_receipt_after_host_disable_never_restores_send(participation_sql):
++    x=participation_sql;f,intent,claim=prepared_claim(x);host=x['host-participation']['factory']
++    head=host.status_v1(caller_deadline=deadline());host.control_v1(expected_head=head['head_revision'],operation=uuid4(),enabled=False,caller_deadline=deadline())
++    with pytest.raises(PermissionError):f.current_claim_v1(intent,UUID(claim.metadata['claim_event_id']),claim.metadata['request_sha256'],caller_deadline=deadline())
++    observed=f.receipt_v1(intent,claim_event_id=UUID(claim.metadata['claim_event_id']),operation=uuid4(),raw_wire=b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n',caller_deadline=deadline())
++    assert observed['state']=='provider-response-observed' and observed['claim_current'] is False
++    assert f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline()).body is None
++    assert f._capture.read_current_participant_turn_v1(x['event'],caller_deadline=deadline()).text=='Oracle, <exact>&'
++
++
++def test_actual_original_claim_deadline_cannot_be_renewed_by_fresh_request(participation_sql):
++    x=participation_sql;f,intent,claim=prepared_claim(x,seconds=3)
++    time.sleep(max(0,(claim.valid_until-datetime.now(timezone.utc)).total_seconds())+.02)
++    with pytest.raises(PermissionError):f.current_claim_v1(intent,UUID(claim.metadata['claim_event_id']),claim.metadata['request_sha256'],caller_deadline=deadline())
++    status=f.status_latest_v1(caller_deadline=deadline())
++    assert status['state']=='inflight' and status['outcome']=='UNKNOWN' and not status['claim_current']
++    receipt=f.receipt_v1(intent,claim_event_id=UUID(claim.metadata['claim_event_id']),operation=uuid4(),raw_wire=b'',error='timeout',caller_deadline=deadline())
++    assert receipt['state']=='UNKNOWN' and not receipt['claim_current']
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(2,)
++
++
++def test_actual_source_grant_withdrawal_blocks_claim_but_not_ingress(participation_sql):
++    x=participation_sql;invent_observation(x);enable(x);f=x['sender-participation']['factory'];p=f.prepare_latest_v1(caller_deadline=deadline())
++    with admin(x) as c:insert(c,'meeting_capture_revocations_v1',dict(revocation_id=uuid4(),admission_id=x['sender']['admission'],revoked_at=datetime.now(timezone.utc),reason_sha256='3'*64))
++    with pytest.raises(PermissionError):f.claim_v1(UUID(p['intent_id']),expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    ingress=x['ingress']['capture'];head=ingress.head_v1(caller_deadline=deadline())
++    retained=ingress.retain_ingress_v1(raw=x['raw'],provider_event_id='invented-independent-'+uuid4().hex,bot_id=str(x['bot']),event_kind='transcript.data',verifier_secret_sha256='d'*64,expected_head=head.version,caller_deadline=deadline())
++    assert retained.created
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(UUID(p['intent_id']),)).fetchone()==(0,)
++
++
++def test_actual_wrong_login_tls_and_owner_fail_closed(participation_sql):
++    from dataclasses import replace
++    x=participation_sql;f=x['sender-participation']['factory'];a=f._authority
++    wrong=ParticipationAuthorityV1(psycopg.conninfo.make_conninfo(a._url,user=x['host']['login']),binding=replace(a.binding,session_login=x['host']['login']))
++    with pytest.raises(psycopg.errors.InsufficientPrivilege):wrong.status_v1(None,deadline=deadline())
++    with pytest.raises(psycopg.OperationalError):
++        with psycopg.connect(x['sender']['url'],sslmode='disable',connect_timeout=2):pass
++    signature='oracle2.meeting_participation_status_v1(uuid,text,uuid,timestamp with time zone)';new_owner='owner_'+uuid4().hex[:16]
++    with admin(x) as c:
++        original=c.execute('SELECT proowner,proacl,proconfig,prosrc FROM pg_proc WHERE oid=to_regprocedure(%s)',(signature,)).fetchone()
++        c.execute(sql.SQL('CREATE ROLE {} NOLOGIN').format(sql.Identifier(new_owner)))
++        c.execute(sql.SQL('ALTER FUNCTION oracle2.meeting_participation_status_v1(uuid,text,uuid,timestamptz) OWNER TO {}').format(sql.Identifier(new_owner)))
++    try:
++        with pytest.raises(PermissionError):a.status_v1(None,deadline=deadline())
++    finally:
++        with admin(x) as c:
++            c.execute('ALTER FUNCTION oracle2.meeting_participation_status_v1(uuid,text,uuid,timestamptz) OWNER TO oracle2_admin')
++            assert c.execute('SELECT proowner,proacl,proconfig,prosrc FROM pg_proc WHERE oid=to_regprocedure(%s)',(signature,)).fetchone()==original
++
++
++def test_actual_concurrent_claims_release_exactly_one_body(participation_sql):
++    from concurrent.futures import ThreadPoolExecutor
++    from oracle_brain.hosting._protected_control_listener_v1 import _request_fence_v1
++    x=participation_sql;invent_observation(x);enable(x);f=x['sender-participation']['factory'];p=f.prepare_latest_v1(caller_deadline=deadline());intent=UUID(p['intent_id'])
++    end=deadline();original_end=float(time.monotonic()+min(20,(end-datetime.now(timezone.utc)).total_seconds()))
++    def run():
++        with _request_fence_v1(original_end):return f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=end)
++    with ThreadPoolExecutor(max_workers=2) as executor:results=list(executor.map(lambda _:run(),range(2)))
++    assert sum(result.body is not None for result in results)==1
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(1,)
++
++
++def test_actual_committed_claim_then_readback_loss_unknown_no_automatic_retry(participation_sql,monkeypatch):
++    x=participation_sql;invent_observation(x);enable(x);f=x['sender-participation']['factory'];p=f.prepare_latest_v1(caller_deadline=deadline());intent=UUID(p['intent_id'])
++    real_connect=psycopg.connect;real_execute=psycopg.Connection.execute;state={'claim':False,'losses':0}
++    def execute(connection,query,params=None,**kwargs):
++        result=real_execute(connection,query,params,**kwargs)
++        if str(query).startswith('SELECT oracle2.meeting_participation_claim_v1('):state['claim']=True
++        return result
++    def connect(url,*args,**kwargs):
++        if state['claim'] and psycopg.conninfo.conninfo_to_dict(url).get('user')==x['sender']['login']:
++            state['losses']+=1;raise psycopg.OperationalError('invented postcommit independent connection loss')
++        return real_connect(url,*args,**kwargs)
++    with monkeypatch.context() as patch:
++        patch.setattr(psycopg.Connection,'execute',execute);patch.setattr(psycopg,'connect',connect)
++        with pytest.raises(ParticipationOutcomeUnknown):f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    assert state['losses']==1
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(1,)
++    assert f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline()).body is None
++
++
++def test_actual_committed_claim_then_selected_admission_revoked_unknown(participation_sql,monkeypatch):
++    x=participation_sql;invent_observation(x);enable(x);f=x['sender-participation']['factory']
++    prepared=f.prepare_latest_v1(caller_deadline=deadline());intent=UUID(prepared['intent_id'])
++    real_connect=psycopg.connect;real_execute=psycopg.Connection.execute;state={'claim':False,'revoked':False}
++    def execute(connection,query,params=None,**kwargs):
++        result=real_execute(connection,query,params,**kwargs)
++        if str(query).startswith('SELECT oracle2.meeting_participation_claim_v1('):state['claim']=True
++        return result
++    def connect(url,*args,**kwargs):
++        if state['claim'] and not state['revoked'] and psycopg.conninfo.conninfo_to_dict(url).get('user')==x['sender']['login']:
++            state['revoked']=True
++            with admin(x) as c:
++                insert(c,'meeting_participation_revocations_v1',dict(revocation_id=uuid4(),admission_id=x['sender-participation']['admission'],revoked_at=datetime.now(timezone.utc),reason_sha256='3'*64))
++        return real_connect(url,*args,**kwargs)
++    with monkeypatch.context() as patch:
++        patch.setattr(psycopg.Connection,'execute',execute);patch.setattr(psycopg,'connect',connect)
++        with pytest.raises(ParticipationOutcomeUnknown):f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    assert state['revoked']
++    with admin(x) as c:
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(1,)
++        assert c.execute('SELECT state FROM oracle2.meeting_participation_delivery_heads_v1 WHERE intent_id=%s',(intent,)).fetchone()==('inflight',)
++
++
++def test_actual_every_runtime_login_denied_private_helpers_and_tables(participation_sql):
++    from oracle_brain.meetings.participation_authority_v1 import _PRIVATE
++    x=participation_sql
++    for name in ('host','ingress','sender'):
++        with psycopg.connect(x[name]['url']) as c:
++            assert c.pgconn.ssl_in_use
++            for signature in _PRIVATE:
++                assert c.execute("SELECT has_function_privilege(SESSION_USER,to_regprocedure(%s),'EXECUTE')",('oracle2.'+signature,)).fetchone()==(False,)
++            assert c.execute("SELECT has_table_privilege(SESSION_USER,'oracle2.meeting_participation_intents_v1','SELECT')").fetchone()==(False,)
++        with pytest.raises(psycopg.errors.InsufficientPrivilege):
++            with psycopg.connect(x[name]['url']) as c:c.execute('SELECT * FROM oracle2.meeting_participation_intents_v1')
++        with pytest.raises(psycopg.errors.InsufficientPrivilege):
++            with psycopg.connect(x[name]['url']) as c:c.execute('SELECT oracle2._meeting_participation_admission_v1(%s,%s,%s,%s)',(x['sender-participation']['admission'],x['sender-participation']['seal'],'status',deadline()))
++
++
++def test_actual_host_cas_concurrent_enable_has_one_committed_event(participation_sql):
++    from concurrent.futures import ThreadPoolExecutor
++    from oracle_brain.hosting._protected_control_listener_v1 import _request_fence_v1
++    x=participation_sql;invent_observation(x);f=x['host-participation']['factory']
++    end=deadline();original_end=float(time.monotonic()+19)
++    def run():
++        with _request_fence_v1(original_end):
++            try:return f.control_v1(expected_head=0,operation=uuid4(),enabled=True,caller_deadline=end)
++            except (psycopg.errors.SerializationFailure,psycopg.errors.RaiseException,ParticipationOutcomeUnknown) as error:return error
++    with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(lambda _:run(),range(2)))
++    assert sum(isinstance(result,dict) for result in results)==1
++    with admin(x) as c:
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_events_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(1,)
++        assert c.execute('SELECT version,generation,enabled FROM oracle2.meeting_participation_heads_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(1,1,True)
++
++
++@contextmanager
++def actual_host_listener(x,tmp_path,certificates,*,seconds=15,listen_host='127.0.0.1'):
++    import shutil,threading,subprocess
++    from cryptography import x509
++    from cryptography.hazmat.primitives.serialization import Encoding
++    from oracle_brain.hosting.meeting_participation_service_v1 import protected_meeting_participation_server_v1
++    f=x['host-participation']['factory'];s=f.settings.capture_settings.host;c=s.config
++    tls=tmp_path/'host-listener-tls';tls.mkdir(mode=0o700)
++    for name in ('server.pem','server.key','ca.pem'):
++        shutil.copyfile(certificates/name,tls/name);(tls/name).chmod(0o600)
++    extensions=tls/'server.ext';extensions.write_text('subjectAltName=DNS:localhost,DNS:localhost.localdomain\nextendedKeyUsage=serverAuth\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer')
++    subprocess.run(['openssl','x509','-req','-in',str(certificates/'server.csr'),'-CA',str(certificates/'ca.pem'),'-CAkey',str(certificates/'ca.key'),'-CAcreateserial','-out',str(tls/'server.pem'),'-days','1','-extfile',str(extensions)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++    peer=x509.load_pem_x509_certificate((certificates/'worker.pem').read_bytes()).public_bytes(Encoding.DER)
++    now=datetime.now(timezone.utc)
++    body=dict(schema_version=1,purpose='meeting-participation-host-peer-v1',
++        intake_config_sha256=s.config_sha256,intake_appointment_sha256=s.appointment_sha256,
++        participation_config_sha256=f.settings.config_sha256,capture_config_sha256=f.settings.capture_settings.config_sha256,
++        principal_id=str(c.principal_id),workspace_id=str(c.workspace_id),runtime_hash=c.runtime_hash,registry_hash=c.registry_hash,
++        client_uri=WORKER,client_certificate_sha256=sha256(peer).hexdigest(),listen_host=listen_host,listen_port=0,server_hostname='localhost',
++        server_certificate_file=str(tls/'server.pem'),server_certificate_sha256=sha256((tls/'server.pem').read_bytes()).hexdigest(),
++        server_key_file=str(tls/'server.key'),server_key_sha256=sha256((tls/'server.key').read_bytes()).hexdigest(),
++        client_ca_file=str(tls/'ca.pem'),client_ca_sha256=sha256((tls/'ca.pem').read_bytes()).hexdigest(),
++        issuer_actor=str(s.expected_issuer_actor),reviewer_actor=str(s.expected_reviewer_actor),
++        valid_from=(now-timedelta(seconds=1)).isoformat().replace('+00:00','Z'),expires_at=(now+timedelta(seconds=seconds)).isoformat().replace('+00:00','Z'),
++        original_horizon=c.original_horizon.isoformat().replace('+00:00','Z'))
++    path=tmp_path/'host-peer';seal=private(path,canonical_bytes(body))
++    server=protected_meeting_participation_server_v1(f,path,seal)
++    thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.01},daemon=False);thread.start()
++    try:yield server,path
++    finally:
++        server.shutdown();server.server_close();thread.join(2)
++        assert not thread.is_alive() and not server._active and server.socket.fileno()==-1
++
++
++def host_wire(server,certificates,payload,*,identity='worker',path='/v1/replacement/meetings/participation/control',headers=None):
++    import http.client,ssl
++    context=ssl.create_default_context(cafile=str(certificates/'ca.pem'))
++    if identity:context.load_cert_chain(str(certificates/(identity+'.pem')),str(certificates/(identity+'.key')))
++    connection=http.client.HTTPSConnection('localhost',server.server_port,context=context,timeout=3)
++    try:
++        connection.request('POST',path,body=payload,headers=headers or {'Content-Type':'application/json'})
++        response=connection.getresponse();return response.status,response.read(),dict(response.getheaders())
++    finally:connection.close()
++
++
++def test_actual_host_mtls_real_sql_enable_privatebytes_and_closed_denials(participation_sql,tmp_path,certificates):
++    x=participation_sql;invent_observation(x)
++    with actual_host_listener(x,tmp_path,certificates) as (server,peer):
++        status_body=canonical_bytes(dict(schema_version=1,operation='status',caller_deadline=(datetime.now(timezone.utc)+timedelta(seconds=5)).isoformat().replace('+00:00','Z')))
++        code,raw,headers=host_wire(server,certificates,status_body)
++        assert code==200 and headers['Connection']=='close' and headers['Cache-Control']=='no-store'
++        value=json.loads(raw);assert raw==canonical_bytes(value)
++        assert set(value)=={'meeting_id','head_revision','generation','host_enabled','proactive_enabled','proactive_count','visible_message_proven','remote_stop_proven','executable','valid_until'}
++        assert not value['host_enabled'] and not value['visible_message_proven'] and not value['remote_stop_proven'] and not value['executable']
++        for bad,kwargs in [(status_body,dict(identity='other')),(status_body,dict(path='/v1/replacement/meetings/worker')),
++            (canonical_bytes(dict(json.loads(status_body),chat_available=True)),{}),
++            (status_body,dict(headers={'Content-Type':'application/json','Content-Encoding':'identity'}))]:
++            assert host_wire(server,certificates,bad,**kwargs)[0] in (404,503)
++        control=canonical_bytes(dict(schema_version=1,operation='control',expected_head=0,command_id=str(uuid4()),enabled=True,
++            proactive_enabled=False,cooldown_seconds=120,max_proactive=3,caller_deadline=(datetime.now(timezone.utc)+timedelta(seconds=5)).isoformat().replace('+00:00','Z')))
++        code,raw,_=host_wire(server,certificates,control);assert code==200 and json.loads(raw)['host_enabled']
++        f=x['sender-participation']['factory'];prepared=f.prepare_latest_v1(caller_deadline=deadline())
++        claim=f.claim_v1(UUID(prepared['intent_id']),expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++        assert claim.body==canonical_bytes({'message':'You asked: Oracle, &lt;exact&gt;&amp;','to':'everyone'})
++        peer.write_bytes(peer.read_bytes()+b' ')
++        assert host_wire(server,certificates,status_body)[0]==503
++        with admin(x) as c:
++            assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_events_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(2,)
++            assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(UUID(prepared['intent_id']),)).fetchone()==(1,)
++
++
++@pytest.mark.parametrize('participation_sql',[('Please','clarify')],indirect=True)
++def test_actual_proactive_off_cooldown_and_lifetime_count_survives_toggle(participation_sql):
++    from oracle_brain.meetings.participation_runtime_v1 import ParticipationDeclined
++    x=participation_sql;invent_observation(x);enable(x);f=x['sender-participation']['factory']
++    with pytest.raises(ParticipationDeclined):f.prepare_latest_v1(caller_deadline=deadline())
++    enable(x,proactive=True)
++    p=f.prepare_latest_v1(caller_deadline=deadline());intent=UUID(p['intent_id'])
++    claim=f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    assert claim.body==canonical_bytes({'message':'Could you clarify: Please clarify','to':'everyone'})
++    f.receipt_v1(intent,claim_event_id=UUID(claim.metadata['claim_event_id']),operation=uuid4(),raw_wire=b'',error='network',caller_deadline=deadline())
++    # An actual new captured turn, not a host-supplied body or identifier.
++    raw=json.loads(x['raw']);raw['data']['data']['words'][1]['text']='again'
++    receipt=x['ingress']['capture'].retain_ingress_v1(raw=canonical_bytes(raw),provider_event_id='invented-'+uuid4().hex,
++        bot_id=str(x['bot']),event_kind='transcript.data',verifier_secret_sha256='d'*64,expected_head=2,caller_deadline=deadline())
++    x['event']=receipt.event_id;invent_observation(x);enable(x,proactive=True)
++    p2=f.prepare_latest_v1(caller_deadline=deadline());intent2=UUID(p2['intent_id'])
++    # Actual first claim consumed cooldown despite its UNKNOWN outcome.
++    with pytest.raises(psycopg.errors.InsufficientPrivilege):f.claim_v1(intent2,expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    with admin(x) as c:
++        assert c.execute('SELECT proactive_count,cooldown_seconds,max_proactive FROM oracle2.meeting_participation_heads_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(1,120,3)
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent2,)).fetchone()==(0,)
++    # Explicit invented already-exhausted prior count tests the durable cap.
++    # This setup is not three observed provider sends or elapsed time.
++    with admin(x) as c:c.execute('UPDATE oracle2.meeting_participation_heads_v1 SET proactive_count=3 WHERE workspace_id=%s',(x['workspace'],))
++    with pytest.raises(psycopg.errors.InsufficientPrivilege):f.claim_v1(intent2,expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    with admin(x) as c:
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent2,)).fetchone()==(0,)
++        c.execute('UPDATE oracle2.meeting_participation_heads_v1 SET proactive_count=1 WHERE workspace_id=%s',(x['workspace'],))
++    host=x['host-participation']['factory'];current=host.status_v1(caller_deadline=deadline())
++    host.control_v1(expected_head=current['head_revision'],operation=uuid4(),enabled=False,caller_deadline=deadline());enable(x,proactive=True)
++    with admin(x) as c:assert c.execute('SELECT proactive_count FROM oracle2.meeting_participation_heads_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(1,)
++
++
++def test_actual_late_private_wire_finishes_as_orphan_without_sql_receipt(participation_sql,monkeypatch):
++    from oracle_brain.operating_model import artifact_storage
++    x=participation_sql;f,intent,claim=prepared_claim(x)
++    raw=b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}'
++    original=artifact_storage._write_private_at;writes=[]
++    def finish_late(*args,**kwargs):
++        result=original(*args,**kwargs);writes.append(True);time.sleep(3.1);return result
++    with monkeypatch.context() as patch:
++        patch.setattr(artifact_storage,'_write_private_at',finish_late)
++        with pytest.raises(ParticipationOutcomeUnknown):
++            f.receipt_v1(intent,claim_event_id=UUID(claim.metadata['claim_event_id']),operation=uuid4(),raw_wire=raw,
++                caller_deadline=datetime.now(timezone.utc)+timedelta(seconds=3))
++    assert writes==[True]
++    assert list(x['private'].glob('meeting-participation/**/provider-response.wire'))[0].read_bytes()==raw
++    with admin(x) as c:
++        assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(1,)
++        assert c.execute('SELECT state FROM oracle2.meeting_participation_delivery_heads_v1 WHERE intent_id=%s',(intent,)).fetchone()==('inflight',)
++
++
++def test_actual_short_observation_clips_claim_and_cannot_renew(participation_sql):
++    x=participation_sql;invent_observation(x,seconds=4);enable(x);f=x['sender-participation']['factory']
++    p=f.prepare_latest_v1(caller_deadline=deadline());intent=UUID(p['intent_id'])
++    claim=f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline())
++    assert claim.body is not None
++    with admin(x) as c:
++        until=c.execute('SELECT valid_until FROM oracle2.meeting_participation_observations_v1 WHERE observation_id=%s',(UUID(claim.metadata['observation_id']),)).fetchone()[0]
++    assert claim.valid_until<=until
++    time.sleep(max(0,(until-datetime.now(timezone.utc)).total_seconds())+.05)
++    assert f.status_v1(intent,caller_deadline=deadline())['claim_current'] is False
++    with pytest.raises(PermissionError):f.current_claim_v1(intent,UUID(claim.metadata['claim_event_id']),claim.metadata['request_sha256'],caller_deadline=deadline())
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(1,)
++
++
++def test_actual_foreign_receipt_and_host_borrowing_denied(participation_sql):
++    x=participation_sql;f,intent,claim=prepared_claim(x)
++    with pytest.raises(psycopg.errors.InsufficientPrivilege):f.status_v1(uuid4(),caller_deadline=deadline())
++    with pytest.raises(psycopg.errors.InsufficientPrivilege):x['host-participation']['factory'].status_v1(intent,caller_deadline=deadline())
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(1,)
++
++
++def test_actual_immutable_receipt_bot_identity_after_host_off_no_send_authority(participation_sql):
++    x=participation_sql;f,intent,claim=prepared_claim(x);claim_id=UUID(claim.metadata['claim_event_id'])
++    bot,metadata=f.receipt_identity_v1(intent,claim_id,caller_deadline=deadline())
++    assert bot==x['bot'] and metadata['claim_current'] is True and 'receipt_bot_id' not in metadata
++    host=x['host-participation']['factory'];current=host.status_v1(caller_deadline=deadline())
++    host.control_v1(expected_head=current['head_revision'],operation=uuid4(),enabled=False,caller_deadline=deadline())
++    bot,metadata=f.receipt_identity_v1(intent,claim_id,caller_deadline=deadline())
++    assert bot==x['bot'] and metadata['claim_current'] is False and metadata['executable'] is False and 'receipt_bot_id' not in metadata
++    with pytest.raises(PermissionError):f.receipt_identity_v1(intent,uuid4(),caller_deadline=deadline())
++    with pytest.raises(psycopg.errors.InsufficientPrivilege):f.receipt_identity_v1(uuid4(),claim_id,caller_deadline=deadline())
++    with pytest.raises(PermissionError):host.receipt_identity_v1(intent,claim_id,caller_deadline=deadline())
++    with pytest.raises(PermissionError):f.current_claim_v1(intent,claim_id,claim.metadata['request_sha256'],caller_deadline=deadline())
++    assert f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=deadline()).body is None
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(1,)
++
++
++@pytest.mark.parametrize('participation_sql',[{'capture_seconds':10}],indirect=True)
++def test_actual_source_window_expired_own_forensic_receipt_still_no_send(participation_sql):
++    x=participation_sql;f,intent,claim=prepared_claim(x);claim_id=UUID(claim.metadata['claim_event_id'])
++    time.sleep(max(0,(x['capture_until']-datetime.now(timezone.utc)).total_seconds())+.05)
++    end=min(datetime.now(timezone.utc)+timedelta(seconds=10),f.settings.current())
++    bot,metadata=f.receipt_identity_v1(intent,claim_id,caller_deadline=end)
++    assert bot==x['bot'] and metadata['claim_current'] is False and metadata['executable'] is False
++    with pytest.raises(PermissionError):f.current_claim_v1(intent,claim_id,claim.metadata['request_sha256'],caller_deadline=end)
++    receipt=f.receipt_v1(intent,claim_event_id=claim_id,operation=uuid4(),raw_wire=b'',error='timeout',caller_deadline=end)
++    assert receipt['state']=='UNKNOWN' and receipt['claim_current'] is False
++    assert f.claim_v1(intent,expected_revision=0,operation=uuid4(),caller_deadline=end).body is None
++    with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(2,)
+diff --git a/services/oracle-brain/tests/test_meeting_participation_v1.py b/services/oracle-brain/tests/test_meeting_participation_v1.py
+new file mode 100644
+index 00000000..0a841eb5
+--- /dev/null
++++ b/services/oracle-brain/tests/test_meeting_participation_v1.py
+@@ -0,0 +1,437 @@
++"""Retained contract/adversarial checks, not actual SQL/provider proof."""
++from dataclasses import replace
++from datetime import datetime, timezone, timedelta
++from hashlib import sha256
++from types import SimpleNamespace
++from uuid import uuid4
++import pytest
++import psycopg
++from oracle_brain.meetings import participation_authority_v1 as module
++from oracle_brain.meetings.participation_authority_v1 import (
++    ParticipationSQLBindingV1, ParticipationAuthorityV1, ParticipationOutcomeUnknown,
++)
++
++
++@pytest.fixture
++def installation(tmp_path):
++    ca=tmp_path/'ca.pem';ca.write_bytes(b'invented CA bytes for pure contract only');ca.chmod(0o600)
++    now=datetime.now(timezone.utc)
++    binding=ParticipationSQLBindingV1(uuid4(),'a'*64,uuid4(),uuid4(),uuid4(),'invented_sender','oracle2_admin','sender','b'*64,'c'*64,
++        str(ca),sha256(ca.read_bytes()).hexdigest(),now+timedelta(minutes=2),tuple((s,'d'*64) for s in module.CAPABILITIES))
++    url='postgresql://invented_sender:invented@127.0.0.1:5432/invented?sslmode=verify-full&sslrootcert='+str(ca)
++    return binding,url,now+timedelta(seconds=20)
++
++
++def context(binding,deadline):
++    return dict(principal_id=str(binding.principal_id),workspace_id=str(binding.workspace_id),session_role=binding.session_login,
++        runtime_hash=binding.runtime_hash,source_registry_hash=binding.registry_hash,checked_at=(datetime.now(timezone.utc)-timedelta(milliseconds=1)).isoformat(),valid_until=deadline.isoformat())
++
++
++def status(binding,deadline,intent,claim,request_hash):
++    frame = dict(capture_event_id=str(uuid4()),capture_event_sha256='a'*64,capture_revision=1,
++        raw_sha256='b'*64,normalized_sha256='c'*64,participant_epoch_id=str(uuid4()),
++        participant_epoch_revision=1,participant_epoch_sha256='d'*64,participant_set_sha256='e'*64,
++        provider_speaker_id='invented-participant',actor_id=str(uuid4()))
++    return dict(meeting_id=str(binding.meeting_id),head_revision=1,generation=1,host_enabled=True,proactive_enabled=False,proactive_count=0,
++        intent_id=str(intent),state='inflight',outcome='UNKNOWN',delivery_revision=1,claim_event_id=str(claim),claim_current=True,
++        turn_binding=frame,intent_proactive=False,intent_current=True,receipt_permitted=True,receipt_bot_id='12345678-1234-1234-1234-123456789abc',prepare_binding=None,reconcile_intent_id=str(intent),observation_id=None,observation_revision=0,observation_sha256=None,observation_valid_until=None,request_sha256=request_hash,visible_message_proven=False,remote_stop_proven=False,executable=False,valid_until=deadline.isoformat(),context=context(binding,deadline))
++
++
++class Connection:
++    def __init__(self,binding,write_result,status_result,events,on_close=None):
++        self.binding=binding;self.write_result=write_result;self.status_result=status_result;self.events=events
++        self.pgconn=SimpleNamespace(ssl_in_use=True);self.on_close=on_close;self.result=None
++        self.info=SimpleNamespace(host='127.0.0.1',hostaddr='127.0.0.1',dbname='invented',user=binding.session_login,port=5432)
++    def __enter__(self):return self
++    def __exit__(self,*exc):
++        self.events.append('close')
++        if self.on_close:self.on_close()
++    def execute(self,query,args=None):
++        if query=='BEGIN ISOLATION LEVEL READ COMMITTED':self.result=None
++        elif query.startswith('SELECT pg_catalog.set_config'):self.result=None
++        elif query=='SELECT SESSION_USER,CURRENT_USER':self.result=(self.binding.session_login,self.binding.session_login)
++        elif 'FROM pg_catalog.unnest' in query:
++            self.result=[]
++            for sig in module.CAPABILITIES:
++                acl=[self.binding.expected_owner+':EXECUTE:false']
++                if sig.split('.',1)[1] in module._PUBLIC:acl+=['oracle2_replacement_requester:EXECUTE:false']
++                self.result.append((sig,'oracle2',sig.split('(',1)[0].split('.')[1],self.binding.expected_owner,
++                    sig!='oracle2._meeting_participation_revoke_lock_v1()',
++                    ['search_path=pg_catalog, oracle2'],'d'*64,sorted(acl)))
++        elif 'meeting_participation_claim_v1' in query:self.events.append('claim');self.result=(self.write_result,)
++        elif 'meeting_participation_status_v1' in query:self.events.append('status');self.result=(self.status_result,)
++        else:raise AssertionError('unexpected pure contract SQL')
++        return self
++    def fetchone(self):return self.result
++    def fetchall(self):return self.result
++
++
++def arrange(installation,monkeypatch,*,second_error=None,close_hook=None,restrictive=None):
++    b,url,deadline=installation;intent,claim,operation=uuid4(),uuid4(),uuid4();body=b'{"message":"You asked: invented turn","to":"everyone"}'
++    request_hash=sha256(body).hexdigest()
++    initial=dict(intent_id=str(intent),state='inflight',created=True,executable=True,claim_event_id=str(claim),revision=1,
++        body=body.decode(),request_sha256=request_hash,bot_id=str(uuid4()),valid_until=deadline.isoformat(),context=context(b,deadline))
++    fresh=status(b,deadline,intent,claim,request_hash);events=[];connections=[]
++    def connect(*args,**kwargs):
++        events.append('connect')
++        if len(connections)==1 and second_error:raise second_error
++        c=Connection(b,initial,fresh,events,close_hook if not connections else None);connections.append(c);return c
++    monkeypatch.setattr(module.psycopg,'connect',connect)
++    authority=ParticipationAuthorityV1(url,binding=b,_runtime_recheck=restrictive)
++    return authority,deadline,intent,operation,body,initial,fresh,events,connections
++
++
++def test_claim_body_only_after_commit_close_and_fresh_own_current_status(installation,monkeypatch):
++    a,end,intent,op,body,initial,fresh,events,_=arrange(installation,monkeypatch)
++    claim=a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert claim.body==body and claim.metadata['executable'] is False
++    assert events==['connect','claim','close','connect','status','close']
++    assert 'receipt_bot_id' not in claim.metadata
++    assert 'context' not in claim.metadata and 'body' not in claim.metadata and 'turn_binding' not in claim.metadata
++    assert claim.metadata['state']=='inflight' and claim.metadata['outcome']=='UNKNOWN'
++    assert not claim.metadata['visible_message_proven'] and not claim.metadata['remote_stop_proven']
++
++
++@pytest.mark.parametrize('error',[psycopg.OperationalError('invented readback loss'),PermissionError('invented current root revoked')])
++def test_committed_claim_readback_failure_unknown_one_write_no_retry(installation,monkeypatch,error):
++    a,end,intent,op,_,_,_,events,_=arrange(installation,monkeypatch,second_error=error)
++    with pytest.raises(ParticipationOutcomeUnknown,match='no resend'):
++        a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert events==['connect','claim','close','connect']
++
++
++def test_settings_change_at_write_close_unknown_before_next_connection(installation,monkeypatch):
++    state={'closed':False}
++    def guard():
++        if state['closed']:raise PermissionError('invented protected installation replaced')
++    a,end,intent,op,_,_,_,events,_=arrange(installation,monkeypatch,close_hook=lambda:state.update(closed=True),restrictive=guard)
++    with pytest.raises(ParticipationOutcomeUnknown):a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert events==['connect','claim','close']
++
++
++@pytest.mark.parametrize('field,value',[('claim_current',False),('claim_event_id',str(uuid4())),('request_sha256','e'*64),('delivery_revision',2)])
++def test_fresh_claim_mismatch_never_releases_body(installation,monkeypatch,field,value):
++    a,end,intent,op,_,_,fresh,events,_=arrange(installation,monkeypatch);fresh[field]=value
++    with pytest.raises(ParticipationOutcomeUnknown):a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert events.count('claim')==1
++
++
++def test_explicit_claim_replay_has_no_executable_body(installation,monkeypatch):
++    a,end,intent,op,_,initial,_,events,_=arrange(installation,monkeypatch)
++    initial.pop('body');initial['created']=False;initial['executable']=False
++    claim=a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert claim.body is None and claim.metadata['outcome']=='UNKNOWN' and events.count('claim')==1
++
++
++@pytest.mark.parametrize('bad',[None,True,0,'intent-id'])
++def test_selector_contract_refuses_before_connection(installation,monkeypatch,bad):
++    b,url,end=installation
++    monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:pytest.fail('contract failed before mutation'))
++    a=ParticipationAuthorityV1(url,binding=b)
++    with pytest.raises(PermissionError):a.claim_v1(intent_id=bad,expected_revision=0,operation=uuid4(),deadline=end)
++
++
++def test_expiry_refuses_before_connection(installation,monkeypatch):
++    b,url,_=installation;monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:pytest.fail('expired contract reached SQL'))
++    a=ParticipationAuthorityV1(url,binding=b)
++    with pytest.raises(PermissionError):a.claim_v1(intent_id=uuid4(),expected_revision=0,operation=uuid4(),deadline=datetime.now(timezone.utc)-timedelta(seconds=1))
++
++
++@pytest.mark.parametrize('change',[dict(kind='administrator'),dict(expected_owner='invented_sender'),dict(capability_hashes=()),dict(runtime_hash='self-appointed')])
++def test_installation_cannot_self_appoint_or_widen_catalog(installation,change):
++    b,_,_=installation
++    with pytest.raises(PermissionError):replace(b,**change)
++
++@pytest.mark.parametrize('text',['Oracle, what did I just ask?','@Oracle: keep this original wording','ORACLE! question','Oracle'])
++def test_exact_current_address_preserves_original_words_and_claim_limits(text):
++    from oracle_brain.meetings.participation_runtime_v1 import compose_current_turn_v1
++    reply=compose_current_turn_v1(text)
++    assert reply.message=='You asked: '+text
++    assert reply.normalized_sha256==sha256(text.encode()).hexdigest()
++    assert reply.reported_only and not reply.qualification and not reply.employee_identity_verified and not reply.shared_source_permission
++
++@pytest.mark.parametrize('text',['The Oracle database','Not addressed to Oracle','OracleDatabase question',' @Oracle question','Оracle question'])
++def test_other_mentions_and_lookalikes_decline_without_alternate_answer(text):
++    from oracle_brain.meetings.participation_runtime_v1 import compose_current_turn_v1,ParticipationDeclined
++    with pytest.raises(ParticipationDeclined):compose_current_turn_v1(text)
++
++def test_proactive_content_is_only_exact_turn_clarification_never_permission():
++    from oracle_brain.meetings.participation_runtime_v1 import compose_current_turn_v1,ParticipationDeclined
++    text='Original words without an address'
++    with pytest.raises(ParticipationDeclined):compose_current_turn_v1(text)
++    assert compose_current_turn_v1(text,proactive=True).message=='Could you clarify: '+text
++
++@pytest.mark.parametrize('text',['Oracle '+('x'*4096),'Oracle '+('U0001f600'*4096),'\0Oracle',''])
++def test_overlimit_or_empty_reply_refuses_instead_of_slicing(text):
++    from oracle_brain.meetings.participation_runtime_v1 import compose_current_turn_v1,ParticipationDeclined
++    with pytest.raises(ParticipationDeclined):compose_current_turn_v1(text)
++
++
++def test_markup_escaped_only_for_provider_presentation():
++    from oracle_brain.meetings.participation_runtime_v1 import compose_current_turn_v1
++    text='Oracle, <a href="https://invented.invalid">A&B</a>'
++    reply=compose_current_turn_v1(text)
++    assert reply.message=='You asked: Oracle, &lt;a href="https://invented.invalid"&gt;A&amp;B&lt;/a&gt;'
++    assert reply.normalized_sha256==sha256(text.encode()).hexdigest()
++    assert reply.body_sha256==sha256(reply.message.encode()).hexdigest()
++
++
++def test_expanded_markup_overlimit_declines_without_truncation():
++    from oracle_brain.meetings.participation_runtime_v1 import compose_current_turn_v1,ParticipationDeclined
++    with pytest.raises(ParticipationDeclined):compose_current_turn_v1('Oracle '+('<'*1100))
++
++
++@pytest.mark.parametrize('field,value',[('meeting_id','foreign'),('claim_event_id','BAD'),('observation_revision',True),
++    ('observation_sha256','e'*64),('turn_binding',{}),('request_sha256','BAD')])
++def test_bad_fresh_private_metadata_never_releases_provider_body(installation,monkeypatch,field,value):
++    a,end,intent,op,_,_,fresh,events,_=arrange(installation,monkeypatch);fresh[field]=value
++    with pytest.raises(ParticipationOutcomeUnknown):a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert events.count('claim')==1
++
++
++def test_current_turn_selector_is_own_readonly_private_frame(installation,monkeypatch):
++    a,end,intent,_,_,_,fresh,events,_=arrange(installation,monkeypatch)
++    frame,proactive,until=a._current_turn_binding_v1(intent,deadline=end)
++    assert frame==fresh['turn_binding'] and until<=end
++    assert proactive is False
++    assert events==['connect','status','close']
++    assert 'turn_binding' not in a._public_metadata(fresh)
++
++
++@pytest.mark.parametrize('change',[dict(proactive_enabled='yes'),dict(cooldown_seconds=119),dict(cooldown_seconds=True),
++    dict(max_proactive=4),dict(max_proactive=True),dict(observation_id='invented'),dict(enabled=False,proactive_enabled=True)])
++def test_host_contract_before_any_connection(installation,monkeypatch,change):
++    b,url,end=installation;b=replace(b,kind='host')
++    monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:pytest.fail('bad host contract reached SQL'))
++    a=ParticipationAuthorityV1(url,binding=b)
++    values=dict(expected_head=0,operation=uuid4(),enabled=True,observation_id=uuid4(),deadline=end);values.update(change)
++    with pytest.raises(PermissionError):a.control_v1(**values)
++
++
++def test_wrong_bot_identity_in_claim_never_releases_bytes(installation,monkeypatch):
++    a,end,intent,op,_,initial,_,events,_=arrange(installation,monkeypatch)
++    initial['bot_id']='invented-not-a-provider-uuid'
++    with pytest.raises(ParticipationOutcomeUnknown):a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert events.count('claim')==1
++
++
++def test_sender_cannot_write_observation_facts(installation,monkeypatch):
++    b,url,end=installation
++    monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:pytest.fail('sender wrote observer facts'))
++    a=ParticipationAuthorityV1(url,binding=b)
++    with pytest.raises(PermissionError):a.observe_audience_v1(expected_revision=0,observation_id=uuid4(),observation={},deadline=end)
++
++
++def test_caller_content_substitution_denied_before_prepare_sql(installation,monkeypatch):
++    b,url,end=installation
++    monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:pytest.fail('substituted plaintext reached SQL'))
++    a=ParticipationAuthorityV1(url,binding=b)
++    frame=status(b,end,uuid4(),uuid4(),'f'*64)['turn_binding']
++    with pytest.raises(PermissionError):a._prepare_current_turn_v1(expected_head=1,operation=uuid4(),intent_id=uuid4(),
++        frame=frame,text='Oracle different bytes',proactive=False,observation_id=uuid4(),composer_sha256='a'*64,deadline=end)
++
++
++def latest_status(b,end,*,available=True,prior=None):
++    value=status(b,end,uuid4(),uuid4(),'f'*64)
++    for k in ('intent_id','state','outcome','delivery_revision','claim_event_id','request_sha256','turn_binding','intent_proactive','receipt_bot_id'):
++        value[k]=None
++    value.update(claim_current=False,intent_current=False,reconcile_intent_id=prior)
++    if available:
++        value.update(observation_id=str(uuid4()),observation_revision=1,observation_sha256='a'*64,observation_valid_until=end.isoformat())
++        value['prepare_binding']=dict(capture_event_id=str(uuid4()),head_revision=1,generation=1,existing_intent_id=prior,valid_until=end.isoformat())
++    return value
++
++
++def arrange_latest(installation,monkeypatch,*,available=True,prior=None):
++    b,url,end=installation;events=[];fresh=latest_status(b,end,available=available,prior=prior)
++    monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:Connection(b,{},fresh,events))
++    return ParticipationAuthorityV1(url,binding=b),end,fresh,events
++
++
++def test_latest_preparation_selector_is_from_actual_own_sql_only(installation,monkeypatch):
++    a,end,fresh,events=arrange_latest(installation,monkeypatch)
++    binding,proactive=a._latest_prepare_binding_v1(deadline=end)
++    assert binding==fresh['prepare_binding'] and proactive is False
++    assert events==['status','close']
++    public=a._public_metadata(fresh)
++    assert 'prepare_binding' not in public and 'reconcile_intent_id' not in public
++
++
++def test_missing_chat_host_or_source_binding_declines_no_mutation(installation,monkeypatch):
++    from oracle_brain.meetings.participation_runtime_v1 import ParticipationDeclined
++    a,end,_,events=arrange_latest(installation,monkeypatch,available=False)
++    with pytest.raises(ParticipationDeclined):a._latest_prepare_binding_v1(deadline=end)
++    assert events==['status','close']
++
++
++@pytest.mark.parametrize('change',[dict(head_revision=2),dict(generation=0),dict(valid_until=(datetime.now(timezone.utc)+timedelta(days=1)).isoformat()),
++    dict(capture_event_id='caller-supplied'),dict(existing_intent_id='foreign')])
++def test_bad_actual_latest_binding_fails_closed(installation,monkeypatch,change):
++    a,end,fresh,events=arrange_latest(installation,monkeypatch)
++    fresh['prepare_binding'].update(change)
++    with pytest.raises(PermissionError):a._latest_prepare_binding_v1(deadline=end)
++    assert events==['status','close']
++
++
++def test_expired_claim_never_reopens_source_bytes(installation,monkeypatch):
++    a,end,intent,_,_,_,fresh,events,_=arrange(installation,monkeypatch)
++    fresh.update(intent_current=False,claim_current=False)
++    with pytest.raises(PermissionError):a._current_turn_binding_v1(intent,deadline=end)
++    assert events==['connect','status','close']
++
++
++def test_closed_body_policy_fingerprint_exact_canonical_descriptor():
++    from oracle_brain.operating_model.contracts import digest
++    values=tuple((signature,'e'*64) for signature in module.CAPABILITIES)
++    descriptor=dict(purpose='meeting-participation-body-policy-v1',composer_sha256='a'*64,
++        sql_capability_sha256s=dict(sorted(values)),to='everyone',max_codepoints=4096,
++        presentation='escape-amp-lt-gt-v1',max_proactive=3,cooldown_seconds=120)
++    expected=digest(descriptor)
++    assert module.participation_operation_policy_sha256_v1('a'*64,values)==expected
++    assert module.participation_operation_policy_sha256_v1('a'*64,tuple(reversed(values)))==expected
++    assert module.participation_operation_policy_sha256_v1('b'*64,values)!=expected
++    changed=((values[0][0],'f'*64),)+values[1:]
++    assert module.participation_operation_policy_sha256_v1('a'*64,changed)!=expected
++
++
++@pytest.mark.parametrize('variant',['omit','duplicate','unknown','bad_hash','list','bad_composer'])
++def test_body_policy_does_not_accept_partial_or_self_stated_map(variant):
++    values=tuple((signature,'e'*64) for signature in module.CAPABILITIES);composer='a'*64
++    if variant=='omit':values=values[:-1]
++    elif variant=='duplicate':values=values[:-1]+values[:1]
++    elif variant=='unknown':values=(('oracle2.self_appointed()','e'*64),)+values[1:]
++    elif variant=='bad_hash':values=((values[0][0],'caller-label'),)+values[1:]
++    elif variant=='list':values=list(values)
++    elif variant=='bad_composer':composer='caller-label'
++    with pytest.raises(PermissionError):module.participation_operation_policy_sha256_v1(composer,values)
++
++
++@pytest.mark.parametrize('variable',['PGHOSTADDR','PGSERVICE','PGOPTIONS','PGPASSFILE'])
++def test_protected_connection_refuses_environment_before_socket(installation,monkeypatch,variable):
++    b,url,end=installation
++    a=ParticipationAuthorityV1(url,binding=b)
++    monkeypatch.setenv(variable,'invented-untrusted-default')
++    monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:pytest.fail('environment reached socket'))
++    with pytest.raises(PermissionError,match='environment'):
++        a.status_v1(None,deadline=end)
++
++
++@pytest.mark.parametrize('change',[dict(port=None),dict(password=None),dict(host='invented.invalid'),dict(port='0')])
++def test_complete_pinned_target_refuses_before_socket(installation,monkeypatch,change):
++    b,url,_=installation
++    params=psycopg.conninfo.conninfo_to_dict(url)
++    for key,value in change.items():
++        if value is None:params.pop(key,None)
++        else:params[key]=value
++    monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:pytest.fail('invalid target reached socket'))
++    with pytest.raises(PermissionError):
++        ParticipationAuthorityV1(psycopg.conninfo.make_conninfo(**params),binding=b)
++
++
++def test_same_common_connection_pins_numeric_target_and_startup_bound(installation,monkeypatch):
++    a,end,intent,op,body,_,_,_,connections=arrange(installation,monkeypatch)
++    original=module.psycopg.connect;calls=[]
++    def record(*args,**kwargs):
++        calls.append(kwargs)
++        return original(*args,**kwargs)
++    monkeypatch.setattr(module.psycopg,'connect',record)
++    assert a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end).body==body
++    assert len(connections)==len(calls)==2
++    for call in calls:
++        assert call['host']==call['hostaddr']=='127.0.0.1'
++        assert call['port']=='5432' and call['dbname']=='invented'
++        assert call['user']==a.binding.session_login and call['sslmode']=='verify-full'
++        assert call['sslrootcert']==a.binding.ca_path and call['autocommit'] is True
++        assert call['connect_timeout']==2 and call['tcp_user_timeout']<=2000
++        assert call['options']=='-c statement_timeout=2000ms -c lock_timeout=2000ms'
++
++
++def test_short_original_monotonic_window_refuses_before_socket(installation,monkeypatch):
++    import time
++    from oracle_brain.operating_model.request_deadline_v1 import _request_fence_v1
++    b,url,end=installation;a=ParticipationAuthorityV1(url,binding=b)
++    monkeypatch.setattr(module.psycopg,'connect',lambda *a,**k:pytest.fail('short original window reached socket'))
++    with _request_fence_v1(time.monotonic()+1.0):
++        with pytest.raises(PermissionError,match='two-second'):
++            a.status_v1(None,deadline=end)
++
++
++@pytest.mark.parametrize('boundary',['connect','catalog','write','commit','close'])
++def test_same_original_fence_at_every_io_never_releases_or_retries(installation,monkeypatch,boundary):
++    from oracle_brain.operating_model import request_deadline_v1 as fence
++    now=[100.0];monkeypatch.setattr(fence.time,'monotonic',lambda:now[0])
++    a,end,intent,op,_,_,_,events,connections=arrange(installation,monkeypatch)
++    original_connect=module.psycopg.connect;original_execute=Connection.execute
++    catalogs=[0]
++    def connect(*args,**kwargs):
++        c=original_connect(*args,**kwargs)
++        if boundary=='connect':now[0]=121.0
++        if boundary=='close':c.on_close=lambda:now.__setitem__(0,121.0)
++        return c
++    def execute(c,query,args=None):
++        result=original_execute(c,query,args)
++        if 'FROM pg_catalog.unnest' in query:
++            catalogs[0]+=1
++            if boundary=='catalog':now[0]=121.0
++            # Still unexpired, but the already armed two-second COMMIT cannot fit.
++            if boundary=='commit' and catalogs[0]==2:now[0]=119.0
++        if boundary=='write' and 'SELECT oracle2.meeting_participation_claim_v1(' in query:now[0]=121.0
++        return result
++    monkeypatch.setattr(module.psycopg,'connect',connect)
++    monkeypatch.setattr(Connection,'execute',execute)
++    with fence._request_fence_v1(120.0):
++        expected=ParticipationOutcomeUnknown if boundary in {'write','commit','close'} else PermissionError
++        with pytest.raises(expected):
++            a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert len(connections)==1 and events.count('claim')<=1
++    assert events.count('claim')==(1 if boundary in {'write','commit','close'} else 0)
++    assert events.count('close')==1 and 'status' not in events
++
++
++def test_commit_close_failure_after_claim_is_unknown_no_readback_or_retry(installation,monkeypatch):
++    def fail():raise OSError('invented commit-close acknowledgement lost')
++    a,end,intent,op,_,_,_,events,_=arrange(installation,monkeypatch,close_hook=fail)
++    with pytest.raises(ParticipationOutcomeUnknown,match='no resend'):
++        a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert events==['connect','claim','close']
++
++
++def test_dns_label_requires_and_uses_exact_pinned_numeric_address(installation,monkeypatch):
++    b,url,end=installation;params=psycopg.conninfo.conninfo_to_dict(url)
++    params.update(host='invented.invalid',hostaddr='127.0.0.1')
++    url=psycopg.conninfo.make_conninfo(**params);calls=[];events=[]
++    fresh=latest_status(b,end)
++    def connect(*args,**kwargs):
++        calls.append(kwargs)
++        c=Connection(b,{},fresh,events);c.info.host='invented.invalid';return c
++    monkeypatch.setattr(module.psycopg,'connect',connect)
++    ParticipationAuthorityV1(url,binding=b).status_v1(None,deadline=end)
++    assert len(calls)==1 and calls[0]['host']=='invented.invalid' and calls[0]['hostaddr']=='127.0.0.1'
++    assert events==['status','close']
++
++
++@pytest.mark.parametrize('field,value',[('host','foreign.invalid'),('dbname','foreign'),('user','foreign'),('port',5433),('ssl',False)])
++def test_retained_actual_role_tls_target_checks_precede_mutation(installation,monkeypatch,field,value):
++    a,end,intent,op,_,_,_,events,_=arrange(installation,monkeypatch)
++    original=module.psycopg.connect
++    def connect(*args,**kwargs):
++        c=original(*args,**kwargs)
++        if field=='ssl':c.pgconn.ssl_in_use=value
++        else:setattr(c.info,field,value)
++        return c
++    monkeypatch.setattr(module.psycopg,'connect',connect)
++    with pytest.raises(ParticipationOutcomeUnknown,match='no resend'):
++        a.claim_v1(intent_id=intent,expected_revision=0,operation=op,deadline=end)
++    assert events==['connect','close']
++
++
++def test_authority_has_no_unguarded_sql_or_second_connection_owner():
++    import ast
++    import inspect
++    tree=ast.parse(inspect.getsource(module.ParticipationAuthorityV1))
++    assert not [n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
++        and n.func.attr in {'execute','connect','commit'}]
++    sends=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)
++        and n.func.id=='sql_execute_v1']
++    assert len(sends)==5
++    assert all(isinstance(n.args[1],ast.Name) and n.args[1].id=='deadline' for n in sends)
+diff --git a/services/oracle-brain/tests/test_meeting_participation_wire_v1.py b/services/oracle-brain/tests/test_meeting_participation_wire_v1.py
+new file mode 100644
+index 00000000..52b41693
+--- /dev/null
++++ b/services/oracle-brain/tests/test_meeting_participation_wire_v1.py
+@@ -0,0 +1,37 @@
++"""Raw response framing, not provider identity/visible-delivery acceptance."""
++from hashlib import sha256
++import pytest
++from oracle_brain.meetings.participation_wire_v1 import observed_participation_wire_v1,MAX_RESPONSE_WIRE_V1
++
++
++def response(status=200,body=b'{}',extra=b''):
++    return b'HTTP/1.1 '+str(status).encode()+b' OK\r\nContent-Length: '+str(len(body)).encode()+b'\r\nConnection: close\r\n'+extra+b'\r\n'+body
++
++
++@pytest.mark.parametrize('status',[200,202,204,400,429,500])
++def test_actual_full_wire_facts_do_not_invent_visibility_or_success(status):
++    raw=response(status);v=observed_participation_wire_v1(raw)
++    assert v==dict(complete=True,http_status=status,response_sha256=sha256(raw).hexdigest(),response_byte_count=len(raw),error=None)
++    assert 'visible_message_proven' not in v and 'remote_stop_proven' not in v
++
++
++@pytest.mark.parametrize('raw',[b'',b'partial',response()[:-1],response()+b'extra',response()+response(),
++    response(extra=b'Content-Length: 2\r\n'),response(extra=b'Content-Encoding: gzip\r\n'),
++    response(extra=b'Transfer-Encoding: chunked\r\n'),response(extra=b' folded: value\r\n'),
++    response(extra=b'X-Test: a\r\nX-Test: b\r\n'),response(extra=b'X-Test: '+b'x'*16384+b'\r\n')])
++def test_missing_or_ambiguous_wire_remains_unknown(raw):
++    v=observed_participation_wire_v1(raw)
++    assert v['complete'] is False and v['http_status'] is None and v['error']=='framing'
++    assert v['response_sha256']==sha256(raw).hexdigest() and v['response_byte_count']==len(raw)
++
++
++@pytest.mark.parametrize('error',['network','timeout','framing','expired','unknown'])
++def test_even_complete_late_wire_is_unknown_when_transport_refused(error):
++    raw=response();v=observed_participation_wire_v1(raw,error=error)
++    assert not v['complete'] and v['http_status'] is None and v['error']==error
++    assert v['response_sha256']==sha256(raw).hexdigest()
++
++
++@pytest.mark.parametrize('raw,error',[(b'x'*(MAX_RESPONSE_WIRE_V1+1),None),('caller text',None),(b'','retry'),(b'',True)])
++def test_bound_and_closed_error_before_any_custody(raw,error):
++    with pytest.raises(ValueError):observed_participation_wire_v1(raw,error=error)

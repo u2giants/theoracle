@@ -1,0 +1,613 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="25" skipped="0" tests="27" time="13.968" timestamp="2026-10-22T06:44:31.892612-04:00" hostname="edge-dev3"><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_complete_current_census_has_all56_owners_and_no_permission" time="1.428"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:112: in test_actual_complete_current_census_has_all56_owners_and_no_permission
+    value=current(f)
+          ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_phase_claim_is_once_even_after_connection_restart" time="0.352"><failure message="oracle_brain.operating_model.recovery_authority_v1.RecoveryOutcomeUnknownV1: possibly written recovery operation; do not retry">services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedFunction: operator does not exist: text -&gt;&gt; unknown
+E   LINE 3: ...a.scope_coverage) scope ON p.appointment_id=(scope-&gt;&gt;'appoin...
+E                                                                ^
+E   HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+E   QUERY:  WITH RECURSIVE ancestors AS (
+E    SELECT p.appointment_id,p.parent_id,p.granted_by,p.workspace_id,p.scope leaf_scope,p.expires_at,ARRAY[p.appointment_id] seen FROM oracle2.appointments p
+E    JOIN jsonb_array_elements(a.scope_coverage) scope ON p.appointment_id=(scope-&gt;&gt;'appointment_id')::uuid
+E    UNION ALL SELECT p.appointment_id,p.parent_id,p.granted_by,p.workspace_id,x.leaf_scope,p.expires_at,x.seen||p.appointment_id FROM oracle2.appointments p
+E    JOIN ancestors x ON x.parent_id=p.appointment_id AND p.actor_id=x.granted_by AND p.workspace_id=x.workspace_id AND p.scope IN(x.leaf_scope,'root') WHERE cardinality(x.seen)&lt;16 AND NOT p.appointment_id=ANY(x.seen))
+E    SELECT least((SELECT expires_at FROM oracle2.recovery_operation_admissions_v1 WHERE admission_id=a.admission_id),
+E    a.original_horizon,(d-&gt;&gt;'expires_at')::timestamptz,(SELECT expires_at FROM oracle2.hosting_role_runtime_admissions WHERE role_name=SESSION_USER),min(expires_at))                  FROM ancestors
+E   CONTEXT:  PL/pgSQL function claim_recovery_phase_v1(uuid,text,timestamp with time zone) line 16 at SQL statement
+
+The above exception was the direct cause of the following exception:
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:123: in test_actual_phase_claim_is_once_even_after_connection_restart
+    first=claim();second=claim()
+          ^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:122: in claim
+    with _request_fence_v1(time.monotonic()+20.0):return f['authority']._claim_v1('capture',deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:237: in _claim_v1
+    value=self._call('SELECT oracle2.claim_recovery_phase_v1(%s,%s,%s)',(d.operation_id,phase,deadline),deadline=deadline,mutating=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:224: in _call
+    if mutating and sent:raise RecoveryOutcomeUnknownV1('possibly written recovery operation; do not retry') from exc
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   oracle_brain.operating_model.recovery_authority_v1.RecoveryOutcomeUnknownV1: possibly written recovery operation; do not retry</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_revoked_current_appointment_denies_after_previous_positive" time="0.496"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:130: in test_actual_revoked_current_appointment_denies_after_previous_positive
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_recovery_admission_and_phase_rows_are_immutable" time="0.154" /><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_denied_unqualified_source_and_foreign_workspace_do_not_leak_body" time="0.510"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:149: in test_actual_denied_unqualified_source_and_foreign_workspace_do_not_leak_body
+    value=current(f)
+          ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_foreign_operation_and_recovery_private_helper_are_denied" time="0.158" /><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_public_acl_drift_blocks_current_before_any_phase_claim" time="0.517"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:164: in test_actual_public_acl_drift_blocks_current_before_any_phase_claim
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_external_body_drift_denied_by_every_direct_sql_entry[oracle2._replacement_metadata_json(jsonb)]" time="0.493"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:202: in test_actual_external_body_drift_denied_by_every_direct_sql_entry
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_external_body_drift_denied_by_every_direct_sql_entry[oracle2._migration_iso_v1(timestamptz)]" time="0.492"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:202: in test_actual_external_body_drift_denied_by_every_direct_sql_entry
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_external_body_drift_denied_by_every_direct_sql_entry[oracle2.deny_operating_model_mutation()]" time="0.502"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:202: in test_actual_external_body_drift_denied_by_every_direct_sql_entry
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_external_body_drift_denied_by_every_direct_sql_entry[oracle2._meeting_created_bot_v1(oracle2.meeting_capture_admissions_v1)]" time="0.494"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:202: in test_actual_external_body_drift_denied_by_every_direct_sql_entry
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_catalog_shape_drift_denied_before_all_direct_mutators[column]" time="0.494"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:218: in test_actual_catalog_shape_drift_denied_before_all_direct_mutators
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_catalog_shape_drift_denied_before_all_direct_mutators[trigger]" time="0.496"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:218: in test_actual_catalog_shape_drift_denied_before_all_direct_mutators
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_catalog_shape_drift_denied_before_all_direct_mutators[policy]" time="0.493"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:218: in test_actual_catalog_shape_drift_denied_before_all_direct_mutators
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_catalog_shape_drift_denied_before_all_direct_mutators[owner]" time="0.525"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:218: in test_actual_catalog_shape_drift_denied_before_all_direct_mutators
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_catalog_shape_drift_denied_before_all_direct_mutators[acl]" time="0.498"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:218: in test_actual_catalog_shape_drift_denied_before_all_direct_mutators
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_catalog_shape_drift_denied_before_all_direct_mutators[enum]" time="0.503"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:218: in test_actual_catalog_shape_drift_denied_before_all_direct_mutators
+    f=recovery_install();current(f)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_simultaneous_requests_get_one_global_phase_claim" time="0.555"><failure message="oracle_brain.operating_model.recovery_authority_v1.RecoveryOutcomeUnknownV1: possibly written recovery operation; do not retry">services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedFunction: operator does not exist: text -&gt;&gt; unknown
+E   LINE 3: ...a.scope_coverage) scope ON p.appointment_id=(scope-&gt;&gt;'appoin...
+E                                                                ^
+E   HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+E   QUERY:  WITH RECURSIVE ancestors AS (
+E    SELECT p.appointment_id,p.parent_id,p.granted_by,p.workspace_id,p.scope leaf_scope,p.expires_at,ARRAY[p.appointment_id] seen FROM oracle2.appointments p
+E    JOIN jsonb_array_elements(a.scope_coverage) scope ON p.appointment_id=(scope-&gt;&gt;'appointment_id')::uuid
+E    UNION ALL SELECT p.appointment_id,p.parent_id,p.granted_by,p.workspace_id,x.leaf_scope,p.expires_at,x.seen||p.appointment_id FROM oracle2.appointments p
+E    JOIN ancestors x ON x.parent_id=p.appointment_id AND p.actor_id=x.granted_by AND p.workspace_id=x.workspace_id AND p.scope IN(x.leaf_scope,'root') WHERE cardinality(x.seen)&lt;16 AND NOT p.appointment_id=ANY(x.seen))
+E    SELECT least((SELECT expires_at FROM oracle2.recovery_operation_admissions_v1 WHERE admission_id=a.admission_id),
+E    a.original_horizon,(d-&gt;&gt;'expires_at')::timestamptz,(SELECT expires_at FROM oracle2.hosting_role_runtime_admissions WHERE role_name=SESSION_USER),min(expires_at))                  FROM ancestors
+E   CONTEXT:  PL/pgSQL function claim_recovery_phase_v1(uuid,text,timestamp with time zone) line 16 at SQL statement
+
+The above exception was the direct cause of the following exception:
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:241: in test_actual_simultaneous_requests_get_one_global_phase_claim
+    with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(lambda _:claim(),range(2)))
+                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.local/share/uv/python/cpython-3.13.16-linux-x86_64-gnu/lib/python3.13/concurrent/futures/_base.py:625: in result_iterator
+    yield _result_or_cancel(fs.pop())
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.local/share/uv/python/cpython-3.13.16-linux-x86_64-gnu/lib/python3.13/concurrent/futures/_base.py:318: in _result_or_cancel
+    return fut.result(timeout)
+           ^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.local/share/uv/python/cpython-3.13.16-linux-x86_64-gnu/lib/python3.13/concurrent/futures/_base.py:460: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.local/share/uv/python/cpython-3.13.16-linux-x86_64-gnu/lib/python3.13/concurrent/futures/_base.py:402: in __get_result
+    raise self._exception
+/home/ahazan/.local/share/uv/python/cpython-3.13.16-linux-x86_64-gnu/lib/python3.13/concurrent/futures/thread.py:59: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:241: in &lt;lambda&gt;
+    with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(lambda _:claim(),range(2)))
+                                                                                  ^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:240: in claim
+    with _request_fence_v1(time.monotonic()+20.0):return f['authority']._claim_v1('capture',deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:237: in _claim_v1
+    value=self._call('SELECT oracle2.claim_recovery_phase_v1(%s,%s,%s)',(d.operation_id,phase,deadline),deadline=deadline,mutating=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:224: in _call
+    if mutating and sent:raise RecoveryOutcomeUnknownV1('possibly written recovery operation; do not retry') from exc
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   oracle_brain.operating_model.recovery_authority_v1.RecoveryOutcomeUnknownV1: possibly written recovery operation; do not retry</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_reinstalled_admission_cannot_reset_spent_original_phase" time="0.359"><failure message="oracle_brain.operating_model.recovery_authority_v1.RecoveryOutcomeUnknownV1: possibly written recovery operation; do not retry">services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedFunction: operator does not exist: text -&gt;&gt; unknown
+E   LINE 3: ...a.scope_coverage) scope ON p.appointment_id=(scope-&gt;&gt;'appoin...
+E                                                                ^
+E   HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+E   QUERY:  WITH RECURSIVE ancestors AS (
+E    SELECT p.appointment_id,p.parent_id,p.granted_by,p.workspace_id,p.scope leaf_scope,p.expires_at,ARRAY[p.appointment_id] seen FROM oracle2.appointments p
+E    JOIN jsonb_array_elements(a.scope_coverage) scope ON p.appointment_id=(scope-&gt;&gt;'appointment_id')::uuid
+E    UNION ALL SELECT p.appointment_id,p.parent_id,p.granted_by,p.workspace_id,x.leaf_scope,p.expires_at,x.seen||p.appointment_id FROM oracle2.appointments p
+E    JOIN ancestors x ON x.parent_id=p.appointment_id AND p.actor_id=x.granted_by AND p.workspace_id=x.workspace_id AND p.scope IN(x.leaf_scope,'root') WHERE cardinality(x.seen)&lt;16 AND NOT p.appointment_id=ANY(x.seen))
+E    SELECT least((SELECT expires_at FROM oracle2.recovery_operation_admissions_v1 WHERE admission_id=a.admission_id),
+E    a.original_horizon,(d-&gt;&gt;'expires_at')::timestamptz,(SELECT expires_at FROM oracle2.hosting_role_runtime_admissions WHERE role_name=SESSION_USER),min(expires_at))                  FROM ancestors
+E   CONTEXT:  PL/pgSQL function claim_recovery_phase_v1(uuid,text,timestamp with time zone) line 16 at SQL statement
+
+The above exception was the direct cause of the following exception:
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:253: in test_actual_reinstalled_admission_cannot_reset_spent_original_phase
+    first=claim();replacement=uuid4()
+          ^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:252: in claim
+    with _request_fence_v1(time.monotonic()+20.0):return f['authority']._claim_v1('capture',deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:237: in _claim_v1
+    value=self._call('SELECT oracle2.claim_recovery_phase_v1(%s,%s,%s)',(d.operation_id,phase,deadline),deadline=deadline,mutating=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:224: in _call
+    if mutating and sent:raise RecoveryOutcomeUnknownV1('possibly written recovery operation; do not retry') from exc
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   oracle_brain.operating_model.recovery_authority_v1.RecoveryOutcomeUnknownV1: possibly written recovery operation; do not retry</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_invalid_appointment_chain_denies_all_direct_calls[broken-actor]" time="0.496"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:281: in test_actual_invalid_appointment_chain_denies_all_direct_calls
+    f=recovery_install();current(f);delegate_capture(f,fault=fault)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_invalid_appointment_chain_denies_all_direct_calls[unrelated-scope]" time="0.502"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:281: in test_actual_invalid_appointment_chain_denies_all_direct_calls
+    f=recovery_install();current(f);delegate_capture(f,fault=fault)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_invalid_appointment_chain_denies_all_direct_calls[foreign-workspace]" time="0.498"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:281: in test_actual_invalid_appointment_chain_denies_all_direct_calls
+    f=recovery_install();current(f);delegate_capture(f,fault=fault)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_invalid_appointment_chain_denies_all_direct_calls[wrong-root]" time="0.505"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:281: in test_actual_invalid_appointment_chain_denies_all_direct_calls
+    f=recovery_install();current(f);delegate_capture(f,fault=fault)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_invalid_appointment_chain_denies_all_direct_calls[cycle]" time="0.503"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:281: in test_actual_invalid_appointment_chain_denies_all_direct_calls
+    f=recovery_install();current(f);delegate_capture(f,fault=fault)
+                         ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_valid_same_scope_delegation_keeps_original_horizon" time="0.525"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:291: in test_actual_valid_same_scope_delegation_keeps_original_horizon
+    f=recovery_install();before=current(f);delegate_capture(f)
+                                ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_census_retains_broken_foreign_leaf_as_missing_current_root" time="0.516"><failure message="psycopg.errors.UndefinedColumn: column t.workspace_id does not exist&#10;LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...&#10;                                                             ^&#10;QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded&#10;CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE&#10;PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment">services/oracle-brain/tests/test_recovery_authority_sql_v1.py:303: in test_actual_census_retains_broken_foreign_leaf_as_missing_current_root
+    value=current(f)
+          ^^^^^^^^^^
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:97: in current
+    return f['authority'].current_v1(deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:229: in current_v1
+    value=self._call('SELECT oracle2.recovery_current_v1(%s,%s)',(d.operation_id,deadline),deadline=deadline)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedColumn: column t.workspace_id does not exist
+E   LINE 1: ...racle2.meeting_capture_worker_receipts_v1 t WHERE t.workspac...
+E                                                                ^
+E   QUERY:  SELECT count(*),encode(sha256(convert_to(coalesce(string_agg(row_sha,'' ORDER BY row_sha),''),'UTF8')),'hex') FROM (SELECT encode(sha256(convert_to(oracle2._replacement_metadata_json(row),'UTF8')),'hex') row_sha FROM (SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t WHERE t.workspace_id=ANY($1)) owned LIMIT 100001) bounded
+E   CONTEXT:  PL/pgSQL function _recovery_census_v1(uuid,timestamp with time zone) line 91 at EXECUTE
+E   PL/pgSQL function recovery_current_v1(uuid,timestamp with time zone) line 5 at assignment</failure></testcase><testcase classname="tests.test_recovery_authority_sql_v1" name="test_actual_capture_claim_then_separately_current_observer_metadata" time="0.368"><failure message="oracle_brain.operating_model.recovery_authority_v1.RecoveryOutcomeUnknownV1: possibly written recovery operation; do not retry">services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:217: in _call
+    row=sql_execute_v1(connection,deadline,signature,arguments).fetchone()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py:97: in sql_execute_v1
+    result=connection.execute(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ahazan/.codex/worktrees/oracle-source-processing-authority/services/oracle-brain/.venv/lib/python3.13/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.UndefinedFunction: operator does not exist: text -&gt;&gt; unknown
+E   LINE 3: ...a.scope_coverage) scope ON p.appointment_id=(scope-&gt;&gt;'appoin...
+E                                                                ^
+E   HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+E   QUERY:  WITH RECURSIVE ancestors AS (
+E    SELECT p.appointment_id,p.parent_id,p.granted_by,p.workspace_id,p.scope leaf_scope,p.expires_at,ARRAY[p.appointment_id] seen FROM oracle2.appointments p
+E    JOIN jsonb_array_elements(a.scope_coverage) scope ON p.appointment_id=(scope-&gt;&gt;'appointment_id')::uuid
+E    UNION ALL SELECT p.appointment_id,p.parent_id,p.granted_by,p.workspace_id,x.leaf_scope,p.expires_at,x.seen||p.appointment_id FROM oracle2.appointments p
+E    JOIN ancestors x ON x.parent_id=p.appointment_id AND p.actor_id=x.granted_by AND p.workspace_id=x.workspace_id AND p.scope IN(x.leaf_scope,'root') WHERE cardinality(x.seen)&lt;16 AND NOT p.appointment_id=ANY(x.seen))
+E    SELECT least((SELECT expires_at FROM oracle2.recovery_operation_admissions_v1 WHERE admission_id=a.admission_id),
+E    a.original_horizon,(d-&gt;&gt;'expires_at')::timestamptz,(SELECT expires_at FROM oracle2.hosting_role_runtime_admissions WHERE role_name=SESSION_USER),min(expires_at))                  FROM ancestors
+E   CONTEXT:  PL/pgSQL function claim_recovery_phase_v1(uuid,text,timestamp with time zone) line 16 at SQL statement
+
+The above exception was the direct cause of the following exception:
+services/oracle-brain/tests/test_recovery_authority_sql_v1.py:313: in test_actual_capture_claim_then_separately_current_observer_metadata
+    claim=f['authority']._claim_v1('capture',deadline=datetime.now(timezone.utc)+timedelta(seconds=15))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:237: in _claim_v1
+    value=self._call('SELECT oracle2.claim_recovery_phase_v1(%s,%s,%s)',(d.operation_id,phase,deadline),deadline=deadline,mutating=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py:224: in _call
+    if mutating and sent:raise RecoveryOutcomeUnknownV1('possibly written recovery operation; do not retry') from exc
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   oracle_brain.operating_model.recovery_authority_v1.RecoveryOutcomeUnknownV1: possibly written recovery operation; do not retry</failure></testcase></testsuite></testsuites>

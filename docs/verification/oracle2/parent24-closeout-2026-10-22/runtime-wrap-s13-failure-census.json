@@ -1,0 +1,72 @@
+[
+  {
+    "path": "/tmp/oracle-parent24-wy02uT/recovery-metadata-owned-sql-04",
+    "returncode": 1,
+    "source_manifest_unchanged": true,
+    "metadata_only": true,
+    "native_dump_restore": false,
+    "archive_child": false,
+    "provider": false,
+    "tests": 26,
+    "failed": 26,
+    "errors": 0,
+    "skipped": 0,
+    "xml_sha256": "26d072186a32d58d734c9d59edbcec14ec0935556ef1fd6c6651f24aada320ae"
+  },
+  {
+    "path": "/tmp/oracle-parent24-wy02uT/recovery-metadata-owned-sql-05",
+    "returncode": 1,
+    "source_manifest_unchanged": true,
+    "metadata_only": true,
+    "native_dump_restore": false,
+    "archive_child": false,
+    "provider": false,
+    "tests": 27,
+    "failed": 25,
+    "errors": 0,
+    "skipped": 0,
+    "xml_sha256": "3d397e96159e2343f3288373c24d8e2a6fe7cc8b7898b61c7967917c726e4290"
+  },
+  {
+    "path": "/tmp/oracle-parent24-wy02uT/recovery-metadata-owned-sql-06b",
+    "returncode": 1,
+    "source_manifest_unchanged": true,
+    "metadata_only": true,
+    "native_dump_restore": false,
+    "archive_child": false,
+    "provider": false,
+    "tests": 27,
+    "failed": 25,
+    "errors": 0,
+    "skipped": 0,
+    "xml_sha256": "3c31249fa114cb628566a84530009a41a4f59e41e18ecb88a606deda5c2e7a07"
+  },
+  {
+    "path": "/tmp/oracle-parent24-wy02uT/recovery-metadata-owned-sql-07",
+    "returncode": 1,
+    "source_manifest_unchanged": true,
+    "metadata_only": true,
+    "native_dump_restore": false,
+    "archive_child": false,
+    "provider": false,
+    "tests": 27,
+    "failed": 25,
+    "errors": 0,
+    "skipped": 0,
+    "xml_sha256": "ef244e62e33f09ea04a9f44e86b95eb4168181a26b3d9479c8fb0d8751fd7fa7"
+  },
+  {
+    "path": "/tmp/oracle-parent24-wy02uT/recovery-metadata-owned-sql-09",
+    "returncode": 1,
+    "source_manifest_unchanged": true,
+    "metadata_only": true,
+    "native_dump_restore": false,
+    "archive_child": false,
+    "provider": false,
+    "tests": 27,
+    "failed": 25,
+    "errors": 0,
+    "skipped": 0,
+    "xml_sha256": "085113b7a871c3458fa9ba39dd9f9a64f281085dfb57d7704e86569687ea3cc5"
+  }
+]

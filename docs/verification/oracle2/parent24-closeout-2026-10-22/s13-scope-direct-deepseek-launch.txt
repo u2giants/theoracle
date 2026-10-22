@@ -1,0 +1,34 @@
+Retained turn session: 20261022-062139-2426333
+SESSION_ID: 20261022-062139-2426333
+## Findings
+
+**Verified facts about the exact head (all read with tools in this copy)**
+
+- Head is the claimed commit: `git rev-parse HEAD` = `137d65d732e901ab1cd389db25703aafc63a400e`, working tree clean (`git status --porcelain` empty), tracked + untracked-non-ignored files = 1721 (matches the brief's authoritative-manifest count; the `.ai-review-*` packet directory is ignored via `.git/info/exclude:10`, so it does not pollute the manifest).
+- The commit's parent is `f2ff5b2` ("Import complete additive recovery prerequisite preserving current main"), whose parent is the stated base `c187bfc`. The delta parent→head is exactly 2 files, 48 insertions / 10 deletions: `services/oracle-brain/sql/026_operational_recovery.sql` and `services/oracle-brain/tests/test_recovery_sql_source_v1.py`.
+- SQL026 delta is exactly seven lines and nine identifier tokens, all `scope` → `source_scope_v1`, at `services/oracle-brain/sql/026_operational_recovery.sql:350` (declaration), `:480`, `:481`, `:482` (×2), `:486`, `:488`, `:489` (×2). I confirmed this by byte diff of the whole 23 626-byte `_recovery_context_v1` block between parent and head: difflib reports only the 9 × (insert `"ource_s"` + insert `"_v1"`) edits (18 segments, zero deletions, length delta 90 = 9 × 10). No literal, comment, quoted identifier or qualified column reference (`appointment_row.scope`, `parent.scope`, `admission_row.scope_coverage`) changed.
+- Guards/policy genuinely unchanged: the TLS/finite-window block (`026_operational_recovery.sql:352-353`), direct-LOGIN/owner checks (`:354-359`), `own_scope` (`:483`), `seen`/`cardinality(seen)>=16`/revocation/expiry fence (`:486`), root pinning (`:488`) and grantor+workspace+scope parent edge (`:489`) are all outside the diff. No once/UNKNOWN statement was touched.
+- Root cause is consistent with the diagnosis: PL/pgSQL declares a variable named `scope` (`:350`) while selecting `INTO` a record of `oracle2.appointments`, which has a `scope` column (the DB suite inserts into `appointments(...,scope,...)` at `services/oracle-brain/tests/test_recovery_authority_sql_v1.py:54,57-59`); under default `variable_conflict=error` the bare `scope` references are ambiguous. The rename is total and consistent, and no bare `scope` identifier remains (enforced by `test_recovery_sql_source_v1.py:179`).
+- The new equivalence pins are arithmetically correct, checked independently of the tests: the parent's `_recovery_context_v1` block hashes to `281454358132f0…c0350` — exactly the constant at `test_recovery_sql_source_v1.py:177`; the head file with that block removed hashes to `dc1fe9b385c3…c3b3f` (line 178) and is byte-identical to the parent's outside-block bytes. So the commit is provably the frozen body plus the nine-token rename and nothing else.
+- No stale source pins: `OPERATIONAL_OWNER_SOURCE_PINS_V1` and `RETAINED_026_OWNER_SOURCE_PINS_V1` (`services/oracle-brain/oracle_brain/operating_model/recovery_contracts_v1.py:167-168`) pin 020/021/023/024/025(/027) only — all six values match the actual file hashes I computed — and 026 is not self-pinned. Grepping the old 026 digest (`aa548c4d…`) across non-`.git` sources returns no hit.
+- Test-file delta is additive/narrow: two string assertions (`:108`, `:111`), one new normalization branch (`:142-143`), and two new tests (`:160-191`). The prior pin at `:155` (`cf672ad1…`) is unchanged and stays valid precisely because the new branch maps the new name back to `scope`, restoring the pre-rename normalized text; `:194-197` is untouched.
+
+**Limitations and coverage of this assessment**
+
+- `pglast` and `pytest` are absent from this review copy (`ModuleNotFoundError: No module named 'pglast'`, `No module named pytest`), and dependency installation is prohibited, so no test was executed — including the claimed 33 source-only tests. The two hash pins above were verified by direct byte computation instead; the scanner-dependent assertions (`count==9` at `:176`, `cf672ad…` at `:155`, the 3-count snippet at `:186-191`) were read but not run.
+- The failed head `93435c22b4ea58347158dedcfd54a54bc614093f` is not present in this checkout (`git cat-file -t` → "could not get object info"), so I could not diff that commit against this head. The only verifiable successor delta is `f2ff5b2 → 137d65d7`; the brief's "different transport, same source" explanation for 1706 vs 1721 tracked files is not independently evidenced here.
+- No DB, container, provider, child, native or filter operation was executed, per instruction. Consequently the 25 ambiguity failures recorded in `s13-actual07-independent-readback.json` are not shown to be fixed at runtime; that remains for a separately authorized run.
+- The external frozen manifest (217 886 bytes, SHA `ac4cc71c…`), the harness bytes (SHA `cc91cce5…`) and the readback JSON are supplied attachments, not files I could verify against stored copies. Of the harness, I could cross-check only that its `EXPECTED_HEAD` equals the actual head and that its clean-tree/manifest logic (untracked non-ignored files included, external harness entry popped before comparison) is internally consistent with 1721 entries; the manifest/scratch constants are unverifiable from repo bytes.
+- Harness correctness could not be exercised, and I note one structural weakness by reading only: if `worker_postgres` raises before binding `identity`, the `finally` block skips the owned-resource absence assertions, so a failed startup path would report no cleanup evidence. This does not affect the commit under review.
+
+**Risks / refusals**
+
+- This assessment authorizes nothing: no SQL026 installation, no database/container/provider/child/native/filter action, no harness execution, no merge-by-implication. The coordinator retains security, resource, run and merge decisions.
+- It does not and cannot close S13, native proof, full backup/restore, company/private runtime, or business acceptance, and it does not rehabilitate the stale docsafety receipts or the failed CI tooling repair.
+- Residual source-level risk: the frozen hash pin enshrines the pre-rename body, so the "no other byte changed" property is only as strong as that pin's constant (verified here) plus the pglast-based token rule (not executed here).
+
+Overall, the exact commit performs precisely the described nine-token lexical disambiguation, leaves every guard, comment, literal and qualified column reference byte-identical, updates both dependent assertions, adds two equivalence tests with pins I independently confirmed, and introduces no stale pin. I found no source defect; the only unmet evidence is execution of the source-only test suite and any live behaviour, which is explicitly outside what this review may authorize.
+
+## Final assessment
+
+VERDICT: APPROVE 137d65d732e901ab1cd389db25703aafc63a400e

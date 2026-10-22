@@ -1,0 +1,16 @@
+{
+  "actual_main": "aac932c0675368912cb1b88e41fd8a4601f2f1e8",
+  "supersedes_only_unsupported_POP_shared_db_custody_inference": "ddec61cbfe84b206b687c94446e28917a4b06e785223d0d9e142b80cf48279db",
+  "corrected_report": "cb2a24ed735d46828da76fea640443a3181a76a896d5a4f11e194dd7b1cb4fb3",
+  "verified_repo_sources": {
+    "docs/agents/08-data-model-and-external-identifiers.md": "a03977d14e952baf0cd7c2d8190cf865d3c021147c8ebb6f1a8429477e0ef73d",
+    "docs/configuration.md": "f8177a5f81106cf2c4a18d114cefda50c5b9e575d1903b56292ca662a73ca895",
+    "docs/agents/13-deployment.md": "951372a6f29a136480cc7e73b00fb05ed10c6186493d4c204573be134ace2285",
+    "packages/db/drizzle.config.ts": "051af5b0b324c948fef81c04d753bc4caeb1b57c5597dcc6d7392875f12fd40a",
+    "packages/db/src/client.ts": "7a9f4aab8d942014557ed00d705b23664c5d31438f8555a517c8f6220d19c66c",
+    "apps/web/app/channels/[channelId]/_components/channel-chat.tsx": "0c7f5acb4ec9f2c0e1ea7825c3b97eadf316eb6f5f182f1283e9f86989fc1c52",
+    "packages/auth/src/link.ts": "aff5630f87cc9ae761f30ce92e23c32f8f4db4be79fdd8263d0854d164ebbf7a"
+  },
+  "claim": "Repository identifies Oracle-owned theoracle/previousoracle.old; runtime-selected target not inspected. No evidence of POP shared-db target or authority for cross-repository structural claim. Applicable actual source owner/route must be verified before effects.",
+  "no_secrets_live_database_platform_company_or_repo_writes": true
+}

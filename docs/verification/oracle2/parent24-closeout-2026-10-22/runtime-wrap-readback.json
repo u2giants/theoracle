@@ -1,0 +1,43 @@
+{
+  "observed_at": "2026-10-22T12:08:11.308329+00:00",
+  "source": [
+    {
+      "worktree": "/tmp/oracle-parent24-wy02uT/recommendation-security",
+      "head": "b985583296a34b9367a4961c41231423015ca307",
+      "dirty": [],
+      "origin": "https://github.com/u2giants/theoracle.git"
+    },
+    {
+      "worktree": "/tmp/oracle-parent24-wy02uT/recommendation-recipients",
+      "head": "ac5392355b19a025e3371e36bfee903583773b90",
+      "dirty": [],
+      "origin": "https://github.com/u2giants/theoracle.git"
+    },
+    {
+      "worktree": "/tmp/oracle-parent24-wy02uT/recovery-catalog-path",
+      "head": "93435c22b4ea58347158dedcfd54a54bc614093f",
+      "dirty": [],
+      "origin": "https://github.com/u2giants/theoracle.git"
+    },
+    {
+      "worktree": "/tmp/oracle-parent24-wy02uT/recovery-scope-repair",
+      "head": "137d65d732e901ab1cd389db25703aafc63a400e",
+      "dirty": [],
+      "origin": "https://github.com/u2giants/theoracle.git"
+    },
+    {
+      "worktree": "/tmp/oracle-parent24-wy02uT/recovery-catalog-token-repair",
+      "head": "04a4d736fc621001c18e9685081e3c776f14e27e",
+      "dirty": [],
+      "origin": "https://github.com/u2giants/theoracle.git"
+    },
+    {
+      "worktree": "/tmp/oracle-parent24-wy02uT/recovery-observe-fixture",
+      "head": "5f1e0bc0ca4f4feb6ee7c3f87d0502ed61edcd76",
+      "dirty": [],
+      "origin": "https://github.com/u2giants/theoracle.git"
+    }
+  ],
+  "matching_processes": [],
+  "notes": "Read-only cwd/status observation, no commands/credentials/environments exposed; no processes terminated."
+}

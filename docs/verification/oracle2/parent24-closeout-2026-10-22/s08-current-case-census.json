@@ -1,0 +1,18 @@
+{
+  "old_test_functions_unchanged": 26,
+  "new_test_functions": [
+    "test_authority_has_no_unguarded_sql_or_second_connection_owner",
+    "test_commit_close_failure_after_claim_is_unknown_no_readback_or_retry",
+    "test_complete_pinned_target_refuses_before_socket",
+    "test_dns_label_requires_and_uses_exact_pinned_numeric_address",
+    "test_protected_connection_refuses_environment_before_socket",
+    "test_retained_actual_role_tls_target_checks_precede_mutation",
+    "test_same_common_connection_pins_numeric_target_and_startup_bound",
+    "test_same_original_fence_at_every_io_never_releases_or_retries",
+    "test_short_original_monotonic_window_refuses_before_socket"
+  ],
+  "actual_sql_cases": 21,
+  "sql_test_bytes_unchanged": true,
+  "sql021_bytes_unchanged": true,
+  "sql_execution": false
+}

@@ -1,0 +1,15 @@
+# Parent24 closeout preservation, not accepted implementation
+
+Owner: Codex chat 01a16013-c8c6-7113-b307-7d4d516f2bc6 on edge-dev3. Published at owner-requested wrap-up. Retirement: remove only after parent24 completion and verified successor custody; never treat a closed PR or passing test as that authority.
+
+This branch is intentionally **not merged or deployed**. It preserves custom source/history and selected public-invented diagnostic evidence. The separate docs-only handoff identifies exact final consumer heads, all failures, held authority and ordered next actions.
+
+`preserved-source-history.bundle` contains committed Oracle source objects reachable from144 retained branch/ref inputs, excluding history reachable from c187bfc36723ca891ad7558fe202a258ee2f27f8. Verify its bundle prerequisites in a repository already containing that main commit. The excluded independent diagnostic repository has no accepted Oracle implementation; its status/bytes remain in original custody and the source archive. No Git administration, authentication store or runtime private keys is part of the bundle.
+
+`preserved-custom-source.tar.gz` contains147-worktree source classification/readbacks,146 custom tracked-source change records and1433 allowlisted regular custom source copies, including unfinished/obsolete variants. It is **recovery evidence**, not permission to apply every patch. Generated caches, dependency directories, node_modules symlinks, environment files, runtime keys/certificates and raw private evidence were excluded. The original private backup and all original worktrees remain. One unborn diagnostic repository correctly has no HEAD diff. Root committed the already-written S08 and partialV2 sources after the archive census; `closeout-published-source-refs.json` supplies their newer published heads. No source-editing/cleanup occurred during that operation.
+
+Source-pattern sweep found no actual-token/private-key matches in2031 captured regular source/metadata files. This is a bounded check, not an assertion that pattern matching proves absence of every possible secret. Full public-boundary and Markdown-link checks also passed using the exact uninstalled2634 candidate of toolPR1988; the installed checker remains unrepaired. No real credential was newly obtained or changed, and generated disposable invented keys were not stored as live credentials.
+
+Selected manifests bind complete executed source. The original harnesses are frozen historical inputs:08 was never executed;09 ran27 cases with25 failures and2 passes; S12 runners03/04 were never executed. Do not invoke historical hardcoded paths, recycle operation identities or infer resource authority from these files. Bind current exact source/runtime and a fresh review/gate first.
+
+All files are hashed by `SHA256.json`. Review reports are original source-only assessments with their actual limits; no paid provider response is converted into live acceptance. Actual company originals, employee messages, production credentials and private runtime keys are not published here.

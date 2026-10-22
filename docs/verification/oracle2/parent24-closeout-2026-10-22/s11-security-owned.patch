@@ -1,0 +1,426 @@
+diff --git a/services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py b/services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py
+index fa0e2531..094c8a06 100644
+--- a/services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py
++++ b/services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py
+@@ -1,5 +1,7 @@
+ """Fixed advice composition; source numbers, personal feedback, no action effect."""
+ from datetime import datetime,timezone
++from contextlib import ExitStack
++import time
+ from typing import Literal
+ from pydantic import AwareDatetime
+ import hashlib,json,os
+@@ -10,7 +12,7 @@ from ..operating_model.consolidation_contracts_v1 import ConsolidationCoreV1
+ from ..operating_model.consolidation_recommendations_v1 import validate_recommendation_parent
+ from ..operating_model.contracts import ArtifactManifest
+ from ..operating_model.artifact_storage import _parent_fd,_read_private_at
+-from ..operating_model.request_deadline_v1 import request_remaining_v1,sql_remaining_v1
++from ..operating_model.request_deadline_v1 import request_remaining_v1,sql_remaining_v1,_request_fence_v1
+ from ..operating_model.consultant.recommendation_actions_v1 import (
+     RecommendationSelectorV1,FeedbackCommandV1,MeasurementCommandV1,
+     source_bound_measurement_v1,observed_difference_v1)
+@@ -58,9 +60,23 @@ class RecommendationFactoryV1:
+         body=json.loads(data)
+         if canonical_bytes(body)!=data:raise PermissionError('canonical advice bytes required')
+         return body
+-    def _read(self,read,selector,deadline):
++    def _lease(self,status,deadline,leases):
++        # SQL supplies the actual source-read lease. Retain its monotonic cap
++        # until the enclosing execute (including encoding) finishes; later SQL
++        # cannot renew a shorter earlier lease, even across wall-clock rollback.
++        value=status.get('valid_until')
++        if type(value) is not str:raise PermissionError('aware actual advice read lease required')
++        try:until=datetime.fromisoformat(value)
++        except ValueError:raise PermissionError('aware actual advice read lease required') from None
++        if until.tzinfo is None or until.utcoffset() is None:
++            raise PermissionError('aware actual advice read lease required')
++        end=time.monotonic()+sql_remaining_v1(min(deadline,until))
++        leases.enter_context(_request_fence_v1(float(end)))
++        self._time(deadline)
++    def _read(self,read,selector,deadline,leases):
+         self._time(deadline)
+         before=read.read_v1(selector,deadline=deadline,_runtime_recheck=self.settings.current)
++        self._lease(before,deadline,leases)
+         if before['redacted']:
+             return before,None,None,None,None
+         context=before['context']
+@@ -76,6 +92,7 @@ class RecommendationFactoryV1:
+         core=ConsolidationCoreV1.model_validate_json(canonical_bytes(parent_payload['consolidation_core']))
+         presentation=readable_recommendation_evidence_v1(core,item,parent_payload,now=datetime.now(timezone.utc))
+         after=read.read_v1(selector,deadline=deadline,_runtime_recheck=self.settings.current)
++        self._lease(after,deadline,leases)
+         if (after['redacted'] or {k:v for k,v in after.items() if k!='valid_until'}!={k:v for k,v in before.items() if k!='valid_until'}):
+             raise PermissionError('recommendation changed during private read; reload')
+         self._time(deadline)
+@@ -97,27 +114,32 @@ class RecommendationFactoryV1:
+                 else:comparison={'state':'unavailable','observed_difference':None,'causal_savings':False,'realized_savings_verified':False}
+                 public['comparisons'].append({'experiment_id':str(plan.experiment_id),**comparison})
+         return public
+-    def _list(self,read,deadline):
++    def _list(self,read,deadline,leases):
+         before=read.list_v1(deadline=deadline,_runtime_recheck=self.settings.current)
++        self._lease(before,deadline,leases)
+         entries=[]
+         for value in before['selectors']:
+             selector=RecommendationSelectorV1.model_validate_json(canonical_bytes(value))
+-            status,item,core,parent,presentation=self._read(read,selector,deadline)
++            status,item,core,parent,presentation=self._read(read,selector,deadline,leases)
+             if item is None:raise PermissionError('recommendation index changed; reload')
+             entries.append({'selector':selector.model_dump(mode='json'),'label':item.problem[:160],
+                 'label_truncated':len(item.problem)>160,'lens':item.advice['lens']})
+         after=read.list_v1(deadline=deadline,_runtime_recheck=self.settings.current)
++        self._lease(after,deadline,leases)
+         if {k:v for k,v in before.items() if k!='valid_until'}!={k:v for k,v in after.items() if k!='valid_until'}:
+             raise PermissionError('recommendation index changed during private reads; reload')
+         self._time(deadline)
+         return {k:v for k,v in after.items() if k!='selectors'}|{'entries':entries}
+     def execute_v1(self,raw):
++        with ExitStack() as leases:
++            return self._execute_v1(raw,leases)
++    def _execute_v1(self,raw,leases):
+         request=parse_recommendation_request_v1(raw);deadline=request.caller_deadline
+         recorded=False
+         try:
+             self._time(deadline);read,feedback,measurement=self.settings.consumers()
+             if type(request) is ListRecommendationsV1:
+-                encoded=canonical_bytes(self._list(read,deadline));self._time(deadline)
++                encoded=canonical_bytes(self._list(read,deadline,leases));self._time(deadline)
+                 if not 0<len(encoded)<=MAX_RESPONSE:raise PermissionError('bounded recommendation index required')
+                 return encoded
+             if type(request) in (ReconcileFeedbackV1,ReconcileMeasurementV1):
+@@ -131,7 +153,7 @@ class RecommendationFactoryV1:
+                 self._time(deadline)
+                 if not 0<len(encoded)<=4096:raise PermissionError('bounded exact receipt required')
+                 return encoded
+-            status,item,core,parent,presentation=self._read(read,request.selector,deadline)
++            status,item,core,parent,presentation=self._read(read,request.selector,deadline,leases)
+             if type(request) is not InspectRecommendationV1:
+                 if item is None:raise PermissionError('stale/redacted advice cannot accept feedback or measurement')
+                 # No callback/body/role selectors cross the public request boundary.
+@@ -143,7 +165,7 @@ class RecommendationFactoryV1:
+                 recorded=True
+                 try:
+                     self._time(deadline)
+-                    status,item,core,parent,presentation=self._read(read,request.selector,deadline)
++                    status,item,core,parent,presentation=self._read(read,request.selector,deadline,leases)
+                     if status['redacted'] or not any(e['event_id']==receipt['event_id'] for e in status['events']):
+                         raise PermissionError('recorded action cannot be delivered as current')
+                     self._time(deadline)
+diff --git a/services/oracle-brain/oracle_brain/operating_model/artifact_storage.py b/services/oracle-brain/oracle_brain/operating_model/artifact_storage.py
+index 2032008e..aa580387 100644
+--- a/services/oracle-brain/oracle_brain/operating_model/artifact_storage.py
++++ b/services/oracle-brain/oracle_brain/operating_model/artifact_storage.py
+@@ -6,6 +6,7 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from uuid import UUID
+ from .contracts import canonical_bytes
++from .request_deadline_v1 import request_remaining_v1
+ 
+ MAX_ORIGINAL_BYTES=25*1024*1024
+ 
+@@ -58,6 +59,7 @@ def _private_stat(info,*,directory=False):
+         raise PermissionError('immutable private storage ownership/type/link/mode differs')
+ 
+ def _parent_fd(root,parts,*,create,strict=True,expected_root=None):
++    request_remaining_v1(required=False)
+     fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+     try:
+         if strict:_private_stat(os.fstat(fd),directory=True)
+@@ -68,6 +70,7 @@ def _parent_fd(root,parts,*,create,strict=True,expected_root=None):
+             if create:
+                 try:os.mkdir(part,0o700,dir_fd=fd);os.fsync(fd)
+                 except FileExistsError:pass
++            request_remaining_v1(required=False)
+             child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd)
+             try:
+                 if strict:_private_stat(os.fstat(child),directory=True)
+@@ -77,12 +80,16 @@ def _parent_fd(root,parts,*,create,strict=True,expected_root=None):
+     except BaseException:os.close(fd);raise
+ 
+ def _read_private_at(parent,name,limit,*,strict=True):
++    request_remaining_v1(required=False)
+     fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=parent)
+     with os.fdopen(fd,'rb') as stream:
+         before=os.fstat(stream.fileno())
+         if strict:_private_stat(before)
+         if before.st_size>limit:raise ValueError('private object exceeds exact bounded size')
+-        data=stream.read(limit+1);after=os.fstat(stream.fileno())
++        request_remaining_v1(required=False)
++        data=stream.read(limit+1)
++        request_remaining_v1(required=False)
++        after=os.fstat(stream.fileno())
+         if strict:_private_stat(after)
+         if len(data)>limit or (before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_ino,after.st_size,after.st_mtime_ns):
+             raise ValueError('private object changed during read')
+diff --git a/services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py b/services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py
+index f95b225f..bf00f6ad 100644
+--- a/services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py
++++ b/services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py
+@@ -31,7 +31,7 @@ def _connection_v1(url,deadline,*,require_pinned_address=False):
+         raise PermissionError("protected SQL cannot consume PG environment defaults")
+     params=psycopg.conninfo.conninfo_to_dict(url)
+     allowed={'host','hostaddr','port','dbname','user','password','sslmode','sslrootcert','connect_timeout','application_name'}
+-    if (set(params)-allowed or not all(params.get(k) for k in ('host','port','dbname','user','sslmode','sslrootcert'))
++    if (set(params)-allowed or not all(params.get(k) for k in ('host','port','dbname','user','password','sslmode','sslrootcert'))
+             or not Path(params.get('sslrootcert','')).is_absolute() or not params.get('host') or require_pinned_address and not params.get('hostaddr')
+             or any(',' in params.get(k,'') for k in ('host','hostaddr','port'))
+             or params.get('sslmode')!='verify-full' or not params.get('port','5432').isdigit()):
+diff --git a/services/oracle-brain/tests/test_connected_answer_sql_v1.py b/services/oracle-brain/tests/test_connected_answer_sql_v1.py
+index 7694fc33..7b56fc5e 100644
+--- a/services/oracle-brain/tests/test_connected_answer_sql_v1.py
++++ b/services/oracle-brain/tests/test_connected_answer_sql_v1.py
+@@ -164,7 +164,7 @@ def test_original_subtwo_second_fence_refuses_before_any_connection(monkeypatch)
+  monkeypatch.setattr(owner.psycopg,'connect',lambda *a,**kw:pytest.fail('short original window opened a connection'))
+  with _request_fence_v1(float(time.monotonic()+1.5)):
+   with pytest.raises(PermissionError):
+-   with owner._connection_v1('host=sql.invalid hostaddr=127.0.0.1 port=5432 dbname=invented user=invented sslmode=verify-full sslrootcert=/invented',datetime.now(timezone.utc)+timedelta(seconds=10)):pass
++   with owner._connection_v1('host=sql.invalid hostaddr=127.0.0.1 port=5432 dbname=invented user=invented password=invented-only sslmode=verify-full sslrootcert=/invented',datetime.now(timezone.utc)+timedelta(seconds=10)):pass
+ 
+ 
+ def test_actual_missing_captured_window_is_denied_but_legacy_source_API_retained(admin_url,processing,tmp_path):
+diff --git a/services/oracle-brain/tests/test_original_byte_storage.py b/services/oracle-brain/tests/test_original_byte_storage.py
+index 8540aa16..4b856ac6 100644
+--- a/services/oracle-brain/tests/test_original_byte_storage.py
++++ b/services/oracle-brain/tests/test_original_byte_storage.py
+@@ -92,3 +92,59 @@ def test_same_object_client_conditional_write_readback_and_bounded_mismatch():
+     with pytest.raises(ValueError):store._read_original_bytes(r)
+     with pytest.raises(ValueError):store._put_original_bytes(r,data)
+     assert all(b.closed for b in client.bodies)
++
++
++@pytest.mark.parametrize('phase',['root','component','file','before-read','after-read'])
++def test_same_original_request_fence_guards_actual_private_open_and_bytes(tmp_path,monkeypatch,phase):
++    from oracle_brain.operating_model import artifact_storage as storage
++    from oracle_brain.operating_model import request_deadline_v1 as fence
++    root=tmp_path/'bounded';root.mkdir(mode=0o700);child=root/'child';child.mkdir(mode=0o700)
++    path=child/'bytes';path.write_bytes(b'actual invented bytes');path.chmod(0o600)
++    tick=[10.];opened=[];reads=[]
++    monkeypatch.setattr(fence.time,'monotonic',lambda:tick[0])
++    original_open=os.open;original_stat=os.fstat;original_fdopen=os.fdopen
++    def tracked_open(name,*args,**kwargs):
++        fd=original_open(name,*args,**kwargs);opened.append(str(name))
++        if phase=='component' and str(name)==str(root):tick[0]=20.
++        return fd
++    def tracked_stat(fd):
++        value=original_stat(fd)
++        if phase=='before-read' and value.st_ino==path.stat().st_ino:tick[0]=20.
++        return value
++    class Stream:
++        def __init__(self,inner):self.inner=inner
++        def __enter__(self):self.inner.__enter__();return self
++        def __exit__(self,*args):return self.inner.__exit__(*args)
++        def fileno(self):return self.inner.fileno()
++        def read(self,limit):
++            reads.append(limit);value=self.inner.read(limit)
++            if phase=='after-read':tick[0]=20.
++            return value
++    monkeypatch.setattr(os,'open',tracked_open)
++    monkeypatch.setattr(os,'fstat',tracked_stat)
++    monkeypatch.setattr(os,'fdopen',lambda *a,**kw:Stream(original_fdopen(*a,**kw)))
++    with fence._request_fence_v1(20.):
++        if phase=='root':
++            tick[0]=20.
++            with pytest.raises(PermissionError):storage._parent_fd(root,['child'],create=False)
++            assert opened==[]
++        elif phase=='component':
++            with pytest.raises(PermissionError):storage._parent_fd(root,['child'],create=False)
++            assert opened==[str(root)]
++        else:
++            parent=storage._parent_fd(root,['child'],create=False)
++            try:
++                if phase=='file':tick[0]=20.
++                with pytest.raises(PermissionError):storage._read_private_at(parent,'bytes',100)
++            finally:os.close(parent)
++            assert ('bytes' in opened)==(phase!='file')
++    assert len(reads)==(1 if phase=='after-read' else 0)
++
++
++def test_same_private_helpers_preserve_uncaptured_legacy_read(tmp_path):
++    from oracle_brain.operating_model import artifact_storage as storage
++    root=tmp_path/'legacy-private';root.mkdir(mode=0o700)
++    path=root/'original';path.write_bytes(b'unchanged');path.chmod(0o600)
++    parent=storage._parent_fd(root,[],create=False)
++    try:assert storage._read_private_at(parent,'original',9)==b'unchanged'
++    finally:os.close(parent)
+diff --git a/services/oracle-brain/tests/test_protected_sql_connection_v1.py b/services/oracle-brain/tests/test_protected_sql_connection_v1.py
+index 7fcd038d..e6eb8710 100644
+--- a/services/oracle-brain/tests/test_protected_sql_connection_v1.py
++++ b/services/oracle-brain/tests/test_protected_sql_connection_v1.py
+@@ -5,7 +5,7 @@ import pytest
+ from oracle_brain.operating_model import protected_sql_connection_v1 as owner
+ from oracle_brain.operating_model import request_deadline_v1 as window
+ 
+-URL='host=127.0.0.1 port=55432 dbname=invented user=invented sslmode=verify-full sslrootcert=/invented/ca.pem'
++URL='host=127.0.0.1 port=55432 dbname=invented user=invented password=invented-only sslmode=verify-full sslrootcert=/invented/ca.pem'
+ 
+ @pytest.fixture
+ def recorded(monkeypatch):
+@@ -34,7 +34,7 @@ def test_environment_refusal_precedes_socket(recorded,monkeypatch,key):
+   with owner._connection_v1(URL,datetime.now(timezone.utc)+timedelta(seconds=20)):pass
+  assert not calls and not c.sent
+ 
+-@pytest.mark.parametrize('field',['host','port','dbname','user','sslmode','sslrootcert'])
++@pytest.mark.parametrize('field',['host','port','dbname','user','password','sslmode','sslrootcert'])
+ def test_incomplete_target_refuses_before_socket(recorded,field):
+  c,calls,tick=recorded;url=' '.join(x for x in URL.split() if not x.startswith(field+'='))
+  with window._request_fence_v1(30.),pytest.raises(PermissionError):
+@@ -214,3 +214,10 @@ def test_compiler_preserves_atomic_hook_and_postwrite_unknown_without_resend(rec
+  assert all(conn.closed for conn in connections)
+  if fault=='private_late':assert calls==[]
+  else:assert len(connections)<=2
++
++
++def test_explicit_empty_password_cannot_consume_password_file(recorded):
++ c,calls,tick=recorded
++ with window._request_fence_v1(30.),pytest.raises(PermissionError):
++  with owner._connection_v1(URL.replace('password=invented-only', "password=''"),datetime.now(timezone.utc)+timedelta(seconds=20)):pass
++ assert calls==[] and c.sent==[]
+diff --git a/services/oracle-brain/tests/test_recommendation_actions_service_v1.py b/services/oracle-brain/tests/test_recommendation_actions_service_v1.py
+index c1c8913e..4c804ce4 100644
+--- a/services/oracle-brain/tests/test_recommendation_actions_service_v1.py
++++ b/services/oracle-brain/tests/test_recommendation_actions_service_v1.py
+@@ -47,3 +47,113 @@ def test_reconcile_is_exact_command_identity_without_body_history_or_newdecision
+  body=request(operation)
+  for field,value in [('expected_head',0),('reason','retry'),('decision','accept'),('number','12')]:
+   with pytest.raises((ValueError,PermissionError)):parse_recommendation_request_v1(canonical_bytes(body|{field:value}))
++
++
++@pytest.fixture
++def private_lease_case(tmp_path,monkeypatch):
++ """Actual immutable local files; SQL result seam is NOT installed authority."""
++ import hashlib,os
++ from types import SimpleNamespace
++ from oracle_brain.hosting import recommendation_actions_v1 as service
++ from oracle_brain.operating_model import request_deadline_v1 as fence
++ from oracle_brain.operating_model.contracts import ArtifactManifest
++ tick=[100.];wall=[datetime.now(timezone.utc)]
++ class Clock:
++  now=staticmethod(lambda tz=None:wall[0])
++  fromisoformat=staticmethod(datetime.fromisoformat)
++ monkeypatch.setattr(service,'datetime',Clock)
++ monkeypatch.setattr(service.time,'monotonic',lambda:tick[0])
++ body=request();deadline=wall[0]+timedelta(seconds=20)
++ body['caller_deadline']=deadline.isoformat().replace('+00:00','Z')
++ selected=service.parse_recommendation_request_v1(canonical_bytes(body)).selector
++ workspace=uuid4();root=tmp_path/'private';root.mkdir(mode=0o700)
++ directory=root/'operating-model'/str(workspace);directory.mkdir(parents=True,mode=0o700)
++ (root/'operating-model').chmod(0o700)
++ manifests=[]
++ for index,payload in enumerate(({'recommendations':[]},{'consolidation_core':{}})):
++  raw=canonical_bytes(payload);sha=hashlib.sha256(raw).hexdigest();path=directory/(sha+'.json');path.write_bytes(raw);path.chmod(0o600)
++  manifests.append(ArtifactManifest(workspace_id=workspace,artifact_id=selected.artifact_id,version=1,kind='processing_recommendation_v1' if index==0 else 'processing_qualified_model_v1',input_digest='a'*64,source_digest='b'*64,permission_digest='c'*64,compiler_digest='d'*64,dependency_digest='e'*64,content_hash=sha,private_object_key=f'operating-model/{workspace}/{sha}.json',state='ready'))
++ status={'redacted':False,'valid_until':(wall[0]+timedelta(seconds=2)).isoformat(),'context':dict(manifest=manifests[0].model_dump(mode='json'),parentManifest=manifests[1].model_dump(mode='json'))}
++ class Reader:
++  calls=0
++  def read_v1(self,*args,**kwargs):self.calls+=1;return dict(status)
++ reader=Reader();factory=object.__new__(service.RecommendationFactoryV1)
++ info=root.stat();factory.settings=SimpleNamespace(current=lambda:deadline,consumers=lambda:(reader,None,None),config=SimpleNamespace(workspace_id=workspace,storage_root=str(root),storage_device=info.st_dev,storage_inode=info.st_ino,storage_uid=info.st_uid))
++ item=SimpleNamespace(recommendation_id=selected.recommendation_id,problem='Invented problem',advice={'lens':'operations'})
++ monkeypatch.setattr(service,'validate_recommendation_parent',lambda *args:SimpleNamespace(recommendations=(item,)))
++ monkeypatch.setattr(service,'ConsolidationCoreV1',SimpleNamespace(model_validate_json=lambda raw:object()))
++ monkeypatch.setattr(service,'readable_recommendation_evidence_v1',lambda *a,**kw:{})
++ monkeypatch.setattr(factory,'_public',lambda *a:{'invented':True})
++ return SimpleNamespace(service=service,fence=fence,tick=tick,wall=wall,deadline=deadline,raw=canonical_bytes(body),selector=selected,status=status,reader=reader,factory=factory,root=root)
++
++
++@pytest.mark.parametrize('lease',[None,True,'not-time','2026-10-22T12:00:00'])
++def test_actual_read_lease_invalid_before_any_private_open(private_lease_case,monkeypatch,lease):
++ c=private_lease_case;c.status['valid_until']=lease;opened=[]
++ monkeypatch.setattr(c.service,'_parent_fd',lambda *a,**kw:opened.append(a))
++ with c.fence._request_fence_v1(130.),pytest.raises(PermissionError,match='aware'):
++  c.factory.execute_v1(c.raw)
++ assert opened==[] and c.reader.calls==1
++
++
++def test_source_read_lease_expired_at_sql_return_opens_no_private_bytes(private_lease_case,monkeypatch):
++ c=private_lease_case;opened=[];c.status['valid_until']=(c.wall[0]-timedelta(seconds=1)).isoformat()
++ monkeypatch.setattr(c.service,'_parent_fd',lambda *a,**kw:opened.append(a))
++ with c.fence._request_fence_v1(130.),pytest.raises(PermissionError):c.factory.execute_v1(c.raw)
++ assert opened==[]
++
++
++def test_first_private_body_expiry_blocks_second_body(private_lease_case,monkeypatch):
++ c=private_lease_case;original=c.factory._body;read=[]
++ def body(manifest):
++  result=original(manifest);read.append(manifest.content_hash);c.tick[0]=103.;return result
++ monkeypatch.setattr(c.factory,'_body',body)
++ with c.fence._request_fence_v1(130.),pytest.raises(PermissionError):c.factory.execute_v1(c.raw)
++ assert len(read)==1 and c.reader.calls==1
++
++
++def test_actual_shorter_lease_survives_read_until_final_encode_even_wall_rollback(private_lease_case,monkeypatch):
++ c=private_lease_case
++ def public(*args):
++  c.tick[0]=103.;c.wall[0]-=timedelta(hours=1)
++  return {'invented':True}
++ monkeypatch.setattr(c.factory,'_public',public)
++ with c.fence._request_fence_v1(130.):
++  with pytest.raises(PermissionError,match='fence elapsed'):c.factory.execute_v1(c.raw)
++  # ExitStack releases only this execute's restrictions, never the listener's.
++  assert c.fence.request_remaining_v1()==27.
++ assert c.reader.calls==2
++
++
++def test_index_cannot_renew_first_items_shorter_lease(private_lease_case,monkeypatch):
++ c=private_lease_case;raw=canonical_bytes(dict(schema_version=1,operation='list',caller_deadline=c.deadline.isoformat().replace('+00:00','Z')))
++ value=c.selector.model_dump(mode='json');count=[0]
++ def listing(**kwargs):return {'selectors':[value,value],'valid_until':c.deadline.isoformat()}
++ c.reader.list_v1=listing;original=c.factory._read
++ def read(*args):
++  result=original(*args);count[0]+=1
++  if count[0]==1:
++   c.status['valid_until']=c.deadline.isoformat();c.tick[0]=103.;c.wall[0]-=timedelta(hours=1)
++  return result
++ monkeypatch.setattr(c.factory,'_read',read)
++ with c.fence._request_fence_v1(130.),pytest.raises(PermissionError,match='fence elapsed'):c.factory.execute_v1(raw)
++ assert count==[1] and c.reader.calls==2
++
++
++def test_current_actual_local_bodies_and_legacy_outer_fence_work(private_lease_case):
++ c=private_lease_case
++ with c.fence._request_fence_v1(130.):assert c.factory.execute_v1(c.raw)==b'{"invented":true}'
++ assert c.reader.calls==2
++
++
++def test_postwrite_actual_lease_loss_remains_unknown_without_resend(private_lease_case):
++ from types import SimpleNamespace
++ from oracle_brain.operating_model.consultant.recommendation_authority_v1 import RecommendationOutcomeUnknown
++ c=private_lease_case;body=request('feedback');body['selector']=c.selector.model_dump(mode='json');body['caller_deadline']=c.deadline.isoformat().replace('+00:00','Z');writes=[]
++ def feedback(*args,**kwargs):
++  writes.append(args);c.tick[0]=103.
++  return {'event_id':str(uuid4())}
++ c.factory.settings.consumers=lambda:(c.reader,SimpleNamespace(feedback_v1=feedback),None)
++ with c.fence._request_fence_v1(130.),pytest.raises(RecommendationOutcomeUnknown,match='never resend'):
++  c.factory.execute_v1(canonical_bytes(body))
++ assert len(writes)==1 and c.reader.calls==2
+diff --git a/services/oracle-brain/tests/test_recommendation_actions_sql.py b/services/oracle-brain/tests/test_recommendation_actions_sql.py
+index 52f4f01d..0f7c1e73 100644
+--- a/services/oracle-brain/tests/test_recommendation_actions_sql.py
++++ b/services/oracle-brain/tests/test_recommendation_actions_sql.py
+@@ -634,9 +634,9 @@ def test_actual_list_more_than_64_qualified_recommendations_has_explicit_gap(adv
+ def test_actual_mtls_new_registration_between_list_passes_withholds_index(advice_fixture,tmp_path,certificates,monkeypatch):
+  from oracle_brain.hosting.recommendation_actions_v1 import RecommendationFactoryV1
+  f=advice_fixture;original=RecommendationFactoryV1._read;changed=False
+- def changed_read(self,read,selector,deadline):
++ def changed_read(self,read,selector,deadline,leases):
+   nonlocal changed
+-  value=original(self,read,selector,deadline)
++  value=original(self,read,selector,deadline,leases)
+   if not changed:
+    changed=True;additional_advice(f,deadline)
+   return value
+@@ -677,12 +677,12 @@ def test_actual_web_envelope_refuses_caller_identity_or_command_selectors(advice
+ def test_actual_web_envelope_post_write_revocation_retains_one_write_unknown(advice_fixture,tmp_path,certificates,monkeypatch):
+  from oracle_brain.hosting.recommendation_actions_v1 import RecommendationFactoryV1
+  f=advice_fixture;original=RecommendationFactoryV1._read;reads=0
+- def revoked_read(self,reader,selector,deadline):
++ def revoked_read(self,reader,selector,deadline,leases):
+   nonlocal reads
+   reads+=1
+   if reads==2:
+    with admin(f['admin_url']) as c:c.execute('INSERT INTO oracle2.recommendation_action_revocations_v1(admission_id) VALUES(%s)',(f['read'].binding.appointment_id,))
+-  return original(self,reader,selector,deadline)
++  return original(self,reader,selector,deadline,leases)
+  monkeypatch.setattr(RecommendationFactoryV1,'_read',revoked_read)
+  with advice_listener(f,tmp_path,certificates,web=True) as (server,settings):
+   code,body=tls_request(server,certificates,canonical_bytes(command(f).model_dump(mode='json')))

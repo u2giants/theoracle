@@ -1,0 +1,59 @@
+{
+  "scope": "freeform plan debate only; no formal approval",
+  "source_head": "137d65d732e901ab1cd389db25703aafc63a400e",
+  "source_clean": true,
+  "current_main_observed": "c187bfc36723ca891ad7558fe202a258ee2f27f8",
+  "session": "20261022-061721-2132163",
+  "requested_turns": 2,
+  "unintended_help_turn_session": "20261022-061544-1879563",
+  "unintended_help_turns": 1,
+  "source_modified": false,
+  "native_executed": false,
+  "syscall_experiments": false,
+  "sql_executed": false,
+  "formal_review": false,
+  "authority_granted": false,
+  "disposition": "DeepSeek conceded D1 and D5-total; remaining concrete root decisions not ratified",
+  "artifacts": [
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-root-design-v2.md",
+      "size": 12654,
+      "sha256": "d8e83e6c55c9744cb5e481c423b9f0d46bdecd984ffcd5d73442b9951c8d372d"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v2-independent-position.md",
+      "size": 4212,
+      "sha256": "b2242cc755c3bd3e48c9dddbdb6a7cf94b97c4529d7fe9e94be9ec87690cef0a"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v2-before-debate-gate.txt",
+      "size": 317,
+      "sha256": "9887585a19ae4b2c9e42fb7b7a109bf53b276a540f317acba1563f810f3c6b93"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v2-deepseek-debate.txt",
+      "size": 16993,
+      "sha256": "3d69412627a83939d49b08fab11339c9d6f239a342430f136420615e2be3749c"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v2-before-rebuttal-gate.txt",
+      "size": 317,
+      "sha256": "9887585a19ae4b2c9e42fb7b7a109bf53b276a540f317acba1563f810f3c6b93"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v2-deepseek-rebuttal.txt",
+      "size": 11160,
+      "sha256": "15201019a543dba9bc88016d813bb67d736ec95770a24042e49f940722b4c975"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v3-delta-proposal.md",
+      "size": 11767,
+      "sha256": "4f69a1a5a6741a6a13d9ad100e7f61444b0f042c8ed5c86044c332260e8e6837"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-deepseek-unintended-help-turn.txt",
+      "size": 439,
+      "sha256": "82642c5d1055a68e8a8aa184ab0378bff3d990da268fa1f7d31eba8c5ebc7554"
+    }
+  ]
+}

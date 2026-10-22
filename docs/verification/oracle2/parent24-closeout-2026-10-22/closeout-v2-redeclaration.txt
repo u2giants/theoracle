@@ -1,0 +1,2 @@
+task class "shared-db" recorded for u2giants/theoracle (/tmp/oracle-parent24-wy02uT/recovery-child-pure-v2)
+base: c187bfc36723

@@ -1,0 +1,20 @@
+{
+  "worktree": "/tmp/oracle-parent24-wy02uT/recovery-child-pure-v2",
+  "base": "c187bfc36723ca891ad7558fe202a258ee2f27f8",
+  "head": "63c019038bd9496e052607577579409877dad657",
+  "dirty": [
+    " M services/oracle-brain/oracle_brain/operating_model/recovery_contracts_v1.py"
+  ],
+  "prerequisites": "Complete2633 S13 successor plus exact three-file TAR member extraction imported63c01903; all source retained",
+  "source_count": 1724,
+  "source_manifest_sha256": "806c200c3d327c8c16390ebdd4fdb79ba7cb0be87ebccfd4d0be487fcea2dbe3",
+  "owned_patch_sha256": "d2bf808b7c79d500075b6aa3768262b906eaf4a2659da0aa8a5bc2047943ba10",
+  "complete_patch_sha256": "8b75183cbea24d7211bdd1e54fe07958be04af60eaabec0c906570a716668abe",
+  "partial_source": "Only appended V2 DTOs/parsers in existing recovery_contracts_v1.py; untested, unreviewed, not complete. BPF builder/evaluator/variant verification not authored. No execution branch authored.",
+  "actual_effects": false,
+  "child_or_filter_or_prlimit_or_native_execution": false,
+  "database_or_private_archive": false,
+  "new_review_or_installation": false,
+  "scratch09_exists": true,
+  "next_step": "Root publishes preserved partial source and single handoff; future owner reads v3+argument-policy-v4, audits partial DTO decisions, completes exact emitted-byte BPF/evaluator tests and variant binding with V1 regression before qualification. No activation."
+}

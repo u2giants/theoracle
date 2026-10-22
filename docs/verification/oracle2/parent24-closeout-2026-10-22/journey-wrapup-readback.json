@@ -1,0 +1,89 @@
+{
+  "worktrees": [
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/workspace-preauth-current",
+      "head": "7defd1eeeaccad46ba04b96952c439305065c796",
+      "dirty": []
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/workspace-preauth-origin",
+      "head": "9903fbb394ce76e812e19bafabe7c753e14177a9",
+      "dirty": [
+        " M apps/web/components/consultant/qualified-workspace.tsx",
+        " M apps/web/lib/replacement-protected-control-route.test.ts",
+        " M apps/web/proxy.ts",
+        " M apps/web/tests/oracle2/invented-auth-service.ts",
+        " M packages/shared/src/protected-server-binding.ts",
+        " M services/oracle-brain/tests/test_connected_answer_sdk_sql_v1.py",
+        "?? apps/web/lib/replacement-recipient-origin.test.ts",
+        "?? apps/web/tests/oracle2/workspace-next-recipients-proof.ts",
+        "?? services/oracle-brain/tests/invented_next_employee_fixture_v1.py",
+        "?? services/oracle-brain/tests/test_workspace_next_recipients_sql_v1.py",
+        "?? services/oracle-brain/tests/test_workspace_workflow_fixture_v1.py"
+      ]
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/participation-current-consumer",
+      "head": "9903fbb394ce76e812e19bafabe7c753e14177a9",
+      "dirty": [
+        "A  services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py",
+        " M services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py",
+        "A  services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py",
+        "A  services/oracle-brain/sql/021_meeting_participation.sql",
+        "A  services/oracle-brain/tests/test_meeting_participation_control_v1.py",
+        "A  services/oracle-brain/tests/test_meeting_participation_sql.py",
+        "AM services/oracle-brain/tests/test_meeting_participation_v1.py",
+        "A  services/oracle-brain/tests/test_meeting_participation_wire_v1.py"
+      ]
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/recovery-tar-policy",
+      "head": "9903fbb394ce76e812e19bafabe7c753e14177a9",
+      "dirty": [
+        " M dev/oracle2/test_canonical_schema.py",
+        " M docs/verification/oracle2/S13-recovery.md",
+        " M scripts/oracle2/verify_workflow_integrity.py",
+        " M services/oracle-brain/oracle_brain/hosting/forward_recovery.py",
+        " M services/oracle-brain/oracle_brain/hosting/restore_receipts.py",
+        "?? services/oracle-brain/oracle_brain/hosting/private_archive_policy_v1.py",
+        "?? services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py",
+        "?? services/oracle-brain/oracle_brain/operating_model/recovery_contracts_v1.py",
+        "?? services/oracle-brain/sql/021_meeting_participation.sql",
+        "?? services/oracle-brain/sql/024_question_effects.sql",
+        "?? services/oracle-brain/sql/025_recommendation_actions.sql",
+        "?? services/oracle-brain/sql/026_operational_recovery.sql",
+        "?? services/oracle-brain/sql/027_legacy_migration.sql",
+        "?? services/oracle-brain/tests/test_private_archive_policy_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_archive_child_contract_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_authority_sql_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_backup_custody_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_contracts_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_current_orchestration_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_dump_catalog_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_immutable_output_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_installer_shape_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_migration_tail_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_native_inspection_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_protected_settings_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_resource_bounds_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_retained_native_output_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_runtime_manifest_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_sql_source_v1.py",
+        "?? services/oracle-brain/tests/test_recovery_streaming_archive_v1.py",
+        "?? services/oracle-brain/tests/test_replacement_recovery_archive_v1.py"
+      ]
+    }
+  ],
+  "owned_active_processes": [],
+  "unexecuted_proof_directories": {
+    "/tmp/oracle-parent24-wy02uT/s12-current-preauth-owned-proof-03": {
+      "exists": false
+    },
+    "/tmp/oracle-parent24-wy02uT/s12-current-preauth-owned-proof-04": {
+      "exists": false
+    }
+  },
+  "runner04_sha256": "5b05cb4a41a8bc50b6284b4c1d09fa99b7003deb0680e8e9fd5063fd48731911",
+  "runner04_offline_tests": "3 passed in0.27s, fake gate/startup only; no resource proof",
+  "diagnostic_source": "NOT STARTED; no new diagnostic worktree/source was created before wrap-up"
+}

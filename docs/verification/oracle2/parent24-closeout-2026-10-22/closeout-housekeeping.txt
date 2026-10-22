@@ -1,0 +1,10 @@
+Housekeeping summary — /home/ahazan/repos/oracle
+GitHub: available
+Worktrees (machine-local): 66 LIVE, 59 MERGED CANDIDATE, 207 UNKNOWN
+Branches (machine-local): 1 LIVE, 78 MERGED CANDIDATE, 278 UNKNOWN, 57 identical-SHA, 62 no-worktree
+Handoffs (git-shared): 26 OPEN, 1 SUCCESSOR REVIEW, 0 UNPROVABLE, 4 UNATTRIBUTED
+Plans (git-shared): 16 active, 0 retained record
+Agent job records (machine-local): glm 586 (oldest 2026-09-25+07:47:12.3082122620) kimi 0 qwen 443 (oldest 2026-09-24+12:55:06.0000000000)
+Odd refs (clone-local): 0 unowned
+Log: /home/ahazan/.cache/ai-housekeeping.log
+Nothing was changed.

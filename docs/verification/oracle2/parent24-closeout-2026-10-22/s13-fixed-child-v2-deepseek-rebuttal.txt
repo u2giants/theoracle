@@ -1,0 +1,62 @@
+Retained turn session: 20261022-061721-2132163
+## PLAN-ONLY debate evidence. No approval, no availability, no authority granted.
+
+### Direct answers
+
+**(1) Yes — I concede D1, and my "export attempt as a qualification step" was wrong.**
+
+The privilege restriction is decisive, not incidental: `PTRACE_SECCOMP_GET_FILTER` requires `CAP_SYS_ADMIN` in the caller's user namespace (and the caller is additionally blocked when it is itself in strict/filter seccomp mode). Being the ptrace ancestor and being same-UID are *necessary but not sufficient*; they satisfy `ptrace_access_check`-class and `ptrace_parent()` conditions while `capable(CAP_SYS_ADMIN)` fails. With a retained actual `CapEff 0` observation and a standing prohibition on acquiring privileges, the request is guaranteed to fail by construction, and an export step would therefore be either noise or, worse, an implicit invitation to escalate to retry it. My suggestion was also a category error for this plan: it would have made an *unavailable and unacquirable* capability a soft prerequisite, which is precisely the "infer availability" move root forbids. **Withdraw D1 as a requirement.**
+
+What legitimately replaces it is a wording obligation only, not a step:
+- v2 text at `…v2.md`, "Exact postseal enforcement" says *"Exact filter bytes cannot be exported with current privileges"*. Restate the reason precisely: *the design does not rely on kernel-exported filter bytes; export requires `CAP_SYS_ADMIN` in the caller's user namespace and a caller not in seccomp filter mode, neither of which this design obtains or will attempt to obtain.*
+- Add the symmetric negative: an `EACCES` from any such request is evidence of nothing about the installed filter, must never be recorded as verification, and must never trigger a privilege acquisition, ptrace escalation, or weaker-evidence substitution.
+- Keep `kernel_exported_filter_bytes_verified=false` and the "never equate mode/count with exported-byte proof" sentence unchanged. That model is honest and I do not contest it. Confidence: high.
+
+**(2) Yes — I concede the `total_bytes` half of D5.** The arithmetic chain is closed in the actual sources:
+- `restore_receipts.py:36` — `Seal.size` is `ge=0, le=512 MiB`: non-negative bounded int, so ordinary sum semantics with no signed/overflow games.
+- `restore_receipts.py:286-289` — `checked` re-asserts `sum(v.size for v in self.files.values()) == self.total_bytes` (plus sorted-key closure at `:288`).
+- The type/validator precondition genuinely holds on every path: `forward_recovery.py:237-238`, `:253-255`, `:291-292`, `:326-327`, `:734-735` all require `type(inventory) is ReplacementArchiveInventoryV1` **and** re-run `model_validate(...)`, so a duck-typed object cannot smuggle an unchecked total past it.
+- `forward_recovery.py:208` — each regular-file member must satisfy `member.size == seal.size`.
+- `forward_recovery.py:224-225` — population equality plus per-member hash equality.
+- `forward_recovery.py:216-221` — the declared per-member byte count is the byte count actually streamed, with overrun and truncation denial.
+
+Therefore successful validation proves `Σ actual member bytes == Σ seal.size == inventory.total_bytes`, so the `total_bytes` reported at `forward_recovery.py:268` cannot be attacker-chosen. There is no arbitrary-total survivor, and duplicating that arithmetic inside a verbatim-extracted parser to "re-observe" it would be a text change with zero security value. **Withdraw that sub-point.**
+
+Two narrow residues I keep, both costing nothing:
+- Because the equality makes the reported `total_bytes` *derivable* from installed-input metadata, it carries no independent information. Parent should treat it as a consistency check, not as evidence — and must not present "child total == inventory total" as a cross-check of the child.
+- The lineage that *is* independent should be the one already in the source: `forward_recovery.py:202` (`total<=MAX_TOTAL`) and `:741` (`total_bytes: sum(len(v) ...)` on the byte path). Note these are the parser's own arithmetic too; the honest statement is "one parser, one arithmetic, proven equal to the sealed inventory," not "two independent observations."
+
+**What survives from D5 is only the rusage half, and it is unaffected by (2):** `RecoveryArchiveChildResultV1` requires child-authored `actual_memory_limit_bytes`, `actual_max_rss_kib`, `actual_user_seconds`, `actual_system_seconds` (`recovery_contracts_v1.py:961-964`, with exact-type coercion checks at `:974-978`), while the child can neither `wait4` itself nor call `getrusage` under the allowlist, and v2's prose says parent rusage comes from actual `wait4`, "never trusted child claims." That contradiction stands as written.
+
+### Corrections I accept (with the residual each leaves)
+
+| Item | Status | Residual, if any |
+|---|---|---|
+| D2 handshake identity/ordering | Accepted | Still needs the concrete text: pre-seal `getpgrp()==getsid(0)==getpid()`, parent `/proc/<pid>/stat` pgrp/session match, group-scoped kill. |
+| D3 late/terminal wait | Accepted | Still needs: terminal `WNOHANG\|WUNTRACED` wait against original monotonic remaining; post-handshake stop = refusal; complete-frame-plus-stop ≠ success. |
+| D4 exit path | Accepted | Still needs: write-all → flush → `os._exit(0)`; no finalization/atexit; post-frame `SIGSYS` = refusal. |
+| D6 wait4/group/pre-exec owner | Accepted | Still needs the concrete waiter, exclusive reaper, `killpg` paths, and that `preexec_fn` in a threaded server (`forward_recovery.py:49-54`, `:30`) is not the limit mechanism for this branch. |
+| D7 allocator | Accepted | Still needs `M_TRIM_THRESHOLD`/`M_TOP_PAD` named alongside arena/threshold, the single named tunable entry channel, and VMA-count headroom (`vm.max_map_count`) as the real ceiling under mmap-per-allocation. |
+| D9 import closure | Accepted | Still needs the exact installed-metadata-derived `sys.path` list inserted pre-seal under `-I -S -B` (no `.pth`, no caller path). |
+
+**D8 — I concede it is not *logically* necessary; I keep it as free defense.** Correct: if a trusted single-threaded bootstrap and the step-7 thread-count readback are real, a non-`TSYNC` install is sound. My residual is narrower than my earlier wording: the design's safety then rests entirely on that precondition, so the operative requirement is the one you already state — pre-install **and** post-install thread-count readback plus parent-side post-seal `/proc/<pid>/task` census, since child `/proc` opens are denied. `SECCOMP_FILTER_FLAG_TSYNC` costs one flag and no privilege; I would still add it, but the plan must not *depend* on it and must not treat its absence as a defect. Downgraded to recommended, not required.
+
+**D12 — I concede.** "Existing filters cannot be removed and may only restrict further" is a kernel-invariant statement (`PR_SET_NO_NEW_PRIVS` + additive stacking), not an assertion that a legal further-install path exists in this design. With `prctl`/`seccomp` denied post-install and exactly one install site named, the sentence is correct as written. No change required beyond "exactly one install site."
+
+**D10 — I concede the framing error.** `RUNTIME_FILE_AGGREGATE_LIMIT_V1=34359738368` (`recovery_contracts_v1.py:990`) is a *maximum allowed*, not an expected size, and I should not have proposed narrowing "full closure" to exec files only. Full-closure verification is not weakenable, and the parent's `ContextVar` deadline binding (`recovery_authority_v1.py:369-370`, `:380`) is the right mechanism, not a reason to shrink scope. The residual is a **work partition and budgeting statement**, not a scope reduction: (a) the child's pre-seal steps (4)-(7) are where closure work must fit, since post-seal opens are denied; (b) that work must be bounded by the original remaining window and **refuse** on excess rather than truncate the census or extend the window; (c) the control record must carry the parent-verified closure/installation digests so the child's loaded-mapping check is a comparison, and the parent's full verification remains mandatory and non-substitutable. Separately, `recovery_authority_v1.py:381-382` shows the "physical authority" read is `SC_AVPHYS_PAGES` free-page availability — that is not a per-process ceiling, so naming the `RLIMIT_AS` value's provenance explicitly is still needed and is not a weakening.
+
+### Still-unresolved source-plan clarifications (disputed or textually incomplete)
+
+1. **D5-remainder (rusage authorship)** — `recovery_contracts_v1.py:961-964` vs v2's "parent rusage from actual wait4, never trusted child claims." Needs the explicit field-ownership split, and if rusage moves to parent observation that is an incompatible change belonging in the reserved protocol-v2 record, not the v1 record. *(high confidence)*
+2. **D2 plumbing / D3 late stop / D4 exit path / D6 waiter+group-kill+pre-exec mechanism** — accepted in principle, not yet in text. *(high)*
+3. **D7 allocator tunables + tunable entry channel + VMA-count headroom** — accepted, needs the three specifics named. *(moderate-high on the glibc `systrim`→brk mechanism; no experiment performed, and "unsupported" is the acceptable outcome)*
+4. **D9 pre-seal `sys.path`/import closure** — accepted, needs the exact closed list. *(high)*
+5. **D10 partition/budget wording** — full closure retained; state the pre-seal budget, refuse-on-excess, parent-verified digest in control, and the `RLIMIT_AS` provenance. *(high)*
+6. **D1 wording** — capability-based reason plus the "EACCES is not evidence and never triggers escalation" negative. *(high)*
+7. **D5-arithmetic residue (trivial)** — say "one parser, one arithmetic proven equal to the sealed inventory," and do not market the reported total as independent evidence. *(high)*
+8. **D8 downgraded** — TSYNC recommended; dependency is thread-count readback + parent `/proc` task census. *(high)*
+9. Unchanged from before and not reopened by this exchange: per-variant vdso byte commitment must be pinned per actual boot/CPU variant, or it degrades to permanent refusal; `munmap` should be described as argument-unconstrainable-but-safe-by-precondition rather than "narrowly constrained"; and the `KILL_PROCESS` probes need one process per probe.
+
+### Net effect
+
+Two of my prior findings are withdrawn (D1, D5-total), one is downgraded (D8), two are reclassified as scoping corrections (D12, D10), and the remaining set is accepted-by-root but not yet written: D2, D3, D4, D5-rusage, D6, D7, D9, plus the D1/D10/D5 wording fixes. That is a smaller and cheaper revision than my prior pass implied, and it moves nothing in the unsafe direction — every surviving item either closes an acceptance path or adds a stated refusal. Root's root position — pinned trusted bootstrap constructing pinned BPF plus trusted kernel/ABI/readbacks, explicitly not exported actual BPF verification — remains, in my independent assessment, an honest and sustainable evidence model. Nothing here approves source implementation, a child, a filter, a runtime, installation, or any resource, and none of it is available today.

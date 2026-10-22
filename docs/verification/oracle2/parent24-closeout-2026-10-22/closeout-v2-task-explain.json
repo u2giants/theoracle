@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "repository": "u2giants/theoracle",
+  "identity_resolved": true,
+  "worktree": "/tmp/oracle-parent24-wy02uT/recovery-child-pure-v2",
+  "base": "c187bfc36723ca891ad7558fe202a258ee2f27f8",
+  "policy_file": "/home/ahazan/repos/ai-devops/config/task-gates.json",
+  "changed_count": 32,
+  "declared_class": "code",
+  "observed_class": "shared-db",
+  "effective_class": "shared-db",
+  "required_gates": [],
+  "unchecked_gates": [
+    "canonical-oracle-migration-runner",
+    "claim-admission",
+    "drizzle-journal-drift-proof",
+    "existing-verification-gates",
+    "local-tests",
+    "migration-before-dependent-release",
+    "repository-workflow-compliance",
+    "shared-db-branch-and-pr",
+    "target-identity-proof"
+  ],
+  "waived_gates": [],
+  "forbidden_actions": [
+    "deploy",
+    "infrastructure",
+    "production"
+  ],
+  "raw_archive_paths": [],
+  "changes": [
+    {
+      "class": "code",
+      "path": "dev/oracle2/test_canonical_schema.py"
+    },
+    {
+      "class": "code",
+      "path": "dev/oracle2/test_worker_postgres_fixture.py"
+    },
+    {
+      "class": "code",
+      "path": "dev/oracle2/test_worker_postgres_startup_intent.py"
+    },
+    {
+      "class": "prose",
+      "path": "docs/verification/oracle2/S13-recovery.md"
+    },
+    {
+      "class": "code",
+      "path": "scripts/oracle2/verify_workflow_integrity.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/oracle_brain/hosting/forward_recovery.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/oracle_brain/hosting/private_archive_policy_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/oracle_brain/hosting/restore_receipts.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/oracle_brain/operating_model/recovery_contracts_v1.py"
+    },
+    {
+      "class": "shared-db",
+      "path": "services/oracle-brain/sql/021_meeting_participation.sql"
+    },
+    {
+      "class": "shared-db",
+      "path": "services/oracle-brain/sql/024_question_effects.sql"
+    },
+    {
+      "class": "shared-db",
+      "path": "services/oracle-brain/sql/025_recommendation_actions.sql"
+    },
+    {
+      "class": "shared-db",
+      "path": "services/oracle-brain/sql/026_operational_recovery.sql"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_private_archive_policy_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_archive_child_contract_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_authority_sql_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_backup_custody_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_contracts_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_current_orchestration_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_dump_catalog_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_immutable_output_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_installer_shape_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_migration_tail_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_native_inspection_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_protected_settings_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_resource_bounds_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_retained_native_output_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_runtime_manifest_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_sql_source_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_recovery_streaming_archive_v1.py"
+    },
+    {
+      "class": "code",
+      "path": "services/oracle-brain/tests/test_replacement_recovery_archive_v1.py"
+    }
+  ]
+}

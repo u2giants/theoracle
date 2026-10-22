@@ -1,0 +1,73 @@
+{
+  "actual_failed_head": "93435c22b4ea58347158dedcfd54a54bc614093f",
+  "junit_totals": {
+    "tests": 27,
+    "failures": 25,
+    "errors": 0,
+    "skipped": 0
+  },
+  "passed": 2,
+  "passing_case_names": [
+    "test_actual_recovery_admission_and_phase_rows_are_immutable",
+    "test_actual_foreign_operation_and_recovery_private_helper_are_denied"
+  ],
+  "junit_seconds": 10.982,
+  "junit_sha256": "ef244e62e33f09ea04a9f44e86b95eb4168181a26b3d9479c8fb0d8751fd7fa7",
+  "all_tracked_source_matches_exact_93435": true,
+  "tracked_count": 1706,
+  "recorded_source_unchanged": true,
+  "current_full_recorded_source_still_matches": true,
+  "full_manifest_entries": 1707,
+  "full_manifest_sha256": "27e3d72f1c664770ba105d36a3711bb8a1fdaee715a514f549c80d5a4d11e8ea",
+  "exact_harness_matches": true,
+  "recorded_cleanup": {
+    "containers": false,
+    "networks": false,
+    "volumes": false
+  },
+  "independently_current_owned_resource_absence": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "identity": {
+    "container_id": "34a2639eaf3dc8a2bd3d705d70d43bd8e5849924a447833f4e0a811da5395e50",
+    "port": 33794,
+    "project": "oracle2-synthetic-p24rec-01a16013-wf98958284ee9",
+    "synthetic_only": true,
+    "worker": "documentary-01"
+  },
+  "new_actual_database_run": false,
+  "declared_names_audited": [
+    "admission_row",
+    "r",
+    "d",
+    "b",
+    "profile",
+    "physical",
+    "cap",
+    "f",
+    "login",
+    "owner_oid",
+    "source_scope_v1",
+    "appointment_row",
+    "seen",
+    "bound",
+    "rooted",
+    "own_scope",
+    "phase_scope",
+    "actual_catalog_sha256"
+  ],
+  "independently_exact_container_and_network_absent": {
+    "container": {
+      "absent": true,
+      "returncode": 1
+    },
+    "network": {
+      "absent": true,
+      "returncode": 1
+    }
+  },
+  "ambiguous_scope_failure_count": 25,
+  "first_case_fingerprint_assertion_precedes_logged_current_failure": true
+}

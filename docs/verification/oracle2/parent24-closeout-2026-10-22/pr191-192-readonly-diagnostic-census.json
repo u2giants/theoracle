@@ -1,0 +1,2674 @@
+{
+  "pr191-post-main-artifact": {
+    "head": "c187bfc36723ca891ad7558fe202a258ee2f27f8",
+    "canonical_tests": 5370,
+    "canonical_failures_including_errors": 1,
+    "workers": [
+      {
+        "name": "documentary-01",
+        "exit_code": 1,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "7868b98d25633a8262f6040c75fba9f89355b4583fd5e0cc0cc85f68f3fa3e75",
+        "junit_present": true,
+        "junit_sha256": "89cab76334667919ecd95e44bc9f7aa36efa489610cd6d37a64f39de7bf0fa8b",
+        "tests": 625,
+        "skipped": 0,
+        "failures": 1
+      },
+      {
+        "name": "documentary-02",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "a91030d49ac7f3e91497a22e5b7cd5a1643aff586341e31b227e885237ea4041",
+        "junit_present": true,
+        "junit_sha256": "8b71885d7ff1296a4c308ea7f8d4fc087fbb9bd39bc73cbb061914cbbf9fd0ac",
+        "tests": 659,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-03",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "9437447567821db7de77b7211ceeeee179718ee29d826289df8c9ca02f6e8eea",
+        "junit_present": true,
+        "junit_sha256": "f5eeb50d0ea0852c5cfda697662c2e98bb26da0c6df47f6bfd3d8950017a89e8",
+        "tests": 461,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-04",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "d40eb3902fd12c92e2b2b0045607beb4860bf27a754e19fd1a764ed8e51a172f",
+        "junit_present": true,
+        "junit_sha256": "eae5678c39f751dd7c6c85613cae7359ca2fb1d887d97370d92fe006d506b967",
+        "tests": 602,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-05",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "78bf07b2ff55dc7567b255808cf1035385c9f4f0cf81b3a34dc90eaa27ca074f",
+        "junit_present": true,
+        "junit_sha256": "6cb07d6d81886fff8ea77f09abc0fa9f48e38ae2369acb66671baf6d2dab0c52",
+        "tests": 1602,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-06",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "bee67b88faac1ef048bb3dbf939f75ffeb3e9c00166111b2a4397feacdb6cf1d",
+        "junit_present": true,
+        "junit_sha256": "b805fcae36ebf356ec1a57a1ce5cac9a0a1edc4137b0618b3aa06c9adce550a3",
+        "tests": 334,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-07",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "d0b3b16ec530451195db9798082d64fc201112fefe0a99344d7b1c42866deeab",
+        "junit_present": true,
+        "junit_sha256": "e711f5cff36a34716a2ad8b6e5ea8a2a8414fb2eb7c03595d8b2d406d1d2abe6",
+        "tests": 76,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-08",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "3206e6271e2e50688eab8c5e8ae26451e1d87f5d050f33a3f8620a23e8435fd4",
+        "junit_present": true,
+        "junit_sha256": "7ba7b7083adff8396fd9905de1d49ff3117597e32ee901269b49c76e78eae163",
+        "tests": 24,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-09",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "b65912ca115df41cf215fcd97aebf6a712dcf39b264bf13978049086df5a058c",
+        "junit_present": true,
+        "junit_sha256": "393a452bd9b973208a1ec091d3861994a675d4483cc0add0f6a8c898f9d2f971",
+        "tests": 781,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "event",
+        "exit_code": 0,
+        "timed_out": false,
+        "launch_error": false,
+        "stdout_sha256": "95a6d67ee2028839aa2f3f4efddf7bb2c3b47af2b67760713558ca443f9b59fd",
+        "junit_present": true,
+        "junit_sha256": "7c2aa749b8878345364152269f96e4e30682741d8dd4fe3e76aa71e141222cac",
+        "tests": 206,
+        "skipped": 0,
+        "failures": 0
+      }
+    ],
+    "xml": {
+      "documentary-01": {
+        "cases": 625,
+        "suite_seconds": 76.798,
+        "errors": 0,
+        "failures": 1,
+        "modules": {
+          "tests.test_operating_model_verifier": {
+            "cases": 68,
+            "seconds": 3.8459999999999996
+          },
+          "tests.test_operating_model_boundary": {
+            "cases": 5,
+            "seconds": 0.24700000000000003
+          },
+          "tests.test_operating_model_coverage": {
+            "cases": 12,
+            "seconds": 0.064
+          },
+          "tests.test_source_receipts": {
+            "cases": 6,
+            "seconds": 0.001
+          },
+          "tests.test_observation_identity": {
+            "cases": 3,
+            "seconds": 0.001
+          },
+          "tests.test_workflow_findings": {
+            "cases": 8,
+            "seconds": 0.29600000000000004
+          },
+          "tests.test_artifact_storage": {
+            "cases": 5,
+            "seconds": 0.20100000000000004
+          },
+          "tests.test_operating_model_extraction": {
+            "cases": 3,
+            "seconds": 0.378
+          },
+          "tests.test_operating_model_adapters": {
+            "cases": 23,
+            "seconds": 7.380000000000001
+          },
+          "tests.test_process_model": {
+            "cases": 5,
+            "seconds": 0.0
+          },
+          "tests.test_process_coverage": {
+            "cases": 8,
+            "seconds": 0.0
+          },
+          "tests.test_business_operating_model": {
+            "cases": 6,
+            "seconds": 0.0
+          },
+          "tests.test_workflow_lineage": {
+            "cases": 7,
+            "seconds": 0.433
+          },
+          "tests.test_operating_model_sdk": {
+            "cases": 8,
+            "seconds": 1.13
+          },
+          "tests.test_operating_model_retrieval": {
+            "cases": 8,
+            "seconds": 0.0
+          },
+          "tests.test_process_consult": {
+            "cases": 7,
+            "seconds": 0.015
+          },
+          "tests.test_operating_model_cutover": {
+            "cases": 6,
+            "seconds": 0.238
+          },
+          "tests.test_operating_model_restore": {
+            "cases": 1,
+            "seconds": 1.097
+          },
+          "tests.test_operating_model_pipeline": {
+            "cases": 6,
+            "seconds": 0.6519999999999999
+          },
+          "tests.test_operating_model_native_provider": {
+            "cases": 20,
+            "seconds": 0.0
+          },
+          "tests.test_operating_model_answer": {
+            "cases": 4,
+            "seconds": 0.865
+          },
+          "tests.test_operating_model_summaries": {
+            "cases": 3,
+            "seconds": 0.774
+          },
+          "tests.test_operating_model_comparison": {
+            "cases": 4,
+            "seconds": 0.994
+          },
+          "tests.test_operating_model_retirement": {
+            "cases": 9,
+            "seconds": 0.001
+          },
+          "tests.test_operating_model_actions": {
+            "cases": 8,
+            "seconds": 1.5090000000000001
+          },
+          "tests.test_operating_model_report_store": {
+            "cases": 2,
+            "seconds": 0.45
+          },
+          "tests.test_consolidation_contracts_v1": {
+            "cases": 23,
+            "seconds": 0.597
+          },
+          "tests.test_consolidation_sql_v1": {
+            "cases": 59,
+            "seconds": 32.46399999999999
+          },
+          "tests.test_consolidation_review_v1": {
+            "cases": 14,
+            "seconds": 0.001
+          },
+          "tests.test_consolidation_review_browser_v1": {
+            "cases": 1,
+            "seconds": 4.216
+          },
+          "tests.test_consolidation_sdk_sql_v1": {
+            "cases": 1,
+            "seconds": 3.496
+          },
+          "tests.test_meeting_capture_contracts": {
+            "cases": 4,
+            "seconds": 0.005
+          },
+          "tests.test_meeting_capture_wire": {
+            "cases": 9,
+            "seconds": 0.0
+          },
+          "tests.test_meeting_final_mapping": {
+            "cases": 11,
+            "seconds": 0.0
+          },
+          "tests.test_meeting_final_transcript": {
+            "cases": 22,
+            "seconds": 0.002
+          },
+          "tests.test_meeting_normalization_contract": {
+            "cases": 13,
+            "seconds": 0.0
+          },
+          "tests.test_meeting_participant_epoch": {
+            "cases": 12,
+            "seconds": 0.002
+          },
+          "tests.test_meeting_queue_contract": {
+            "cases": 9,
+            "seconds": 0.002
+          },
+          "tests.test_meeting_request_fence": {
+            "cases": 14,
+            "seconds": 0.001
+          },
+          "tests.test_meeting_supervisor_observer": {
+            "cases": 21,
+            "seconds": 0.004
+          },
+          "tests.test_meeting_supervisor_process": {
+            "cases": 13,
+            "seconds": 0.657
+          },
+          "tests.test_meeting_supervisor_v2": {
+            "cases": 17,
+            "seconds": 0.009000000000000001
+          },
+          "tests.test_meeting_worker_adapter": {
+            "cases": 9,
+            "seconds": 0.0
+          },
+          "tests.test_meeting_worker_contracts": {
+            "cases": 9,
+            "seconds": 0.009000000000000001
+          },
+          "tests.test_meeting_unattended_sql": {
+            "cases": 2,
+            "seconds": 8.619
+          },
+          "tests.test_legacy_snapshot_v1": {
+            "cases": 20,
+            "seconds": 0.008
+          },
+          "tests.test_legacy_export_contract_v1": {
+            "cases": 25,
+            "seconds": 0.008
+          },
+          "tests.test_legacy_storage_capture_v1": {
+            "cases": 32,
+            "seconds": 3.8970000000000002
+          },
+          "tests.test_legacy_s3_signing_v1": {
+            "cases": 28,
+            "seconds": 0.0
+          },
+          "tests.test_legacy_migration_factory_v1": {
+            "cases": 12,
+            "seconds": 0.23100000000000004
+          }
+        },
+        "sha256": "89cab76334667919ecd95e44bc9f7aa36efa489610cd6d37a64f39de7bf0fa8b"
+      },
+      "documentary-02": {
+        "cases": 659,
+        "suite_seconds": 108.466,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_workflow_authorization": {
+            "cases": 8,
+            "seconds": 0.798
+          },
+          "tests.test_native_alternate": {
+            "cases": 21,
+            "seconds": 0.002
+          },
+          "tests.test_acceptance_profiles": {
+            "cases": 42,
+            "seconds": 0.09900000000000006
+          },
+          "tests.test_semantic_acceptance": {
+            "cases": 21,
+            "seconds": 0.013000000000000005
+          },
+          "tests.test_semantic_runtime": {
+            "cases": 23,
+            "seconds": 8.149000000000001
+          },
+          "tests.test_key_coverage": {
+            "cases": 11,
+            "seconds": 0.001
+          },
+          "tests.test_hosting_boundary": {
+            "cases": 28,
+            "seconds": 0.3870000000000001
+          },
+          "tests.test_hosting_job_authority": {
+            "cases": 24,
+            "seconds": 0.6560000000000001
+          },
+          "tests.test_hosting_startup": {
+            "cases": 7,
+            "seconds": 0.22999999999999998
+          },
+          "tests.test_native_factory": {
+            "cases": 41,
+            "seconds": 12.018000000000002
+          },
+          "tests.test_provider_runtime": {
+            "cases": 33,
+            "seconds": 0.03300000000000002
+          },
+          "tests.test_hosting_candidate_permissions": {
+            "cases": 19,
+            "seconds": 1.353
+          },
+          "tests.test_hosting_runtime_permissions": {
+            "cases": 29,
+            "seconds": 4.227
+          },
+          "tests.test_hosting_source_binding": {
+            "cases": 17,
+            "seconds": 1.7320000000000004
+          },
+          "tests.test_hosting_readonly_projection": {
+            "cases": 3,
+            "seconds": 0.013999999999999999
+          },
+          "tests.test_synthetic_control_fixtures": {
+            "cases": 17,
+            "seconds": 0.21000000000000002
+          },
+          "tests.test_hosting_bootstrap": {
+            "cases": 12,
+            "seconds": 0.04800000000000001
+          },
+          "tests.test_hosting_synthetic_fixture": {
+            "cases": 10,
+            "seconds": 0.006
+          },
+          "tests.test_hosting_result": {
+            "cases": 20,
+            "seconds": 2.1310000000000002
+          },
+          "tests.test_hosting_synthetic_project": {
+            "cases": 2,
+            "seconds": 11.536999999999999
+          },
+          "tests.test_hosting_platform_translation": {
+            "cases": 4,
+            "seconds": 0.05700000000000001
+          },
+          "tests.test_hosting_executor_jobs": {
+            "cases": 22,
+            "seconds": 6.108
+          },
+          "tests.test_hosting_forward_fixture": {
+            "cases": 16,
+            "seconds": 0.013000000000000001
+          },
+          "tests.test_hosting_restore_receipts": {
+            "cases": 29,
+            "seconds": 0.06300000000000003
+          },
+          "tests.test_hosting_forward_recovery": {
+            "cases": 50,
+            "seconds": 0.4660000000000001
+          },
+          "tests.test_minimized_observations": {
+            "cases": 16,
+            "seconds": 0.161
+          },
+          "tests.test_research_durable_sql": {
+            "cases": 52,
+            "seconds": 12.357
+          },
+          "tests.test_research_public_wire": {
+            "cases": 12,
+            "seconds": 1.003
+          },
+          "tests.test_industry_reference_v1": {
+            "cases": 11,
+            "seconds": 0.09999999999999999
+          },
+          "tests.test_qualified_industry_brief_v1": {
+            "cases": 8,
+            "seconds": 0.06899999999999999
+          },
+          "tests.test_industry_answer_v1": {
+            "cases": 17,
+            "seconds": 0.0
+          },
+          "tests.test_qualified_industry_brief_sql": {
+            "cases": 4,
+            "seconds": 24.665999999999997
+          },
+          "tests.test_meeting_artifact_transport": {
+            "cases": 10,
+            "seconds": 1.037
+          },
+          "tests.test_meeting_normalization_sql": {
+            "cases": 12,
+            "seconds": 7.463
+          },
+          "tests.test_meeting_process_ingress_sql": {
+            "cases": 8,
+            "seconds": 9.899
+          }
+        },
+        "sha256": "8b71885d7ff1296a4c308ea7f8d4fc087fbb9bd39bc73cbb061914cbbf9fd0ac"
+      },
+      "documentary-03": {
+        "cases": 461,
+        "suite_seconds": 103.838,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_replacement_documentary_journey": {
+            "cases": 19,
+            "seconds": 4.8709999999999996
+          },
+          "tests.test_conversation_native_sql": {
+            "cases": 14,
+            "seconds": 16.381000000000004
+          },
+          "tests.test_legacy_migration_sql": {
+            "cases": 22,
+            "seconds": 38.345
+          },
+          "tests.test_processing_context": {
+            "cases": 46,
+            "seconds": 0.42000000000000026
+          },
+          "tests.test_processing_profile": {
+            "cases": 3,
+            "seconds": 0.272
+          },
+          "tests.test_assembly_context": {
+            "cases": 23,
+            "seconds": 0.12500000000000003
+          },
+          "tests.test_assembly_qualification": {
+            "cases": 20,
+            "seconds": 0.29500000000000015
+          },
+          "tests.test_observed_assembly_capture": {
+            "cases": 8,
+            "seconds": 0.072
+          },
+          "tests.test_source_processing_qualification": {
+            "cases": 78,
+            "seconds": 5.503999999999998
+          },
+          "tests.test_processing_compiler_capabilities": {
+            "cases": 56,
+            "seconds": 3.7129999999999996
+          },
+          "tests.test_processing_projection_leases": {
+            "cases": 56,
+            "seconds": 13.316999999999995
+          },
+          "tests.test_processing_documentary_journey": {
+            "cases": 3,
+            "seconds": 13.231
+          },
+          "tests.test_authority": {
+            "cases": 10,
+            "seconds": 0.4360000000000001
+          },
+          "tests.test_bootstrap_pilot_authority.BootstrapArgsTest": {
+            "cases": 3,
+            "seconds": 0.002
+          },
+          "tests.test_browser_diagnostic_custody": {
+            "cases": 3,
+            "seconds": 0.323
+          },
+          "tests.test_checkpoint_scope": {
+            "cases": 1,
+            "seconds": 0.143
+          },
+          "tests.test_contract_parity": {
+            "cases": 3,
+            "seconds": 0.004
+          },
+          "tests.test_dependency_bundle": {
+            "cases": 4,
+            "seconds": 1.161
+          },
+          "tests.test_function_catalogue_batch": {
+            "cases": 15,
+            "seconds": 0.31800000000000006
+          },
+          "tests.test_outbox": {
+            "cases": 4,
+            "seconds": 0.199
+          },
+          "tests.test_preview_settings": {
+            "cases": 2,
+            "seconds": 0.166
+          },
+          "tests.test_provider_policy": {
+            "cases": 1,
+            "seconds": 0.0
+          },
+          "tests.test_provider_transport": {
+            "cases": 3,
+            "seconds": 0.0
+          },
+          "tests.test_review_concurrency": {
+            "cases": 4,
+            "seconds": 0.22799999999999998
+          },
+          "tests.test_runtime_identity": {
+            "cases": 4,
+            "seconds": 0.009
+          },
+          "tests.test_worker_guard_parity": {
+            "cases": 2,
+            "seconds": 0.0
+          },
+          "tests.test_native_browser_metadata_role": {
+            "cases": 1,
+            "seconds": 1.542
+          },
+          "tests.test_readonly_delivery_fixture_dag": {
+            "cases": 17,
+            "seconds": 0.225
+          },
+          "tests.test_graph_adapter": {
+            "cases": 4,
+            "seconds": 0.014
+          },
+          "tests.test_graph_evidence_answer": {
+            "cases": 7,
+            "seconds": 0.159
+          },
+          "tests.test_graph_tls_options": {
+            "cases": 5,
+            "seconds": 0.001
+          },
+          "tests.test_holistic_graphrag": {
+            "cases": 10,
+            "seconds": 0.009000000000000001
+          },
+          "tests.test_holistic_graphrag_integration": {
+            "cases": 1,
+            "seconds": 0.108
+          },
+          "tests.test_holistic_runtime": {
+            "cases": 7,
+            "seconds": 0.57
+          },
+          "tests.test_pilot_journey": {
+            "cases": 2,
+            "seconds": 0.201
+          }
+        },
+        "sha256": "f5eeb50d0ea0852c5cfda697662c2e98bb26da0c6df47f6bfd3d8950017a89e8"
+      },
+      "documentary-04": {
+        "cases": 602,
+        "suite_seconds": 81.057,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_original_corpus_import": {
+            "cases": 9,
+            "seconds": 0.019000000000000006
+          },
+          "tests.test_qualified_workspace_sdk_sql_v1": {
+            "cases": 1,
+            "seconds": 15.431
+          },
+          "tests.test_protected_raw_original_factory_v1": {
+            "cases": 52,
+            "seconds": 17.466999999999995
+          },
+          "tests.test_protected_raw_original_factory_sql": {
+            "cases": 1,
+            "seconds": 0.919
+          },
+          "tests.test_original_review_reading_input_sql": {
+            "cases": 10,
+            "seconds": 3.401
+          },
+          "tests.test_original_corpus_read": {
+            "cases": 2,
+            "seconds": 0.009000000000000001
+          },
+          "tests.test_binary_documents": {
+            "cases": 36,
+            "seconds": 0.11800000000000002
+          },
+          "tests.test_original_byte_storage": {
+            "cases": 22,
+            "seconds": 0.17700000000000002
+          },
+          "tests.test_original_intake_v1": {
+            "cases": 28,
+            "seconds": 0.06600000000000002
+          },
+          "tests.test_original_native_jobs_v1": {
+            "cases": 21,
+            "seconds": 0.004
+          },
+          "tests.test_original_pdf_image_views": {
+            "cases": 2,
+            "seconds": 2.442
+          },
+          "tests.test_original_view_settings_v1": {
+            "cases": 25,
+            "seconds": 0.6880000000000004
+          },
+          "tests.test_original_view_service_v1": {
+            "cases": 65,
+            "seconds": 6.084
+          },
+          "tests.test_original_view_sql": {
+            "cases": 13,
+            "seconds": 4.516
+          },
+          "tests.test_original_view_protected_connection_v1": {
+            "cases": 26,
+            "seconds": 0.8240000000000005
+          },
+          "tests.test_original_view_listener_window_v1": {
+            "cases": 6,
+            "seconds": 2.013
+          },
+          "tests.test_original_view_socket_deadline_v1": {
+            "cases": 5,
+            "seconds": 2.617
+          },
+          "tests.test_protected_http_wire_v1": {
+            "cases": 6,
+            "seconds": 0.004
+          },
+          "tests.test_original_population_sql": {
+            "cases": 7,
+            "seconds": 1.536
+          },
+          "tests.test_original_qualification_v1": {
+            "cases": 37,
+            "seconds": 0.002
+          },
+          "tests.test_original_qualification_runtime": {
+            "cases": 11,
+            "seconds": 0.0
+          },
+          "tests.test_original_reading": {
+            "cases": 13,
+            "seconds": 0.5860000000000001
+          },
+          "tests.test_original_response_normalization_v1": {
+            "cases": 26,
+            "seconds": 0.6680000000000001
+          },
+          "tests.test_original_qualification_authority_sql": {
+            "cases": 9,
+            "seconds": 5.555999999999999
+          },
+          "tests.test_replacement_original_lifecycle": {
+            "cases": 24,
+            "seconds": 0.21300000000000002
+          },
+          "tests.test_replacement_qualification_sql": {
+            "cases": 25,
+            "seconds": 13.74
+          },
+          "tests.test_q2b_target_catalog_v1": {
+            "cases": 67,
+            "seconds": 0.02700000000000001
+          },
+          "tests.test_q2b_transaction_freshness_sql": {
+            "cases": 4,
+            "seconds": 0.04
+          },
+          "tests.test_seal_security": {
+            "cases": 41,
+            "seconds": 0.29800000000000004
+          },
+          "tests.test_seal_wire": {
+            "cases": 8,
+            "seconds": 0.002
+          }
+        },
+        "sha256": "eae5678c39f751dd7c6c85613cae7359ca2fb1d887d97370d92fe006d506b967"
+      },
+      "documentary-05": {
+        "cases": 1602,
+        "suite_seconds": 112.133,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_raw_endpoint_inventory_v1": {
+            "cases": 52,
+            "seconds": 0.011
+          },
+          "tests.test_raw_endpoint_quote_v1": {
+            "cases": 76,
+            "seconds": 0.05200000000000004
+          },
+          "tests.test_raw_native_metadata_v1": {
+            "cases": 25,
+            "seconds": 0.008
+          },
+          "tests.test_raw_multimodal_pricing_v1": {
+            "cases": 19,
+            "seconds": 0.002
+          },
+          "tests.test_raw_original_context_v1": {
+            "cases": 12,
+            "seconds": 0.002
+          },
+          "tests.test_raw_original_native_provider_v1": {
+            "cases": 23,
+            "seconds": 0.005
+          },
+          "tests.test_raw_original_observer_v1": {
+            "cases": 28,
+            "seconds": 1.9420000000000002
+          },
+          "tests.test_raw_original_paid_response_v1": {
+            "cases": 15,
+            "seconds": 0.003
+          },
+          "tests.test_raw_original_request_v1": {
+            "cases": 13,
+            "seconds": 2.8850000000000007
+          },
+          "tests.test_raw_original_settings_v1": {
+            "cases": 108,
+            "seconds": 7.859999999999999
+          },
+          "tests.test_raw_original_views_v1": {
+            "cases": 10,
+            "seconds": 2.162
+          },
+          "tests.test_raw_provider_reservation_hooks": {
+            "cases": 3,
+            "seconds": 0.0
+          },
+          "tests.test_raw_vision_policy_v1": {
+            "cases": 14,
+            "seconds": 0.0
+          },
+          "tests.test_research_rights": {
+            "cases": 104,
+            "seconds": 0.006
+          },
+          "tests.test_research_fetch": {
+            "cases": 33,
+            "seconds": 0.001
+          },
+          "tests.test_research_scheduler": {
+            "cases": 25,
+            "seconds": 0.054
+          },
+          "tests.test_research_freshness": {
+            "cases": 30,
+            "seconds": 0.0
+          },
+          "tests.test_applicability": {
+            "cases": 59,
+            "seconds": 0.006
+          },
+          "tests.test_recommendation_contract": {
+            "cases": 34,
+            "seconds": 0.001
+          },
+          "tests.test_recommendation_identity": {
+            "cases": 33,
+            "seconds": 0.005
+          },
+          "tests.test_scenario_math": {
+            "cases": 141,
+            "seconds": 0.002
+          },
+          "tests.test_experiment_outcomes": {
+            "cases": 68,
+            "seconds": 0.0
+          },
+          "tests.test_report_v2_codec": {
+            "cases": 28,
+            "seconds": 0.003
+          },
+          "tests.test_report_v2_workflow": {
+            "cases": 11,
+            "seconds": 0.022999999999999996
+          },
+          "tests.test_report_v2_store": {
+            "cases": 6,
+            "seconds": 2.048
+          },
+          "tests.test_replacement_confirmation_settings_v1": {
+            "cases": 12,
+            "seconds": 0.269
+          },
+          "tests.test_replacement_confirmation_service_v1": {
+            "cases": 39,
+            "seconds": 3.792
+          },
+          "tests.test_replacement_confirmation_sql": {
+            "cases": 23,
+            "seconds": 20.141000000000002
+          },
+          "tests.test_replacement_executor_target_sql": {
+            "cases": 19,
+            "seconds": 9.449
+          },
+          "tests.test_replacement_public_view_v1": {
+            "cases": 31,
+            "seconds": 0.004
+          },
+          "tests.test_replacement_result_cleanup_v1": {
+            "cases": 15,
+            "seconds": 21.571
+          },
+          "tests.test_replacement_result_settings_v1": {
+            "cases": 10,
+            "seconds": 0.004
+          },
+          "tests.test_replacement_result_v1": {
+            "cases": 22,
+            "seconds": 0.0
+          },
+          "tests.test_replacement_result_tls_sdk_close_v1": {
+            "cases": 13,
+            "seconds": 2.04
+          },
+          "tests.test_replacement_source_authority": {
+            "cases": 11,
+            "seconds": 0.0
+          },
+          "tests.test_replacement_source_intake_sql": {
+            "cases": 11,
+            "seconds": 1.352
+          },
+          "tests.test_replacement_transport_v1": {
+            "cases": 8,
+            "seconds": 0.211
+          },
+          "tests.test_replacement_adversarial_journey_v1": {
+            "cases": 14,
+            "seconds": 0.05200000000000001
+          },
+          "tests.test_replacement_answer": {
+            "cases": 1,
+            "seconds": 0.0
+          },
+          "tests.test_replacement_journey_control": {
+            "cases": 25,
+            "seconds": 0.001
+          },
+          "tests.test_replacement_job_authority": {
+            "cases": 23,
+            "seconds": 0.002
+          },
+          "tests.test_falkordb_coolify_plan": {
+            "cases": 105,
+            "seconds": 4.640999999999997
+          },
+          "tests.test_native_page_alternate": {
+            "cases": 21,
+            "seconds": 0.0
+          },
+          "tests.test_native_alternate_operator": {
+            "cases": 31,
+            "seconds": 0.06200000000000001
+          },
+          "tests.test_native_alternate_chain_operator": {
+            "cases": 51,
+            "seconds": 0.07300000000000004
+          },
+          "tests.test_hosting_restore_platform": {
+            "cases": 21,
+            "seconds": 11.364
+          },
+          "tests.test_falkor_native_proof_acl.ProofACLTests": {
+            "cases": 4,
+            "seconds": 0.013000000000000001
+          },
+          "tests.test_native_trigger_v2": {
+            "cases": 75,
+            "seconds": 9.073999999999996
+          },
+          "tests.test_native_trigger_v2_sql": {
+            "cases": 19,
+            "seconds": 0.013000000000000001
+          },
+          "tests.test_native_trigger_v2_tooling": {
+            "cases": 25,
+            "seconds": 8.530000000000001
+          },
+          "tests.test_falkor_native_proof_acl_v2_tooling": {
+            "cases": 3,
+            "seconds": 0.032
+          }
+        },
+        "sha256": "6cb07d6d81886fff8ea77f09abc0fa9f48e38ae2369acb66671baf6d2dab0c52"
+      },
+      "documentary-06": {
+        "cases": 334,
+        "suite_seconds": 102.351,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_purpose_context_v2": {
+            "cases": 63,
+            "seconds": 0.06200000000000004
+          },
+          "tests.test_purpose_coherent_native_journey": {
+            "cases": 10,
+            "seconds": 83.68900000000004
+          },
+          "tests.test_parent_observer_v2": {
+            "cases": 33,
+            "seconds": 0.269
+          },
+          "tests.test_purpose_profiles_v2": {
+            "cases": 11,
+            "seconds": 0.044000000000000004
+          },
+          "tests.test_purpose_assembly_v2": {
+            "cases": 9,
+            "seconds": 0.083
+          },
+          "tests.test_purpose_capture_v2": {
+            "cases": 10,
+            "seconds": 0.10399999999999998
+          },
+          "tests.test_purpose_qualification_v3": {
+            "cases": 12,
+            "seconds": 0.2869999999999999
+          },
+          "tests.test_purpose_receipts_v2": {
+            "cases": 7,
+            "seconds": 0.0
+          },
+          "tests.test_purpose_runtime_v2": {
+            "cases": 24,
+            "seconds": 0.004
+          },
+          "tests.test_purpose_source_authority": {
+            "cases": 58,
+            "seconds": 5.195
+          },
+          "tests.test_purpose_transport": {
+            "cases": 20,
+            "seconds": 6.933
+          },
+          "tests.test_purpose_transport_startup": {
+            "cases": 6,
+            "seconds": 1.782
+          },
+          "tests.test_purpose_shared_budget": {
+            "cases": 2,
+            "seconds": 0.61
+          },
+          "tests.test_purpose_allocation_budget": {
+            "cases": 4,
+            "seconds": 1.498
+          },
+          "tests.test_semantic_registry_v3": {
+            "cases": 24,
+            "seconds": 0.024000000000000014
+          },
+          "tests.test_processing_extraction_runtime_v2": {
+            "cases": 36,
+            "seconds": 0.31700000000000017
+          },
+          "tests.test_extraction_connection_authority": {
+            "cases": 5,
+            "seconds": 0.451
+          }
+        },
+        "sha256": "b805fcae36ebf356ec1a57a1ce5cac9a0a1edc4137b0618b3aa06c9adce550a3"
+      },
+      "documentary-07": {
+        "cases": 76,
+        "suite_seconds": 110.984,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_purpose_native_census_startup": {
+            "cases": 7,
+            "seconds": 36.049
+          },
+          "tests.test_purpose_journey": {
+            "cases": 9,
+            "seconds": 0.13
+          },
+          "tests.test_connected_answer_contract_v1": {
+            "cases": 17,
+            "seconds": 0.073
+          },
+          "tests.test_connected_answer_sdk_sql_v1": {
+            "cases": 2,
+            "seconds": 33.679
+          },
+          "tests.test_connected_answer_service_v1": {
+            "cases": 6,
+            "seconds": 0.0
+          },
+          "tests.test_connected_answer_sql_v1": {
+            "cases": 33,
+            "seconds": 28.361000000000004
+          },
+          "tests.test_conversation_answer_v1": {
+            "cases": 1,
+            "seconds": 0.0
+          },
+          "tests.test_consolidation_next_auth_browser_v1": {
+            "cases": 1,
+            "seconds": 11.71
+          }
+        },
+        "sha256": "e711f5cff36a34716a2ad8b6e5ea8a2a8414fb2eb7c03595d8b2d406d1d2abe6"
+      },
+      "documentary-08": {
+        "cases": 24,
+        "suite_seconds": 80.949,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_purpose_worker_startup": {
+            "cases": 24,
+            "seconds": 80.14299999999999
+          }
+        },
+        "sha256": "7ba7b7083adff8396fd9905de1d49ff3117597e32ee901269b49c76e78eae163"
+      },
+      "documentary-09": {
+        "cases": 781,
+        "suite_seconds": 101.68,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_paid_sdk_embeddings_v3": {
+            "cases": 60,
+            "seconds": 11.594000000000005
+          },
+          "tests.test_legacy_migration_citation_sql": {
+            "cases": 4,
+            "seconds": 34.506
+          },
+          "tests.test_purpose_population_v3": {
+            "cases": 16,
+            "seconds": 0.002
+          },
+          "tests.test_purpose_coherent_offline_components": {
+            "cases": 4,
+            "seconds": 0.002
+          },
+          "tests.test_paid_executor_v3": {
+            "cases": 5,
+            "seconds": 0.004
+          },
+          "tests.test_paid_projector_v3": {
+            "cases": 7,
+            "seconds": 0.009000000000000001
+          },
+          "tests.test_paid_sdk_delivery_v3": {
+            "cases": 2,
+            "seconds": 0.0
+          },
+          "tests.test_native_trigger_v1": {
+            "cases": 21,
+            "seconds": 8.191
+          },
+          "tests.test_replacement_requester_v1": {
+            "cases": 78,
+            "seconds": 0.22100000000000017
+          },
+          "tests.test_replacement_requester_sql": {
+            "cases": 6,
+            "seconds": 1.352
+          },
+          "tests.test_replacement_request_service_v1": {
+            "cases": 38,
+            "seconds": 1.342
+          },
+          "tests.test_protected_web_python_conformance_v1": {
+            "cases": 2,
+            "seconds": 0.9420000000000001
+          },
+          "tests.test_owned_worker_database": {
+            "cases": 27,
+            "seconds": 3.29
+          },
+          "tests.test_replacement_upload_service_v1": {
+            "cases": 29,
+            "seconds": 2.0250000000000004
+          },
+          "tests.test_replacement_upload_sql": {
+            "cases": 6,
+            "seconds": 3.058
+          },
+          "tests.test_original_upload_chunks_v1": {
+            "cases": 23,
+            "seconds": 3.7430000000000003
+          },
+          "tests.test_original_upload_browser_v1": {
+            "cases": 2,
+            "seconds": 12.346
+          },
+          "tests.test_operations_recovery": {
+            "cases": 48,
+            "seconds": 0.009000000000000001
+          },
+          "tests.test_recovery_primitives": {
+            "cases": 4,
+            "seconds": 0.0
+          },
+          "tests.test_legacy_mapping": {
+            "cases": 12,
+            "seconds": 0.0
+          },
+          "tests.test_migration_reconcile": {
+            "cases": 32,
+            "seconds": 0.0
+          },
+          "tests.test_migration_resume": {
+            "cases": 17,
+            "seconds": 0.016000000000000007
+          },
+          "tests.test_migration_delta": {
+            "cases": 39,
+            "seconds": 0.002
+          },
+          "tests.test_legacy_routes_retired": {
+            "cases": 47,
+            "seconds": 0.016000000000000007
+          },
+          "tests.test_legacy_citation_redirect": {
+            "cases": 18,
+            "seconds": 0.017000000000000008
+          },
+          "tests.test_retired_writer_denial": {
+            "cases": 16,
+            "seconds": 0.001
+          },
+          "tests.test_chat_learning": {
+            "cases": 3,
+            "seconds": 0.0
+          },
+          "tests.test_multilingual": {
+            "cases": 4,
+            "seconds": 0.0
+          },
+          "tests.test_chat_proposal_contract": {
+            "cases": 38,
+            "seconds": 0.001
+          },
+          "tests.test_interview_resume": {
+            "cases": 3,
+            "seconds": 0.196
+          },
+          "tests.test_question_selection": {
+            "cases": 4,
+            "seconds": 0.0
+          },
+          "tests.test_qualified_workspace_v1": {
+            "cases": 14,
+            "seconds": 0.13899999999999998
+          },
+          "tests.test_natural_business_question_v1": {
+            "cases": 16,
+            "seconds": 0.16
+          },
+          "tests.test_durable_interview_sql": {
+            "cases": 17,
+            "seconds": 3.092
+          },
+          "tests.test_conversation_contract_v1": {
+            "cases": 34,
+            "seconds": 0.023000000000000007
+          },
+          "tests.test_conversation_service_sql": {
+            "cases": 8,
+            "seconds": 1.296
+          },
+          "tests.test_conversation_processing_sql": {
+            "cases": 13,
+            "seconds": 3.2670000000000003
+          },
+          "tests.test_conversation_original_sql": {
+            "cases": 7,
+            "seconds": 3.184
+          },
+          "tests.test_conversation_browser_sql": {
+            "cases": 1,
+            "seconds": 2.118
+          },
+          "tests.test_conversation_text_pricing_v1": {
+            "cases": 22,
+            "seconds": 0.017000000000000008
+          },
+          "tests.test_conversation_fence_v1": {
+            "cases": 23,
+            "seconds": 0.0
+          },
+          "tests.test_conversation_registration_sql": {
+            "cases": 11,
+            "seconds": 3.8360000000000003
+          }
+        },
+        "sha256": "393a452bd9b973208a1ec091d3861994a675d4483cc0add0f6a8c898f9d2f971"
+      },
+      "event": {
+        "cases": 206,
+        "suite_seconds": 97.898,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_operational_event_store": {
+            "cases": 2,
+            "seconds": 0.233
+          },
+          "tests.test_operational_export": {
+            "cases": 14,
+            "seconds": 0.001
+          },
+          "tests.test_process_analysis": {
+            "cases": 8,
+            "seconds": 0.0
+          },
+          "tests.test_pm4py_adapter": {
+            "cases": 21,
+            "seconds": 1.9959999999999998
+          },
+          "tests.test_pm4py_integration": {
+            "cases": 4,
+            "seconds": 7.138999999999999
+          },
+          "tests.test_derived_event_lineage": {
+            "cases": 21,
+            "seconds": 0.44500000000000006
+          },
+          "tests.test_analytical_source_packets.TestAnalyticalInventory": {
+            "cases": 11,
+            "seconds": 0.067
+          },
+          "tests.test_analytical_source_packets.TestAnalyticalDelivery": {
+            "cases": 15,
+            "seconds": 0.129
+          },
+          "tests.test_analytical_source_packets": {
+            "cases": 2,
+            "seconds": 0.005
+          },
+          "tests.test_meeting_stop_semantics_sql": {
+            "cases": 10,
+            "seconds": 24.292
+          },
+          "tests.test_meeting_capture_sql": {
+            "cases": 11,
+            "seconds": 11.878
+          },
+          "tests.test_meeting_create_forensic_sql": {
+            "cases": 6,
+            "seconds": 5.733
+          },
+          "tests.test_meeting_pre_stop_observation_sql": {
+            "cases": 6,
+            "seconds": 8.565
+          },
+          "tests.test_meeting_supervision_queue_sql": {
+            "cases": 2,
+            "seconds": 0.992
+          },
+          "tests.test_meeting_supervisor_currentness_sql": {
+            "cases": 2,
+            "seconds": 5.9959999999999996
+          },
+          "tests.test_meeting_create_stop_relation_sql": {
+            "cases": 9,
+            "seconds": 7.004999999999999
+          },
+          "tests.test_meeting_delivery_sql": {
+            "cases": 9,
+            "seconds": 6.9190000000000005
+          },
+          "tests.test_meeting_queue_sql": {
+            "cases": 12,
+            "seconds": 2.5650000000000004
+          },
+          "tests.test_meeting_queue_tls_sql": {
+            "cases": 1,
+            "seconds": 1.079
+          },
+          "tests.test_meeting_normalization_tls_sql": {
+            "cases": 2,
+            "seconds": 1.3849999999999998
+          },
+          "tests.test_meeting_scheduler_process_sql": {
+            "cases": 3,
+            "seconds": 6.686999999999999
+          },
+          "tests.test_meeting_worker_tls_sql": {
+            "cases": 1,
+            "seconds": 0.974
+          },
+          "tests.test_meeting_stop_readiness_sql": {
+            "cases": 1,
+            "seconds": 2.364
+          },
+          "tests.test_original_intake_protected_connection_sql": {
+            "cases": 2,
+            "seconds": 0.274
+          },
+          "tests.test_analytical_associations": {
+            "cases": 31,
+            "seconds": 0.08500000000000005
+          }
+        },
+        "sha256": "7c2aa749b8878345364152269f96e4e30682741d8dd4fe3e76aa71e141222cac"
+      }
+    },
+    "doc09_passing_dots": 798,
+    "doc09_stdout_sha256": "b65912ca115df41cf215fcd97aebf6a712dcf39b264bf13978049086df5a058c"
+  },
+  "pr192-ci-artifact-01": {
+    "head": "aa0ca88f48844d93054db65e24b35254a1c6d29c",
+    "canonical_tests": 4690,
+    "canonical_failures_including_errors": 13,
+    "workers": [
+      {
+        "name": "documentary-01",
+        "exit_code": 0,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "37899db335377a2362912213cc92035a16672ad348ed07c20d3f7c2ad8a3b6a8",
+        "junit_present": true,
+        "junit_sha256": "202cf6511a9cd49b2e34abaf3a2c30de5c445574385b35f19ae8b4e4445fa9d2",
+        "tests": 657,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-02",
+        "exit_code": 0,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "0533ff482aa1605fba50d5ad32bdf63e452725a66ffb09e16e850202d2036c9c",
+        "junit_present": true,
+        "junit_sha256": "4280998c1eea0129025c23b5d4c4a7cefea09b38ddce3c9b71424bbc376e8f4c",
+        "tests": 659,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-03",
+        "exit_code": 0,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "c7ed2c1ce84814da8a27e728c69c0a6ec6f284fd449ce810e4900d8a87714edd",
+        "junit_present": true,
+        "junit_sha256": "09ccc0f2479689083cc7fbcbfb16b50ea0cdfb00335523a7b4df4d0e74f71a20",
+        "tests": 461,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-04",
+        "exit_code": 1,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "01a8f6613bd6a007827cb0c857c637f02832a3dfe9453512a339ff4ede79e0af",
+        "junit_present": true,
+        "junit_sha256": "282d5a0dd98512c02e598a36d4745830f91c45155951d9b431a51d80b4dcdac7",
+        "tests": 560,
+        "skipped": 0,
+        "failures": 11
+      },
+      {
+        "name": "documentary-05",
+        "exit_code": 1,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "7057cf7bcfefcaa39dc87517edd9e7c18cdfd1eec3800ab97549ced00c519e60",
+        "junit_present": true,
+        "junit_sha256": "8faa10d9a828c5db71ec0e60106f079435d3c4ab2f5ed7a922fab9eeec8ff968",
+        "tests": 1602,
+        "skipped": 0,
+        "failures": 1
+      },
+      {
+        "name": "documentary-06",
+        "exit_code": 1,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "295fdeb72fc393940a7649a5773778da0c7a2bb5e524a6481b072683b289dce2",
+        "junit_present": true,
+        "junit_sha256": "2129f92ffd02c1512e6fa652caf5bce2ad56035b77a30d4a9e7d85b106f7f3ee",
+        "tests": 386,
+        "skipped": 0,
+        "failures": 1
+      },
+      {
+        "name": "documentary-07",
+        "exit_code": 0,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "4b49634e33c17df70cfe605c8406ab991a72f5f18a14f9453fd74dc287ad9d5a",
+        "junit_present": true,
+        "junit_sha256": "204ac5e4b366d60d0c97233baf3a5f1e078d9ea5235a4d7c404e1bff96a1571d",
+        "tests": 76,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-08",
+        "exit_code": 0,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "6aae791a39074eb7dd3fcee4ffd096a3b269179171a85df6814b34d31d0bc10a",
+        "junit_present": true,
+        "junit_sha256": "ee2d533e9fc33a1fa8363d955aff7d40c4b7449d5cb50d8989494610b0b4e4c2",
+        "tests": 83,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "name": "documentary-09",
+        "exit_code": 0,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "f592bfa1a4f3bc7bb0477adc18edc65589f7aff7b02955a5fbac856f7e6c7f76",
+        "junit_present": false
+      },
+      {
+        "name": "event",
+        "exit_code": 0,
+        "timed_out": true,
+        "launch_error": false,
+        "stdout_sha256": "4c46a4c4119073a007b846512b9c98d587ef171fb424e454520bd3148fd9ec7b",
+        "junit_present": true,
+        "junit_sha256": "f435807df47fe2dd3e6d20657ad5b2761f0aef2b6d03c7e399c0d7a763cee9f9",
+        "tests": 206,
+        "skipped": 0,
+        "failures": 0
+      }
+    ],
+    "xml": {
+      "documentary-01": {
+        "cases": 657,
+        "suite_seconds": 114.916,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_operating_model_verifier": {
+            "cases": 68,
+            "seconds": 2.796
+          },
+          "tests.test_operating_model_boundary": {
+            "cases": 5,
+            "seconds": 0.329
+          },
+          "tests.test_operating_model_coverage": {
+            "cases": 12,
+            "seconds": 0.067
+          },
+          "tests.test_source_receipts": {
+            "cases": 6,
+            "seconds": 0.0
+          },
+          "tests.test_observation_identity": {
+            "cases": 3,
+            "seconds": 0.0
+          },
+          "tests.test_workflow_findings": {
+            "cases": 8,
+            "seconds": 0.33399999999999996
+          },
+          "tests.test_artifact_storage": {
+            "cases": 5,
+            "seconds": 0.193
+          },
+          "tests.test_operating_model_extraction": {
+            "cases": 3,
+            "seconds": 0.365
+          },
+          "tests.test_operating_model_adapters": {
+            "cases": 23,
+            "seconds": 7.239
+          },
+          "tests.test_process_model": {
+            "cases": 5,
+            "seconds": 0.0
+          },
+          "tests.test_process_coverage": {
+            "cases": 8,
+            "seconds": 0.0
+          },
+          "tests.test_business_operating_model": {
+            "cases": 6,
+            "seconds": 0.0
+          },
+          "tests.test_workflow_lineage": {
+            "cases": 7,
+            "seconds": 0.426
+          },
+          "tests.test_operating_model_sdk": {
+            "cases": 8,
+            "seconds": 1.09
+          },
+          "tests.test_operating_model_retrieval": {
+            "cases": 8,
+            "seconds": 0.0
+          },
+          "tests.test_process_consult": {
+            "cases": 7,
+            "seconds": 0.016
+          },
+          "tests.test_operating_model_cutover": {
+            "cases": 6,
+            "seconds": 0.238
+          },
+          "tests.test_operating_model_restore": {
+            "cases": 1,
+            "seconds": 1.087
+          },
+          "tests.test_operating_model_pipeline": {
+            "cases": 6,
+            "seconds": 0.6319999999999999
+          },
+          "tests.test_operating_model_native_provider": {
+            "cases": 20,
+            "seconds": 0.0
+          },
+          "tests.test_operating_model_answer": {
+            "cases": 4,
+            "seconds": 0.8109999999999999
+          },
+          "tests.test_operating_model_summaries": {
+            "cases": 3,
+            "seconds": 0.7749999999999999
+          },
+          "tests.test_operating_model_comparison": {
+            "cases": 4,
+            "seconds": 0.9909999999999999
+          },
+          "tests.test_operating_model_retirement": {
+            "cases": 9,
+            "seconds": 0.002
+          },
+          "tests.test_operating_model_actions": {
+            "cases": 8,
+            "seconds": 1.535
+          },
+          "tests.test_operating_model_report_store": {
+            "cases": 2,
+            "seconds": 0.449
+          },
+          "tests.test_consolidation_contracts_v1": {
+            "cases": 23,
+            "seconds": 0.593
+          },
+          "tests.test_consolidation_review_v1": {
+            "cases": 14,
+            "seconds": 0.0
+          },
+          "tests.test_consolidation_review_browser_v1": {
+            "cases": 1,
+            "seconds": 4.265
+          },
+          "tests.test_consolidation_sdk_sql_v1": {
+            "cases": 1,
+            "seconds": 3.558
+          },
+          "tests.test_meeting_capture_contracts": {
+            "cases": 4,
+            "seconds": 0.006
+          },
+          "tests.test_meeting_capture_wire": {
+            "cases": 9,
+            "seconds": 0.0
+          },
+          "tests.test_meeting_final_mapping": {
+            "cases": 11,
+            "seconds": 0.0
+          },
+          "tests.test_meeting_final_transcript": {
+            "cases": 22,
+            "seconds": 0.002
+          },
+          "tests.test_meeting_normalization_contract": {
+            "cases": 13,
+            "seconds": 0.0
+          },
+          "tests.test_meeting_participant_epoch": {
+            "cases": 12,
+            "seconds": 0.002
+          },
+          "tests.test_meeting_queue_contract": {
+            "cases": 9,
+            "seconds": 0.002
+          },
+          "tests.test_meeting_request_fence": {
+            "cases": 14,
+            "seconds": 0.001
+          },
+          "tests.test_meeting_supervisor_observer": {
+            "cases": 21,
+            "seconds": 0.008
+          },
+          "tests.test_meeting_supervisor_process": {
+            "cases": 13,
+            "seconds": 0.5970000000000001
+          },
+          "tests.test_meeting_supervisor_v2": {
+            "cases": 17,
+            "seconds": 0.009000000000000001
+          },
+          "tests.test_meeting_worker_adapter": {
+            "cases": 9,
+            "seconds": 0.0
+          },
+          "tests.test_meeting_worker_contracts": {
+            "cases": 9,
+            "seconds": 0.008
+          },
+          "tests.test_meeting_unattended_sql": {
+            "cases": 2,
+            "seconds": 42.889
+          },
+          "tests.test_legacy_snapshot_v1": {
+            "cases": 20,
+            "seconds": 0.008
+          },
+          "tests.test_legacy_export_contract_v1": {
+            "cases": 25,
+            "seconds": 0.006
+          },
+          "tests.test_legacy_storage_capture_v1": {
+            "cases": 32,
+            "seconds": 3.8890000000000002
+          },
+          "tests.test_legacy_s3_signing_v1": {
+            "cases": 28,
+            "seconds": 0.0
+          },
+          "tests.test_legacy_migration_factory_v1": {
+            "cases": 12,
+            "seconds": 0.23700000000000004
+          },
+          "tests.test_question_core_forwarding_v1": {
+            "cases": 3,
+            "seconds": 0.0
+          },
+          "tests.test_qualified_synthesis_v1": {
+            "cases": 11,
+            "seconds": 0.10899999999999999
+          },
+          "tests.test_question_effect_pricing_v1": {
+            "cases": 23,
+            "seconds": 0.004
+          },
+          "tests.test_question_effect_public_v1": {
+            "cases": 17,
+            "seconds": 0.17400000000000002
+          },
+          "tests.test_question_vector_packing_v1": {
+            "cases": 8,
+            "seconds": 0.077
+          },
+          "tests.test_question_effects_sql_v1": {
+            "cases": 29,
+            "seconds": 37.10699999999999
+          }
+        },
+        "sha256": "202cf6511a9cd49b2e34abaf3a2c30de5c445574385b35f19ae8b4e4445fa9d2"
+      },
+      "documentary-02": {
+        "cases": 659,
+        "suite_seconds": 106.585,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_workflow_authorization": {
+            "cases": 8,
+            "seconds": 0.817
+          },
+          "tests.test_native_alternate": {
+            "cases": 21,
+            "seconds": 0.0
+          },
+          "tests.test_acceptance_profiles": {
+            "cases": 42,
+            "seconds": 0.10500000000000007
+          },
+          "tests.test_semantic_acceptance": {
+            "cases": 21,
+            "seconds": 0.012000000000000004
+          },
+          "tests.test_semantic_runtime": {
+            "cases": 23,
+            "seconds": 7.529999999999999
+          },
+          "tests.test_key_coverage": {
+            "cases": 11,
+            "seconds": 0.0
+          },
+          "tests.test_hosting_boundary": {
+            "cases": 28,
+            "seconds": 0.34100000000000014
+          },
+          "tests.test_hosting_job_authority": {
+            "cases": 24,
+            "seconds": 0.6390000000000001
+          },
+          "tests.test_hosting_startup": {
+            "cases": 7,
+            "seconds": 0.231
+          },
+          "tests.test_native_factory": {
+            "cases": 41,
+            "seconds": 11.899999999999995
+          },
+          "tests.test_provider_runtime": {
+            "cases": 33,
+            "seconds": 0.028000000000000018
+          },
+          "tests.test_hosting_candidate_permissions": {
+            "cases": 19,
+            "seconds": 1.328
+          },
+          "tests.test_hosting_runtime_permissions": {
+            "cases": 29,
+            "seconds": 4.295
+          },
+          "tests.test_hosting_source_binding": {
+            "cases": 17,
+            "seconds": 1.6669999999999998
+          },
+          "tests.test_hosting_readonly_projection": {
+            "cases": 3,
+            "seconds": 0.012
+          },
+          "tests.test_synthetic_control_fixtures": {
+            "cases": 17,
+            "seconds": 0.23299999999999998
+          },
+          "tests.test_hosting_bootstrap": {
+            "cases": 12,
+            "seconds": 0.05200000000000001
+          },
+          "tests.test_hosting_synthetic_fixture": {
+            "cases": 10,
+            "seconds": 0.004
+          },
+          "tests.test_hosting_result": {
+            "cases": 20,
+            "seconds": 2.132
+          },
+          "tests.test_hosting_synthetic_project": {
+            "cases": 2,
+            "seconds": 11.695
+          },
+          "tests.test_hosting_platform_translation": {
+            "cases": 4,
+            "seconds": 0.063
+          },
+          "tests.test_hosting_executor_jobs": {
+            "cases": 22,
+            "seconds": 5.9830000000000005
+          },
+          "tests.test_hosting_forward_fixture": {
+            "cases": 16,
+            "seconds": 0.013000000000000001
+          },
+          "tests.test_hosting_restore_receipts": {
+            "cases": 29,
+            "seconds": 0.06100000000000004
+          },
+          "tests.test_hosting_forward_recovery": {
+            "cases": 50,
+            "seconds": 0.538
+          },
+          "tests.test_minimized_observations": {
+            "cases": 16,
+            "seconds": 0.162
+          },
+          "tests.test_research_durable_sql": {
+            "cases": 52,
+            "seconds": 12.079999999999998
+          },
+          "tests.test_research_public_wire": {
+            "cases": 12,
+            "seconds": 1.003
+          },
+          "tests.test_industry_reference_v1": {
+            "cases": 11,
+            "seconds": 0.09299999999999999
+          },
+          "tests.test_qualified_industry_brief_v1": {
+            "cases": 8,
+            "seconds": 0.063
+          },
+          "tests.test_industry_answer_v1": {
+            "cases": 17,
+            "seconds": 0.0
+          },
+          "tests.test_qualified_industry_brief_sql": {
+            "cases": 4,
+            "seconds": 24.130000000000003
+          },
+          "tests.test_meeting_artifact_transport": {
+            "cases": 10,
+            "seconds": 1.016
+          },
+          "tests.test_meeting_normalization_sql": {
+            "cases": 12,
+            "seconds": 7.907
+          },
+          "tests.test_meeting_process_ingress_sql": {
+            "cases": 8,
+            "seconds": 9.116999999999999
+          }
+        },
+        "sha256": "4280998c1eea0129025c23b5d4c4a7cefea09b38ddce3c9b71424bbc376e8f4c"
+      },
+      "documentary-03": {
+        "cases": 461,
+        "suite_seconds": 104.246,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_replacement_documentary_journey": {
+            "cases": 19,
+            "seconds": 4.2379999999999995
+          },
+          "tests.test_conversation_native_sql": {
+            "cases": 14,
+            "seconds": 16.85
+          },
+          "tests.test_legacy_migration_sql": {
+            "cases": 22,
+            "seconds": 38.856
+          },
+          "tests.test_processing_context": {
+            "cases": 46,
+            "seconds": 0.39600000000000024
+          },
+          "tests.test_processing_profile": {
+            "cases": 3,
+            "seconds": 0.219
+          },
+          "tests.test_assembly_context": {
+            "cases": 23,
+            "seconds": 0.11800000000000004
+          },
+          "tests.test_assembly_qualification": {
+            "cases": 20,
+            "seconds": 0.28800000000000014
+          },
+          "tests.test_observed_assembly_capture": {
+            "cases": 8,
+            "seconds": 0.06899999999999999
+          },
+          "tests.test_source_processing_qualification": {
+            "cases": 78,
+            "seconds": 5.208999999999998
+          },
+          "tests.test_processing_compiler_capabilities": {
+            "cases": 56,
+            "seconds": 3.3520000000000003
+          },
+          "tests.test_processing_projection_leases": {
+            "cases": 56,
+            "seconds": 13.203999999999997
+          },
+          "tests.test_processing_documentary_journey": {
+            "cases": 3,
+            "seconds": 14.376
+          },
+          "tests.test_authority": {
+            "cases": 10,
+            "seconds": 0.434
+          },
+          "tests.test_bootstrap_pilot_authority.BootstrapArgsTest": {
+            "cases": 3,
+            "seconds": 0.001
+          },
+          "tests.test_browser_diagnostic_custody": {
+            "cases": 3,
+            "seconds": 0.315
+          },
+          "tests.test_checkpoint_scope": {
+            "cases": 1,
+            "seconds": 0.14
+          },
+          "tests.test_contract_parity": {
+            "cases": 3,
+            "seconds": 0.001
+          },
+          "tests.test_dependency_bundle": {
+            "cases": 4,
+            "seconds": 1.134
+          },
+          "tests.test_function_catalogue_batch": {
+            "cases": 15,
+            "seconds": 0.281
+          },
+          "tests.test_outbox": {
+            "cases": 4,
+            "seconds": 0.207
+          },
+          "tests.test_preview_settings": {
+            "cases": 2,
+            "seconds": 0.177
+          },
+          "tests.test_provider_policy": {
+            "cases": 1,
+            "seconds": 0.001
+          },
+          "tests.test_provider_transport": {
+            "cases": 3,
+            "seconds": 0.0
+          },
+          "tests.test_review_concurrency": {
+            "cases": 4,
+            "seconds": 0.22699999999999998
+          },
+          "tests.test_runtime_identity": {
+            "cases": 4,
+            "seconds": 0.01
+          },
+          "tests.test_worker_guard_parity": {
+            "cases": 2,
+            "seconds": 0.0
+          },
+          "tests.test_native_browser_metadata_role": {
+            "cases": 1,
+            "seconds": 1.562
+          },
+          "tests.test_readonly_delivery_fixture_dag": {
+            "cases": 17,
+            "seconds": 0.20700000000000002
+          },
+          "tests.test_graph_adapter": {
+            "cases": 4,
+            "seconds": 0.013000000000000001
+          },
+          "tests.test_graph_evidence_answer": {
+            "cases": 7,
+            "seconds": 0.15700000000000003
+          },
+          "tests.test_graph_tls_options": {
+            "cases": 5,
+            "seconds": 0.004
+          },
+          "tests.test_holistic_graphrag": {
+            "cases": 10,
+            "seconds": 0.014000000000000002
+          },
+          "tests.test_holistic_graphrag_integration": {
+            "cases": 1,
+            "seconds": 0.097
+          },
+          "tests.test_holistic_runtime": {
+            "cases": 7,
+            "seconds": 0.5439999999999999
+          },
+          "tests.test_pilot_journey": {
+            "cases": 2,
+            "seconds": 0.191
+          }
+        },
+        "sha256": "09ccc0f2479689083cc7fbcbfb16b50ea0cdfb00335523a7b4df4d0e74f71a20"
+      },
+      "documentary-04": {
+        "cases": 560,
+        "suite_seconds": 65.964,
+        "errors": 11,
+        "failures": 0,
+        "modules": {
+          "tests.test_original_corpus_import": {
+            "cases": 9,
+            "seconds": 0.019000000000000006
+          },
+          "tests.test_question_effect_native_sql_v1": {
+            "cases": 11,
+            "seconds": 14.983999999999998
+          },
+          "tests.test_protected_raw_original_factory_sql": {
+            "cases": 1,
+            "seconds": 1.019
+          },
+          "tests.test_original_review_reading_input_sql": {
+            "cases": 10,
+            "seconds": 3.9400000000000004
+          },
+          "tests.test_original_corpus_read": {
+            "cases": 2,
+            "seconds": 0.005
+          },
+          "tests.test_binary_documents": {
+            "cases": 36,
+            "seconds": 0.10500000000000002
+          },
+          "tests.test_original_byte_storage": {
+            "cases": 22,
+            "seconds": 0.15
+          },
+          "tests.test_original_intake_v1": {
+            "cases": 28,
+            "seconds": 0.060000000000000026
+          },
+          "tests.test_original_native_jobs_v1": {
+            "cases": 21,
+            "seconds": 0.004
+          },
+          "tests.test_original_pdf_image_views": {
+            "cases": 2,
+            "seconds": 2.472
+          },
+          "tests.test_original_view_settings_v1": {
+            "cases": 25,
+            "seconds": 0.6680000000000004
+          },
+          "tests.test_original_view_service_v1": {
+            "cases": 65,
+            "seconds": 5.996999999999999
+          },
+          "tests.test_original_view_sql": {
+            "cases": 13,
+            "seconds": 5.344
+          },
+          "tests.test_original_view_protected_connection_v1": {
+            "cases": 26,
+            "seconds": 0.7370000000000004
+          },
+          "tests.test_original_view_listener_window_v1": {
+            "cases": 6,
+            "seconds": 1.87
+          },
+          "tests.test_original_view_socket_deadline_v1": {
+            "cases": 5,
+            "seconds": 2.561
+          },
+          "tests.test_protected_http_wire_v1": {
+            "cases": 6,
+            "seconds": 0.001
+          },
+          "tests.test_original_population_sql": {
+            "cases": 7,
+            "seconds": 1.919
+          },
+          "tests.test_original_qualification_v1": {
+            "cases": 37,
+            "seconds": 0.003
+          },
+          "tests.test_original_qualification_runtime": {
+            "cases": 11,
+            "seconds": 0.0
+          },
+          "tests.test_original_reading": {
+            "cases": 13,
+            "seconds": 0.5850000000000001
+          },
+          "tests.test_original_response_normalization_v1": {
+            "cases": 26,
+            "seconds": 0.661
+          },
+          "tests.test_original_qualification_authority_sql": {
+            "cases": 9,
+            "seconds": 6.068
+          },
+          "tests.test_replacement_original_lifecycle": {
+            "cases": 24,
+            "seconds": 0.21600000000000003
+          },
+          "tests.test_replacement_qualification_sql": {
+            "cases": 25,
+            "seconds": 14.645
+          },
+          "tests.test_q2b_target_catalog_v1": {
+            "cases": 67,
+            "seconds": 0.02700000000000001
+          },
+          "tests.test_q2b_transaction_freshness_sql": {
+            "cases": 4,
+            "seconds": 0.033
+          },
+          "tests.test_seal_security": {
+            "cases": 41,
+            "seconds": 0.25600000000000006
+          },
+          "tests.test_seal_wire": {
+            "cases": 8,
+            "seconds": 0.001
+          }
+        },
+        "sha256": "282d5a0dd98512c02e598a36d4745830f91c45155951d9b431a51d80b4dcdac7"
+      },
+      "documentary-05": {
+        "cases": 1602,
+        "suite_seconds": 112.623,
+        "errors": 0,
+        "failures": 1,
+        "modules": {
+          "tests.test_raw_endpoint_inventory_v1": {
+            "cases": 52,
+            "seconds": 0.011
+          },
+          "tests.test_raw_endpoint_quote_v1": {
+            "cases": 76,
+            "seconds": 0.057000000000000044
+          },
+          "tests.test_raw_native_metadata_v1": {
+            "cases": 25,
+            "seconds": 0.007
+          },
+          "tests.test_raw_multimodal_pricing_v1": {
+            "cases": 19,
+            "seconds": 0.002
+          },
+          "tests.test_raw_original_context_v1": {
+            "cases": 12,
+            "seconds": 0.004
+          },
+          "tests.test_raw_original_native_provider_v1": {
+            "cases": 23,
+            "seconds": 0.004
+          },
+          "tests.test_raw_original_observer_v1": {
+            "cases": 28,
+            "seconds": 1.1269999999999998
+          },
+          "tests.test_raw_original_paid_response_v1": {
+            "cases": 15,
+            "seconds": 0.002
+          },
+          "tests.test_raw_original_request_v1": {
+            "cases": 13,
+            "seconds": 2.809
+          },
+          "tests.test_raw_original_settings_v1": {
+            "cases": 108,
+            "seconds": 7.485999999999999
+          },
+          "tests.test_raw_original_views_v1": {
+            "cases": 10,
+            "seconds": 2.165
+          },
+          "tests.test_raw_provider_reservation_hooks": {
+            "cases": 3,
+            "seconds": 0.0
+          },
+          "tests.test_raw_vision_policy_v1": {
+            "cases": 14,
+            "seconds": 0.0
+          },
+          "tests.test_research_rights": {
+            "cases": 104,
+            "seconds": 0.004
+          },
+          "tests.test_research_fetch": {
+            "cases": 33,
+            "seconds": 0.002
+          },
+          "tests.test_research_scheduler": {
+            "cases": 25,
+            "seconds": 0.055
+          },
+          "tests.test_research_freshness": {
+            "cases": 30,
+            "seconds": 0.001
+          },
+          "tests.test_applicability": {
+            "cases": 59,
+            "seconds": 0.002
+          },
+          "tests.test_recommendation_contract": {
+            "cases": 34,
+            "seconds": 0.0
+          },
+          "tests.test_recommendation_identity": {
+            "cases": 33,
+            "seconds": 0.003
+          },
+          "tests.test_scenario_math": {
+            "cases": 141,
+            "seconds": 0.0
+          },
+          "tests.test_experiment_outcomes": {
+            "cases": 68,
+            "seconds": 0.0
+          },
+          "tests.test_report_v2_codec": {
+            "cases": 28,
+            "seconds": 0.006
+          },
+          "tests.test_report_v2_workflow": {
+            "cases": 11,
+            "seconds": 0.024999999999999998
+          },
+          "tests.test_report_v2_store": {
+            "cases": 6,
+            "seconds": 2.117
+          },
+          "tests.test_replacement_confirmation_settings_v1": {
+            "cases": 12,
+            "seconds": 0.275
+          },
+          "tests.test_replacement_confirmation_service_v1": {
+            "cases": 39,
+            "seconds": 3.7380000000000004
+          },
+          "tests.test_replacement_confirmation_sql": {
+            "cases": 23,
+            "seconds": 20.811
+          },
+          "tests.test_replacement_executor_target_sql": {
+            "cases": 19,
+            "seconds": 9.616
+          },
+          "tests.test_replacement_public_view_v1": {
+            "cases": 31,
+            "seconds": 0.005
+          },
+          "tests.test_replacement_result_cleanup_v1": {
+            "cases": 15,
+            "seconds": 21.573000000000008
+          },
+          "tests.test_replacement_result_settings_v1": {
+            "cases": 10,
+            "seconds": 0.003
+          },
+          "tests.test_replacement_result_v1": {
+            "cases": 22,
+            "seconds": 0.001
+          },
+          "tests.test_replacement_result_tls_sdk_close_v1": {
+            "cases": 13,
+            "seconds": 2.035999999999999
+          },
+          "tests.test_replacement_source_authority": {
+            "cases": 11,
+            "seconds": 0.0
+          },
+          "tests.test_replacement_source_intake_sql": {
+            "cases": 11,
+            "seconds": 1.9590000000000003
+          },
+          "tests.test_replacement_transport_v1": {
+            "cases": 8,
+            "seconds": 0.241
+          },
+          "tests.test_replacement_adversarial_journey_v1": {
+            "cases": 14,
+            "seconds": 0.04900000000000001
+          },
+          "tests.test_replacement_answer": {
+            "cases": 1,
+            "seconds": 0.0
+          },
+          "tests.test_replacement_journey_control": {
+            "cases": 25,
+            "seconds": 0.001
+          },
+          "tests.test_replacement_job_authority": {
+            "cases": 23,
+            "seconds": 0.0
+          },
+          "tests.test_falkordb_coolify_plan": {
+            "cases": 105,
+            "seconds": 4.552999999999999
+          },
+          "tests.test_native_page_alternate": {
+            "cases": 21,
+            "seconds": 0.0
+          },
+          "tests.test_native_alternate_operator": {
+            "cases": 31,
+            "seconds": 0.06000000000000001
+          },
+          "tests.test_native_alternate_chain_operator": {
+            "cases": 51,
+            "seconds": 0.07100000000000004
+          },
+          "tests.test_hosting_restore_platform": {
+            "cases": 21,
+            "seconds": 11.769
+          },
+          "tests.test_falkor_native_proof_acl.ProofACLTests": {
+            "cases": 4,
+            "seconds": 0.019
+          },
+          "tests.test_native_trigger_v2": {
+            "cases": 75,
+            "seconds": 9.194999999999995
+          },
+          "tests.test_native_trigger_v2_sql": {
+            "cases": 19,
+            "seconds": 0.022000000000000006
+          },
+          "tests.test_native_trigger_v2_tooling": {
+            "cases": 25,
+            "seconds": 8.308
+          },
+          "tests.test_falkor_native_proof_acl_v2_tooling": {
+            "cases": 3,
+            "seconds": 0.034
+          }
+        },
+        "sha256": "8faa10d9a828c5db71ec0e60106f079435d3c4ab2f5ed7a922fab9eeec8ff968"
+      },
+      "documentary-06": {
+        "cases": 386,
+        "suite_seconds": 52.186,
+        "errors": 0,
+        "failures": 1,
+        "modules": {
+          "tests.test_purpose_context_v2": {
+            "cases": 63,
+            "seconds": 0.04000000000000002
+          },
+          "tests.test_protected_raw_original_factory_v1": {
+            "cases": 52,
+            "seconds": 17.737000000000002
+          },
+          "tests.test_purpose_coherent_native_journey": {
+            "cases": 10,
+            "seconds": 15.722999999999999
+          },
+          "tests.test_parent_observer_v2": {
+            "cases": 33,
+            "seconds": 0.196
+          },
+          "tests.test_purpose_profiles_v2": {
+            "cases": 11,
+            "seconds": 0.029000000000000005
+          },
+          "tests.test_purpose_assembly_v2": {
+            "cases": 9,
+            "seconds": 0.082
+          },
+          "tests.test_purpose_capture_v2": {
+            "cases": 10,
+            "seconds": 0.10299999999999998
+          },
+          "tests.test_purpose_qualification_v3": {
+            "cases": 12,
+            "seconds": 0.2859999999999999
+          },
+          "tests.test_purpose_receipts_v2": {
+            "cases": 7,
+            "seconds": 0.0
+          },
+          "tests.test_purpose_runtime_v2": {
+            "cases": 24,
+            "seconds": 0.006
+          },
+          "tests.test_purpose_source_authority": {
+            "cases": 58,
+            "seconds": 5.136000000000001
+          },
+          "tests.test_purpose_transport": {
+            "cases": 20,
+            "seconds": 6.9879999999999995
+          },
+          "tests.test_purpose_transport_startup": {
+            "cases": 6,
+            "seconds": 1.805
+          },
+          "tests.test_purpose_shared_budget": {
+            "cases": 2,
+            "seconds": 0.653
+          },
+          "tests.test_purpose_allocation_budget": {
+            "cases": 4,
+            "seconds": 1.6480000000000001
+          },
+          "tests.test_semantic_registry_v3": {
+            "cases": 24,
+            "seconds": 0.024000000000000014
+          },
+          "tests.test_processing_extraction_runtime_v2": {
+            "cases": 36,
+            "seconds": 0.31800000000000017
+          },
+          "tests.test_extraction_connection_authority": {
+            "cases": 5,
+            "seconds": 0.428
+          }
+        },
+        "sha256": "2129f92ffd02c1512e6fa652caf5bce2ad56035b77a30d4a9e7d85b106f7f3ee"
+      },
+      "documentary-07": {
+        "cases": 76,
+        "suite_seconds": 109.849,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_purpose_native_census_startup": {
+            "cases": 7,
+            "seconds": 34.99999999999999
+          },
+          "tests.test_purpose_journey": {
+            "cases": 9,
+            "seconds": 0.132
+          },
+          "tests.test_connected_answer_contract_v1": {
+            "cases": 17,
+            "seconds": 0.076
+          },
+          "tests.test_connected_answer_sdk_sql_v1": {
+            "cases": 2,
+            "seconds": 33.45
+          },
+          "tests.test_connected_answer_service_v1": {
+            "cases": 6,
+            "seconds": 0.0
+          },
+          "tests.test_connected_answer_sql_v1": {
+            "cases": 33,
+            "seconds": 29.225999999999996
+          },
+          "tests.test_conversation_answer_v1": {
+            "cases": 1,
+            "seconds": 0.0
+          },
+          "tests.test_consolidation_next_auth_browser_v1": {
+            "cases": 1,
+            "seconds": 11.288
+          }
+        },
+        "sha256": "204ac5e4b366d60d0c97233baf3a5f1e078d9ea5235a4d7c404e1bff96a1571d"
+      },
+      "documentary-08": {
+        "cases": 83,
+        "suite_seconds": 112.16,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_purpose_worker_startup": {
+            "cases": 24,
+            "seconds": 78.131
+          },
+          "tests.test_consolidation_sql_v1": {
+            "cases": 59,
+            "seconds": 33.496
+          }
+        },
+        "sha256": "ee2d533e9fc33a1fa8363d955aff7d40c4b7449d5cb50d8989494610b0b4e4c2"
+      },
+      "event": {
+        "cases": 206,
+        "suite_seconds": 97.057,
+        "errors": 0,
+        "failures": 0,
+        "modules": {
+          "tests.test_operational_event_store": {
+            "cases": 2,
+            "seconds": 0.361
+          },
+          "tests.test_operational_export": {
+            "cases": 14,
+            "seconds": 0.0
+          },
+          "tests.test_process_analysis": {
+            "cases": 8,
+            "seconds": 0.0
+          },
+          "tests.test_pm4py_adapter": {
+            "cases": 21,
+            "seconds": 1.9829999999999999
+          },
+          "tests.test_pm4py_integration": {
+            "cases": 4,
+            "seconds": 6.602
+          },
+          "tests.test_derived_event_lineage": {
+            "cases": 21,
+            "seconds": 0.37600000000000006
+          },
+          "tests.test_analytical_source_packets.TestAnalyticalInventory": {
+            "cases": 11,
+            "seconds": 0.064
+          },
+          "tests.test_analytical_source_packets.TestAnalyticalDelivery": {
+            "cases": 15,
+            "seconds": 0.129
+          },
+          "tests.test_analytical_source_packets": {
+            "cases": 2,
+            "seconds": 0.005
+          },
+          "tests.test_meeting_stop_semantics_sql": {
+            "cases": 10,
+            "seconds": 24.178
+          },
+          "tests.test_meeting_capture_sql": {
+            "cases": 11,
+            "seconds": 11.711
+          },
+          "tests.test_meeting_create_forensic_sql": {
+            "cases": 6,
+            "seconds": 5.804999999999999
+          },
+          "tests.test_meeting_pre_stop_observation_sql": {
+            "cases": 6,
+            "seconds": 8.466999999999999
+          },
+          "tests.test_meeting_supervision_queue_sql": {
+            "cases": 2,
+            "seconds": 1.021
+          },
+          "tests.test_meeting_supervisor_currentness_sql": {
+            "cases": 2,
+            "seconds": 5.622999999999999
+          },
+          "tests.test_meeting_create_stop_relation_sql": {
+            "cases": 9,
+            "seconds": 6.952999999999999
+          },
+          "tests.test_meeting_delivery_sql": {
+            "cases": 9,
+            "seconds": 6.921999999999999
+          },
+          "tests.test_meeting_queue_sql": {
+            "cases": 12,
+            "seconds": 2.4599999999999995
+          },
+          "tests.test_meeting_queue_tls_sql": {
+            "cases": 1,
+            "seconds": 1.156
+          },
+          "tests.test_meeting_normalization_tls_sql": {
+            "cases": 2,
+            "seconds": 1.471
+          },
+          "tests.test_meeting_scheduler_process_sql": {
+            "cases": 3,
+            "seconds": 7.0280000000000005
+          },
+          "tests.test_meeting_worker_tls_sql": {
+            "cases": 1,
+            "seconds": 1.039
+          },
+          "tests.test_meeting_stop_readiness_sql": {
+            "cases": 1,
+            "seconds": 2.353
+          },
+          "tests.test_original_intake_protected_connection_sql": {
+            "cases": 2,
+            "seconds": 0.389
+          },
+          "tests.test_analytical_associations": {
+            "cases": 31,
+            "seconds": 0.08500000000000005
+          }
+        },
+        "sha256": "f435807df47fe2dd3e6d20657ad5b2761f0aef2b6d03c7e399c0d7a763cee9f9"
+      }
+    },
+    "doc09_passing_dots": 778,
+    "doc09_stdout_sha256": "f592bfa1a4f3bc7bb0477adc18edc65589f7aff7b02955a5fbac856f7e6c7f76"
+  },
+  "findings": {
+    "191_create": {
+      "stage": "exchange",
+      "state": "UNKNOWN",
+      "stderr": [
+        "Oracle protected channel refused http-headers",
+        "Oracle protected channel refused closed-wire"
+      ],
+      "provider_routes": 0,
+      "actual_claims": 1,
+      "actual_receipts": 0,
+      "cause": "verified protected service response refusal during pre-effect current recheck; exact status/header/SQL predicate UNKNOWN"
+    },
+    "192_tls": {
+      "stage": "first extraction handshake after census_committed 3.369s",
+      "client_hostname": "localhost",
+      "client_port": 46293,
+      "client_CA": "synthetic-hosting-tls1",
+      "retained_server_signed_by_same_CA": true,
+      "other_CAs_sign_server": false,
+      "actual_peer_DER_address": "NOT RECORDED",
+      "global_SSL_leak": "NOT PROVED; moved suite patches urllib opener, not SSLContext",
+      "ipv4_ipv6_collision": "plausible source path, not actual event proof"
+    },
+    "192_doc09": {
+      "expected_cases_inferred": 782,
+      "passing_dots": 778,
+      "last_case_phase": "UNKNOWN",
+      "new_workspace_case_measured_seconds": 15.431,
+      "191_doc09_suite_seconds": 101.68,
+      "addition_estimate_suite_seconds": 117.111,
+      "future_fit": "UNPROVEN; missing JUnit; no relocation recommendation"
+    },
+    "future_population": "all S12/S11/S08/S13 cases retained; global setup/production optimization needs phase-level measured attribution, no guard or population reduction"
+  }
+}

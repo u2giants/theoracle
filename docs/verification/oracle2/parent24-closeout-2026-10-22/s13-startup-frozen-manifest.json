@@ -1,0 +1,21 @@
+{
+  "base": "c187bfc36723ca891ad7558fe202a258ee2f27f8",
+  "prerequisite": "137d65d732e901ab1cd389db25703aafc63a400e",
+  "import_commit": "dd0c8412b1737a25413c6be92ef810acd3d08340",
+  "head": "2633c53baadec2d2bbde586a4a13e1b2ba9e79fd",
+  "clean": true,
+  "source_files": 1722,
+  "manifest": "/tmp/oracle-parent24-wy02uT/s13-startup-repository-manifest.json",
+  "manifest_sha256": "2f391577624bf8f619f0437cafd73eb75604c35e49952186abfba2290fa8adaf",
+  "manifest_bytes": 218010,
+  "owned_patch_sha256": "076b7086a1f858c57dcf0f4475ac191d5a536ad10b27d60e7fb5a54b4e331f01",
+  "complete_patch_sha256": "45a969d6deea7c46e6c536bca7d4b53fb4f81d65aaf94dfe244a99e7b9604c3d",
+  "harness": "/tmp/oracle-parent24-wy02uT/run-recovery-metadata-sql-proof-09.py",
+  "harness_sha256": "1af86516e0fc6f228b90ccafe79dfde4397af541617b5260e8e26730989cb22c",
+  "harness_ast": "PASS",
+  "executed": false,
+  "resource_effects": false,
+  "provider": false,
+  "source_tests": 47,
+  "candidate_docguard": "2634 source only,197linksPASS,notinstalled"
+}

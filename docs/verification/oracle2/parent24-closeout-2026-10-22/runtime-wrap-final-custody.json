@@ -1,0 +1,156 @@
+{
+  "full_s11_final_source_verification": {
+    "s11-security-full-source-manifest.json": {
+      "head": "b985583296a34b9367a4961c41231423015ca307",
+      "file_count": 1731,
+      "mismatches": []
+    },
+    "s11-recipients-full-source-manifest.json": {
+      "head": "ac5392355b19a025e3371e36bfee903583773b90",
+      "file_count": 1751,
+      "mismatches": []
+    }
+  },
+  "frozen_artifacts": [
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-finished-report.md",
+      "exists": true,
+      "size": 6617,
+      "sha256": "64e04cdd73dae8d258ad6d439619b49722dd42ddec28e92d3173ab00e45c40bb"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-frozen-manifest.json",
+      "exists": true,
+      "size": 19929,
+      "sha256": "41163f8f77c8e80dc60d3637fb01f59d66dd00235cca2d0cfc646d82067a9615"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-full-source-manifest.json",
+      "exists": true,
+      "size": 327723,
+      "sha256": "03d6100c9ec447cb25a8a2202f1c981e6094eaa76488c318e47a5b2428172564"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-owned.patch",
+      "exists": true,
+      "size": 43782,
+      "sha256": "23153fa01e7b30ba7ae8c22abafbafa6f4d76591c7f50ada69e131e49458d8bf"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-recipients-complete.patch",
+      "exists": true,
+      "size": 933547,
+      "sha256": "80023d28e8a681ab1cdab15bd54aa58b2d762275a04e879fa1edb88e1b6cea21"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-finished-report.md",
+      "exists": true,
+      "size": 5752,
+      "sha256": "0f7f1300bae58f6d370e5cf20b26dcfcf0372fd56ee3c041ed766438c8d8f50a"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-frozen-manifest.json",
+      "exists": true,
+      "size": 4390,
+      "sha256": "7b889ee4ea80662257bb7bf847204415696353cd2156095c1431b7fa094fd91d"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-full-source-manifest.json",
+      "exists": true,
+      "size": 323846,
+      "sha256": "05a3168bab1b54b6ef49f13a2a17c119345b0a08cf844e86500459c89742e83f"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-owned.patch",
+      "exists": true,
+      "size": 27176,
+      "sha256": "6ea2d5152af5171349300610ef42827de05c28d5a93fc6ae2a64b4a533f69cfd"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s11-security-complete.patch",
+      "exists": true,
+      "size": 827068,
+      "sha256": "460235809a119590a6435acdbecf724237eb36982df70f36d3cca69e4cbb0013"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-scope-frozen-manifest.json",
+      "exists": true,
+      "size": 233428,
+      "sha256": "02643d05f22a198e4a8ab6b168a947652b5f4565328060e782ac13a84fc6c54b"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-scope-repository-manifest.json",
+      "exists": true,
+      "size": 217886,
+      "sha256": "ac4cc71cdf632936a937287206607a78e409bf64d6dc399c460d06d0c997e5c3"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-scope-owned.patch",
+      "exists": true,
+      "size": 10127,
+      "sha256": "b52b5adb06f9796332bc164217878a5643dd2f7cacb4ea562a97897c5fb3d1a6"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-scope-complete-main.patch",
+      "exists": true,
+      "size": 700237,
+      "sha256": "e2ea28381421626d7586e4f1f8db9dba49188e81d0b64c280ca246bac165164d"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-startup-frozen-manifest.json",
+      "exists": true,
+      "size": 1021,
+      "sha256": "83dcaf1bee86e2420cb222067901e3bb6184ac936132d61d60e3a8dfdb31d260"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-startup-repository-manifest.json",
+      "exists": true,
+      "size": 218010,
+      "sha256": "2f391577624bf8f619f0437cafd73eb75604c35e49952186abfba2290fa8adaf"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-startup-owned.patch",
+      "exists": true,
+      "size": 9962,
+      "sha256": "076b7086a1f858c57dcf0f4475ac191d5a536ad10b27d60e7fb5a54b4e331f01"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-startup-complete-main.patch",
+      "exists": true,
+      "size": 710199,
+      "sha256": "45a969d6deea7c46e6c536bca7d4b53fb4f81d65aaf94dfe244a99e7b9604c3d"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v2-debate-receipt.json",
+      "exists": true,
+      "size": 2273,
+      "sha256": "4d07de90c1fd601b8de1390ee1834020d5c449d19ebaa646d5b20de3e2067f6c"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v2-deepseek-debate.txt",
+      "exists": true,
+      "size": 16993,
+      "sha256": "3d69412627a83939d49b08fab11339c9d6f239a342430f136420615e2be3749c"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v2-deepseek-rebuttal.txt",
+      "exists": true,
+      "size": 11160,
+      "sha256": "15201019a543dba9bc88016d813bb67d736ec95770a24042e49f940722b4c975"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-fixed-child-v3-delta-proposal.md",
+      "exists": true,
+      "size": 11767,
+      "sha256": "4f69a1a5a6741a6a13d9ad100e7f61444b0f042c8ed5c86044c332260e8e6837"
+    }
+  ],
+  "priority_sql09_repair": {
+    "started": false,
+    "new_worktree": false,
+    "source_edits": false,
+    "audit56tables_completed": false,
+    "runner10_created": false,
+    "new_db_or_effects": false
+  }
+}

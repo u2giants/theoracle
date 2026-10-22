@@ -1,0 +1,55 @@
+Retained turn session: 20261022-064114-3774890
+SESSION_ID: 20261022-064114-3774890
+## Scope and head binding
+
+Verdict binds only head `2633c53baadec2d2bbde586a4a13e1b2ba9e79fd` at `recovery-startup-intent` (base `c187bfc36723ca891ad7558fe202a258ee2f27f8`, imported prior `dd0c8412`), as stated in `s13-startup-frozen-manifest.json` and `identity.json`. I reviewed: the two owned files in the tree, the fixture/contract sources the proposed 09 harness depends on, and the 09 harness text supplied in this conversation. I did **not** execute Docker, SQL, a provider, a native child, or the network, and I did not execute the 09 harness. `pytest` and `psycopg` are not installed in my sandbox (`python3 -m pytest` → “No module named pytest”), so all test counts below are static-verified, not executed evidence.
+
+---
+
+## A. SOURCE under review (owned delta) — APPROVE
+
+Findings, highest severity first.
+
+**Blocking: none found.** Confirmed properties:
+
+- Pre-effect owner: the closed receipt is written after the private directory is made and before `created=True` / the first `compose up` — `dev/oracle2/test_worker_postgres_fixture.py:93` (mkdir 0700, `exist_ok=False`), `:99–103` (`os.open(..., O_EXCL, 0o600)`, canonical JSON, `flush`+`fsync`), `:104–108` (`created=True`, then `up`). A failure in open/write/flush/fsync propagates before any `up`/`down` (`:96–104` are outside the `try`), so write failure cannot produce a Compose effect.
+- Same-context cleanup unchanged: `dev/oracle2/test_worker_postgres_fixture.py:126–130` still runs the exact `command` + `down --volumes` with the same generated project; nothing about the retirement path changed.
+- Reader is read-only and conservative: `:49–80`. It refuses non-0700/non-same-UID directory and non-0600/non-same-UID/non-regular/oversize file (`:58–64`), compares `lstat` before vs `fstat` of the opened stream vs `lstat` after (`:65–72`), and validates a closed key set, canonical bytes and the exact `base + '-w' + 12 hex` project with fixed label (`:74–79`). It performs no `unlink`, rename, chmod or docker call. `FileNotFoundError` propagates, so missing evidence is UNKNOWN, not “absent”.
+- Project binding matches the writer exactly: writer `base + '-w' + uuid4().hex[:12]` (`:90`) vs reader `re.escape(base) + r'-w[0-9a-f]{12}'` (`:76`); base regex is identical at `:55` and `:86`, label regex identical at `:56` and `:88`. The 09 call sites use `oracle2-synthetic-p24rec-01a16013` / `documentary-01`, which satisfy both.
+- Test coverage matches the claims: `dev/oracle2/test_worker_postgres_startup_intent.py` yields exactly 14 executed cases — 2 startup-failure modes (`:40–53`), 2 write-failure modes (`:55–62`), success-receipt stability (`:64–71`), down-failure propagation (`:73–79`), missing-receipt (`:81–83`), and 7 refusal variants project/worker/boolean/extra/duplicate/mode/symlink (`:85–102`). The `duplicate` case is sound: canonical-byte equality at `:78` of the fixture rejects a JSON document that `json.loads` would accept with duplicate keys. The `symlink` case is sound because `path.lstat()` at `:59` yields a non-regular mode.
+- No caller regression reachable: signature `worker_postgres(environment,directory,label)` is unchanged; every in-tree caller supplies a fresh `exist_ok=False` directory, so an `O_EXCL` collision is impossible without a foreign writer in the same trusted 0700 same-UID directory (explicitly outside the assumed threat model in the brief).
+
+**Minor observations (non-blocking, no repair demanded for source):**
+
+1. `dev/oracle2/test_worker_postgres_fixture.py:91` performs a read-only `docker ps -aq --filter label=...` *before* the receipt is written. It creates no resource, so “before first Compose effect” still holds literally, but the receipt is not strictly the first external query. The test fixture models this call and asserts nothing is `up`/`down` on write failure (`test_worker_postgres_startup_intent.py:23,62`).
+2. `dev/oracle2/test_worker_postgres_startup_intent.py:55–62` patches the process-global `os.open` / `os.fsync` via `owner.os`; correct but process-wide for the duration. Serial pytest scope makes this harmless.
+3. Reader TOCTOU: the file is opened by pathname after `lstat` (`:68`), so a same-directory same-UID attacker could swap in a symlink; the `before`/`opened`/`after` identity comparison (`:71`) catches it unless the swap resolves to the identical inode. This is within the stated non-adversarial same-UID assumption; I do not treat it as a defect of this increment, and it is not crash-durability evidence.
+
+I therefore **approve the SOURCE** as a minimum repair: pre-effect private owner, same-context cleanup unchanged, read-only evidence reader, no database-semantics change, and 14 invented-source-only failure proofs whose static shape matches the claims.
+
+---
+
+## B. The ONE proposed 09 metadata/SQL RESOURCE plan — APPROVE (non-executed; fail-closed), with named pre-execution conditions
+
+What I could verify statically from the supplied harness and the canonical sources:
+
+- Gate ordering is correct in shape: exact HEAD, clean tree, externally reviewed full-source manifest (bytes + SHA) and reviewed-harness digest are enforced **before** the `ai-task-gates check --before database` call, and the SQL/resource effect (`worker_postgres`, `CREATE DATABASE`, pytest) is strictly after that call.
+- Canonical SQL path is real, not thin-import: `services/oracle-brain/tests/conftest.py:41–48` calls `bootstrap_canonical_test_schema(url)`, and `dev/oracle2/test_canonical_schema.py:135–170` executes every canonical file from `canonical_synthetic_migrations()` at `:161`; `:64` conditionally admits the SQL026 signature set, and `scripts/oracle2/verify_workflow_integrity.py` `SYNTHETIC_MIGRATIONS` was extended to `021/024/025/026` in the quoted diff, so a fresh UUID database receives 026. Environment names line up: the harness exports `ORACLE2_SYNTHETIC_POSTGRES_CONTAINER` (required at `dev/oracle2/test_canonical_schema.py:136–138`) and `ORACLE2_WORKER_CONTAINER_ID` (used at `test_recovery_authority_sql_v1.py:39`).
+- Test selection/assertion is numerically consistent with the real module: `services/oracle-brain/tests/test_recovery_authority_sql_v1.py` contains 12 single-case tests plus parametrizations of 4 (`:196–200`), 6 (`:216`) and 5 (`:280`) = **27**, matching the harness's `totals['tests']==27` and zero failure/error/skip assertion. The fixture fails rather than skips when the admin URL is absent (`conftest.py:43–45`), so a skip-silent run is not possible.
+- Database naming is admitted by the canonical reader: `dev/oracle2/test_worker_postgres_fixture.py:33` accepts `oracle_operating_model_test_[0-9a-f]{32}`, exactly what the harness creates, and `owned_worker_database` is used both at creation and after the session-admin bootstrap, so the worker TLS/identity guard is re-applied rather than bypassed.
+- Startup-evidence readback addresses the prior harness defect without inventing cleanup authority: the `finally` reads the SAME private receipt with `worker_startup_intent(scratch/'worker', ...)`, cross-checks it against a yielded `identity['project']` when one exists, and only *observes* exact `com.docker.compose.project=<project>` labels on containers/networks/volumes. On any receipt or inventory failure it writes `absence_proven=false` and raises. It never deletes anything unowned, and a missing identity no longer means “cannot name the owner”.
+- Source-drift and over-claim guards are present: pre-gate manifest equality, in-run `manifest==complete_sources()` after pytest, post-cleanup equality, plus explicit `native_dump_restore:false`, `archive_child:false`, `provider:false`, `metadata_only:true` in `result.json`.
+
+**Refusal-worthy defects: none found.** Conditions the coordinator must satisfy or accept before execution; each of these fails closed (the run aborts or records UNKNOWN) and none can create effects outside the single reviewed synthetic project:
+
+1. External prerequisites unverifiable here: `ai-task-gates` must exist and accept the receipt; `git` and `docker` must be on PATH; the hardcoded parent `/tmp/oracle-parent24-wy02uT` and a non-existent `recovery-metadata-owned-sql-09` must both hold (`scratch.mkdir(mode=0o700)` has no `exist_ok`/`parents`, so a leftover directory correctly aborts the run).
+2. `complete_sources()` uses `git ls-files ... --exclude-standard`; the harness imports `dev.oracle2.*` in its **own** process without setting `PYTHONDONTWRITEBYTECODE` (only the pytest child gets it), so the after-run source-equality assertion depends on byte-code caches being ignored. I did not read `.gitignore`; if `__pycache__` is not ignored, the proof asserts and fails (UNKNOWN), never a false pass. Confirm before execution.
+3. `psycopg.conninfo.make_conninfo(base, dbname=name)` and `conninfo_to_dict(base)` are given a `postgresql://` URL. I could not test this (psycopg absent). The same pattern is pervasive in merged code (e.g. `services/oracle-brain/oracle_brain/hosting/forward_recovery.py:1112`, `provider_runtime.py:90`), and `dev/oracle2/test_worker_postgres_fixture.py:28` already depends on it, but the harness's own `CREATE DATABASE` step should be pre-checked; failure aborts before any pytest effect and the context still performs its exact `down --volumes` plus absence readback.
+4. `timeout=120` for 27 real-DB tests that install roles, appointments, pins and repair catalog drift (`test_recovery_authority_sql_v1.py:41–89`, `:211–213`) may be tight; timeout raises `TimeoutExpired` and remains a recorded failure, not a leak.
+5. The `finally` uses raw `subprocess.check_output(['docker', ...])` rather than the bounded owner; that is an observation, not a mutation, and a query error is converted to UNKNOWN.
+
+I therefore **approve the 09 RESOURCE plan as written for execution only after a genuine gate**, on the understanding that (a) this approval is of frozen source bytes and a static plan, not of any executed database/transport result, (b) the coordinator alone decides execution, (c) no installation, company data, business acceptance, native dump/restore, or full-recovery claim follows, and (d) items 1–4 are pre-execution confirmations whose failure yields a conservative UNKNOWN rather than authority.
+
+**Missing evidence I did not substitute for:** actual execution of the 14 source-only tests and the claimed 47-PASS aggregate; the 27-case SQL026 run; availability of `ai-task-gates`/`docker`/the `/tmp/oracle-parent24-wy02uT` parent; `.gitignore` treatment of `__pycache__`; and psycopg URI acceptance for `make_conninfo`. None of these were assumed in the approvals above.
+
+VERDICT: APPROVE 2633c53baadec2d2bbde586a4a13e1b2ba9e79fd

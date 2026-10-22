@@ -1,0 +1,44 @@
+[
+  {
+    "worktree_key": "question-current",
+    "head": "11221ea80e528bd4ef817c9866d0686d3ffb7182",
+    "branch": "codex/parent24-question-current-01a16013",
+    "url": "https://github.com/u2giants/theoracle/tree/codex/parent24-question-current-01a16013"
+  },
+  {
+    "worktree_key": "workspace-preauth-current",
+    "head": "7defd1eeeaccad46ba04b96952c439305065c796",
+    "branch": "codex/s12-current-preauth",
+    "url": "https://github.com/u2giants/theoracle/tree/codex/s12-current-preauth"
+  },
+  {
+    "worktree_key": "recommendation-recipients",
+    "head": "ac5392355b19a025e3371e36bfee903583773b90",
+    "branch": "codex/oracle-s11-recipient-index",
+    "url": "https://github.com/u2giants/theoracle/tree/codex/oracle-s11-recipient-index"
+  },
+  {
+    "worktree_key": "recovery-startup-intent",
+    "head": "2633c53baadec2d2bbde586a4a13e1b2ba9e79fd",
+    "branch": "codex/s13-startup-intent-01a16013",
+    "url": "https://github.com/u2giants/theoracle/tree/codex/s13-startup-intent-01a16013"
+  },
+  {
+    "worktree_key": "recovery-scope-repair",
+    "head": "137d65d732e901ab1cd389db25703aafc63a400e",
+    "branch": "codex/parent24-s13-scope-01a16013",
+    "url": "https://github.com/u2giants/theoracle/tree/codex/parent24-s13-scope-01a16013"
+  },
+  {
+    "worktree_key": "recovery-child-pure-v2",
+    "head": "ab0915761f2cb466d7580f305aad202005e38a2d",
+    "branch": "codex/s13-child-pure-v2-01a16013",
+    "url": "https://github.com/u2giants/theoracle/tree/codex/s13-child-pure-v2-01a16013"
+  },
+  {
+    "worktree_key": "participation-current-consumer",
+    "head": "81742134d6cb753d5bef4d0372eeea2117192e8b",
+    "branch": "codex/s08-current-source-integration",
+    "url": "https://github.com/u2giants/theoracle/tree/codex/s08-current-source-integration"
+  }
+]

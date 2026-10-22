@@ -1,0 +1,1031 @@
+[
+  {
+    "name": "ai-devops-boundary-repair",
+    "head": "2634e51f422f2184697750c1f41450f1a373ed0b",
+    "branch": "codex/oracle-boundary-linear-01a16013",
+    "status": "",
+    "origin": "https://github.com/popcre/ai-devops"
+  },
+  {
+    "name": "answer-question-quality",
+    "head": "83effd3ca04f1b771a98b8bdd2ba541d4612b31a",
+    "branch": "codex/parent24-answer-question-quality-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "applicability",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-applicability-01a16013",
+    "status": "M services/oracle-brain/tests/test_applicability.py\n M services/oracle-brain/tests/test_research_freshness.py\n?? services/oracle-brain/oracle_brain/research/applicability.py\n?? services/oracle-brain/oracle_brain/research/freshness.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "billing-pointer",
+    "head": "0da8615c112dd403f9089993e12332148ff4f01d",
+    "branch": "codex/parent24-billing-pointer-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "binary",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-binary-01a16013",
+    "status": "M services/oracle-brain/tests/test_original_byte_storage.py\n?? services/oracle-brain/oracle_brain/ingest/binary_documents.py\n?? services/oracle-brain/tests/test_binary_documents.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "boundary-pattern-diagnostic",
+    "head": null,
+    "branch": "master",
+    "status": "A  population.txt",
+    "origin": null
+  },
+  {
+    "name": "browser-state-repair",
+    "head": "b8eaf5fc96697506f91b82870a2077878a4258f3",
+    "branch": "codex/parent24-browser-state-repair-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "canonical-test-schema",
+    "head": "bc49733f800512c3d181ec6412650c37eba7182f",
+    "branch": "codex/parent24-canonical-test-schema-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "chat-learning",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-chat-learning-01a16013",
+    "status": "M services/oracle-brain/tests/test_chat_learning.py\n M services/oracle-brain/tests/test_multilingual.py\n?? services/oracle-brain/oracle_brain/interviews/language.py\n?? services/oracle-brain/oracle_brain/workflows/chat_learning.py\n?? services/oracle-brain/tests/test_chat_proposal_contract.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "combined-source-proof",
+    "head": "3f6f3a3c24630cc8dc26045b8691ed511fd85dac",
+    "branch": "codex/parent24-combined-source-proof-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "confirmation",
+    "head": "78cfd3affa77e5bbbf016e743ae3211100b08fd5",
+    "branch": "codex/parent24-fixed-confirmation-01a16013",
+    "status": "M dev/oracle2/test_worker_postgres_fixture.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_requester_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "connected-answer",
+    "head": "b00239c3dbd2ee0278f7ba085e62c8ee4429ece2",
+    "branch": "codex/parent24-connected-answer-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "connected-answer-backend-proof",
+    "head": "18c6a8b2b3e5efba522091e0ac59745d45903bf1",
+    "branch": "codex/parent24-connected-backend-proof-01a16013",
+    "status": "M dev/oracle2/test_canonical_schema.py\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/conversation_service_v1.py\n M services/oracle-brain/oracle_brain/hosting/replacement_result_service_v1.py\n M services/oracle-brain/oracle_brain/operating_model/authority_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n M services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n M services/oracle-brain/oracle_brain/operating_model/sdk_projection.py\n M services/oracle-brain/oracle_brain/operating_model/source_binding.py\n M services/oracle-brain/tests/test_conversation_fence_v1.py\n M services/oracle-brain/tests/test_replacement_result_tls_sdk_close_v1.py\n?? services/oracle-brain/oracle_brain/hosting/connected_answer_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/connected_answer_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_answer_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidated_delivery_v1.py\n?? services/oracle-brain/oracle_brain/workflows/answer.py\n?? services/oracle-brain/sql/022_consolidated_answer_delivery.sql\n?? services/oracle-brain/tests/test_connected_answer_contract_v1.py\n?? services/oracle-brain/tests/test_connected_answer_sdk_sql_v1.py\n?? services/oracle-brain/tests/test_connected_answer_service_v1.py\n?? services/oracle-brain/tests/test_connected_answer_sql_v1.py\n?? services/oracle-brain/tests/test_conversation_answer_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "consolidation",
+    "head": "f67a647062408d4104ecc3e84a532bd4536f431e",
+    "branch": "codex/parent24-consolidation-history-01a16013",
+    "status": "M apps/web/proxy.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/original/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/replacement/upload/page.tsx\n?? apps/web/app/consultant/replacement/upload/upload-form.tsx\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-control-window.test.ts\n?? apps/web/lib/replacement-control-window.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-original-viewer.test.ts\n?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-protected-control-route.test.ts\n?? apps/web/lib/replacement-server-binding.ts\n?? apps/web/lib/replacement-upload-contract.ts",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "consolidation-proof",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-consolidation-proof-01a16013",
+    "status": "M apps/web/proxy.ts\n M services/oracle-brain/oracle_brain/hosting/paid_projector_v3.py\n M services/oracle-brain/oracle_brain/hosting/purpose_journey_v2.py\n M services/oracle-brain/oracle_brain/operating_model/assembly_context.py\n M services/oracle-brain/oracle_brain/operating_model/assembly_qualification.py\n M services/oracle-brain/oracle_brain/operating_model/contracts.py\n M services/oracle-brain/oracle_brain/operating_model/ledger.py\n M services/oracle-brain/oracle_brain/operating_model/pipeline.py\n M services/oracle-brain/oracle_brain/operating_model/processing_ledger.py\n M services/oracle-brain/oracle_brain/operating_model/processing_projection.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_assembly_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_capture_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_profiles_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_qualification_v3.py\n M services/oracle-brain/oracle_brain/operating_model/sdk_projection.py\n M services/oracle-brain/oracle_brain/operating_model/semantic_runtime.py\n?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/model-review/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/original/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/replacement/review/page.tsx\n?? apps/web/app/consultant/replacement/review/review.tsx\n?? apps/web/app/consultant/replacement/upload/page.tsx\n?? apps/web/app/consultant/replacement/upload/upload-form.tsx\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-control-window.test.ts\n?? apps/web/lib/replacement-control-window.ts\n?? apps/web/lib/replacement-model-review.test.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-original-viewer.test.ts\n?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-protected-control-route.test.ts\n?? apps/web/lib/replacement-server-binding.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/tests/oracle2/model-review-proof.ts\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_contracts_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_recommendations_v1.py\n?? services/oracle-brain/sql/017_processing_model_history.sql\n?? services/oracle-brain/tests/test_consolidation_contracts_v1.py\n?? services/oracle-brain/tests/test_consolidation_review_browser_v1.py\n?? services/oracle-brain/tests/test_consolidation_review_v1.py\n?? services/oracle-brain/tests/test_consolidation_sql_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "conversation-boundary-proof",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-conversation-boundary-proof-01a16013",
+    "status": "M apps/web/components/consultant/operating-model-workspace.tsx\n M apps/web/components/consultant/pilot-workspace.tsx\n M apps/web/components/consultant/replacement-workspace.tsx\n M apps/web/proxy.ts\n M apps/web/tests/oracle2/interview.spec.ts\n M scripts/oracle2/verify_phase.py\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/paid_projector_v3.py\n M services/oracle-brain/oracle_brain/hosting/purpose_journey_v2.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_observer_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_settings_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_views_v1.py\n M services/oracle-brain/oracle_brain/hosting/replacement_result_service_v1.py\n M services/oracle-brain/oracle_brain/hosting/runtime.py\n M services/oracle-brain/oracle_brain/ingest/originals.py\n M services/oracle-brain/oracle_brain/operating_model/assembly_context.py\n M services/oracle-brain/oracle_brain/operating_model/assembly_qualification.py\n M services/oracle-brain/oracle_brain/operating_model/authority_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/contracts.py\n M services/oracle-brain/oracle_brain/operating_model/ledger.py\n M services/oracle-brain/oracle_brain/operating_model/native_factory.py\n M services/oracle-brain/oracle_brain/operating_model/native_provider.py\n M services/oracle-brain/oracle_brain/operating_model/original_source_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/pipeline.py\n M services/oracle-brain/oracle_brain/operating_model/processing_ledger.py\n M services/oracle-brain/oracle_brain/operating_model/processing_projection.py\n M services/oracle-brain/oracle_brain/operating_model/provider_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_assembly_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_capture_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_profiles_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_qualification_v3.py\n M services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py\n M services/oracle-brain/oracle_brain/operating_model/raw_original_native_provider_v1.py\n M services/oracle-brain/oracle_brain/operating_model/sdk_projection.py\n M services/oracle-brain/oracle_brain/operating_model/semantic_runtime.py\n M services/oracle-brain/oracle_brain/research/refresh.py\n M services/oracle-brain/tests/conftest.py\n M services/oracle-brain/tests/test_interview_resume.py\n M services/oracle-brain/tests/test_operating_model_verifier.py\n M services/oracle-brain/tests/test_original_intake_v1.py\n M services/oracle-brain/tests/test_owned_worker_database.py\n M services/oracle-brain/tests/test_purpose_coherent_native_journey.py\n M services/oracle-brain/tests/test_raw_endpoint_inventory_v1.py\n M services/oracle-brain/tests/test_raw_original_observer_v1.py\n M services/oracle-brain/tests/test_raw_original_settings_v1.py\n M services/oracle-brain/tests/test_replacement_source_intake_sql.py\n M services/oracle-brain/tests/test_research_scheduler.py\n?? apps/web/app/api/consultant/interviews/[id]/turns/route.ts\n?? apps/web/app/api/consultant/interviews/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/model-review/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/original/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/interviews/[id]/page.tsx\n?? apps/web/app/consultant/interviews/page.tsx\n?? apps/web/app/consultant/replacement/review/page.tsx\n?? apps/web/app/consultant/replacement/review/review.tsx\n?? apps/web/app/consultant/replacement/upload/page.tsx\n?? apps/web/app/consultant/replacement/upload/upload-form.tsx\n?? apps/web/components/consultant/interview-panel.tsx\n?? apps/web/lib/conversation-route.ts\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-control-window.test.ts\n?? apps/web/lib/replacement-control-window.ts\n?? apps/web/lib/replacement-conversation-contract.ts\n?? apps/web/lib/replacement-model-review.test.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-original-viewer.test.ts\n?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-protected-control-route.test.ts\n?? apps/web/lib/replacement-server-binding.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/lib/use-session-value.ts\n?? apps/web/tests/oracle2/interview-proof.ts\n?? apps/web/tests/oracle2/invented-auth-service.ts\n?? apps/web/tests/oracle2/model-review-next-auth-proof.ts\n?? apps/web/tests/oracle2/model-review-proof.ts\n?? apps/web/tests/oracle2/original-upload-proof.ts\n?? apps/web/tests/oracle2/protected-peer-proof.ts\n?? dev/oracle2/test_canonical_schema.py\n?? evals/oracle2/workflow/__pycache__/legacy_loss_probe.cpython-312-pytest-9.1.1.pyc\n?? packages/ai/node_modules\n?? packages/db/node_modules\n?? scripts/oracle2/contract_test_evidence.py\n?? services/oracle-brain/oracle_brain/hosting/_protected_control_listener_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_control_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_native_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_original_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_processing_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_store_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/oracle_brain/hosting/protected_raw_original_factory_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reader_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reviewer_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_contracts_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_recommendations_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_control_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_native_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_processing_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_inputs_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n?? services/oracle-brain/oracle_brain/workflows/interview.py\n?? services/oracle-brain/sql/017_processing_model_history.sql\n?? services/oracle-brain/sql/018_original_review_reading_input.sql\n?? services/oracle-brain/sql/019_employee_conversations.sql\n?? services/oracle-brain/tests/test_consolidation_contracts_v1.py\n?? services/oracle-brain/tests/test_consolidation_next_auth_browser_v1.py\n?? services/oracle-brain/tests/test_consolidation_review_browser_v1.py\n?? services/oracle-brain/tests/test_consolidation_review_v1.py\n?? services/oracle-brain/tests/test_consolidation_sdk_sql_v1.py\n?? services/oracle-brain/tests/test_consolidation_sql_v1.py\n?? services/oracle-brain/tests/test_conversation_browser_sql.py\n?? services/oracle-brain/tests/test_conversation_contract_v1.py\n?? services/oracle-brain/tests/test_conversation_fence_v1.py\n?? services/oracle-brain/tests/test_conversation_native_sql.py\n?? services/oracle-brain/tests/test_conversation_original_sql.py\n?? services/oracle-brain/tests/test_conversation_processing_sql.py\n?? services/oracle-brain/tests/test_conversation_registration_sql.py\n?? services/oracle-brain/tests/test_conversation_service_sql.py\n?? services/oracle-brain/tests/test_conversation_text_pricing_v1.py\n?? services/oracle-brain/tests/test_durable_interview_sql.py\n?? services/oracle-brain/tests/test_original_qualification_authority_sql.py\n?? services/oracle-brain/tests/test_original_response_normalization_v1.py\n?? services/oracle-brain/tests/test_original_review_reading_input_sql.py\n?? services/oracle-brain/tests/test_original_upload_browser_v1.py\n?? services/oracle-brain/tests/test_original_upload_chunks_v1.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? services/oracle-brain/tests/test_original_view_sql.py\n?? services/oracle-brain/tests/test_protected_raw_original_factory_sql.py\n?? services/oracle-brain/tests/test_protected_raw_original_factory_v1.py\n?? services/oracle-brain/tests/test_protected_web_python_conformance_v1.py\n?? services/oracle-brain/tests/test_raw_endpoint_quote_v1.py\n?? services/oracle-brain/tests/test_raw_native_metadata_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_service_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_settings_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_sql.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "conversation-boundary-repair",
+    "head": "190376e6d8747561da4fbd2022e879c7e5baf352",
+    "branch": "codex/parent24-conversation-boundary-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "coordinator",
+    "head": "099d3c78f394c9a144fa27fa62e7b88c8011589b",
+    "branch": "codex/parent24-coordination-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "enterprise-recipient-isolation",
+    "head": "77046ae1453858c69d4d3a262af0e27573c1adaa",
+    "branch": "codex/parent24-enterprise-recipient-isolation-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "integration",
+    "head": "be9c14faf14431b09e080c138c2ba1d93bb7f5e9",
+    "branch": "codex/parent24-recovery-migration-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "interviews",
+    "head": "2e8195c8d9df781bdaae64072189044106052fd0",
+    "branch": "codex/parent24-durable-interviews-01a16013",
+    "status": "M .github/workflows/oracle2-contracts.yml\n M apps/web/lib/replacement-control-window.ts\n M apps/web/lib/replacement-protected-client.test.ts\n M apps/web/lib/replacement-protected-client.ts\n M apps/web/lib/replacement-server-binding.ts\n M apps/web/proxy.ts\n M apps/web/tests/oracle2/interview.spec.ts\n M dev/oracle2/test_canonical_schema.py\n M scripts/oracle2/verify_phase.py\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n M services/oracle-brain/oracle_brain/operating_model/authority_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/native_factory.py\n M services/oracle-brain/oracle_brain/operating_model/original_source_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/provider_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py\n M services/oracle-brain/tests/test_interview_resume.py\n M services/oracle-brain/tests/test_operating_model_verifier.py\n M services/oracle-brain/tests/test_replacement_upload_service_v1.py\n?? apps/web/app/api/consultant/interviews/[id]/turns/route.ts\n?? apps/web/app/api/consultant/interviews/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/interviews/[id]/page.tsx\n?? apps/web/app/consultant/interviews/page.tsx\n?? apps/web/app/consultant/replacement/upload/page.tsx\n?? apps/web/app/consultant/replacement/upload/upload-form.tsx\n?? apps/web/components/consultant/interview-panel.tsx\n?? apps/web/lib/conversation-route.ts\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-conversation-contract.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/tests/oracle2/interview-proof.ts\n?? apps/web/tests/oracle2/original-upload-proof.ts\n?? apps/web/tests/oracle2/protected-peer-proof.ts\n?? services/oracle-brain/oracle_brain/hosting/_protected_control_listener_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_control_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_native_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_original_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_processing_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_store_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reader_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reviewer_v1.py\n?? services/oracle-brain/oracle_brain/workflows/interview.py\n?? services/oracle-brain/sql/017_processing_model_history.sql\n?? services/oracle-brain/sql/019_employee_conversations.sql\n?? services/oracle-brain/tests/test_conversation_browser_sql.py\n?? services/oracle-brain/tests/test_conversation_contract_v1.py\n?? services/oracle-brain/tests/test_conversation_fence_v1.py\n?? services/oracle-brain/tests/test_conversation_native_sql.py\n?? services/oracle-brain/tests/test_conversation_original_sql.py\n?? services/oracle-brain/tests/test_conversation_processing_sql.py\n?? services/oracle-brain/tests/test_conversation_registration_sql.py\n?? services/oracle-brain/tests/test_conversation_service_sql.py\n?? services/oracle-brain/tests/test_conversation_text_pricing_v1.py\n?? services/oracle-brain/tests/test_durable_interview_sql.py\n?? services/oracle-brain/tests/test_original_upload_browser_v1.py\n?? services/oracle-brain/tests/test_original_upload_chunks_v1.py\n?? services/oracle-brain/tests/test_protected_web_python_conformance_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "interviews-final",
+    "head": "f459aee8916b461b3743117e774747eaf9277e03",
+    "branch": "codex/parent24-durable-conversation-final-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "interviews-proof",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-interview-runtime-proof-01a16013",
+    "status": "M apps/web/components/consultant/operating-model-workspace.tsx\n M apps/web/components/consultant/pilot-workspace.tsx\n M apps/web/components/consultant/replacement-workspace.tsx\n M apps/web/proxy.ts\n M apps/web/tests/oracle2/interview.spec.ts\n M scripts/oracle2/verify_phase.py\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_observer_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_settings_v1.py\n M services/oracle-brain/oracle_brain/hosting/replacement_result_service_v1.py\n M services/oracle-brain/oracle_brain/ingest/originals.py\n M services/oracle-brain/oracle_brain/operating_model/authority_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/native_factory.py\n M services/oracle-brain/oracle_brain/operating_model/native_provider.py\n M services/oracle-brain/oracle_brain/operating_model/original_source_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/provider_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py\n M services/oracle-brain/oracle_brain/operating_model/raw_original_native_provider_v1.py\n M services/oracle-brain/oracle_brain/research/refresh.py\n M services/oracle-brain/tests/conftest.py\n M services/oracle-brain/tests/test_interview_resume.py\n M services/oracle-brain/tests/test_operating_model_verifier.py\n M services/oracle-brain/tests/test_original_intake_v1.py\n M services/oracle-brain/tests/test_owned_worker_database.py\n M services/oracle-brain/tests/test_purpose_coherent_native_journey.py\n M services/oracle-brain/tests/test_raw_endpoint_inventory_v1.py\n M services/oracle-brain/tests/test_raw_original_observer_v1.py\n M services/oracle-brain/tests/test_raw_original_settings_v1.py\n M services/oracle-brain/tests/test_replacement_source_intake_sql.py\n M services/oracle-brain/tests/test_research_scheduler.py\n?? apps/web/app/api/consultant/interviews/[id]/turns/route.ts\n?? apps/web/app/api/consultant/interviews/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/original/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/interviews/[id]/page.tsx\n?? apps/web/app/consultant/interviews/page.tsx\n?? apps/web/app/consultant/replacement/upload/page.tsx\n?? apps/web/app/consultant/replacement/upload/upload-form.tsx\n?? apps/web/components/consultant/interview-panel.tsx\n?? apps/web/lib/conversation-route.ts\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-control-window.test.ts\n?? apps/web/lib/replacement-control-window.ts\n?? apps/web/lib/replacement-conversation-contract.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-original-viewer.test.ts\n?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-protected-control-route.test.ts\n?? apps/web/lib/replacement-server-binding.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/lib/use-session-value.ts\n?? apps/web/tests/oracle2/interview-proof.ts\n?? apps/web/tests/oracle2/original-upload-proof.ts\n?? apps/web/tests/oracle2/protected-peer-proof.ts\n?? dev/oracle2/test_canonical_schema.py\n?? services/oracle-brain/oracle_brain/hosting/_protected_control_listener_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_control_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_native_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_original_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_processing_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_store_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/oracle_brain/hosting/protected_raw_original_factory_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reader_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reviewer_v1.py\n?? services/oracle-brain/oracle_brain/workflows/interview.py\n?? services/oracle-brain/sql/017_processing_model_history.sql\n?? services/oracle-brain/sql/018_original_review_reading_input.sql\n?? services/oracle-brain/sql/019_employee_conversations.sql\n?? services/oracle-brain/tests/test_conversation_browser_sql.py\n?? services/oracle-brain/tests/test_conversation_contract_v1.py\n?? services/oracle-brain/tests/test_conversation_fence_v1.py\n?? services/oracle-brain/tests/test_conversation_native_sql.py\n?? services/oracle-brain/tests/test_conversation_original_sql.py\n?? services/oracle-brain/tests/test_conversation_processing_sql.py\n?? services/oracle-brain/tests/test_conversation_registration_sql.py\n?? services/oracle-brain/tests/test_conversation_service_sql.py\n?? services/oracle-brain/tests/test_conversation_text_pricing_v1.py\n?? services/oracle-brain/tests/test_durable_interview_sql.py\n?? services/oracle-brain/tests/test_original_qualification_authority_sql.py\n?? services/oracle-brain/tests/test_original_response_normalization_v1.py\n?? services/oracle-brain/tests/test_original_review_reading_input_sql.py\n?? services/oracle-brain/tests/test_original_upload_browser_v1.py\n?? services/oracle-brain/tests/test_original_upload_chunks_v1.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? services/oracle-brain/tests/test_original_view_sql.py\n?? services/oracle-brain/tests/test_protected_raw_original_factory_sql.py\n?? services/oracle-brain/tests/test_protected_raw_original_factory_v1.py\n?? services/oracle-brain/tests/test_protected_web_python_conformance_v1.py\n?? services/oracle-brain/tests/test_raw_endpoint_quote_v1.py\n?? services/oracle-brain/tests/test_raw_native_metadata_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_service_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_settings_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_sql.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "maintained-research",
+    "head": "1fc627ac58023bff9bfa950d6ae7b2f21764a389",
+    "branch": "codex/parent24-maintained-research-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-backend-consumer",
+    "head": "4272f7b20385ccbb15d626838ccb0296d7b7c3ea",
+    "branch": "codex/parent24-s07-backend-consumer-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-backend-current",
+    "head": "2e385775216e7fddc450cf8e191083f9ca9418e7",
+    "branch": "codex/parent24-s07-backend-current-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-delivery-proof",
+    "head": "18c6a8b2b3e5efba522091e0ac59745d45903bf1",
+    "branch": "codex/parent24-s07-delivery-proof-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/hosting/parent_observer_v2.py\n M services/oracle-brain/oracle_brain/hosting/purpose_transport.py\n M services/oracle-brain/oracle_brain/research/fetch.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_worker_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_supervisor_observer_v1.py\n?? services/oracle-brain/oracle_brain/meetings/capture_contracts.py\n?? services/oracle-brain/oracle_brain/meetings/capture_wire_v1.py\n?? services/oracle-brain/oracle_brain/meetings/final_mapping.py\n?? services/oracle-brain/oracle_brain/meetings/final_transcript.py\n?? services/oracle-brain/oracle_brain/meetings/participant_epoch.py\n?? services/oracle-brain/oracle_brain/meetings/participation_wire_v1.py\n?? services/oracle-brain/oracle_brain/meetings/supervisor_process.py\n?? services/oracle-brain/sql/020_meeting_capture.sql\n?? services/oracle-brain/tests/test_meeting_artifact_transport.py\n?? services/oracle-brain/tests/test_meeting_capture_contracts.py\n?? services/oracle-brain/tests/test_meeting_capture_sql.py\n?? services/oracle-brain/tests/test_meeting_capture_wire.py\n?? services/oracle-brain/tests/test_meeting_delivery_sql.py\n?? services/oracle-brain/tests/test_meeting_final_mapping.py\n?? services/oracle-brain/tests/test_meeting_final_transcript.py\n?? services/oracle-brain/tests/test_meeting_participant_epoch.py\n?? services/oracle-brain/tests/test_meeting_request_fence.py\n?? services/oracle-brain/tests/test_meeting_supervisor_observer.py\n?? services/oracle-brain/tests/test_meeting_supervisor_process.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-forensic-proof",
+    "head": "86c8f515cd3e6dcb48cf6bcf6a579c10a0225fd6",
+    "branch": "codex/parent24-s07-forensic-proof-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/hosting/meeting_worker_service_v1.py\n M services/oracle-brain/oracle_brain/hosting/purpose_transport.py\n M services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n M services/oracle-brain/oracle_brain/research/fetch.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_supervisor_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_worker_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_participation_v1.py\n?? services/oracle-brain/oracle_brain/meetings/capture_contracts.py\n?? services/oracle-brain/oracle_brain/meetings/final_mapping.py\n?? services/oracle-brain/oracle_brain/meetings/final_transcript.py\n?? services/oracle-brain/oracle_brain/meetings/participant_epoch.py\n?? services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_runtime_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_wire_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py\n?? services/oracle-brain/tests/test_meeting_artifact_transport.py\n?? services/oracle-brain/tests/test_meeting_capture_contracts.py\n?? services/oracle-brain/tests/test_meeting_capture_sql.py\n?? services/oracle-brain/tests/test_meeting_capture_wire.py\n?? services/oracle-brain/tests/test_meeting_final_mapping.py\n?? services/oracle-brain/tests/test_meeting_final_transcript.py\n?? services/oracle-brain/tests/test_meeting_participant_epoch.py\n?? services/oracle-brain/tests/test_meeting_supervisor_observer.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-ingress-processing",
+    "head": "f7a07890f97e283f42b1c968ddcd322a3cbe76c0",
+    "branch": "codex/parent24-s07-processing-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-normalization-shared-build",
+    "head": "51901327ebec3133826a8e58ef01409a26d5cc95",
+    "branch": null,
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-normalization-worker",
+    "head": "51901327ebec3133826a8e58ef01409a26d5cc95",
+    "branch": "codex/parent24-s07-normalization-worker-01a16013",
+    "status": "M apps/workers/trigger.config.ts\n?? apps/workers/meeting-bundle-isolation.test.mts\n?? apps/workers/meeting-target-profile.d.mts\n?? apps/workers/meeting-target-profile.mjs\n?? apps/workers/meeting-target-profile.test.mts\n?? apps/workers/src/trigger/oracle2-meeting-ingress-normalize.ts\n?? apps/workers/trigger.oracle2-meetings.config.ts\n?? tests/fixtures/meeting-targets.json",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-participation",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-meeting-participation-01a16013",
+    "status": "?? apps/web/app/consultant/meetings/participation/page.tsx\n?? apps/web/app/consultant/meetings/participation/participation-controls.tsx\n?? services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_participation_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_runtime_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_wire_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_inputs_v1.py\n?? services/oracle-brain/sql/021_meeting_participation.sql\n?? services/oracle-brain/tests/test_meeting_participation_control_v1.py\n?? services/oracle-brain/tests/test_meeting_participation_v1.py\n?? services/oracle-brain/tests/test_meeting_participation_wire_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-participation-sql-proof",
+    "head": "17dff6753c04bd8696ca1d185dad87b32116241b",
+    "branch": "codex/s08-participation-sql-proof",
+    "status": "M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n M services/oracle-brain/oracle_brain/hosting/runtime.py\n?? services/oracle-brain/oracle_brain/hosting/_protected_control_listener_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_supervisor_observer_v1.py\n?? services/oracle-brain/oracle_brain/ingest/consent.py\n?? services/oracle-brain/oracle_brain/meetings/capture_contracts.py\n?? services/oracle-brain/oracle_brain/meetings/final_mapping.py\n?? services/oracle-brain/oracle_brain/meetings/final_transcript.py\n?? services/oracle-brain/oracle_brain/meetings/participant_epoch.py\n?? services/oracle-brain/oracle_brain/meetings/supervisor_process.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_inputs_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n?? services/oracle-brain/sql/020_meeting_capture.sql\n?? services/oracle-brain/tests/test_meeting_capture_sql.py\n?? services/oracle-brain/tests/test_meeting_participation_next_browser.py\n?? services/oracle-brain/tests/test_meeting_request_fence.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-participation-worker",
+    "head": "743944f6e9491e86aa896e502e398a3474503e7e",
+    "branch": "codex/s08-participation-worker",
+    "status": "M apps/web/lib/recall.ts\n M apps/web/lib/replacement-control-window.test.ts\n M apps/web/lib/replacement-control-window.ts\n M apps/web/lib/replacement-original-viewer.test.ts\n M apps/web/lib/replacement-protected-client.test.ts\n M apps/web/lib/replacement-protected-client.ts\n M apps/web/lib/replacement-server-binding.ts\n M apps/web/proxy.ts\n M apps/workers/trigger.config.ts\n M packages/shared/package.json\n?? apps/web/app/api/consultant/interviews/[id]/turns/route.ts\n?? apps/web/app/api/consultant/interviews/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/meetings/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/model-review/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/lib/conversation-route.ts\n?? apps/web/lib/protected-node-https.test.ts\n?? apps/web/lib/recall-capture-contract.test.ts\n?? apps/web/lib/recall-replacement.test.ts\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-connected-answer.test.ts\n?? apps/web/lib/replacement-conversation-contract.test.ts\n?? apps/web/lib/replacement-conversation-contract.ts\n?? apps/web/lib/replacement-meeting-control.test.ts\n?? apps/web/lib/replacement-meeting-ingress.test.ts\n?? apps/web/lib/replacement-meeting-worker.test.ts\n?? apps/web/lib/replacement-model-review.test.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/lib/replacement-worker-receipt.test.ts\n?? apps/web/tests/oracle2/invented-auth-service.ts\n?? apps/web/tests/oracle2/meeting-participation-next-proof.ts\n?? apps/workers/meeting-bundle-isolation.test.mts\n?? apps/workers/meeting-target-profile.d.mts\n?? apps/workers/meeting-target-profile.mjs\n?? apps/workers/meeting-target-profile.test.mts\n?? apps/workers/trigger.oracle2-meetings.config.ts\n?? packages/shared/src/_protected-file.ts\n?? packages/shared/src/_worker-receipt.ts\n?? packages/shared/src/protected-canonical-json.ts\n?? packages/shared/src/protected-client-contracts.ts\n?? packages/shared/src/protected-control-window.ts\n?? packages/shared/src/protected-conversation-contract.ts\n?? packages/shared/src/protected-meeting-worker.ts\n?? packages/shared/src/protected-node-https.ts\n?? packages/shared/src/protected-server-binding.ts\n?? packages/shared/src/protected-service-channel.ts\n?? packages/shared/src/protected-upload-contract.ts\n?? packages/shared/src/protected-worker-contract.ts\n?? packages/shared/src/recall-capture-contract.ts\n?? packages/shared/src/recall-webhook-verifier.ts\n?? tests/fixtures/meeting-targets.json\n?? tests/fixtures/recall-denied-addresses.json",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-peer-fixture-fix",
+    "head": "83f3e53e1d48da6c77346a171eb9b3d1f5c4e7a6",
+    "branch": "codex/parent24-meeting-peer-fix-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-queue-current",
+    "head": "42b5f22d5eab1d89c5844807024ef5ce7a9d3e77",
+    "branch": "codex/parent24-meeting-queue-current-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-queue-worker",
+    "head": "6e6713fb5ea45afeef53e43000eb2915cf09819c",
+    "branch": "codex/parent24-s07-queue-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-runtime-dependencies",
+    "head": "7a38a70152466b31099c3d8187aca745f8c07d86",
+    "branch": "codex/parent24-meeting-runtime-dependencies-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-shared-worker",
+    "head": "aacc61f942dccb2cf68b9de3cc203e0ac46b1dc5",
+    "branch": "codex/parent24-meeting-shared-worker-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-source-proof",
+    "head": "b95f35b3c9db2fd0c4382a17e100c61cc8f8b5ea",
+    "branch": "codex/parent24-s07-source-proof-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-stop-readiness-review",
+    "head": "bcebcc9efdad0229cdae0403063300dc3160f33d",
+    "branch": "codex/parent24-s07-stop-readiness-review-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-supervision-shared-build",
+    "head": "f3e1924e34faca5db20c0c9d5585554ecd003bd9",
+    "branch": "codex/parent24-s07-supervision-dependency-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-supervision-worker",
+    "head": "2ee141953668a466fa985d9bc8aae2ce0b2b44a5",
+    "branch": "codex/parent24-s07-supervision-worker-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-trigger-consumer",
+    "head": "38c359e281742032e1e783aba1980f026aa3aa16",
+    "branch": "codex/parent24-s07-trigger-consumer-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meeting-unattended-proof",
+    "head": "0a6116af5397284a5c2394efb8d4b852055d9526",
+    "branch": "codex/parent24-s07-unattended-01a16013",
+    "status": "M apps/workers/src/services/oracle2-meeting-stop-process.ts\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/parent_observer_v2.py\n?? apps/workers/src/lib/meeting-stop-readiness.test.ts\n?? apps/workers/src/lib/meeting-stop-readiness.ts\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_supervisor_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_worker_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_normalization_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_normalization_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_participation_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_queue_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_queue_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_scheduler_process_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_supervision_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_supervisor_observer_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_worker_service_v1.py\n?? services/oracle-brain/oracle_brain/meetings/capture_contracts.py\n?? services/oracle-brain/oracle_brain/meetings/capture_wire_v1.py\n?? services/oracle-brain/oracle_brain/meetings/create_stop_relation.py\n?? services/oracle-brain/oracle_brain/meetings/final_mapping.py\n?? services/oracle-brain/oracle_brain/meetings/final_transcript.py\n?? services/oracle-brain/oracle_brain/meetings/participant_epoch.py\n?? services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_runtime_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_wire_v1.py\n?? services/oracle-brain/oracle_brain/meetings/processing_contracts.py\n?? services/oracle-brain/oracle_brain/meetings/queue_contracts.py\n?? services/oracle-brain/oracle_brain/meetings/supervisor_process.py\n?? services/oracle-brain/oracle_brain/meetings/worker_contracts.py\n?? services/oracle-brain/sql/020_meeting_capture.sql\n?? services/oracle-brain/tests/test_meeting_capture_contracts.py\n?? services/oracle-brain/tests/test_meeting_capture_wire.py\n?? services/oracle-brain/tests/test_meeting_create_forensic_sql.py\n?? services/oracle-brain/tests/test_meeting_create_stop_relation_sql.py\n?? services/oracle-brain/tests/test_meeting_delivery_sql.py\n?? services/oracle-brain/tests/test_meeting_final_mapping.py\n?? services/oracle-brain/tests/test_meeting_final_transcript.py\n?? services/oracle-brain/tests/test_meeting_normalization_contract.py\n?? services/oracle-brain/tests/test_meeting_normalization_sql.py\n?? services/oracle-brain/tests/test_meeting_normalization_tls_sql.py\n?? services/oracle-brain/tests/test_meeting_participant_epoch.py\n?? services/oracle-brain/tests/test_meeting_pre_stop_observation_sql.py\n?? services/oracle-brain/tests/test_meeting_process_ingress_sql.py\n?? services/oracle-brain/tests/test_meeting_queue_contract.py\n?? services/oracle-brain/tests/test_meeting_queue_sql.py\n?? services/oracle-brain/tests/test_meeting_queue_tls_sql.py\n?? services/oracle-brain/tests/test_meeting_request_fence.py\n?? services/oracle-brain/tests/test_meeting_scheduler_process_sql.py\n?? services/oracle-brain/tests/test_meeting_supervision_queue_sql.py\n?? services/oracle-brain/tests/test_meeting_supervisor_currentness_sql.py\n?? services/oracle-brain/tests/test_meeting_supervisor_observer.py\n?? services/oracle-brain/tests/test_meeting_supervisor_process.py\n?? services/oracle-brain/tests/test_meeting_supervisor_v2.py\n?? services/oracle-brain/tests/test_meeting_worker_adapter.py\n?? services/oracle-brain/tests/test_meeting_worker_contracts.py\n?? services/oracle-brain/tests/test_original_intake_protected_connection_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "meetings",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-s07-meetings-01a16013",
+    "status": "M apps/web/app/api/teams/live/recall/route.ts\n M apps/web/lib/recall.ts\n M apps/web/proxy.ts\n M apps/workers/src/lib/recall.ts\n M apps/workers/trigger.config.ts\n M packages/shared/package.json\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/parent_observer_v2.py\n M services/oracle-brain/oracle_brain/hosting/purpose_transport.py\n M services/oracle-brain/oracle_brain/hosting/runtime.py\n M services/oracle-brain/oracle_brain/operating_model/native_factory.py\n M services/oracle-brain/oracle_brain/operating_model/provider_adapter.py\n M services/oracle-brain/oracle_brain/research/fetch.py\n M services/oracle-brain/tests/test_operating_model_verifier.py\n?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/meetings/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/original/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/meetings/[id]/meeting-panel.tsx\n?? apps/web/app/consultant/meetings/[id]/page.tsx\n?? apps/web/app/consultant/meetings/page.tsx\n?? apps/web/lib/protected-node-https.test.ts\n?? apps/web/lib/recall-capture-contract.test.ts\n?? apps/web/lib/recall-replacement.test.ts\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-connected-answer.test.ts\n?? apps/web/lib/replacement-control-window.test.ts\n?? apps/web/lib/replacement-control-window.ts\n?? apps/web/lib/replacement-conversation-contract.test.ts\n?? apps/web/lib/replacement-conversation-contract.ts\n?? apps/web/lib/replacement-meeting-control.test.ts\n?? apps/web/lib/replacement-meeting-ingress.test.ts\n?? apps/web/lib/replacement-meeting-worker.test.ts\n?? apps/web/lib/replacement-model-review.test.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-original-viewer.test.ts\n?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-protected-control-route.test.ts\n?? apps/web/lib/replacement-server-binding.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/tests/oracle2/meeting-peer-proof.ts\n?? apps/workers/meeting-bundle-isolation.test.mts\n?? apps/workers/meeting-target-profile.d.mts\n?? apps/workers/meeting-target-profile.mjs\n?? apps/workers/meeting-target-profile.test.mts\n?? apps/workers/src/lib/meeting-capture-execution.test.ts\n?? apps/workers/src/lib/meeting-capture.test.ts\n?? apps/workers/src/lib/meeting-capture.ts\n?? apps/workers/src/lib/meeting-participation.ts\n?? apps/workers/src/trigger/oracle2-meeting-capture-create.ts\n?? apps/workers/src/trigger/oracle2-meeting-capture-leave.ts\n?? apps/workers/src/trigger/oracle2-meeting-capture-retrieve-post-stop.ts\n?? apps/workers/src/trigger/oracle2-meeting-capture-retrieve-pre-stop.ts\n?? apps/workers/trigger.oracle2-meetings.config.ts\n?? packages/shared/src/_protected-file.ts\n?? packages/shared/src/_worker-receipt.ts\n?? packages/shared/src/protected-canonical-json.ts\n?? packages/shared/src/protected-client-contracts.ts\n?? packages/shared/src/protected-control-window.ts\n?? packages/shared/src/protected-conversation-contract.ts\n?? packages/shared/src/protected-meeting-worker.ts\n?? packages/shared/src/protected-node-https.ts\n?? packages/shared/src/protected-server-binding.ts\n?? packages/shared/src/protected-service-channel.ts\n?? packages/shared/src/protected-upload-contract.ts\n?? packages/shared/src/protected-worker-contract.ts\n?? packages/shared/src/recall-capture-contract.ts\n?? packages/shared/src/recall-webhook-verifier.ts\n?? services/oracle-brain/oracle_brain/hosting/_protected_control_listener_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_control_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_native_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_original_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_processing_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_capture_worker_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_participation_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_supervisor_observer_v1.py\n?? services/oracle-brain/oracle_brain/hosting/meeting_worker_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/ingest/consent.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reader_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reviewer_v1.py\n?? services/oracle-brain/oracle_brain/meetings/capture_contracts.py\n?? services/oracle-brain/oracle_brain/meetings/capture_wire_v1.py\n?? services/oracle-brain/oracle_brain/meetings/final_mapping.py\n?? services/oracle-brain/oracle_brain/meetings/final_transcript.py\n?? services/oracle-brain/oracle_brain/meetings/participant_epoch.py\n?? services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_runtime_v1.py\n?? services/oracle-brain/oracle_brain/meetings/participation_wire_v1.py\n?? services/oracle-brain/oracle_brain/meetings/supervisor_process.py\n?? services/oracle-brain/oracle_brain/meetings/worker_contracts.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_control_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_native_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_processing_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_inputs_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n?? services/oracle-brain/sql/020_meeting_capture.sql\n?? services/oracle-brain/sql/021_meeting_participation.sql\n?? services/oracle-brain/tests/test_conversation_contract_v1.py\n?? services/oracle-brain/tests/test_conversation_fence_v1.py\n?? services/oracle-brain/tests/test_conversation_original_sql.py\n?? services/oracle-brain/tests/test_conversation_service_sql.py\n?? services/oracle-brain/tests/test_durable_interview_sql.py\n?? services/oracle-brain/tests/test_meeting_artifact_transport.py\n?? services/oracle-brain/tests/test_meeting_capture_contracts.py\n?? services/oracle-brain/tests/test_meeting_capture_sql.py\n?? services/oracle-brain/tests/test_meeting_capture_wire.py\n?? services/oracle-brain/tests/test_meeting_final_mapping.py\n?? services/oracle-brain/tests/test_meeting_final_transcript.py\n?? services/oracle-brain/tests/test_meeting_participant_epoch.py\n?? services/oracle-brain/tests/test_meeting_participation_control_v1.py\n?? services/oracle-brain/tests/test_meeting_participation_sql.py\n?? services/oracle-brain/tests/test_meeting_participation_v1.py\n?? services/oracle-brain/tests/test_meeting_participation_wire_v1.py\n?? services/oracle-brain/tests/test_meeting_request_fence.py\n?? services/oracle-brain/tests/test_meeting_supervisor_observer.py\n?? services/oracle-brain/tests/test_meeting_supervisor_process.py\n?? services/oracle-brain/tests/test_meeting_worker_adapter.py\n?? services/oracle-brain/tests/test_meeting_worker_contracts.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? tests/fixtures/meeting-targets.json\n?? tests/fixtures/recall-denied-addresses.json",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "migration",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-migration-01a16013",
+    "status": "?? services/oracle-brain/oracle_brain/migration/__init__.py\n?? services/oracle-brain/oracle_brain/migration/backfill.py\n?? services/oracle-brain/oracle_brain/migration/inventory.py\n?? services/oracle-brain/oracle_brain/migration/legacy_mapping.py\n?? services/oracle-brain/oracle_brain/migration/reconcile.py\n?? services/oracle-brain/tests/test_legacy_mapping.py\n?? services/oracle-brain/tests/test_migration_delta.py\n?? services/oracle-brain/tests/test_migration_reconcile.py\n?? services/oracle-brain/tests/test_migration_resume.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "migration-contract-doc",
+    "head": "5ed0451d942886d6bbd3ff460e47ce9089f237df",
+    "branch": "codex/s14-durable-migration-contract",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "migration-full-consumer",
+    "head": "83d95825a4006decb587029fb3531708c4eb06d0",
+    "branch": "codex/s14-full-consumer",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "migration-snapshot",
+    "head": "e42e09900a0f3973557faa9bad1959996fcb8087",
+    "branch": "codex/s14-snapshot-preparation",
+    "status": "M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n M services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n M services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n?? services/oracle-brain/oracle_brain/hosting/legacy_migration_v1.py\n?? services/oracle-brain/oracle_brain/migration/_legacy_s3_signing_v1.py\n?? services/oracle-brain/oracle_brain/migration/legacy_export_reader_v1.py\n?? services/oracle-brain/oracle_brain/migration/legacy_storage_capture_v1.py\n?? services/oracle-brain/oracle_brain/migration/migration_authority_v1.py\n?? services/oracle-brain/oracle_brain/migration/migration_settings_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_http_wire_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py\n?? services/oracle-brain/sql/027_legacy_migration.sql\n?? services/oracle-brain/tests/test_legacy_export_contract_v1.py\n?? services/oracle-brain/tests/test_legacy_migration_factory_v1.py\n?? services/oracle-brain/tests/test_legacy_migration_sql.py\n?? services/oracle-brain/tests/test_legacy_s3_signing_v1.py\n?? services/oracle-brain/tests/test_legacy_storage_capture_v1.py\n?? services/oracle-brain/tests/test_original_intake_protected_connection_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "migration-source-integration",
+    "head": "77e729a5639912259a5636e3f7d119e31779eaeb",
+    "branch": "codex/s14-source-integration",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "neutral-http-wire",
+    "head": "146708689ae2dcb9076bf485f342830d919c83f8",
+    "branch": "codex/s14-neutral-http-wire",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "next-auth-proof",
+    "head": "c58c9ab4f1ff0d19266ba31b5ae1d7dc7ef22b29",
+    "branch": "codex/parent24-next-auth-proof-01a16013",
+    "status": "M apps/web/components/consultant/operating-model-workspace.tsx\n M apps/web/components/consultant/pilot-workspace.tsx\n M apps/web/components/consultant/replacement-workspace.tsx\n M apps/web/eslint.config.mjs\n M apps/web/proxy.ts\n M scripts/oracle2/verify_phase.py\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/paid_projector_v3.py\n M services/oracle-brain/oracle_brain/hosting/purpose_journey_v2.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_observer_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_settings_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_views_v1.py\n M services/oracle-brain/oracle_brain/hosting/replacement_result_service_v1.py\n M services/oracle-brain/oracle_brain/ingest/originals.py\n M services/oracle-brain/oracle_brain/operating_model/assembly_context.py\n M services/oracle-brain/oracle_brain/operating_model/assembly_qualification.py\n M services/oracle-brain/oracle_brain/operating_model/contracts.py\n M services/oracle-brain/oracle_brain/operating_model/ledger.py\n M services/oracle-brain/oracle_brain/operating_model/native_provider.py\n M services/oracle-brain/oracle_brain/operating_model/original_source_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/pipeline.py\n M services/oracle-brain/oracle_brain/operating_model/processing_ledger.py\n M services/oracle-brain/oracle_brain/operating_model/processing_projection.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_assembly_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_capture_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_profiles_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_qualification_v3.py\n M services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py\n M services/oracle-brain/oracle_brain/operating_model/raw_original_native_provider_v1.py\n M services/oracle-brain/oracle_brain/operating_model/sdk_projection.py\n M services/oracle-brain/oracle_brain/operating_model/semantic_runtime.py\n M services/oracle-brain/oracle_brain/research/refresh.py\n M services/oracle-brain/tests/conftest.py\n M services/oracle-brain/tests/test_operating_model_verifier.py\n M services/oracle-brain/tests/test_original_intake_v1.py\n M services/oracle-brain/tests/test_owned_worker_database.py\n M services/oracle-brain/tests/test_purpose_coherent_native_journey.py\n M services/oracle-brain/tests/test_raw_endpoint_inventory_v1.py\n M services/oracle-brain/tests/test_raw_original_observer_v1.py\n M services/oracle-brain/tests/test_raw_original_settings_v1.py\n M services/oracle-brain/tests/test_replacement_source_intake_sql.py\n M services/oracle-brain/tests/test_research_scheduler.py\n?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/model-review/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/original/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/replacement/review/page.tsx\n?? apps/web/app/consultant/replacement/review/review.tsx\n?? apps/web/app/consultant/replacement/upload/page.tsx\n?? apps/web/app/consultant/replacement/upload/upload-form.tsx\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-control-window.test.ts\n?? apps/web/lib/replacement-control-window.ts\n?? apps/web/lib/replacement-model-review.test.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-original-viewer.test.ts\n?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-protected-control-route.test.ts\n?? apps/web/lib/replacement-server-binding.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/lib/use-session-value.ts\n?? apps/web/tests/oracle2/model-review-proof.ts\n?? apps/web/tests/oracle2/original-upload-proof.ts\n?? apps/web/tests/oracle2/protected-peer-proof.ts\n?? dev/oracle2/test_canonical_schema.py\n?? scripts/oracle2/contract_test_evidence.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_store_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/oracle_brain/hosting/protected_raw_original_factory_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_contracts_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_recommendations_v1.py\n?? services/oracle-brain/sql/017_processing_model_history.sql\n?? services/oracle-brain/sql/018_original_review_reading_input.sql\n?? services/oracle-brain/tests/test_consolidation_contracts_v1.py\n?? services/oracle-brain/tests/test_consolidation_review_browser_v1.py\n?? services/oracle-brain/tests/test_consolidation_review_v1.py\n?? services/oracle-brain/tests/test_consolidation_sql_v1.py\n?? services/oracle-brain/tests/test_original_qualification_authority_sql.py\n?? services/oracle-brain/tests/test_original_response_normalization_v1.py\n?? services/oracle-brain/tests/test_original_review_reading_input_sql.py\n?? services/oracle-brain/tests/test_original_upload_browser_v1.py\n?? services/oracle-brain/tests/test_original_upload_chunks_v1.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? services/oracle-brain/tests/test_original_view_sql.py\n?? services/oracle-brain/tests/test_protected_raw_original_factory_sql.py\n?? services/oracle-brain/tests/test_protected_raw_original_factory_v1.py\n?? services/oracle-brain/tests/test_protected_web_python_conformance_v1.py\n?? services/oracle-brain/tests/test_raw_endpoint_quote_v1.py\n?? services/oracle-brain/tests/test_raw_native_metadata_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_service_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_settings_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_sql.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "normalization-dependency-integration",
+    "head": "51901327ebec3133826a8e58ef01409a26d5cc95",
+    "branch": "codex/parent24-normalization-dependency-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "original-response",
+    "head": "4a2c6933252b51f8efd2c86ee84c239847e244f8",
+    "branch": "codex/parent24-original-response-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/ingest/originals.py\n M services/oracle-brain/oracle_brain/operating_model/original_source_authority_v1.py\n?? services/oracle-brain/tests/test_original_qualification_authority_sql.py\n?? services/oracle-brain/tests/test_original_response_normalization_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "original-response-integration",
+    "head": "848a69b8e0c03542d796dea75709f805c92477d0",
+    "branch": "codex/parent24-original-response-integration-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "original-upload",
+    "head": "6d98f4488fcd8bd6c6f0b2246e3a5682799d5fe4",
+    "branch": "codex/parent24-original-upload-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "original-viewer-integrated",
+    "head": "b779ecddecc80c1bdb41fdd7e32209823c274112",
+    "branch": "codex/parent24-original-viewer-original-window-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "original-viewer-window",
+    "head": "cc30e1f87b6f422060b445a467db6c9be0d2ce0e",
+    "branch": "codex/s14-viewer-window",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "participation-current-consumer",
+    "head": "9903fbb394ce76e812e19bafabe7c753e14177a9",
+    "branch": "codex/s08-current-source-integration",
+    "status": "A  services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py\n M services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py\nA  services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py\nA  services/oracle-brain/sql/021_meeting_participation.sql\nA  services/oracle-brain/tests/test_meeting_participation_control_v1.py\nA  services/oracle-brain/tests/test_meeting_participation_sql.py\nAM services/oracle-brain/tests/test_meeting_participation_v1.py\nA  services/oracle-brain/tests/test_meeting_participation_wire_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "phase-evidence",
+    "head": "9a85f67dc54a76c83e13a5b7606050b0f44d33b0",
+    "branch": "codex/parent24-phase-evidence-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "phase-runtime-proof",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-phase-runtime-proof-01a16013",
+    "status": "M scripts/oracle2/verify_phase.py\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_observer_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_settings_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_views_v1.py\n M services/oracle-brain/oracle_brain/hosting/replacement_result_service_v1.py\n M services/oracle-brain/oracle_brain/ingest/originals.py\n M services/oracle-brain/oracle_brain/operating_model/native_provider.py\n M services/oracle-brain/oracle_brain/operating_model/original_source_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py\n M services/oracle-brain/oracle_brain/research/refresh.py\n M services/oracle-brain/tests/conftest.py\n M services/oracle-brain/tests/test_operating_model_verifier.py\n M services/oracle-brain/tests/test_original_intake_v1.py\n M services/oracle-brain/tests/test_owned_worker_database.py\n M services/oracle-brain/tests/test_purpose_coherent_native_journey.py\n M services/oracle-brain/tests/test_raw_endpoint_inventory_v1.py\n M services/oracle-brain/tests/test_raw_original_observer_v1.py\n M services/oracle-brain/tests/test_raw_original_settings_v1.py\n M services/oracle-brain/tests/test_replacement_source_intake_sql.py\n M services/oracle-brain/tests/test_research_scheduler.py\n?? dev/oracle2/test_canonical_schema.py\n?? scripts/oracle2/contract_test_evidence.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_original_qualification_authority_sql.py\n?? services/oracle-brain/tests/test_original_response_normalization_v1.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? services/oracle-brain/tests/test_original_view_sql.py\n?? services/oracle-brain/tests/test_protected_web_python_conformance_v1.py\n?? services/oracle-brain/tests/test_raw_endpoint_quote_v1.py\n?? services/oracle-brain/tests/test_raw_native_metadata_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_service_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_settings_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_sql.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "product-browser-ux",
+    "head": "89ac4e6c7309f929e3f8f530eea77c7b9cfb490a",
+    "branch": "codex/parent24-product-browser-ux-01a16013",
+    "status": "?? apps/web/tests/oracle2/qualified-workspace-ui-proof.ts",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "product-experience",
+    "head": "2710b501495c78e2dab9633c236e86a1df53ffde",
+    "branch": "codex/parent24-product-experience-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "program-candidate",
+    "head": "b1edd93392ecdb5784556104f2bb13629c57c302",
+    "branch": "codex/parent24-program-candidate-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "program-integration",
+    "head": "f846f17f6ff53ede494ab5acdbe4277d682a1192",
+    "branch": "codex/parent24-program-integration-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "proxy-boundary",
+    "head": "1a26ddd62bcf1002bd17910ab929ac0491838e1e",
+    "branch": "codex/parent24-proxy-boundary-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "qualification",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-qualification-binding-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/operating_model/original_qualification_runtime.py\n M services/oracle-brain/tests/test_replacement_original_lifecycle.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "qualified-runtime-proof",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-qualified-runtime-proof-01a16013",
+    "status": "M apps/web/components/consultant/operating-model-workspace.tsx\n M apps/web/components/consultant/pilot-workspace.tsx\n M apps/web/components/consultant/replacement-workspace.tsx\n M apps/web/eslint.config.mjs\n M apps/web/proxy.ts\n M apps/web/tests/oracle2/interview.spec.ts\n M apps/web/tests/oracle2/workflow-browser.spec.ts\n M scripts/oracle2/verify_phase.py\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/paid_projector_v3.py\n M services/oracle-brain/oracle_brain/hosting/purpose_journey_v2.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_observer_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_settings_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_views_v1.py\n M services/oracle-brain/oracle_brain/hosting/replacement_result_service_v1.py\n M services/oracle-brain/oracle_brain/hosting/runtime.py\n M services/oracle-brain/oracle_brain/ingest/originals.py\n M services/oracle-brain/oracle_brain/operating_model/assembly_context.py\n M services/oracle-brain/oracle_brain/operating_model/assembly_qualification.py\n M services/oracle-brain/oracle_brain/operating_model/authority_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/contracts.py\n M services/oracle-brain/oracle_brain/operating_model/ledger.py\n M services/oracle-brain/oracle_brain/operating_model/native_factory.py\n M services/oracle-brain/oracle_brain/operating_model/native_provider.py\n M services/oracle-brain/oracle_brain/operating_model/original_source_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/pipeline.py\n M services/oracle-brain/oracle_brain/operating_model/processing_ledger.py\n M services/oracle-brain/oracle_brain/operating_model/processing_projection.py\n M services/oracle-brain/oracle_brain/operating_model/provider_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_assembly_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_capture_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_profiles_v2.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_qualification_v3.py\n M services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py\n M services/oracle-brain/oracle_brain/operating_model/raw_original_native_provider_v1.py\n M services/oracle-brain/oracle_brain/operating_model/sdk_projection.py\n M services/oracle-brain/oracle_brain/operating_model/semantic_runtime.py\n M services/oracle-brain/oracle_brain/research/refresh.py\n M services/oracle-brain/tests/conftest.py\n M services/oracle-brain/tests/test_interview_resume.py\n M services/oracle-brain/tests/test_operating_model_verifier.py\n M services/oracle-brain/tests/test_original_intake_v1.py\n M services/oracle-brain/tests/test_owned_worker_database.py\n M services/oracle-brain/tests/test_purpose_coherent_native_journey.py\n M services/oracle-brain/tests/test_raw_endpoint_inventory_v1.py\n M services/oracle-brain/tests/test_raw_original_observer_v1.py\n M services/oracle-brain/tests/test_raw_original_settings_v1.py\n M services/oracle-brain/tests/test_replacement_source_intake_sql.py\n M services/oracle-brain/tests/test_research_scheduler.py\n?? apps/web/app/api/consultant/interviews/[id]/turns/route.ts\n?? apps/web/app/api/consultant/interviews/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/model-review/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/original/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/interviews/[id]/page.tsx\n?? apps/web/app/consultant/interviews/page.tsx\n?? apps/web/app/consultant/replacement/review/page.tsx\n?? apps/web/app/consultant/replacement/review/review.tsx\n?? apps/web/app/consultant/replacement/upload/page.tsx\n?? apps/web/app/consultant/replacement/upload/upload-form.tsx\n?? apps/web/components/consultant/interview-panel.tsx\n?? apps/web/lib/conversation-route.ts\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-control-window.test.ts\n?? apps/web/lib/replacement-control-window.ts\n?? apps/web/lib/replacement-conversation-contract.test.ts\n?? apps/web/lib/replacement-conversation-contract.ts\n?? apps/web/lib/replacement-model-review.test.ts\n?? apps/web/lib/replacement-original-upload-route.test.ts\n?? apps/web/lib/replacement-original-upload.test.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-original-viewer.test.ts\n?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-protected-control-route.test.ts\n?? apps/web/lib/replacement-server-binding.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/lib/use-session-value.ts\n?? apps/web/tests/oracle2/interview-proof.ts\n?? apps/web/tests/oracle2/invented-auth-service.ts\n?? apps/web/tests/oracle2/model-review-next-auth-proof.ts\n?? apps/web/tests/oracle2/model-review-proof.ts\n?? apps/web/tests/oracle2/original-upload-proof.ts\n?? apps/web/tests/oracle2/protected-peer-proof.ts\n?? dev/oracle2/test_canonical_schema.py\n?? scripts/oracle2/contract_test_evidence.py\n?? services/oracle-brain/oracle_brain/hosting/_protected_control_listener_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/consolidation_review_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_control_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_native_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_original_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_processing_v1.py\n?? services/oracle-brain/oracle_brain/hosting/conversation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_store_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/oracle_brain/hosting/protected_raw_original_factory_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reader_v1.py\n?? services/oracle-brain/oracle_brain/interviews/utf8_reviewer_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_contracts_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidation_recommendations_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_control_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_native_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/conversation_processing_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_inputs_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n?? services/oracle-brain/oracle_brain/workflows/interview.py\n?? services/oracle-brain/sql/017_processing_model_history.sql\n?? services/oracle-brain/sql/018_original_review_reading_input.sql\n?? services/oracle-brain/sql/019_employee_conversations.sql\n?? services/oracle-brain/tests/test_consolidation_contracts_v1.py\n?? services/oracle-brain/tests/test_consolidation_next_auth_browser_v1.py\n?? services/oracle-brain/tests/test_consolidation_review_browser_v1.py\n?? services/oracle-brain/tests/test_consolidation_review_v1.py\n?? services/oracle-brain/tests/test_consolidation_sdk_sql_v1.py\n?? services/oracle-brain/tests/test_consolidation_sql_v1.py\n?? services/oracle-brain/tests/test_conversation_browser_sql.py\n?? services/oracle-brain/tests/test_conversation_contract_v1.py\n?? services/oracle-brain/tests/test_conversation_fence_v1.py\n?? services/oracle-brain/tests/test_conversation_native_sql.py\n?? services/oracle-brain/tests/test_conversation_original_sql.py\n?? services/oracle-brain/tests/test_conversation_processing_sql.py\n?? services/oracle-brain/tests/test_conversation_registration_sql.py\n?? services/oracle-brain/tests/test_conversation_service_sql.py\n?? services/oracle-brain/tests/test_conversation_text_pricing_v1.py\n?? services/oracle-brain/tests/test_durable_interview_sql.py\n?? services/oracle-brain/tests/test_original_qualification_authority_sql.py\n?? services/oracle-brain/tests/test_original_response_normalization_v1.py\n?? services/oracle-brain/tests/test_original_review_reading_input_sql.py\n?? services/oracle-brain/tests/test_original_upload_browser_v1.py\n?? services/oracle-brain/tests/test_original_upload_chunks_v1.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? services/oracle-brain/tests/test_original_view_sql.py\n?? services/oracle-brain/tests/test_protected_raw_original_factory_sql.py\n?? services/oracle-brain/tests/test_protected_raw_original_factory_v1.py\n?? services/oracle-brain/tests/test_protected_web_python_conformance_v1.py\n?? services/oracle-brain/tests/test_raw_endpoint_quote_v1.py\n?? services/oracle-brain/tests/test_raw_native_metadata_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_service_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_settings_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_sql.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "qualified-source-integration",
+    "head": "c44eb23a9d30907e1b3855b619645aa15f945d74",
+    "branch": "codex/parent24-qualified-source-integration-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "question-current",
+    "head": "11221ea80e528bd4ef817c9866d0686d3ffb7182",
+    "branch": "codex/parent24-question-current-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "question-effect-wire",
+    "head": "ee67363b8f474b6560121be03e813ce953fc779d",
+    "branch": "codex/parent24-question-effect-wire-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "question-effects",
+    "head": "7450e2b546d0977579b94d5dc6dac2b4ed7f0210",
+    "branch": "codex/parent24-question-effects-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "raw-factory",
+    "head": "df419eb0b0ab295e1fac7e5be5851af5939f2f10",
+    "branch": "codex/parent24-protected-raw-factory-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "raw-metadata",
+    "head": "423eec75a6ca5e068fdf58c70f2194e8529b09b5",
+    "branch": "codex/parent24-raw-metadata-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/operating_model/native_provider.py\n M services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py\n M services/oracle-brain/tests/test_raw_endpoint_inventory_v1.py\n?? services/oracle-brain/tests/test_raw_endpoint_quote_v1.py\n?? services/oracle-brain/tests/test_raw_native_metadata_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "raw-metadata-register",
+    "head": "6f4416a31225e89bdeebed9101061958a5ad0ed5",
+    "branch": "codex/parent24-raw-metadata-register-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "raw-window",
+    "head": "3936b60c0271743beac6106be696dc2184aab21d",
+    "branch": "codex/parent24-raw-window-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-actions-web",
+    "head": "f56a392fde254e3a5dc1c4a0c80b6ead00a9af1d",
+    "branch": "codex/s11-recommendation-actions-web",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-citation",
+    "head": "075de68572fbe3e4341f2783d7cbddc09e9e6aac",
+    "branch": "codex/s11-original-citation-links",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-current-consumer",
+    "head": "cecedb1e3700b12bc0addce9d97f6597ad65c79d",
+    "branch": "codex/s11-current-consumer",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-envelope",
+    "head": "b785acd831a1b2385c459d3496a1d0c4cb4ad4df",
+    "branch": "codex/s11-recommendation-envelope",
+    "status": "M services/oracle-brain/oracle_brain/operating_model/authority_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_contracts_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_recommendations_v1.py\n M services/oracle-brain/oracle_brain/operating_model/ledger.py\n M services/oracle-brain/oracle_brain/operating_model/processing_ledger.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_qualification_v3.py\n M services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n M services/oracle-brain/oracle_brain/operating_model/source_binding.py\n M services/oracle-brain/tests/test_consolidation_contracts_v1.py\n M services/oracle-brain/tests/test_consolidation_sql_v1.py\n M services/oracle-brain/tests/test_conversation_fence_v1.py\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidated_delivery_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/measurement_evidence_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_actions_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_compiler_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_presentation_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py\n?? services/oracle-brain/sql/022_consolidated_answer_delivery.sql\n?? services/oracle-brain/sql/025_recommendation_actions.sql\n?? services/oracle-brain/tests/qualified_source_fixture_v1.py\n?? services/oracle-brain/tests/test_measurement_evidence_v1.py\n?? services/oracle-brain/tests/test_protected_sql_connection_v1.py\n?? services/oracle-brain/tests/test_recommendation_actions_service_v1.py\n?? services/oracle-brain/tests/test_recommendation_actions_sql.py\n?? services/oracle-brain/tests/test_recommendation_actions_v1.py\n?? services/oracle-brain/tests/test_recommendation_presentation_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-history",
+    "head": "c63a3d453b4fd35c9e3cbd31bbdacb541cc39e95",
+    "branch": "codex/s11-recommendation-history",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-latest-consumer",
+    "head": "3667a150f65fb94a1bcb4c20fbd79fde4a066a52",
+    "branch": "codex/s11-latest-complete-consumer",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-lifecycle",
+    "head": "c98cd307e9fbbef22763ee8ea8acc73644462716",
+    "branch": "codex/s11-recommendation-lifecycle",
+    "status": "M apps/web/lib/protected-node-https.test.ts\n M services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n M services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n M services/oracle-brain/tests/test_conversation_fence_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidated_delivery_v1.py\n?? services/oracle-brain/sql/022_consolidated_answer_delivery.sql",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-next-db-successor",
+    "head": "6a27853553624655a03a58625d02cefdf62edb0b",
+    "branch": "codex/s11-owned-next-database-successor",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-next-source",
+    "head": "1eca4ebef81891eb926b8d87ef3bc4b67f7e2136",
+    "branch": "codex/s11-next-source-preparation",
+    "status": "M apps/web/lib/replacement-protected-client.ts\n M apps/web/proxy.ts\n M packages/shared/src/index.ts\n M packages/shared/src/protected-control-window.ts\n M packages/shared/src/protected-server-binding.ts\n M packages/shared/src/protected-service-channel.ts\n M services/oracle-brain/oracle_brain/operating_model/authority_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_contracts_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_recommendations_v1.py\n M services/oracle-brain/oracle_brain/operating_model/ledger.py\n M services/oracle-brain/oracle_brain/operating_model/processing_ledger.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_qualification_v3.py\n M services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n M services/oracle-brain/oracle_brain/operating_model/source_binding.py\n M services/oracle-brain/tests/test_consolidation_contracts_v1.py\n M services/oracle-brain/tests/test_consolidation_sql_v1.py\n M services/oracle-brain/tests/test_conversation_fence_v1.py\n?? apps/web/app/api/consultant/replacement/v1/protected/recommendation-actions/route.ts\n?? apps/web/app/consultant/recommendations/page.tsx\n?? apps/web/app/consultant/recommendations/recommendation-controls.tsx\n?? apps/web/lib/replacement-recommendation-client.test.ts\n?? apps/web/lib/replacement-recommendation-contract.test.ts\n?? apps/web/tests/oracle2/recommendation-documentary.fixture.json\n?? apps/web/tests/oracle2/recommendation-ui-proof.ts\n?? packages/shared/src/protected-recommendation-contract.ts\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidated_delivery_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/measurement_evidence_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_actions_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_compiler_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_presentation_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py\n?? services/oracle-brain/sql/022_consolidated_answer_delivery.sql\n?? services/oracle-brain/sql/025_recommendation_actions.sql\n?? services/oracle-brain/tests/qualified_source_fixture_v1.py\n?? services/oracle-brain/tests/test_measurement_evidence_v1.py\n?? services/oracle-brain/tests/test_protected_sql_connection_v1.py\n?? services/oracle-brain/tests/test_recommendation_actions_service_v1.py\n?? services/oracle-brain/tests/test_recommendation_actions_sql.py\n?? services/oracle-brain/tests/test_recommendation_actions_v1.py\n?? services/oracle-brain/tests/test_recommendation_presentation_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-presentation",
+    "head": "b785acd831a1b2385c459d3496a1d0c4cb4ad4df",
+    "branch": "codex/s11-recommendation-presentation",
+    "status": "M services/oracle-brain/oracle_brain/operating_model/authority_adapter.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_contracts_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_ledger_v1.py\n M services/oracle-brain/oracle_brain/operating_model/consolidation_recommendations_v1.py\n M services/oracle-brain/oracle_brain/operating_model/ledger.py\n M services/oracle-brain/oracle_brain/operating_model/processing_ledger.py\n M services/oracle-brain/oracle_brain/operating_model/purpose_qualification_v3.py\n M services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py\n M services/oracle-brain/oracle_brain/operating_model/source_binding.py\n M services/oracle-brain/tests/test_consolidation_contracts_v1.py\n M services/oracle-brain/tests/test_consolidation_sql_v1.py\n M services/oracle-brain/tests/test_conversation_fence_v1.py\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/recommendation_actions_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consolidated_delivery_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/measurement_evidence_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_actions_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_compiler_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendation_presentation_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py\n?? services/oracle-brain/sql/022_consolidated_answer_delivery.sql\n?? services/oracle-brain/sql/025_recommendation_actions.sql\n?? services/oracle-brain/tests/qualified_source_fixture_v1.py\n?? services/oracle-brain/tests/test_measurement_evidence_v1.py\n?? services/oracle-brain/tests/test_protected_sql_connection_v1.py\n?? services/oracle-brain/tests/test_recommendation_actions_service_v1.py\n?? services/oracle-brain/tests/test_recommendation_actions_sql.py\n?? services/oracle-brain/tests/test_recommendation_actions_v1.py\n?? services/oracle-brain/tests/test_recommendation_presentation_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-recipients",
+    "head": "ac5392355b19a025e3371e36bfee903583773b90",
+    "branch": "codex/oracle-s11-recipient-index",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-security",
+    "head": "b985583296a34b9367a4961c41231423015ca307",
+    "branch": "codex/oracle-s11-security-boundaries",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendation-setup-batch",
+    "head": "ed20e6da9fe7b1d2742761ff1d336cb79326c6f7",
+    "branch": "codex/s11-test-setup-batch",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recommendations",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-recommendations-01a16013",
+    "status": "M services/oracle-brain/tests/test_recommendation_contract.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendations.py\n?? services/oracle-brain/tests/test_recommendation_identity.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-recovery-01a16013",
+    "status": "M services/oracle-brain/tests/test_recovery_primitives.py\n?? services/oracle-brain/oracle_brain/operations/recovery.py\n?? services/oracle-brain/tests/test_operations_recovery.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-catalog-path",
+    "head": "93435c22b4ea58347158dedcfd54a54bc614093f",
+    "branch": "codex/oracle-s13-catalog-path",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-catalog-repair",
+    "head": "ac8858eba290ce32365b215d304a09f9a9ec9aed",
+    "branch": "codex/oracle-s13-catalog-shadow-repair",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-catalog-token-repair",
+    "head": "04a4d736fc621001c18e9685081e3c776f14e27e",
+    "branch": "codex/oracle-s13-catalog-token-repair",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-child-pure-v2",
+    "head": "63c019038bd9496e052607577579409877dad657",
+    "branch": "codex/s13-child-pure-v2-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/operating_model/recovery_contracts_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-current",
+    "head": "44d6c6cda390cd8bb290fdeabaf40032fe9730b9",
+    "branch": "codex/parent24-recovery-audit-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-metadata-current",
+    "head": "d565f73a88789530d8b5d48435d5732ab265ba9d",
+    "branch": "codex/parent24-recovery-metadata-current-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-metadata-main",
+    "head": "a374bbf7f3660dd367b42b2ed988e07b143b5813",
+    "branch": "codex/parent24-recovery-metadata-main-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-observe-fixture",
+    "head": "5f1e0bc0ca4f4feb6ee7c3f87d0502ed61edcd76",
+    "branch": "codex/parent24-recovery-observe-fixture-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-scope-repair",
+    "head": "137d65d732e901ab1cd389db25703aafc63a400e",
+    "branch": "codex/parent24-s13-scope-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-sql-proof",
+    "head": "fc4da07e86449e5d264c09f1d091897fbee92943",
+    "branch": "codex/parent24-recovery-sql-proof-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-startup-intent",
+    "head": "2633c53baadec2d2bbde586a4a13e1b2ba9e79fd",
+    "branch": "codex/s13-startup-intent-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "recovery-tar-policy",
+    "head": "9903fbb394ce76e812e19bafabe7c753e14177a9",
+    "branch": "codex/s13-single-tar-policy",
+    "status": "M dev/oracle2/test_canonical_schema.py\n M docs/verification/oracle2/S13-recovery.md\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/forward_recovery.py\n M services/oracle-brain/oracle_brain/hosting/restore_receipts.py\n?? services/oracle-brain/oracle_brain/hosting/private_archive_policy_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/recovery_authority_v1.py\n?? services/oracle-brain/oracle_brain/operating_model/recovery_contracts_v1.py\n?? services/oracle-brain/sql/021_meeting_participation.sql\n?? services/oracle-brain/sql/024_question_effects.sql\n?? services/oracle-brain/sql/025_recommendation_actions.sql\n?? services/oracle-brain/sql/026_operational_recovery.sql\n?? services/oracle-brain/sql/027_legacy_migration.sql\n?? services/oracle-brain/tests/test_private_archive_policy_v1.py\n?? services/oracle-brain/tests/test_recovery_archive_child_contract_v1.py\n?? services/oracle-brain/tests/test_recovery_authority_sql_v1.py\n?? services/oracle-brain/tests/test_recovery_backup_custody_v1.py\n?? services/oracle-brain/tests/test_recovery_contracts_v1.py\n?? services/oracle-brain/tests/test_recovery_current_orchestration_v1.py\n?? services/oracle-brain/tests/test_recovery_dump_catalog_v1.py\n?? services/oracle-brain/tests/test_recovery_immutable_output_v1.py\n?? services/oracle-brain/tests/test_recovery_installer_shape_v1.py\n?? services/oracle-brain/tests/test_recovery_migration_tail_v1.py\n?? services/oracle-brain/tests/test_recovery_native_inspection_v1.py\n?? services/oracle-brain/tests/test_recovery_protected_settings_v1.py\n?? services/oracle-brain/tests/test_recovery_resource_bounds_v1.py\n?? services/oracle-brain/tests/test_recovery_retained_native_output_v1.py\n?? services/oracle-brain/tests/test_recovery_runtime_manifest_v1.py\n?? services/oracle-brain/tests/test_recovery_sql_source_v1.py\n?? services/oracle-brain/tests/test_recovery_streaming_archive_v1.py\n?? services/oracle-brain/tests/test_replacement_recovery_archive_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "report-integration",
+    "head": "acd8671456be4ce40550923994e9f5fa59392313",
+    "branch": "codex/parent24-report-integration-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "report-v2",
+    "head": "4a2c6933252b51f8efd2c86ee84c239847e244f8",
+    "branch": "codex/parent24-reportv2-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/operating_model/consultant/challenge.py\n M services/oracle-brain/oracle_brain/operating_model/consultant/process_analysis.py\n M services/oracle-brain/oracle_brain/operating_model/report_store.py\n M services/oracle-brain/oracle_brain/operating_model/workflows/process_consult.py\n?? services/oracle-brain/oracle_brain/operating_model/consultant/recommendations.py\n?? services/oracle-brain/tests/test_report_v2_codec.py\n?? services/oracle-brain/tests/test_report_v2_store.py\n?? services/oracle-brain/tests/test_report_v2_workflow.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "request-listener",
+    "head": "6867ac9369a4a682017f6dd6b782274f16dca55d",
+    "branch": "codex/parent24-request-listener-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "requester",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-requester-factory-01a16013",
+    "status": "?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_requester_v1.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_requester_sql.py\n?? services/oracle-brain/tests/test_replacement_requester_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "research",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-research-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/research/registry.py\n M services/oracle-brain/tests/test_research_rights.py\n?? services/oracle-brain/oracle_brain/research/rights.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "research-advice",
+    "head": "b2a5666972905ca75158abcdbd95594ed359e0e0",
+    "branch": "codex/parent24-research-advice-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "research-answer-integration",
+    "head": "76724c461cea2632464f22bc69d569220a5e126b",
+    "branch": "codex/parent24-research-answers-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "research-answer-ui-proof",
+    "head": "bd0b18be8e0e92d1174c8d54dfef49f96cc0c849",
+    "branch": "codex/parent24-answer-ui-proof-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "research-experience",
+    "head": "3e26d8d4a8e656fefd1bb8a6a03f9b5278e3e6bf",
+    "branch": "codex/parent24-research-experience-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "research-experience-current",
+    "head": "ca0480afd400089efa4d36c1d733abd1fcf3a652",
+    "branch": "codex/parent24-research-current-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "research-experience-integrated",
+    "head": "c9153f3902b26d897f205793a944adce62f8906d",
+    "branch": "codex/parent24-research-experience-integrated-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "research-qualified-integration",
+    "head": "daf976a906444694e1e409a836c1e7e32b951746",
+    "branch": "codex/parent24-research-qualified-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "retirement",
+    "head": "d23230836238863af2475797e620f1c366eecb8f",
+    "branch": "codex/parent24-retirement-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/operating_model/retirement.py\n?? services/oracle-brain/oracle_brain/operating_model/retirement_checklist.py\n?? services/oracle-brain/tests/test_legacy_citation_redirect.py\n?? services/oracle-brain/tests/test_legacy_routes_retired.py\n?? services/oracle-brain/tests/test_retired_writer_denial.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "review-hydration-diagnostic",
+    "head": "31b5259074784aab3ee3a46206283d3d4888e078",
+    "branch": "codex/parent24-review-hydration-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "runtime-proof",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-runtime-proof-01a16013",
+    "status": "M scripts/oracle2/verify_phase.py\n M scripts/oracle2/verify_workflow_integrity.py\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_observer_v1.py\n M services/oracle-brain/oracle_brain/hosting/raw_original_settings_v1.py\n M services/oracle-brain/oracle_brain/ingest/originals.py\n M services/oracle-brain/oracle_brain/operating_model/native_provider.py\n M services/oracle-brain/oracle_brain/operating_model/original_source_authority_v1.py\n M services/oracle-brain/oracle_brain/operating_model/raw_endpoint_inventory_v1.py\n M services/oracle-brain/oracle_brain/research/refresh.py\n M services/oracle-brain/tests/test_original_intake_v1.py\n M services/oracle-brain/tests/test_raw_endpoint_inventory_v1.py\n M services/oracle-brain/tests/test_raw_original_observer_v1.py\n M services/oracle-brain/tests/test_raw_original_settings_v1.py\n M services/oracle-brain/tests/test_research_scheduler.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_confirmation_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_original_qualification_authority_sql.py\n?? services/oracle-brain/tests/test_original_response_normalization_v1.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? services/oracle-brain/tests/test_original_view_sql.py\n?? services/oracle-brain/tests/test_raw_endpoint_quote_v1.py\n?? services/oracle-brain/tests/test_raw_native_metadata_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_service_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_settings_v1.py\n?? services/oracle-brain/tests/test_replacement_confirmation_sql.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "scheduler",
+    "head": "4a2c6933252b51f8efd2c86ee84c239847e244f8",
+    "branch": "codex/parent24-scheduler-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/research/refresh.py\n M services/oracle-brain/tests/test_research_scheduler.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "scheduler-integration",
+    "head": "3e0ef9ca2e9f721ecee2b4164525921d2c779ca5",
+    "branch": "codex/parent24-scheduler-correction-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "serving-qualified-originals",
+    "head": "db58768f0afe939e6186cd33de659c7c9483b4da",
+    "branch": "codex/parent24-serving-qualified-originals-01a16013",
+    "status": "M services/oracle-brain/tests/qualified_source_fixture_v1.py\n M services/oracle-brain/tests/test_consolidation_contracts_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "shared-control-listener",
+    "head": "cbaec61456f5e5e5f6bc24814f24b83810f6451a",
+    "branch": "codex/parent24-shared-control-listener-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "shared-owner-integration",
+    "head": "5a27a32ba9570a27e4a46018130913cefc6f0c65",
+    "branch": "codex/parent24-shared-service-owner-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "shared-purpose-integration",
+    "head": "32354da7cff152d395cc6b44fd070dc09640687f",
+    "branch": "codex/parent24-shared-purpose-contracts-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "taskgate-baseline423",
+    "head": "423eec75a6ca5e068fdf58c70f2194e8529b09b5",
+    "branch": null,
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "taskgate-fixture",
+    "head": "43056cbf27ee0a195a1750e69b1ad876b68703fc",
+    "branch": "codex/parent24-taskgate-fixture-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "taskgate-negative-control",
+    "head": "7a444c2f920e8816433dd4e13dbf512b14f20c15",
+    "branch": "master",
+    "status": "?? state/explain-cache/1ad55a6790a64b821ee68b85f721cf678992c156043c6b1381174031be400568\n?? state/explain-cache/26ee1d63ab0fb6c6d5695d6b7cf983802033b37d7bbf2362d50cff403aac6b12\n?? state/explain-cache/293dc0a20eac2e1fab67e9a0664062813f461b64177064eec4f5b2a6aa4a05b2\n?? state/explain-cache/2dc4fdfae27092c88402a591b649463eb4f200be4590ee3adfe00ab58f1e998e\n?? state/explain-cache/326de2d60dd67d06303a1861060efa0fcf2665e55c1c7495b01db6dabee92707\n?? state/explain-cache/6325bbf0e56c14c72f2d078a470ca2de1e6e0abd8dd93abbb65a80f172a01e0d\n?? state/explain-cache/7ec8b450f782964788e24b650ace4fe367913575306d57305d7d6257bcdb028c\n?? state/explain-cache/7fb8a1882745f96451f303ab8754f6e9cd7e0ac5fa72cd4e8fb2ef5c95527d1e\n?? state/explain-cache/8d3858cb0c9032b47f842bb1a8c50aba233d569915cb3795bd54733e2002b4d8\n?? state/explain-cache/958788f4638a24d9ca4b376f395fdefd93f5889f51bde4fcfdfdd7f74304940b\n?? state/explain-cache/ccef009f463d7ba9e3d645607baeb9c2816c77bc823fe1af6b06f6b68eb95503\n?? state/explain-cache/de48bcb7bf5b77a1b825b68f1dab053e5ef64038d0369393a8dc866b405e1eea\n?? state/explain-cache/ea9be5d33b90ca40ddb2c39f05294c086838992fe792b4b1acccb73c0b5ae4e4\n?? state/explain-cache/ec3432f6f309177d98057512522d429686611860e7f3db4001dcdcc02a59e3cb\n?? state/explain-cache/f61a58075f1dcb704f14cd893143ec4d8c8797b5bc961b52b0fd25a13c19828c\n?? state/explain-cache/ffc059c99d3bbd0f7b990d1ea88f1d9c52c2e609833aa85d3264360f41c9dc97",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "transport-framing",
+    "head": "afe524e82c70af5ff8563df6dadcec93cd399ecd",
+    "branch": "codex/parent24-transport-framing-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "upload",
+    "head": "4a2c6933252b51f8efd2c86ee84c239847e244f8",
+    "branch": "codex/parent24-upload-custody-01a16013",
+    "status": "M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/tests/test_original_intake_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_requester_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_requester_sql.py\n?? services/oracle-brain/tests/test_replacement_requester_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "upload-design",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-upload-design-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "upload-integration",
+    "head": "084341d0d51795612deca5201cb95ecc1bd5ecf1",
+    "branch": "codex/parent24-upload-integration-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "upload-source-proof",
+    "head": "bfd8e047d8a49e53ce8ccae94296795b67cdc623",
+    "branch": "codex/parent24-upload-source-proof-01a16013",
+    "status": "M apps/web/proxy.ts\n M services/oracle-brain/oracle_brain/hosting/original_intake_v1.py\n M services/oracle-brain/tests/test_original_intake_v1.py\n?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/original/route.ts\n?? apps/web/app/api/consultant/replacement/v1/protected/upload/route.ts\n?? apps/web/app/consultant/replacement/upload/page.tsx\n?? apps/web/app/consultant/replacement/upload/upload-form.tsx\n?? apps/web/lib/replacement-canonical-json.ts\n?? apps/web/lib/replacement-control-window.ts\n?? apps/web/lib/replacement-original-upload.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-server-binding.ts\n?? apps/web/lib/replacement-upload-contract.ts\n?? apps/web/tests/oracle2/original-upload-proof.ts\n?? apps/web/tests/oracle2/protected-peer-proof.ts\n?? services/oracle-brain/oracle_brain/hosting/original_upload_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_upload_store_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_request_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_upload_service_v1.py\n?? services/oracle-brain/tests/test_original_upload_browser_v1.py\n?? services/oracle-brain/tests/test_original_upload_chunks_v1.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? services/oracle-brain/tests/test_protected_web_python_conformance_v1.py\n?? services/oracle-brain/tests/test_replacement_request_service_v1.py\n?? services/oracle-brain/tests/test_replacement_upload_service_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "viewer",
+    "head": "4a2c6933252b51f8efd2c86ee84c239847e244f8",
+    "branch": "codex/parent24-original-viewer-01a16013",
+    "status": "M dev/oracle2/test_worker_postgres_fixture.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_service_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_settings_v1.py\n?? services/oracle-brain/oracle_brain/hosting/original_view_v1.py\n?? services/oracle-brain/tests/test_original_view_service_v1.py\n?? services/oracle-brain/tests/test_original_view_settings_v1.py\n?? services/oracle-brain/tests/test_original_view_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "viewer-integration",
+    "head": "95977f3120da222b4724bc7e00e44fc46dc1adee",
+    "branch": "codex/parent24-viewer-registration-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "viewer-web",
+    "head": "3bc9c1e5ee01fc7c85d88f28a3daf188b7a409a4",
+    "branch": "codex/parent24-viewer-web-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "web-control",
+    "head": "4a2c6933252b51f8efd2c86ee84c239847e244f8",
+    "branch": "codex/parent24-web-control-01a16013",
+    "status": "?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-server-binding.ts",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "web-control-route",
+    "head": "423eec75a6ca5e068fdf58c70f2194e8529b09b5",
+    "branch": "codex/parent24-web-route-01a16013",
+    "status": "?? apps/web/app/api/consultant/replacement/v1/protected/control/route.ts\n?? apps/web/lib/replacement-protected-client.test.ts\n?? apps/web/lib/replacement-protected-client.ts\n?? apps/web/lib/replacement-protected-control-route.test.ts\n?? apps/web/lib/replacement-server-binding.ts",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "worker-db",
+    "head": "4a2c6933252b51f8efd2c86ee84c239847e244f8",
+    "branch": "codex/parent24-worker-db-01a16013",
+    "status": "M dev/oracle2/test_worker_postgres_fixture.py\n?? services/oracle-brain/oracle_brain/hosting/replacement_requester_v1.py\n?? services/oracle-brain/tests/test_owned_worker_database.py\n?? services/oracle-brain/tests/test_replacement_requester_sql.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "worker-db-root",
+    "head": "8b5bb59d0d04832091f5544a08d00b5a7028bcab",
+    "branch": "codex/parent24-worker-guard-proof-01a16013",
+    "status": "M dev/oracle2/test_worker_postgres_fixture.py\n M services/oracle-brain/tests/test_replacement_requester_sql.py\n?? services/oracle-brain/tests/test_owned_worker_database.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "workspace-preauth-current",
+    "head": "7defd1eeeaccad46ba04b96952c439305065c796",
+    "branch": "codex/s12-current-preauth",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "workspace-preauth-origin",
+    "head": "9903fbb394ce76e812e19bafabe7c753e14177a9",
+    "branch": "codex/s12-preauth-origin",
+    "status": "M apps/web/components/consultant/qualified-workspace.tsx\n M apps/web/lib/replacement-protected-control-route.test.ts\n M apps/web/proxy.ts\n M apps/web/tests/oracle2/invented-auth-service.ts\n M packages/shared/src/protected-server-binding.ts\n M services/oracle-brain/tests/test_connected_answer_sdk_sql_v1.py\n?? apps/web/lib/replacement-recipient-origin.test.ts\n?? apps/web/tests/oracle2/workspace-next-recipients-proof.ts\n?? services/oracle-brain/tests/invented_next_employee_fixture_v1.py\n?? services/oracle-brain/tests/test_workspace_next_recipients_sql_v1.py\n?? services/oracle-brain/tests/test_workspace_workflow_fixture_v1.py",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "workspace-recipient-proxy-fix",
+    "head": "d082326633083172f076db5b25d6b3dc3e5be079",
+    "branch": "codex/parent24-s12-proxy-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "workspace-two-recipients",
+    "head": "31262e0063c1a36fcd1c9a2113b653df5a2962d7",
+    "branch": "codex/parent24-s12-two-users-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "workspace-workflow-current",
+    "head": "ced6394b3a8ea2da22f9b399cd9e2dbcac3ec241",
+    "branch": "codex/parent24-workspace-workflow-current",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "workspace-workflow-proof",
+    "head": "513201bcfa4b82d993dbd7eb9640ed906e9366f3",
+    "branch": "codex/parent24-s12-workflow-01a16013",
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  },
+  {
+    "name": "writer-cut-audit",
+    "head": "aac932c0675368912cb1b88e41fd8a4601f2f1e8",
+    "branch": null,
+    "status": "",
+    "origin": "https://github.com/u2giants/theoracle.git"
+  }
+]

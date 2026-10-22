@@ -1,0 +1,196 @@
+{
+  "read_only": true,
+  "scope": "only retained actual ownership receipts for this subagent S14/S08 synthetic attempts",
+  "projects": [
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m01-01a16013-wdb12a7d1d445",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m02-01a16013-w57b278448096",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m03-01a16013-w978eed70eaae",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m04-01a16013-wc62e885ecefb",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m05-01a16013-wfe59d81ec958",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m06-01a16013-w3a2401f7d0dd",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m07-01a16013-wd4b22202d442",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m08-01a16013-wa5f849cc0a40",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24m09-01a16013-w80257fa81781",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part01-01a16013-wf88b89ebb727",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part02-01a16013-w6d7cf580a0cd",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part03-01a16013-w6ef94be3c1d6",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part04-01a16013-w60cf6beeb78c",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part05-01a16013-wdf6c7689b5da",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part06-01a16013-w59e64eb77b6a",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part07-01a16013-w4a4c1b35316a",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part08-01a16013-w063d7206fe9f",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part09-01a16013-waadc087c21ec",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part10-01a16013-w4bfa3f4c6485",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part11-01a16013-wa50d9bcf30bc",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    },
+    {
+      "exact_owned_project": "oracle2-synthetic-p24part12-01a16013-w7dcca065b149",
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "absence_proven": true
+    }
+  ],
+  "all_absent": true
+}

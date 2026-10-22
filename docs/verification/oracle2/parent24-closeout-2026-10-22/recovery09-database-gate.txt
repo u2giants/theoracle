@@ -1,0 +1,2 @@
+ai-task-gates: "database" may start for effective class "shared-db" in u2giants/theoracle.
+not checked by this tool: canonical-oracle-migration-runner,claim-admission,drizzle-journal-drift-proof,local-tests,migration-before-dependent-release,repository-workflow-compliance,shared-db-branch-and-pr,target-identity-proof

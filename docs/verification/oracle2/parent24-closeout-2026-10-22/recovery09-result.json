@@ -1,0 +1,16 @@
+{
+  "returncode": 1,
+  "database": "oracle_operating_model_test_4ed140d77ea54ee88b7cace48d560a13",
+  "source_manifest_unchanged": true,
+  "metadata_only": true,
+  "native_dump_restore": false,
+  "archive_child": false,
+  "provider": false,
+  "identity": {
+    "project": "oracle2-synthetic-p24rec-01a16013-w5673ca72552d",
+    "container_id": "8e4f5589cb73fbbb7b5f27bbf274cb18c17c0201f34562207e598154d3259fd5",
+    "port": 33821,
+    "worker": "documentary-01",
+    "synthetic_only": true
+  }
+}

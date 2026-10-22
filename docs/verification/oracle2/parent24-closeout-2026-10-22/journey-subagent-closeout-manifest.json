@@ -1,0 +1,102 @@
+{
+  "scope": "subagent closeout block for root single handoff, not a new HANDOFF",
+  "source_head": "7defd1eeeaccad46ba04b96952c439305065c796",
+  "source_worktree": "/tmp/oracle-parent24-wy02uT/workspace-preauth-current",
+  "source_dirty": false,
+  "source_all1703_hashes_equal": true,
+  "runner04_status": "SAVED/COMPILED/3 offline pure control checks passed; NOT actual gate/resource run; public brief still03 and requires04 successor before release",
+  "runner03": "preserved unexecuted, superseded for future actual release",
+  "diagnostic_source_status": "NOT STARTED; no diagnostic source worktree or code; existing readonly191/192 reports frozen",
+  "files": [
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/run-s12-current-preauth-proof-04.py",
+      "bytes": 9885,
+      "sha256": "5b05cb4a41a8bc50b6284b4c1d09fa99b7003deb0680e8e9fd5063fd48731911"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s12-current-preauth-reviewed-source.json",
+      "bytes": 215406,
+      "sha256": "06e8b1ce008d8d23d305f75c58d7417a9e3d401e22b35a9158f3049a8e220e5f"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s12-current-preauth-full-manifest.json",
+      "bytes": 286959,
+      "sha256": "50b8cf562e057e791593205101e87d53274425c78de6338abf92d827734564e4"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s12-current-preauth-complete.patch",
+      "bytes": 91858,
+      "sha256": "d566a9ce099da20c6005d59e8b6128fa22793489d747d6e7e0f6119ccbda16da"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s12-current-public-review-brief.md",
+      "bytes": 5448,
+      "sha256": "4f26fcabac3529085355f2cd110f836f879f15f597e1f6a376f659ad89eda31c"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/test_s12_runner04_offline.py",
+      "bytes": 2431,
+      "sha256": "2344a090b5ed61363dba5c02b5a1bc8a92e9617bb4060e68cd010e3db836054a"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s12-runner04-offline-final.xml",
+      "bytes": 680,
+      "sha256": "743318c43c6e10cf896a2aec5aba4f94538145f0b2efc1195b8458d650dd6635"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s12-runner04-offline-final.txt",
+      "bytes": 98,
+      "sha256": "09fe4441627f625ef92c265990f13e7b462b863c5c79a8b5dc18c887f0020ca0"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/journey-wrapup-readback.json",
+      "bytes": 4990,
+      "sha256": "7498dc7c8abe0bec796a89ad89628ab18c194485424f272cb1fdf568dc7f822c"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/journey-wrapup-owned-resource-readback.json",
+      "bytes": 4905,
+      "sha256": "b011d008d50b23816993324076a5fb924d6ff73683d4cb45db858ecb2e570f69"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/pr191-192-readonly-diagnostics.md",
+      "bytes": 7001,
+      "sha256": "570a73bbe23c39ac48f7c60bf3e910f2bea462f48cf0f2b65981f86b98763609"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/pr191-192-readonly-diagnostic-census.json",
+      "bytes": 82104,
+      "sha256": "480f55dfced22209ffff4272b15ba231b755f753847885e017cba3e1a3a8a951"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s08-current-eight-source.patch",
+      "bytes": 157650,
+      "sha256": "560f6ae672ee0337d3d867e32d8c24b5a429ffb0d5100f9a0416e51494c62b58"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s08-current-eight-source-manifest.json",
+      "bytes": 284709,
+      "sha256": "52efa72fa43e1bc4185370278a57e4bc9c6b1a20e352fa2e89969874a0be26a4"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-tar-policy-owned.patch",
+      "bytes": 12547,
+      "sha256": "8def5c9f71d617800d9d37887bff7b92b50c0d664faf8754cb8838580fc5da84"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-tar-policy-full-consumer.patch",
+      "bytes": 766550,
+      "sha256": "367bcd17973d9373f37ef1e68ef95442d41f4f20cfc4fb1df00603b1436aae16"
+    },
+    {
+      "path": "/tmp/oracle-parent24-wy02uT/s13-tar-policy-full-manifest.json",
+      "bytes": 285748,
+      "sha256": "1bf7f16f46a928ee888c7753db13b591a62256aa5004786e99223120d1865db9"
+    }
+  ],
+  "actual_new_resource_effects": false,
+  "owned_active_processes": [],
+  "known_prior_actual_resource_projects": 21,
+  "all_known_owned_resource_projects_independently_absent": true,
+  "root_retains": "review/schema/security/actual-run/integration/business hold; no review/DB/provider/merge/CI retry during wrapup"
+}
