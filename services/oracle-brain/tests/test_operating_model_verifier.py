@@ -371,7 +371,9 @@ def test_actual_web_identity_and_framework_source_are_in_recorded_execution_inve
 
 def test_new_database_browser_and_native_families_use_distinct_existing_worker_capacity():
     groups=dict(verifier.test_groups('W10'))
-    assert set(verifier.CONSOLIDATION_SUITES)<=set(groups['documentary-01'])
+    assert set(verifier.CONSOLIDATION_SUITES)-{'consolidation_next_auth_browser_v1'}<=set(groups['documentary-01'])
+    assert 'consolidation_next_auth_browser_v1' in groups['documentary-07']
+    assert sum(suites.count('consolidation_next_auth_browser_v1') for suites in groups.values())==1
     assert {'protected_raw_original_factory_v1','protected_raw_original_factory_sql',
         'original_review_reading_input_sql'}<=set(groups['documentary-04'])
     assert 'purpose_coherent_native_journey' in groups['documentary-06']

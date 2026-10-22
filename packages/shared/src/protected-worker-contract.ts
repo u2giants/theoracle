@@ -33,5 +33,6 @@ export function parseMeetingWorkerPacketV1(bytes:Uint8Array):Readonly<MeetingWor
 /** Exact installed scope only. Current SQL decisions remain decisive. */
 export function matchMeetingWorkerPacketV1(packet:Readonly<MeetingWorkerPacketV1>,profile:Readonly<MeetingWorkerBinding>):void{
  for(const key of ['principal_id','worker_id','workspace_id','meeting_id','provider_account','effect_purpose','operation_policy_sha256','composer_program_sha256'] as const)if(packet[key]!==profile[key])return fail();
+ if(profile.effect_purpose==='capture-retrieve'&&profile.retrieve_stage&&packet.operation_id!==null&&packet.operation_id!==profile.retrieve_operation_id)return fail();
  if(profile.effect_purpose==='capture-create'&&packet.operation_id!==null&&(packet.operation_id!==profile.create_operation_id||packet.request_sha256!==profile.create_request_sha256))return fail();
 }

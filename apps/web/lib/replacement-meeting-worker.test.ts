@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import {before,after,test} from 'node:test';
 import {registerHooks,syncBuiltinESMExports} from 'node:module';
+import nodeFs from 'node:fs';
 import nodeDns from 'node:dns';import nodeTls from 'node:tls';
 import {mkdtempSync,chmodSync,writeFileSync,readFileSync,lstatSync,rmSync} from 'node:fs';
 import {join} from 'node:path';import {tmpdir} from 'node:os';import {execFileSync} from 'node:child_process';
@@ -87,6 +88,26 @@ test('closed packet rejects executable body outside first claim, booleans and du
 test('exact-second original deadline uses canonical Python UTC without renewal',()=>{
  const originalNow=Date.now,captured=Math.floor(originalNow()/1000)*1000,count=providerCount;
  try{Date.now=()=>captured;const worker=installedMeetingWorkerV1();assertInventedClient(worker);assert.equal(worker.original_deadline_v1,new Date(captured+30000).toISOString().replace('.000Z','Z'));assert.doesNotMatch(worker.original_deadline_v1,/\.000000Z$/);assert.equal(providerCount,count);}finally{Date.now=originalNow;}
+});
+test('fixed noargs purpose refuses old/global fallback and wrong profile before provider private reads',async()=>{
+ const workerModule=await import('@oracle/shared/protected-meeting-worker'),original=nodeFs.openSync;
+ const constructed=(globalThis as unknown as Record<string,number>).__meetingFixtureProviderHookCalls;let providerReads=0;
+ Object.defineProperty(nodeFs,'openSync',{configurable:true,writable:true,value:(...args:unknown[])=>{if(args[0]===file('provider.key')||args[0]===file('ca.crt'))providerReads++;return Reflect.apply(original,nodeFs,args as Parameters<typeof original>);}});syncBuiltinESMExports();
+ try{
+  assert.throws(()=>workerModule.installedMeetingCaptureLeaveWorkerV1());
+  process.env.ORACLE2_MEETING_LEAVE_WORKER_BINDING_FILE=file('binding.json');process.env.ORACLE2_MEETING_LEAVE_WORKER_BINDING_SHA256=pin('binding.json');
+  assert.throws(()=>workerModule.installedMeetingCaptureLeaveWorkerV1());assert.equal(providerReads,0);
+  assert.equal((globalThis as unknown as Record<string,number>).__meetingFixtureProviderHookCalls,constructed);
+ }finally{Object.defineProperty(nodeFs,'openSync',{configurable:true,writable:true,value:original});syncBuiltinESMExports();delete process.env.ORACLE2_MEETING_LEAVE_WORKER_BINDING_FILE;delete process.env.ORACLE2_MEETING_LEAVE_WORKER_BINDING_SHA256;}
+});
+test('static create consumer keeps its own loader through actual current reread and rejects forged copies',async()=>{
+ const bindingModule=await import('@oracle/shared/protected-server-binding');const openssl=(...args:string[])=>execFileSync('openssl',args,{cwd:dir,stdio:'pipe'});
+ openssl('req','-newkey','rsa:2048','-nodes','-keyout','fixed.key','-out','fixed.csr','-subj','/CN=Invented fixed create');writeFileSync(file('fixed.ext'),'subjectAltName=URI:spiffe://oracle/invented-fixed-create\nextendedKeyUsage=clientAuth\n');openssl('x509','-req','-in','fixed.csr','-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-out','fixed.crt','-days','1','-extfile','fixed.ext');chmodSync(file('fixed.key'),0o600);chmodSync(file('fixed.crt'),0o600);
+ const fixed={...profile,client_uri:'spiffe://oracle/invented-fixed-create',client_certificate_file:file('fixed.crt'),client_certificate_sha256:pin('fixed.crt'),client_certificate_der_sha256:sha256(new X509Certificate(readFileSync(file('fixed.crt'))).raw),client_key_file:file('fixed.key'),client_key_sha256:pin('fixed.key')};writeFileSync(file('fixed-binding.json'),canonicalJson(fixed),{mode:0o600});process.env.ORACLE2_MEETING_CREATE_WORKER_BINDING_FILE=file('fixed-binding.json');process.env.ORACLE2_MEETING_CREATE_WORKER_BINDING_SHA256=pin('fixed-binding.json');
+ try{const installed=bindingModule.readInstalledMeetingCaptureCreateWorkerBinding();assert.equal(bindingModule.rereadInstalledMeetingWorkerBinding(installed).profile.client_uri,fixed.client_uri);assert.throws(()=>bindingModule.rereadInstalledMeetingWorkerBinding({...installed}));process.env.ORACLE2_MEETING_CREATE_WORKER_BINDING_FILE=file('binding.json');assert.throws(()=>bindingModule.rereadInstalledMeetingWorkerBinding(installed));}finally{delete process.env.ORACLE2_MEETING_CREATE_WORKER_BINDING_FILE;delete process.env.ORACLE2_MEETING_CREATE_WORKER_BINDING_SHA256;}
+});
+test('retrieve stage and operation are exact together and cannot qualify a different purpose',()=>{
+ const retrieve={...profile,effect_purpose:'capture-retrieve',create_operation_id:null,create_request_sha256:null,stop_mapping_sha256:hash,retrieve_stage:'pre-stop-consistency',retrieve_operation_id:id};assert.equal(validateMeetingWorkerBinding(retrieve).retrieve_stage,'pre-stop-consistency');for(const change of [{retrieve_stage:'any'},{retrieve_operation_id:null},{effect_purpose:'capture-create'},{retrieve_stage:undefined}])assert.throws(()=>validateMeetingWorkerBinding({...retrieve,...change}));
 });
 test('provider key drift refuses current worker before any further HTTP',async()=>{
  const worker=installedMeetingWorkerV1(),count=backendCount;writeFileSync(file('provider.key'),'altered-provider-key');await assert.rejects(worker.prepare_v1());assert.equal(backendCount,count);assert.equal(providerCount,1);
