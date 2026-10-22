@@ -347,7 +347,7 @@ END $f$;
 CREATE FUNCTION oracle2._recovery_context_v1(wanted uuid,deadline timestamptz)
  RETURNS oracle2.recovery_operation_admissions_v1 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
 DECLARE admission_row oracle2.recovery_operation_admissions_v1;r oracle2.hosting_role_runtime_admissions;
- d jsonb;b jsonb;profile jsonb;physical jsonb;cap record;f oid;login oid;owner_oid oid;scope jsonb;appointment_row oracle2.appointments;seen uuid[];bound timestamptz;rooted boolean;own_scope boolean:=false;phase_scope text;actual_catalog_sha256 text;
+ d jsonb;b jsonb;profile jsonb;physical jsonb;cap record;f oid;login oid;owner_oid oid;source_scope_v1 jsonb;appointment_row oracle2.appointments;seen uuid[];bound timestamptz;rooted boolean;own_scope boolean:=false;phase_scope text;actual_catalog_sha256 text;
 BEGIN
  IF deadline IS NULL OR NOT isfinite(deadline) OR deadline<=clock_timestamp() OR deadline>clock_timestamp()+interval '30 seconds'
  OR NOT EXISTS(SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid() AND ssl) THEN RAISE insufficient_privilege USING MESSAGE='original finite TLS recovery window required';END IF;
@@ -477,16 +477,16 @@ SELECT jsonb_build_object(
  END LOOP;
  phase_scope:=CASE admission_row.phase_authority WHEN 'capture' THEN 'recovery-capture:' WHEN 'current-denials' THEN 'recovery-deny-census:' WHEN 'deny-only-target' THEN 'recovery-deny-import:' ELSE 'recovery-observe:' END||wanted::text;
  bound:=least(deadline,admission_row.expires_at,admission_row.original_horizon,r.expires_at,(d->>'expires_at')::timestamptz);
- FOR scope IN SELECT value FROM jsonb_array_elements(admission_row.scope_coverage) LOOP
- SELECT * INTO appointment_row FROM oracle2.appointments WHERE appointment_id=(scope->>'appointment_id')::uuid FOR SHARE;
- IF appointment_row.appointment_id IS NULL OR appointment_row.workspace_id<>(scope->>'workspace_id')::uuid OR appointment_row.scope<>scope->>'scope' THEN RAISE insufficient_privilege;END IF;
+ FOR source_scope_v1 IN SELECT value FROM jsonb_array_elements(admission_row.scope_coverage) LOOP
+ SELECT * INTO appointment_row FROM oracle2.appointments WHERE appointment_id=(source_scope_v1->>'appointment_id')::uuid FOR SHARE;
+ IF appointment_row.appointment_id IS NULL OR appointment_row.workspace_id<>(source_scope_v1->>'workspace_id')::uuid OR appointment_row.scope<>source_scope_v1->>'scope' THEN RAISE insufficient_privilege;END IF;
  IF appointment_row.actor_id=admission_row.principal_id AND appointment_row.scope=phase_scope THEN own_scope:=true;END IF;
  seen:='{}';rooted:=false;
  LOOP
- IF appointment_row.appointment_id=ANY(seen) OR cardinality(seen)>=16 OR appointment_row.workspace_id<>(scope->>'workspace_id')::uuid OR appointment_row.revoked_at IS NOT NULL OR appointment_row.expires_at IS NOT NULL AND(NOT isfinite(appointment_row.expires_at) OR appointment_row.expires_at<=clock_timestamp()) THEN RAISE insufficient_privilege USING MESSAGE='actual current rooted recovery coverage required';END IF;
+ IF appointment_row.appointment_id=ANY(seen) OR cardinality(seen)>=16 OR appointment_row.workspace_id<>(source_scope_v1->>'workspace_id')::uuid OR appointment_row.revoked_at IS NOT NULL OR appointment_row.expires_at IS NOT NULL AND(NOT isfinite(appointment_row.expires_at) OR appointment_row.expires_at<=clock_timestamp()) THEN RAISE insufficient_privilege USING MESSAGE='actual current rooted recovery coverage required';END IF;
  seen:=array_append(seen,appointment_row.appointment_id);bound:=least(bound,coalesce(appointment_row.expires_at,bound));
- IF appointment_row.parent_id IS NULL THEN rooted:=appointment_row.scope='root' AND appointment_row.appointment_id=(scope->>'root_appointment_id')::uuid;EXIT;END IF;
- SELECT parent.* INTO appointment_row FROM oracle2.appointments parent WHERE parent.appointment_id=appointment_row.parent_id AND parent.actor_id=appointment_row.granted_by AND parent.workspace_id=(scope->>'workspace_id')::uuid AND parent.scope IN(scope->>'scope','root') FOR SHARE;
+ IF appointment_row.parent_id IS NULL THEN rooted:=appointment_row.scope='root' AND appointment_row.appointment_id=(source_scope_v1->>'root_appointment_id')::uuid;EXIT;END IF;
+ SELECT parent.* INTO appointment_row FROM oracle2.appointments parent WHERE parent.appointment_id=appointment_row.parent_id AND parent.actor_id=appointment_row.granted_by AND parent.workspace_id=(source_scope_v1->>'workspace_id')::uuid AND parent.scope IN(source_scope_v1->>'scope','root') FOR SHARE;
  IF appointment_row.appointment_id IS NULL THEN RAISE insufficient_privilege;END IF;
  END LOOP;
  IF NOT rooted THEN RAISE insufficient_privilege;END IF;

@@ -105,10 +105,10 @@ def test_independent_canonicalizer_pin_is_exact_retained_source_body():
 
 def test_all_three_lineage_reads_require_actual_grantor_and_exact_scope():
  source=SOURCE.read_text()
- assert "parent.actor_id=appointment_row.granted_by AND parent.workspace_id=(scope->>'workspace_id')::uuid AND parent.scope IN(scope->>'scope','root')" in source
+ assert "parent.actor_id=appointment_row.granted_by AND parent.workspace_id=(source_scope_v1->>'workspace_id')::uuid AND parent.scope IN(source_scope_v1->>'scope','root')" in source
  assert "p.actor_id=l.granted_by AND p.scope IN(l.leaf_scope,'root')" in source
  assert "p.actor_id=x.granted_by AND p.workspace_id=x.workspace_id AND p.scope IN(x.leaf_scope,'root')" in source
- assert "appointment_row.appointment_id=(scope->>'root_appointment_id')::uuid" in source
+ assert "appointment_row.appointment_id=(source_scope_v1->>'root_appointment_id')::uuid" in source
 
 
 def test_embedded_catalog_aliases_do_not_shadow_plpgsql_records():
@@ -133,10 +133,14 @@ def _normalize_context_record_identifiers(text):
  from pglast import scan
  assert text.isascii()
  result=text
- for token in reversed(scan(text)):
+ tokens=list(scan(text))
+ for index in reversed(range(len(tokens))):
+  token=tokens[index]
   word=text[token.start:token.end+1]
   if token.name=='IDENT' and word in {'admission_row','appointment_row'}:
    result=result[:token.start]+{'admission_row':'a','appointment_row':'p'}[word]+result[token.end+1:]
+  elif token.name=='IDENT' and word=='source_scope_v1' and (index==0 or text[tokens[index-1].start:tokens[index-1].end+1]!='.'):
+   result=result[:token.start]+'scope'+result[token.end+1:]
  return result
 
 
@@ -151,6 +155,40 @@ def test_record_rename_preserves_every_original_nonidentifier_byte():
  assert hashlib.sha256(normalized.encode()).hexdigest()=='cf672ad1108312d028122d706db2575c2d53c6f0ada547043ffc6c4e2139c7cb'
  assert "c.relkind IN('r','p')" in whole
  assert '-- static union, even if someone supplies a new aggregate catalog pin.' in whole
+
+
+def _rename_unqualified_scope_token(text,before,after):
+ from pglast import scan
+ tokens=list(scan(text));result=text;count=0
+ for index in reversed(range(len(tokens))):
+  token=tokens[index]
+  if token.name=='IDENT' and text[token.start:token.end+1]==before and (index==0 or text[tokens[index-1].start:tokens[index-1].end+1]!='.'):
+   result=result[:token.start]+after+result[token.end+1:];count+=1
+ return result,count
+
+
+def test_scope_variable_inverse_restores_exact_frozen_context_and_every_other_byte():
+ import hashlib
+ source=SOURCE.read_text();start=source.index('CREATE FUNCTION oracle2._recovery_context_v1(');end=source.index('END $f$;',start)+len('END $f$;')
+ context=source[start:end];body_start=context.index('AS $f$')+len('AS $f$');body_end=context.rindex('END $f$;')+len('END')
+ body=context[body_start:body_end];normalized_body,count=_rename_unqualified_scope_token(body,'source_scope_v1','scope')
+ normalized=context[:body_start]+normalized_body+context[body_end:]
+ assert count==9
+ assert hashlib.sha256(normalized.encode()).hexdigest()=='281454358132f0fba0bdb3a965dd814acb822331fe39c3eec6b925b7903c0350'
+ assert hashlib.sha256((source[:start]+source[end:]).encode()).hexdigest()=='dc1fe9b385c3d67af81515054c41bb0ac00f8044a56c074c3c4e9a60c15c3b3f'
+ assert _rename_unqualified_scope_token(body,'scope','unexpected')[1]==0
+ assert 'source_scope_v1 jsonb;' in context and 'FOR source_scope_v1 IN SELECT value' in context
+ assert "WHERE appointment_id=(source_scope_v1->>'appointment_id')::uuid" in context
+ assert "appointment_row.scope<>source_scope_v1->>'scope'" in context
+ assert "parent.scope IN(source_scope_v1->>'scope','root')" in context
+
+
+def test_scope_lexical_rename_never_changes_literals_comments_or_qualified_columns():
+ original="DECLARE scope jsonb; BEGIN FOR scope IN SELECT value LOOP SELECT scope->>'scope', appointment_row.scope, parent.scope, p.scope, \"scope\", 'scope', $$scope$$; -- scope\n/* scope */ END LOOP; END"
+ expected="DECLARE source_scope_v1 jsonb; BEGIN FOR source_scope_v1 IN SELECT value LOOP SELECT source_scope_v1->>'scope', appointment_row.scope, parent.scope, p.scope, \"scope\", 'scope', $$scope$$; -- scope\n/* scope */ END LOOP; END"
+ actual,count=_rename_unqualified_scope_token(original,'scope','source_scope_v1')
+ assert actual==expected and count==3
+ assert _rename_unqualified_scope_token(actual,'source_scope_v1','scope')==(original,3)
 
 
 def test_identifier_normalization_never_rewrites_literals_or_comments():
