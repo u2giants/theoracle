@@ -85,15 +85,33 @@ DOCUMENTARY += ('replacement_requester_v1','replacement_requester_sql',
     'legacy_routes_retired','legacy_citation_redirect','retired_writer_denial',
     'chat_learning','multilingual','chat_proposal_contract',
     'interview_resume','question_selection')
+# S07 source-only mandatory coverage. Preserve all old suites, ten workers and
+# the original global120s. Actual bee97 post-main JUnit plus owned S07 timings:
+# doc01~60.8+44.2=105s; doc02~85.5+17.8=103.3s; event~10.1+87.1=97.2s.
+# Leave doc04 unchanged for the separately owned current requester case.
+MEETING_CAPTURE_CORE_SUITES=('meeting_capture_contracts','meeting_capture_wire',
+    'meeting_final_mapping','meeting_final_transcript','meeting_normalization_contract',
+    'meeting_participant_epoch','meeting_queue_contract','meeting_request_fence',
+    'meeting_supervisor_observer','meeting_supervisor_process','meeting_supervisor_v2',
+    'meeting_worker_adapter','meeting_worker_contracts','meeting_unattended_sql')
+MEETING_CAPTURE_CUSTODY_SUITES=('meeting_normalization_sql','meeting_process_ingress_sql')
+MEETING_CAPTURE_EVENT_SUITES=('meeting_stop_semantics_sql','meeting_capture_sql',
+    'meeting_create_forensic_sql','meeting_pre_stop_observation_sql',
+    'meeting_supervision_queue_sql','meeting_supervisor_currentness_sql',
+    'meeting_create_stop_relation_sql','meeting_delivery_sql','meeting_queue_sql',
+    'meeting_queue_tls_sql','meeting_normalization_tls_sql','meeting_scheduler_process_sql',
+    'meeting_worker_tls_sql','meeting_stop_readiness_sql','original_intake_protected_connection_sql')
+DOCUMENTARY += MEETING_CAPTURE_CORE_SUITES+MEETING_CAPTURE_CUSTODY_SUITES
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql')
+    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql')
 DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
+EVENT += MEETING_CAPTURE_EVENT_SUITES
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2
 
@@ -193,6 +211,10 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,
 # preserve all cases, ten workers and the unchanged120-second global deadline.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
     'original_corpus_import',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,MEETING_CAPTURE_CORE_SUITES,
+    'workflow_authorization')
+DOCUMENTARY=_place_suites(DOCUMENTARY,MEETING_CAPTURE_CUSTODY_SUITES,
+    'replacement_documentary_journey')
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
@@ -335,8 +357,8 @@ def main(argv=None):
     try:
         jobs=[]
         # Setup remains outside the existing 120-second TEST budget. Every group
-        # gets its own proven fresh DB before any worker starts; EVENT has no
-        # fixed-role mutations, shared advisory locks or graph operations.
+        # gets its own proven fresh DB before any worker starts, including EVENT
+        # suites that exercise role mutations and meeting advisory locks.
         sys.path.insert(0,str(ROOT))
         from dev.oracle2.test_worker_postgres_fixture import worker_postgres
         for label,suites in groups:

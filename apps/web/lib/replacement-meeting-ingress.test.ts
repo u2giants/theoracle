@@ -131,7 +131,7 @@ test('uncertain peer does not acknowledge or retry and changed verifier pin refu
 
 test('invalid provider bot identifiers never reach protected backend',async()=>{
  const count=received.length;
- for(const bad of ['', 'actual-provider-bot', 'a'.repeat(4096), 1, null, '33333333-3333-4333-8333-333333333333/extra'])
+ for(const bad of ['', 'bot1', 'actual-provider-bot', 'a'.repeat(4096), 1, null, '33333333-3333-4333-8333-333333333333/extra'])
   await refused(request(raw({data:{bot:{id:bad},data:{words:[]}}})));
  assert.equal(received.length,count);
 });

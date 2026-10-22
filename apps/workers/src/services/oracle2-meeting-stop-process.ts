@@ -10,6 +10,7 @@ import {canonicalJson,parseClosedJson,instant,readInstalledMeetingStopProcessCon
 import {installedLocalMeetingStopSupervisionV1,installedLocalMeetingStopSequenceV1,installedLocalMeetingStopCycleV1} from '@oracle/shared/protected-meeting-worker';
 import {interpretRecallCaptureResponseV1} from '@oracle/shared/recall-capture-contract';
 import {RecallWireUncertaintyV1} from '@oracle/shared/protected-node-https';
+import {unclaimedMeetingStopReadyV1} from '../lib/meeting-stop-readiness';
 import type {MeetingWorkerPacketV1,MeetingSupervisionPacketV1} from '@oracle/shared/protected-worker-contract';
 const fail=():never=>{throw new Error('Meeting STOP unavailable');};
 if(process.platform!=='linux'||typeof window!=='undefined')fail();
@@ -48,7 +49,8 @@ class InstalledStopProcessV1{
    sequence.current_v1();this.current();
    let status:Readonly<MeetingWorkerPacketV1>|undefined;
    try{status=await sequence.leave.status_v1();}catch{sequence.current_v1();}
-   if(status?.state==='UNKNOWN'||status?.state==='inflight'||status?.state==='observed')fail();if(status?.state==='prepared'){ready=true;break;}
+   if(status&& !['idle','prepared'].includes(status.state))fail();
+   if(status&&unclaimedMeetingStopReadyV1(status)){ready=true;break;}
    if(n+1<this.config.readonly_wait_count){if(this.config.readonly_wait_milliseconds>=sequence.current_v1())fail();await new Promise<void>(r=>setTimeout(r,this.config.readonly_wait_milliseconds));}
   }
   if(!ready)fail();const leave=await this.stage(sequence.leave,sequence);if(leave.state!=='observed')fail();
