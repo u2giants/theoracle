@@ -25,7 +25,17 @@ from test_hosting_boundary import WORKER
 def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tls,certificates,*,proof_scope):
  from dev.oracle2.test_readonly_graph_fixture import processing_writer,processing_reader_scope,owned_target
  from dev.oracle2.test_graph_tls_fixture import owned_graph_tls,verify_graph_tls_peer
- state=prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,return_fixture=True)
+ def browser_assertions(ctx):
+  # Each assertion is captured and assessed with its actual original/extraction;
+  # the retained default fixture has only one assertion for two processes.
+  # Do not pretend its unrelated process has a record or retrofit after capture.
+  return [dict(assertion_id=str(uuid4()),revision=1,subject_id=str(uuid4()),predicate='reported_step',
+   value=extraction.payload['observations'][0]['value'],provenance='employee_account',
+   scope={key:{'mode':'unknown','identities':[]} for key in ('process','customer','product','region')},
+   valid_time='unknown',supporting_observations=[extraction.payload['observations'][0]['observation_id']])
+   for extraction in ctx.extractions]
+ state=prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,return_fixture=True,
+  assertion_factory=browser_assertions if proof_scope=='browser' else None)
  m=state['manifest'];payload=state['q']['payload'];f=state['f']
  h,authority=own_history(admin_url,f)
  authority=ConsolidationAuthorityV1(h['url'],binding=replace(authority.binding,retained_semantic_admissions=state['q']['trusted_admission_hashes']),delivery_capability_body_hashes=authority.delivery_capability_body_hashes)
@@ -101,6 +111,14 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
          status,wire=tls_request(server,certificates,request())
          assert status==200,wire
          public=json.loads(wire);assert public['answer']['records'] and public['answer']['provider_generation_used'] is False,public['answer']
+         if proof_scope=='backend':
+          from oracle_brain.workflows.natural_answer_v1 import NaturalQuestionRequestV1
+          unrelated=payload['consolidation_core']['model']['processes'][1]['label']
+          question=NaturalQuestionRequestV1(question='What is reported in '+unrelated+'?',caller_deadline=datetime.now(timezone.utc)+timedelta(seconds=28))
+          missing_status,missing_wire=tls_request(server,certificates,canonical_bytes(question.model_dump(mode='json')))
+          assert missing_status==200,missing_wire
+          missing=json.loads(missing_wire)
+          assert missing['answer']['state']=='missing' and missing['answer']['records']==[]
          assert public['retained_projection_lease_until']==body['lease_until']
          assert tls_request(server,certificates,request(),client='other')[0]==503
          (tmp_path/'actual-answer-response.json').write_bytes(wire)
@@ -121,7 +139,13 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
           mcp_thread=threading.Thread(target=mcp_server.serve_forever,kwargs={'poll_interval':.01},daemon=True);mcp_thread.start()
           try:
            import os
-           meta=dict(process_labels=[p['label'] for p in payload['consolidation_core']['model']['processes']],scratch=str(tmp_path),auth_user_id=str(uuid4()),employee_id=str(uuid4()),project_url='https://invented-answer.supabase.co',principal_id=str(h['actor']),workspace_id=str(m.workspace_id),model_id=str(m.artifact_id),runtime_hash=RUNTIME,registry_hash=REGISTRY,
+           expected=[]
+           for process in payload['consolidation_core']['model']['processes']:
+            ids=set(process['observation_ids'])
+            expected.append(dict(label=process['label'],process_id=process['process_id'],assertion_ids=sorted(a['assertion_id'] for a in payload['consolidation_core']['assertions'] if ids&set(a['supporting_observations']))))
+           assert len(expected)>=2 and all(p['assertion_ids'] for p in expected[:2])
+           assert set(expected[0]['assertion_ids']).isdisjoint(expected[1]['assertion_ids'])
+           meta=dict(process_expectations=expected,scratch=str(tmp_path),auth_user_id=str(uuid4()),employee_id=str(uuid4()),project_url='https://invented-answer.supabase.co',principal_id=str(h['actor']),workspace_id=str(m.workspace_id),model_id=str(m.artifact_id),runtime_hash=RUNTIME,registry_hash=REGISTRY,
             server_certificate_file=settings.peer.server_certificate.path,server_key_file=settings.peer.server_key.path,client_ca_file=settings.peer.client_ca.path,
             issuer_actor=str(settings.peer.issuer_actor),reviewer_actor=str(settings.peer.reviewer_actor),valid_from=settings.peer.valid_from.isoformat(),expires_at=settings.peer.expires_at.isoformat(),original_horizon=settings.peer.original_horizon.isoformat(),
             web=dict(answer_config_sha256=settings.config_sha256,answer_peer_sha256=settings.peer_sha256,backend_origin='https://localhost.localdomain:'+str(server.server_port),client_certificate_file=str(certificates/'worker.pem'),client_key_file=str(certificates/'worker.key'),client_uri=WORKER),

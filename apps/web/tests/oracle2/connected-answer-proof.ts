@@ -70,8 +70,16 @@ try{
  try{await page.getByText('Reported account',{exact:false}).first().waitFor({timeout:20000});}catch(error){writeFileSync(join(meta.scratch,'browser-diagnostic.json'),JSON.stringify({statuses,operations,body:await page.locator('body').textContent(),errors}));await page.screenshot({path:join(meta.scratch,'browser-diagnostic.png')});throw error;}
  assert.ok(await page.getByRole('link',{name:'Open original under current access'}).count());
  await page.getByText('Coverage and limits',{exact:true}).click();await page.getByText('Dates and retained history',{exact:true}).click();
- const processLabels=meta.process_labels as string[];assert.ok(processLabels.length>=2);
- for(const label of processLabels.slice(0,2)){await page.getByLabel('Your question').fill('What is reported in '+label+'?');await page.getByRole('button',{name:'Ask',exact:true}).click();await page.getByText('Reported account',{exact:false}).first().waitFor({timeout:20000});}
+ const processes=meta.process_expectations as {label:string;process_id:string;assertion_ids:string[]}[];assert.ok(processes.length>=2);
+ for(const process of processes.slice(0,2)){
+  const question='What is reported in '+process.label+'?';await page.getByLabel('Your question').fill(question);
+  const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/consultant/replacement/v1/protected/answer'&&r.request().postDataJSON().question===question,{timeout:20000});
+  await page.getByRole('button',{name:'Ask',exact:true}).click();const observed=await response;assert.equal(observed.status(),200);
+  const body=await observed.json();assert.equal(body.resolved_mode,'local');
+  assert.deepEqual(body.answer.coverage.represented_process_ids,[process.process_id]);
+  assert.deepEqual(body.answer.records.map((r:{assertion:{assertion_id:string}})=>r.assertion.assertion_id).sort(),process.assertion_ids);
+  await page.getByText('Reported account',{exact:false}).first().waitFor({timeout:20000});
+ }
  await page.getByLabel('Your question').fill('What happens to it next?');await page.getByRole('button',{name:'Ask',exact:true}).click();await page.getByText('Which process or reported action do you mean in this question?',{exact:true}).waitFor();assert.equal(await page.getByRole('link',{name:'Open original under current access'}).count(),0);
  await page.getByLabel('Your question').fill('What is reported across all processes?');await page.getByRole('button',{name:'Ask',exact:true}).click();await page.getByRole('link',{name:'Open original under current access'}).first().waitFor();
  const rpc=await page.evaluate<Record<'initialize'|'list'|'answer',{status:number;text:string}>>(`(async()=>{
