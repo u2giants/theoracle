@@ -189,7 +189,7 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,
     'purpose_journey',after=True)
 
 # PR189 first actual workspace case exhausted documentary-07's measured109s
-# baseline. Place the SAME whole case on documentary-03's measured46s sibling;
+# baseline. Place the SAME whole case on documentary-04's measured64s sibling;
 # preserve all cases, ten workers and the unchanged120-second global deadline.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
     'original_corpus_import',after=True)

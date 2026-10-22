@@ -186,7 +186,6 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
             assert direct_response.status==200,direct_wire
             assert json.loads(direct_wire)['channel']=='mcp'
            finally:direct.close()
-           import os
            expected=[]
            for process in payload['consolidation_core']['model']['processes']:
             ids=set(process['observation_ids'])
