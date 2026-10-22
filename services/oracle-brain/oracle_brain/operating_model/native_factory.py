@@ -14,6 +14,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Literal
+from contextlib import contextmanager
+from .request_deadline_v1 import sql_execute_current_v1 as _ledger_execute_v1
 from uuid import UUID,uuid4
 
 import psycopg
@@ -23,7 +25,7 @@ from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest, 
 from .contracts import StrictRecord, SourceRef, canonical_bytes, digest
 from .key_coverage import VerifiedKeyCoverage
 from .native_provider import NativeOpenRouter
-from .provider_adapter import AdmittedProvider, Budget, Pricing, ConversationTextPricingV1
+from .provider_adapter import AdmittedProvider, Budget, Pricing, ConversationTextPricingV1,QualifiedQueryEmbeddingPricingV1,QualifiedAnswerTextPricingV1
 from .original_qualification_v1 import RawOriginalRefV1
 from .raw_multimodal_pricing_v1 import RawMultimodalPricingQuoteV1
 
@@ -89,6 +91,50 @@ class EmployeeConversationDispatchJobV1(NativeDispatchJob):
             or len({(x.source_id,x.revision) for x in self.qualified_population})!=len(self.qualified_population)):
             raise ValueError('exact one-attempt conversation operation and qualified population required')
         return self
+
+
+class QuestionEffectDispatchJobV1(NativeDispatchJob):
+    """Bounded runtime claim under separately installed SQL024 purpose."""
+    purpose:Literal['qualified-query-embedding-v1','qualified-answer-synthesis-v1']
+    attempt:Literal[1]=1
+    admission_id:UUID
+    thread_id:UUID
+    thread_revision:int=Field(strict=True,ge=1)
+    employee_event_id:UUID
+    original_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    query_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    qualified_model_id:UUID
+    model_version:int=Field(strict=True,ge=1)
+    model_content_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
+    accepted_projection_event_id:UUID
+    accepted_receipt_body_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    qualified_population:tuple[SourceRef,...]=Field(min_length=1,max_length=64)
+    qualified_population_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    billing_bounds_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    approval_packet_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    source_export_scope_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    grounding_sha256:str=Field(pattern=r'^[0-9a-f]{64}$')
+    @field_validator('schema_version','attempt',mode='before')
+    @classmethod
+    def one(cls,value):
+        if type(value) is not int or value!=1:raise ValueError('exact first-attempt question schema required')
+        return value
+    @model_validator(mode='after')
+    def bound_question_job(self):
+        if self.dispatch_id!=self.artifact_id or self.processing_request.purpose!=self.purpose or self.request_hash!=digest(self.request):raise ValueError('exact derived one-attempt question operation required')
+        if len(set(self.qualified_population))!=len(self.qualified_population) or self.qualified_population_sha256!=digest({'source_refs':[r.model_dump(mode='json') for r in self.qualified_population]}):raise ValueError('complete exact question source population required')
+        if self.approval_packet_sha256!=digest([a.model_dump(mode='json') for a in self.approvals]):raise ValueError('exact independent approval packet required')
+        return self
+
+class QualifiedQueryEmbeddingDispatchJobV1(QuestionEffectDispatchJobV1):
+    job_schema:Literal['qualified-query-embedding-dispatch-v1']='qualified-query-embedding-dispatch-v1'
+    purpose:Literal['qualified-query-embedding-v1']='qualified-query-embedding-v1'
+    pricing:QualifiedQueryEmbeddingPricingV1
+
+class QualifiedAnswerSynthesisDispatchJobV1(QuestionEffectDispatchJobV1):
+    job_schema:Literal['qualified-answer-synthesis-dispatch-v1']='qualified-answer-synthesis-dispatch-v1'
+    purpose:Literal['qualified-answer-synthesis-v1']='qualified-answer-synthesis-v1'
+    pricing:QualifiedAnswerTextPricingV1
 
 
 class RawOriginalDispatchJobV1(NativeDispatchJob):
@@ -157,20 +203,31 @@ def _deny_constant(_value):
     raise ValueError('nonfinite JSON value')
 
 
+@contextmanager
+def _ledger_connection_v1(url,deadline):
+    if deadline is None:
+        with psycopg.connect(url,connect_timeout=5) as connection:yield connection
+    else:
+        from .protected_sql_connection_v1 import _connection_v1
+        from .request_deadline_v1 import request_remaining_v1
+        request_remaining_v1()
+        with _connection_v1(url,deadline,require_pinned_address=True) as connection:yield connection
+
+
 def ledger_namespace_hash(connection) -> str:
     """Read-only structural fingerprint, excluding row contents and secrets."""
-    rows = connection.execute("""SELECT c.relname,a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull
+    rows = _ledger_execute_v1(connection,"""SELECT c.relname,a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         JOIN pg_attribute a ON a.attrelid=c.oid
         WHERE n.nspname='oracle2' AND c.relname IN
           ('operating_dispatch_reservations','operating_dispatch_receipts','operating_dispatch_diagnoses')
           AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum""").fetchall()
-    constraints = connection.execute("""SELECT c.relname,pg_get_constraintdef(k.oid)
+    constraints = _ledger_execute_v1(connection,"""SELECT c.relname,pg_get_constraintdef(k.oid)
         FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='oracle2'
           AND c.relname IN ('operating_dispatch_reservations','operating_dispatch_receipts','operating_dispatch_diagnoses')
         ORDER BY c.relname,pg_get_constraintdef(k.oid)""").fetchall()
-    triggers = connection.execute("""SELECT c.relname,pg_get_triggerdef(t.oid),pg_get_functiondef(t.tgfoid)
+    triggers = _ledger_execute_v1(connection,"""SELECT c.relname,pg_get_triggerdef(t.oid),pg_get_functiondef(t.tgfoid)
         FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='oracle2' AND NOT t.tgisinternal
           AND c.relname IN ('operating_dispatch_reservations','operating_dispatch_receipts','operating_dispatch_diagnoses')
@@ -181,7 +238,7 @@ def ledger_namespace_hash(connection) -> str:
 
 
 def verify_ledger(url: str, registry: LedgerRegistry, *, trusted_registry_hash: str,
-                  key_fingerprint: str, now: datetime) -> str:
+                  key_fingerprint: str, now: datetime,protected_deadline=None) -> str:
     """External registry asserts exclusivity; actual SQL proves target identity.
 
     No role grant, schema write, or self-issuance occurs during this preflight.
@@ -201,24 +258,24 @@ def verify_ledger(url: str, registry: LedgerRegistry, *, trusted_registry_hash: 
             raise PermissionError('synthetic ledger must be owned loopback test namespace')
     elif parts.get('sslmode') != 'verify-full':
         raise PermissionError('production ledger requires verified TLS hostname')
-    with psycopg.connect(url, connect_timeout=5) as connection:
-        connection.execute('SET TRANSACTION READ ONLY')
-        database, role, superuser, create_role, create_db, replication, bypass_rls = connection.execute("SELECT current_database(),current_user,rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
+    with _ledger_connection_v1(url,protected_deadline) as connection:
+        _ledger_execute_v1(connection,'SET TRANSACTION READ ONLY')
+        database, role, superuser, create_role, create_db, replication, bypass_rls = _ledger_execute_v1(connection,"SELECT current_database(),current_user,rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
         if (database,role) != (registry.database,registry.role) or any((superuser,create_role,create_db,replication,bypass_rls)):
             raise PermissionError('actual least-privilege ledger role required')
-        memberships=connection.execute("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname<>current_user AND pg_has_role(current_user,oid,'MEMBER'))").fetchone()[0]
+        memberships=_ledger_execute_v1(connection,"SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname<>current_user AND pg_has_role(current_user,oid,'MEMBER'))").fetchone()[0]
         if memberships:
             raise PermissionError('billing role cannot inherit unbounded role capabilities')
         if registry.transport == 'verify-full-tls' and not connection.pgconn.ssl_in_use:
             raise PermissionError('production ledger connection is not TLS')
-        cluster = connection.execute('SELECT system_identifier::text FROM pg_catalog.pg_control_system()').fetchone()[0]
+        cluster = _ledger_execute_v1(connection,'SELECT system_identifier::text FROM pg_catalog.pg_control_system()').fetchone()[0]
         if cluster != registry.cluster_identifier or ledger_namespace_hash(connection) != registry.namespace_hash:
             raise PermissionError('actual ledger cluster or namespace changed')
         for table in ('operating_dispatch_reservations','operating_dispatch_receipts','operating_dispatch_diagnoses'):
-            privileges = connection.execute("SELECT has_table_privilege(current_user,%s,'SELECT'),has_table_privilege(current_user,%s,'INSERT'),has_table_privilege(current_user,%s,'UPDATE'),has_table_privilege(current_user,%s,'DELETE')",('oracle2.'+table,)*4).fetchone()
+            privileges = _ledger_execute_v1(connection,"SELECT has_table_privilege(current_user,%s,'SELECT'),has_table_privilege(current_user,%s,'INSERT'),has_table_privilege(current_user,%s,'UPDATE'),has_table_privilege(current_user,%s,'DELETE')",('oracle2.'+table,)*4).fetchone()
             if privileges != (True,True,False,False):
                 raise PermissionError('append-only least billing privileges required')
-        broad_access=connection.execute("""SELECT EXISTS(SELECT 1 FROM pg_class c
+        broad_access=_ledger_execute_v1(connection,"""SELECT EXISTS(SELECT 1 FROM pg_class c
             JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='oracle2' AND c.relkind IN ('r','p','v','m')
               AND c.relname NOT IN ('operating_dispatch_reservations','operating_dispatch_receipts','operating_dispatch_diagnoses')
               AND (has_table_privilege(current_user,c.oid,'SELECT') OR has_table_privilege(current_user,c.oid,'INSERT')
@@ -290,13 +347,33 @@ class NativeBrokerEgress:
         with os.fdopen(descriptor,'wb') as stream:
             stream.write(canonical_bytes(record));stream.flush();os.fsync(stream.fileno())
 
+    def _question_custody_v1(self, operation, *, expected_job_sha256):
+        """Read actual existing custody; descriptive bytes grant no access/spend.
+
+        Callers must independently prove SQL024 source or original cost scope.
+        This method neither reconstructs a receipt nor adopts supplied content.
+        """
+        from .protected_inputs_v1 import protected_file,_pinned,parse_canonical_object_v1
+        if type(operation) is not UUID:raise TypeError('exact retained operation required')
+        prefix=self._receipts/str(operation)
+        raw_metadata=protected_file(str(prefix)+'.wire.json',limit=65536)
+        metadata=parse_canonical_object_v1(raw_metadata)
+        required={'dispatch_id','reservation_id','request_hash','permission_hash','job_hash','key_fingerprint','ledger_identity_hash','raw_sha256','captured_bytes','complete','truncated'}
+        if set(metadata)!=required or(metadata['dispatch_id'],metadata['job_hash'],metadata['key_fingerprint'],metadata['ledger_identity_hash'])!=(str(operation),expected_job_sha256,self._key_fingerprint,self._registry_hash):raise PermissionError('actual retained question wire owner differs')
+        if type(metadata['complete']) is not bool or type(metadata['truncated']) is not bool or metadata['complete']==metadata['truncated'] or type(metadata['captured_bytes']) is not int or not 0<=metadata['captured_bytes']<=16*1024*1024:raise PermissionError('actual wire completeness invalid')
+        UUID(metadata['reservation_id'])
+        raw=_pinned(str(prefix)+'.wire',metadata['raw_sha256'],16*1024*1024)
+        if len(raw)!=metadata['captured_bytes']:raise PermissionError('actual retained wire length differs')
+        if _pinned(str(prefix)+'.wire.json',hashlib.sha256(raw_metadata).hexdigest())!=raw_metadata:raise PermissionError('actual custody metadata changed')
+        return raw,metadata,hashlib.sha256(raw_metadata).hexdigest()
+
     def _retain_conversation_metadata_v1(self,job,models,endpoints,comparison):
         # Existing private native custodian, no second authority/dispatch owner.
         from .native_provider import NativeMetadataWireV1
-        if type(job) is not EmployeeConversationDispatchJobV1 or type(models) is not NativeMetadataWireV1 or type(endpoints) is not NativeMetadataWireV1 or type(comparison) is not bytes:
+        if type(job) not in (EmployeeConversationDispatchJobV1,QualifiedQueryEmbeddingDispatchJobV1,QualifiedAnswerSynthesisDispatchJobV1) or type(models) is not NativeMetadataWireV1 or type(endpoints) is not NativeMetadataWireV1 or type(comparison) is not bytes:
             raise PermissionError('actual complete conversation metadata observations required')
         evidence_id=uuid4().hex
-        record={'schema_version':1,'purpose':'conversation-native-metadata-observation-v1',
+        record={'schema_version':1,'purpose':'conversation-native-metadata-observation-v1' if type(job) is EmployeeConversationDispatchJobV1 else 'question-effect-native-metadata-observation-v1',
             'dispatch_id':str(job.dispatch_id),'job_sha256':digest(job.model_dump(mode='json')),
             'key_fingerprint':self._key_fingerprint,'ledger_registry_hash':self._registry_hash,
             'comparison_utf8':comparison.decode('utf-8'),'observations':[]}
@@ -319,7 +396,7 @@ class NativeBrokerEgress:
         finally:os.close(directory)
         if path.read_bytes()!=data:raise PermissionError('actual metadata observation custody differs')
 
-    def dispatch(self, body: bytes, *, _conversation_control=None) -> bytes:
+    def dispatch(self, body: bytes, *, _conversation_control=None,_question_control=None,_question_job=None) -> bytes:
         if len(body)>2_000_000:
             raise PermissionError('bounded provider envelope required')
         try:
@@ -329,7 +406,7 @@ class NativeBrokerEgress:
             dispatch_id=UUID(envelope['dispatch_id'])
             if str(dispatch_id)!=envelope['dispatch_id']:
                 raise ValueError
-            job=self._resolve(dispatch_id)
+            job=_question_job if _question_job is not None else self._resolve(dispatch_id)
             if not isinstance(job,NativeDispatchJob) or job.dispatch_id!=dispatch_id:
                 raise ValueError
             # Do not retain shared mutable dictionaries returned by a resolver.
@@ -337,6 +414,8 @@ class NativeBrokerEgress:
                 job=RawOriginalDispatchJobV1.model_validate_json(job.model_dump_json())
             elif type(job) is EmployeeConversationDispatchJobV1:
                 job=EmployeeConversationDispatchJobV1.model_validate_json(job.model_dump_json())
+            elif type(job) in(QualifiedQueryEmbeddingDispatchJobV1,QualifiedAnswerSynthesisDispatchJobV1):
+                job=type(job).model_validate_json(job.model_dump_json())
             else:
                 # Legacy base validation remains closed to new extra fields.
                 job=NativeDispatchJob.model_validate_json(job.model_dump_json())
@@ -346,6 +425,12 @@ class NativeBrokerEgress:
                 raise ValueError
         except (ValueError,TypeError,KeyError):
             raise PermissionError('provider request differs from immutable admitted job') from None
+        question_effect=type(job) in(QualifiedQueryEmbeddingDispatchJobV1,QualifiedAnswerSynthesisDispatchJobV1)
+        if question_effect:
+            from .question_native_authority_v1 import current_question_dispatch_v1,current_question_metadata_v1,validate_question_wire_v1
+            if _conversation_control is not None or _question_job is None:raise PermissionError('distinct concrete question owner required')
+            current_question_dispatch_v1(_question_control,job,self)
+        elif _question_control is not None or _question_job is not None:raise PermissionError('question owner cannot admit legacy purpose')
         if job.purpose=='employee-conversation':
             from oracle_brain.operating_model.conversation_native_authority_v1 import current_conversation_dispatch_v1
             if type(job) is not EmployeeConversationDispatchJobV1:raise PermissionError('protected conversation consumer required')
@@ -357,7 +442,8 @@ class NativeBrokerEgress:
         def currently_authorized():
             if job.purpose=='employee-conversation':
                 current_conversation_dispatch_v1(_conversation_control,job,self)
-            return (digest(job.model_dump(mode='json'))==job_seal and self._authorize(job) is True
+            if question_effect:current_question_dispatch_v1(_question_control,job,self)
+            return (digest(job.model_dump(mode='json'))==job_seal and (question_effect or self._authorize(job) is True)
                     and digest(job.model_dump(mode='json'))==job_seal)
         if not currently_authorized():
             raise PermissionError('current job authority unavailable')
@@ -372,8 +458,9 @@ class NativeBrokerEgress:
             raise PermissionError('exact existing key and source-only processing admission required')
         if self._registry.transport=='owned-synthetic-loopback' and not job.processing_request.data_classes<=frozenset({'synthetic'}):
             raise PermissionError('synthetic ledger cannot dispatch private company data')
+        protected_options={'protected_deadline':_question_control._active_deadline} if question_effect else {}
         ledger_identity=verify_ledger(self._url,self._registry,trusted_registry_hash=self._registry_hash,
-                                     key_fingerprint=self._key_fingerprint,now=datetime.now(timezone.utc))
+                                     key_fingerprint=self._key_fingerprint,now=datetime.now(timezone.utc),**protected_options)
         request=job.request
         embedding=request.get('model')=='openai/text-embedding-3-small'
         expected={'model','input','dimensions','encoding_format','store','provider'} if embedding else {'model','messages','max_tokens','response_format','store','stream','provider'}
@@ -397,7 +484,8 @@ class NativeBrokerEgress:
             if not currently_authorized():
                 raise PermissionError('current job authority changed before private POST')
             authorize(job.processing_request,list(job.approvals))
-            if job.purpose=='employee-conversation':
+            if question_effect:current_question_metadata_v1(_question_control,job,self,native)
+            elif job.purpose=='employee-conversation':
                 current_text_metadata_v1(_conversation_control,job,self,native)
         def capture_paid_wire(raw,*,complete):
             rid=getattr(provider,'last_reservation_id',None)
@@ -406,7 +494,9 @@ class NativeBrokerEgress:
                                before_private_dispatch=before_private_dispatch,
                                trusted_coverage_hash=self._coverage_hash,ledger_identity_hash=ledger_identity)
         native._coverage(datetime.now(timezone.utc))
-        if job.purpose=='employee-conversation':
+        if question_effect:
+            current_question_metadata_v1(_question_control,job,self,native)
+        elif job.purpose=='employee-conversation':
             from oracle_brain.operating_model.conversation_native_authority_v1 import current_text_metadata_v1
             current_text_metadata_v1(_conversation_control,job,self,native)
         else:
@@ -420,7 +510,7 @@ class NativeBrokerEgress:
                     or current.model_dump(exclude={'expires_at'})!=job.pricing.model_dump(exclude={'expires_at'})):
                 raise PermissionError('current actual pricing differs from admitted job')
         provider=AdmittedProvider(request=job.processing_request,approvals=list(job.approvals),pricing=job.pricing,
-            budget=Budget(self._url,ledger_identity_hash=ledger_identity,admitted_allocation=self._allocation),sender=native.embed if embedding else native.send,operation='embedding' if embedding else 'chat',
+            budget=Budget(self._url,ledger_identity_hash=ledger_identity,admitted_allocation=self._allocation,**protected_options),sender=native.embed if embedding else native.send,operation='embedding' if embedding else 'chat',
             remaining_daily_allowance=native.allowance,admitted_register_hash=job.register_hash)
         # Recheck immediately before reservation/send, after all preflight work.
         if not currently_authorized():
@@ -430,18 +520,22 @@ class NativeBrokerEgress:
             nonlocal validation_failed
             try:
                 if not currently_authorized():
-                    raise PermissionError('current validation authority unavailable') if job.purpose=='employee-conversation' else ValueError('current validation authority unavailable')
+                    raise PermissionError('current validation authority unavailable') if question_effect or job.purpose=='employee-conversation' else ValueError('current validation authority unavailable')
                 if job.purpose=='employee-conversation':
                     from oracle_brain.operating_model.conversation_native_authority_v1 import validate_conversation_wire_v1
                     validate_conversation_wire_v1(native.last_response_text,job)
                     current_text_metadata_v1(_conversation_control,job,self,native)
                 if embedding:
                     validate_embedding_response(content,count=len(payload))
-                self._validate_response(job, content)
+                if question_effect:
+                    validate_question_wire_v1(native.last_response_text,job)
+                    current_question_metadata_v1(_question_control,job,self,native)
+                    _question_control.validate_content_v1(job,content)
+                else:self._validate_response(job, content)
                 if not currently_authorized():
-                    raise PermissionError('immutable job changed during validation') if job.purpose=='employee-conversation' else ValueError('immutable job changed during validation')
+                    raise PermissionError('immutable job changed during validation') if question_effect or job.purpose=='employee-conversation' else ValueError('immutable job changed during validation')
             except Exception as error:
-                if job.purpose=='employee-conversation' and not isinstance(error,(ValueError,TypeError,KeyError)):
+                if (question_effect or job.purpose=='employee-conversation') and not isinstance(error,(ValueError,TypeError,KeyError)):
                     raise
                 validation_failed = True
                 raise ValueError('trusted output validation rejected response') from None

@@ -70,38 +70,14 @@ def test_actual_next_auth_employee_sql_model_review(admin_url,sql_qualified_v3,t
                     (f['workspace'],h['actor'],['source-read:'+str(ref.source_id) for ref in previous['sources']]))
         return result
     monkeypatch.setattr(ModelReviewFactoryV1,'execute_v1',observed)
-    # Exact existing identity shape, only in this verified invented database.
-    from psycopg import sql
-    from dev.oracle2.test_worker_postgres_fixture import owned_worker_database
+    # Same actual fresh-owned identity fixture; production auth imports stay unchanged.
     import os
+    from invented_next_employee_fixture_v1 import invented_next_employee_fixture_v1
     container=os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER']
-    owned_worker_database(container,admin_url)
-    auth_user,employee=uuid4(),uuid4();login='invented_web_'+uuid4().hex;password=uuid4().hex
-    dbname=psycopg.conninfo.conninfo_to_dict(admin_url)['dbname']
-    with psycopg.connect(admin_url) as c:
-        assert c.pgconn.ssl_in_use and c.execute('SELECT SESSION_USER,current_database()').fetchone()==('oracle2_admin',dbname)
-        c.execute("CREATE TYPE public.auth_provider AS ENUM ('microsoft','google','authentik','magic_link_dev')")
-        c.execute("""CREATE TABLE public.employees(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),email varchar(320) NOT NULL UNIQUE,name varchar(255) NOT NULL,role varchar(255) NOT NULL,department varchar(255),departments text[] NOT NULL DEFAULT '{}',is_admin boolean NOT NULL DEFAULT false,locale varchar(12) NOT NULL DEFAULT 'en',disabled_at timestamp,last_login_at timestamp,created_at timestamp NOT NULL DEFAULT now());
-          CREATE TABLE public.employee_identities(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,auth_provider public.auth_provider NOT NULL,auth_user_id uuid NOT NULL UNIQUE,auth_provider_subject varchar(255),email varchar(320) NOT NULL,linked_at timestamp NOT NULL DEFAULT now(),last_login_at timestamp);
-          ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY; ALTER TABLE public.employees FORCE ROW LEVEL SECURITY;
-          ALTER TABLE public.employee_identities ENABLE ROW LEVEL SECURITY; ALTER TABLE public.employee_identities FORCE ROW LEVEL SECURITY""")
-        c.execute(sql.SQL('CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION').format(sql.Identifier(login),sql.Literal(password)))
-        c.execute(sql.SQL('GRANT CONNECT ON DATABASE {} TO {}').format(sql.Identifier(dbname),sql.Identifier(login)))
-        c.execute(sql.SQL('GRANT USAGE ON SCHEMA public TO {}').format(sql.Identifier(login)))
-        c.execute(sql.SQL('GRANT SELECT ON public.employees,public.employee_identities TO {}').format(sql.Identifier(login)))
-        c.execute(sql.SQL('CREATE POLICY invented_employee_only ON public.employees FOR SELECT TO {} USING (id={})').format(sql.Identifier(login),sql.Literal(employee)))
-        c.execute(sql.SQL('CREATE POLICY invented_identity_only ON public.employee_identities FOR SELECT TO {} USING (employee_id={} AND auth_user_id={})').format(sql.Identifier(login),sql.Literal(employee),sql.Literal(auth_user)))
-        c.execute("INSERT INTO public.employees(id,email,name,role) VALUES(%s,'invented-next@example.invalid','Invented Next employee','invented')",(employee,))
-        c.execute("INSERT INTO public.employee_identities(employee_id,auth_provider,auth_user_id,email) VALUES(%s,'magic_link_dev',%s,'invented-next@example.invalid')",(employee,auth_user))
+    identity=invented_next_employee_fixture_v1(admin_url,container=container)
+    auth_user,employee,login,dbname=identity.auth_user_id,identity.employee_id,identity.login,identity.database
+    web_url=identity.web_database_url
     params=psycopg.conninfo.conninfo_to_dict(admin_url)
-    from urllib.parse import quote
-    web_url='postgresql://'+quote(login)+':'+quote(password)+'@127.0.0.1:'+params['port']+'/'+dbname+'?sslmode=verify-full&application_name=oracle2-invented-next-identity'
-    # Independently prove exact least privilege, RLS row binding and TLS now.
-    with psycopg.connect(psycopg.conninfo.make_conninfo(admin_url,user=login,password=password)) as c:
-        assert c.pgconn.ssl_in_use and c.execute('SELECT SESSION_USER,current_database()').fetchone()==(login,dbname)
-        assert c.execute('SELECT id FROM public.employees').fetchall()==[(employee,)]
-        assert c.execute('SELECT auth_user_id FROM public.employee_identities').fetchall()==[(auth_user,)]
-        assert c.execute("SELECT has_table_privilege(current_user,'public.employees','INSERT,UPDATE,DELETE')").fetchone()==(False,)
     # Observe unchanged actual boundaries without substituting auth/validation.
     import oracle_brain.hosting.consolidation_review_service_v1 as service_module
     boundary_events=[]

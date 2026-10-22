@@ -164,7 +164,7 @@ def test_original_subtwo_second_fence_refuses_before_any_connection(monkeypatch)
  monkeypatch.setattr(owner.psycopg,'connect',lambda *a,**kw:pytest.fail('short original window opened a connection'))
  with _request_fence_v1(float(time.monotonic()+1.5)):
   with pytest.raises(PermissionError):
-   with owner._connection_v1('host=sql.invalid hostaddr=127.0.0.1 port=5432 dbname=invented user=invented sslmode=verify-full sslrootcert=/invented',datetime.now(timezone.utc)+timedelta(seconds=10)):pass
+   with owner._connection_v1('host=sql.invalid hostaddr=127.0.0.1 port=5432 dbname=invented user=invented password=invented-only sslmode=verify-full sslrootcert=/invented',datetime.now(timezone.utc)+timedelta(seconds=10)):pass
 
 
 def test_actual_missing_captured_window_is_denied_but_legacy_source_API_retained(admin_url,processing,tmp_path):
