@@ -381,8 +381,8 @@ def test_new_database_browser_and_native_families_use_distinct_existing_worker_c
     assert 'question_effects_sql_v1' in groups['documentary-08']
     assert 'consolidation_sql_v1' in groups['documentary-01']
     assert 'purpose_coherent_native_journey' in groups['documentary-06']
-    assert 'conversation_native_sql' in groups['documentary-09']
-    assert 'conversation_native_sql' not in groups['documentary-03']
+    assert 'conversation_native_sql' in groups['documentary-03']
+    assert 'conversation_native_sql' not in groups['documentary-09']
     assert 'purpose_coherent_native_journey' not in groups['documentary-09']
     for population,selected,anchor in ((('a','a','b'),('a',),'b'),
         (('a','b'),('missing',),'b'),(('a','b'),('a',),'a')):

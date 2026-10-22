@@ -248,11 +248,13 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
 DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
     'purpose_worker_startup',after=True)
 
-# Measured PR191/PR198 packing under the unchanged 120s ceiling.
-# question_effect_native_sql_v1 (~62s) joins documentary-04's light original
-# pool after factory (~17s) moves to documentary-06 and workspace (~15s) joins
-# documentary-03 after conversation_native_sql (~16s) moves to documentary-09.
-# question_effects_sql_v1 (~37s) shares documentary-08 with purpose_worker_startup.
+# Second-repack placement after CI 39842552937: documentary-09 again lacked
+# JUnit because conversation_native_sql had been moved onto its already-full
+# tail. Keep conversation_native_sql on documentary-03 (the PR191 home that
+# main proves can hold it) and leave workspace on documentary-03 beside it.
+# question_effect_native_sql_v1 (~62s) uses documentary-04's vacated original
+# headroom; factory (~17s) sits on documentary-06; question_effects_sql_v1
+# (~37s) shares documentary-08 with purpose_worker_startup.
 # No test body, worker count or deadline changes; whole CI decides fit.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
     'original_corpus_import',after=True)
@@ -260,8 +262,6 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
     'purpose_worker_startup',after=True)
 DOCUMENTARY=_place_suites(DOCUMENTARY,('protected_raw_original_factory_v1',),
     'purpose_context_v2',after=True)
-DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
-    'paid_sdk_embeddings_v3',after=True)
 DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
     'replacement_documentary_journey',after=True)
 

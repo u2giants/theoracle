@@ -68,38 +68,54 @@ W10 unchanged constraints: shared **120 seconds**, **ten workers**,
 per-request ≤30, full mandatory population, **0 F/E/S** / no timeout /
 no launch error / clean cleanup. No case cuts, no budget raises.
 
-Current `verify_workflow_integrity.py` documentary packing after this compose
-(nine documentary workers + one event worker = ten):
+### Second diagnosis — CI run 39842552937 (first repack 4fe1227a)
 
-| Worker | Suites | Question placement |
-|---|---|---|
-| documentary-01 | 55 | 5 pure question suites + `question_effects_sql_v1` |
-| documentary-02 | 35 | — |
-| documentary-03 | 35 | — |
-| documentary-04 | 29 | `question_effect_native_sql_v1` |
-| documentary-05 | 51 | — |
-| documentary-06 | 18 | — |
-| documentary-07 | 8 | — |
-| documentary-08 | 2 | — |
-| documentary-09 | 43 | `qualified_workspace_sdk_sql_v1`, `question_selection`, `qualified_workspace_v1`, `natural_business_question_v1` |
-| event | (EVENT list) | — |
+Result: `tests: 4677, skipped: 0, success: false`. Full main baseline is 5370.
+Gap = 693 tests. Artifact `workflow-integrity.json` worker_results shows
+`documentary-09: junit_present: false` — the only worker that did not write
+JUnit. All nine other workers completed and wrote JUnit (687+659+448+560+1602+
+386+76+53+206 = 4677). `documentary-09.stdout` shows progress to ~90 % then a
+hard cut (pytest killed at the shared 120 s deadline); one `F` at 45 % is
+unattributed because JUnit was never written.
 
-**Total documentary suites: 276.**
+Root cause: the first repack placed `conversation_native_sql` on documentary-09
+(`_place_suites(..., 'paid_sdk_embeddings_v3', after=True)`). Main's packing
+deliberately keeps `conversation_native_sql` on documentary-03 — the PR191
+comment on main records that documentary-09 previously exhausted at 794/795
+cases and the 14-case native module was moved to documentary-03 to fix it.
+Moving it back to documentary-09 re-created that timeout.
 
-Prior measured/estimated anchors (unchanged, not acceptance):
+### Second fix (this commit)
 
-- question SQL module ~39 s, question native module ~64 s (PR191 run 39758616744).
-- documentary-01 estimate ~114 s; documentary-04 ~109 s; documentary-06 ~116 s.
-- Coherent journey path ~81–84 s (extraction/assembly/assessment/compile/
-  summary/embedding/projector/restart/currentness).
-- Correct positive coherent path estimate `doc06 ~120.152 s`
-  (failed 52.186 − 15.723 + prior 83.689) — **tightest fit risk**.
-  A TLS diagnostic fix alone cannot establish fit; full CI decides.
-- `doc06` carries `purpose_coherent_native_journey` plus its measured siblings.
+Registration/placement only. Removed the `conversation_native_sql →
+paid_sdk_embeddings_v3` override so the suite stays on documentary-03 (the
+PR191 / main home). `qualified_workspace_sdk_sql_v1` remains on documentary-03.
+No test bodies, budgets, or case counts changed.
 
-Fit risk assessment: **doc06 remains at/over the 120 s ceiling on paper**.
-No cases were cut and no budgets raised. S11 one-admin setup batching is one
-unmeasured candidate for setup savings but is NOT applied here.
+Packing after this fix (nine documentary + one event = ten workers):
+
+| Worker | Suites | Notable placement | Est. wall (s) |
+|---|---|---|---|
+| documentary-01 | 55 | 5 pure question suites | ~110 |
+| documentary-02 | 35 | — | ~107 |
+| documentary-03 | 36 | `conversation_native_sql`, `qualified_workspace_sdk_sql_v1` | ~118 |
+| documentary-04 | 29 | `question_effect_native_sql_v1` (~61 s) | ~113 |
+| documentary-05 | 51 | — | ~113 |
+| documentary-06 | 18 | `purpose_coherent_native_journey` (~81 s), factory v1 | ~117 |
+| documentary-07 | 8 | `consolidation_next_auth_browser_v1` | ~110 |
+| documentary-08 | 2 | `question_effects_sql_v1` (~38 s) | ~117 |
+| documentary-09 | 42 | main's doc09 (no `conversation_native_sql`) | ≤120 |
+| event | 22 | — | ~97 |
+
+**Total documentary suites: 276.** Population 298 suites across 10 workers.
+
+Counts before → after: CI 4677 (doc09 missing) → expected 5370 (full main
+baseline). Local collection after first fix was 5450 (5314 mapped + 136
+Windows-only); mapped Linux population is the 5370 baseline.
+
+Fit risk: documentary-03 (~118 s with both `conversation_native_sql` ~16 s and
+workspace ~15 s) is the tightest. documentary-09 restores main's proven 42-suite
+set. Whole CI decides fit; prior timing estimates are not acceptance.
 
 ## 3. TLS diagnostic instrumentation (source-only)
 
@@ -155,9 +171,13 @@ Not proved here; all of the following stay open:
 1. **Fresh complete source review** of this composed head (exact bytes, all
    shared owners included — not thin forwarders).
 2. **Reopen #192 only from fresh complete source on current main** — do not
-   reuse PR192’s failed run 39760744903 or its source `32f6272`.
+   reuse PR192's failed run 39760744903 or its source `32f6272`.
 3. **Full CI** on the reopened PR: all ten workers, 120 s, 0 F/E/S, no timeout,
-   launch, or cleanup error; every mandatory case present.
+   launch, or cleanup error; every mandatory case present. The second packing
+   fix (this commit) must produce the full 5370 population with documentary-09
+   writing JUnit. The `F` observed at 45 % in doc09's killed stdout is
+   unattributed until JUnit is written; it is a genuine open question, not
+   erased.
 4. **Root merge** and **post-main exact proof** — including the actual
    native/SQL/Next natural `019→024→Budget→SDK` path with permission/once/cost/
    error controls, and the coherent-native TLS path with the new diagnostics
@@ -178,6 +198,8 @@ Not proved here; all of the following stay open:
 - [x] TLS instrumentation source-only; no global SSL patch/fallback
 - [x] Dual-family loopback left as unexecuted plan (this document §3)
 - [x] Pure checks only; full W10 NOT run; no SQL/native/Next execution
+- [x] Second packing fix is registration/placement only (conversation_native_sql
+      restored to documentary-03; no test body / budget / case changes)
 - [x] Commit as Albert Hazan `<u2giants@users.noreply.github.com>`
 - [x] Safety gates and business-acceptance hold preserved
 - [x] Failed proof not overwritten with an earlier green receipt
