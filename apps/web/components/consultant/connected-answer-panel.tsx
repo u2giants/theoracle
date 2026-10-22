@@ -24,7 +24,7 @@ export function ConnectedAnswerPanel(){
  }
  return <section className="space-y-4">
   <form className="space-y-3" onSubmit={e=>{e.preventDefault();void ask();}}>
-   <label className="block">Your question<textarea required maxLength={8192} value={question} onChange={e=>{setQuestion(e.target.value);setPacket(null);}} className="block w-full rounded border p-2" /></label>
+   <label className="block">Your question<textarea required maxLength={8192} value={question} onChange={e=>{const previous=active.current;active.current=null;previous?.abort();setQuestion(e.target.value);setSubmitted('');setPacket(null);setMessage('');setBusy(false);}} className="block w-full rounded border p-2" /></label>
    <p className="text-sm">Ask about a process, handoff, exception or earlier account. If the scope is unclear, the Oracle will ask one clarifying question.</p>
    <button disabled={busy} className="rounded border px-3 py-2">{busy?'Reading current evidence…':'Ask'}</button>
   </form>
