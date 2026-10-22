@@ -23,6 +23,7 @@ def test_actual_browser_conversation_correction_resume_and_recap_owned_sql(conve
   (tmp_path/'conversation-browser-process.txt').write_text(result.stdout)
   assert result.returncode==0,result.stdout[-7000:]
   receipt=json.loads((tmp_path/'interview-browser-receipt.json').read_text())
+  assert receipt['denied_visible_history_withheld'] is True
   assert receipt['actual_browser'] and receipt['exact_original_and_correction'] and receipt['pause_refresh_resume_same_question'] and receipt['company_policy_confirmed'] is False
  with owned_admin(x) as connection:
   rows=connection.execute('SELECT original_text FROM oracle2.conversation_events_v1 WHERE workspace_id=%s AND origin=%s ORDER BY sequence',(x['workspace'],'employee')).fetchall()

@@ -86,6 +86,12 @@ try{
  assert.equal(errors.length,0);assert.ok(identity.calls>=30);assert.ok(statuses.every(s=>s===200));
  // Actual production identity adapter must still deny a disabled employee.
  identity.disabledAt='invented-disabled';const denied=await page.evaluate(async()=>{const r=await fetch('/api/consultant/interviews',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({schema_version:1,operation:'list',caller_deadline:new Date(Date.now()+15000).toISOString()})});return {status:r.status,body:await r.text()};});assert.equal(denied.status,503);assert.ok(!denied.body.includes('不允许'));
- writeFileSync(join(meta.scratch,'interview-browser-receipt.json'),JSON.stringify({actual_browser:true,auth:'invented existing-import hooks',framework:'actual pages/component + explicit production proxy/route HTTPS harness; not deployed Next routing',thread_id:first.thread_id,operations,question_count:2,pause_refresh_resume_same_question:true,exact_original_and_correction:true,company_policy_confirmed:false,identity_calls:identity.calls,disabled_employee_status:denied.status,page_errors:errors})+'\n');
+ await page.getByRole('button',{name:'Refresh saved history',exact:true}).click();
+ await page.getByText('This conversation is unavailable. Saved history remains on the server; its contents are withheld until access is verified.',{exact:true}).waitFor();
+ assert.equal(await page.locator('ol').getByText('不允许未经复核就发货。仅限样品。',{exact:true}).count(),0);
+ assert.equal(await page.locator('ol').getByText('样品也必须复核。',{exact:true}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'Correct this response',exact:true}).count(),0);
+ assert.equal(await page.getByRole('textbox',{name:/Your corrected original response/}).count(),0);
+ writeFileSync(join(meta.scratch,'interview-browser-receipt.json'),JSON.stringify({actual_browser:true,auth:'invented existing-import hooks',framework:'actual pages/component + explicit production proxy/route HTTPS harness; not deployed Next routing',thread_id:first.thread_id,operations,question_count:2,pause_refresh_resume_same_question:true,exact_original_and_correction:true,company_policy_confirmed:false,identity_calls:identity.calls,disabled_employee_status:denied.status,denied_visible_history_withheld:true,page_errors:errors})+'\n');
 }catch(error){await page.screenshot({path:join(meta.scratch,'interview-browser-failure.png'),fullPage:true});writeFileSync(join(meta.scratch,'interview-browser-diagnostic.json'),JSON.stringify({statuses,operations,lastPacket,errors})+'\n');throw error;}
 finally{await browser.close();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));hook.deregister();}
