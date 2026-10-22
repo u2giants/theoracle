@@ -230,6 +230,12 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_sql',),
 DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_citation_sql',),
     'paid_sdk_embeddings_v3',after=True)
 
+# PR191 run39756405939 exhausted documentary09 at794/795 completed cases.
+# Move the SAME14-case native module to measured documentary03: retain all
+# population, original shared120s ceiling and exactly ten workers.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
+    'replacement_documentary_journey',after=True)
+
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
     'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',

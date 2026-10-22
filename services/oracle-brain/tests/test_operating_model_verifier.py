@@ -377,7 +377,8 @@ def test_new_database_browser_and_native_families_use_distinct_existing_worker_c
     assert {'protected_raw_original_factory_v1','protected_raw_original_factory_sql',
         'original_review_reading_input_sql'}<=set(groups['documentary-04'])
     assert 'purpose_coherent_native_journey' in groups['documentary-06']
-    assert 'conversation_native_sql' in groups['documentary-09']
+    assert 'conversation_native_sql' in groups['documentary-03']
+    assert 'conversation_native_sql' not in groups['documentary-09']
     assert 'purpose_coherent_native_journey' not in groups['documentary-09']
     for population,selected,anchor in ((('a','a','b'),('a',),'b'),
         (('a','b'),('missing',),'b'),(('a','b'),('a',),'a')):
