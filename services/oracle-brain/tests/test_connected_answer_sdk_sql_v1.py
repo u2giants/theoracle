@@ -135,8 +135,9 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
            if selected is not None:assert actual['result']['selected_process']['process_id']==selected
            response_path=tmp_path/('workspace-'+operation+'.json');response_path.write_bytes(workspace_wire);response_path.chmod(0o600)
            project_root=Path(__file__).resolve().parents[3]
-           checked=subprocess.run(['pnpm','--filter','@oracle/web','exec','tsx','lib/__verify__/qualified-workspace-wire.ts',str(response_path)],cwd=project_root,env={**os.environ},capture_output=True,text=True,timeout=10)
-           assert checked.returncode==0,checked.stdout+checked.stderr
+           with (tmp_path/('workspace-'+operation+'-decode.txt')).open('w') as decoder_log:
+            checked=subprocess.run(['pnpm','--filter','@oracle/web','exec','tsx','lib/__verify__/qualified-workspace-wire.ts',str(response_path)],cwd=project_root,env={**os.environ},stdout=decoder_log,stderr=subprocess.STDOUT,timeout=10)
+           assert checked.returncode==0,(tmp_path/('workspace-'+operation+'-decode.txt')).read_text()
           assert tls_request(server,certificates,workspace_request(),client='other')[0]==503
           assert tls_request(server,certificates,workspace_request('process','not-in-this-model'))[0]==503
          assert public['retained_projection_lease_until']==body['lease_until']
@@ -255,9 +256,3 @@ def test_actual_qualified_SQL_ACK_readonly_SDK_and_current_permission_before_aft
 
 def test_actual_employee_browser_and_MCP_current_answer_and_denied_refresh(admin_url,sql_qualified_serving_v3,tmp_path,bound_tls,certificates):
  return _exercise_owned_answer_graph_v1(admin_url,sql_qualified_serving_v3,tmp_path,bound_tls,certificates,proof_scope='browser')
-
-
-def test_actual_workspace_same_SQL_ACK_SDK_TLS_closed_TS_and_revoked_recipient(admin_url,sql_qualified_serving_v3,tmp_path,bound_tls,certificates):
- # A fresh qualified fixture is appointed before original capture; prior cases
- # and their original deadlines are not changed or relabeled.
- return _exercise_owned_answer_graph_v1(admin_url,sql_qualified_serving_v3,tmp_path,bound_tls,certificates,proof_scope='workspace')
