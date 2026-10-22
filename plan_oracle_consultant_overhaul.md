@@ -14,7 +14,7 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
-### Current whole-program obligation ledger — October 21, 2026, 6:35 PM EDT
+### Current whole-program obligation ledger — October 21, 2026, 8:01 PM EDT
 
 Accountable owner of **every open row** below: Codex chat
 `01a16013-c8c6-7113-b307-7d4d516f2bc6` on edge-dev3, adopted on
@@ -52,44 +52,65 @@ capabilities, not installed services or completed phases. Current-main
 passed W10 with3822 tests, zero failures/skips/worker/cleanup/evidence errors;
 JUnit SHA256 `a9778852ec0c283d3cd8cb16dae45a2967eb83fb6d4bdec6782f87ce2fafa802`.
 
-The present combined prospective source adds fixed original upload/control/viewer,
-returned-body normalization and own-role SQL commitments, exact scoped map
-confirmation, protected ordinary-session web control/current-original viewing,
-raw metadata/pricing/billing/currentness consumers, and retained-scheduler safety.
-Root's fresh owned SQL integration passed105 cases, including authenticated
-viewer expiry narrowed by actual SQL admission; exact containers/networks/volumes
-were absent after cleanup. Web149, full lint/typecheck, standard clean source
-build and38 task-gate fixture checks passed; local browser refresh checks passed
-all seven existing invented-fixture journeys. These counts describe separate
-checks, not a combined acceptance count. The first combined review's generated
-type-file drift invalidated its source binding; its retained prose APPROVE is
-**not usable authority**. The clean frozen combined head
-`b1edd93392ecdb5784556104f2bb13629c57c302` subsequently received a valid
-independent APPROVE; the fixed Python success-header increment at
-`27eda02a86f0b5b57d90da743f2b180bfa522e78` received a separate valid
-security APPROVE. Actual Python-to-web conformance then exposed Node locally
-closing the verified TLS socket before peer EOF; a half-close alone also hid
-late extra bytes. The prospective correction preserves the same verified socket,
-observes bounded header bytes and total wire length through actual peer EOF,
-and retains every previous parser/hash/currentness/deadline guard. All151 web
-checks passed, including delayed-extra/double-response/no-EOF refusal. The
-full25MiB browser upload passed through actual private storage/custody using
-recording SQL; that is not actual SQL or installed employee-session proof.
-New phase evidence also reuses the existing mandatory case-evidence verifier:
-actual skipped/setup-failed cases refuse, even when pytest exits zero. Current
-increment review and full exact-head CI remain required before landing.
-Installed employee/session, platform-clock/capacity, original native processing,
-Q2b and holistic current journey proof remain UNKNOWN; no production caller or
-new authority is implied.
+Current prospective delivery is [PR181](https://github.com/u2giants/theoracle/pull/181),
+not a merged or accepted program. Its successive real failures are preserved:
+the old task-gate engine lacked its accepted `unchecked_gates` contract; W01
+found a forbidden pure-original import into hosting; S03 correctly refused the
+base database instead of a fresh owned UUID. Reviewed source repairs retain all
+checks, canonical once-only migration inventory, private verify-only schema
+receipts, ten workers and the120-second deadline. Latest actual
+[CI39696268521](https://github.com/u2giants/theoracle/actions/runs/39696268521)
+passed W10 with4365 tests, zero failures/skips/worker/cleanup errors, and passed
+S03. **That run still FAILED:** the later real browser journey expected a whole
+source archive response although the actual4253530-byte corresponding source
+correctly exceeded the unchanged4MiB whole-response limit. The prospective
+browser test now requires the real authenticated bounded download/hash at either
+size and independently exercises small200 and large413 branches; review and full
+CI remain required. No route limit, test population or safety gate was weakened.
 
-Active bounded implementation owners are `/root/coverage` (complete browser
-upload/storage/SQL), `/root/journey` (same canonical compiler/ledger correction,
-qualified history, coherent business-review UI), and `/root/runtime` (durable
-interview/ordinary-chat workflow, original-text linkage, separately appointed
-conversation model consumer). Preparation does not mean these features are
-finished. The raw original paid-factory source and canonical once-only schema
-fixture repair are separately frozen for independent review; SQL017/018/019
-must be reconciled in the canonical migration inventory before combined proof.
+The larger, still-unshipped combined candidate now contains actual SQL017 temporal
+consolidation/history/scoped business decisions and review, SQL018 retained-reader
+qualification input, full25MiB bounded original upload, typed PDF/plain-original
+viewing and SQL019 durable conversations. This replaces earlier absence claims
+below only to the extent stated. Independent source review/combined full CI and
+all appropriate runtime/semantic/business gates remain open. No merged source,
+installation, synthetic fixture or issue closure establishes those gates.
+
+Root's exact combined-source proofs are distinct, not an added acceptance count:
+- Source3d67:38 actual owned SQL cases passed, including raw-factory actual cost,
+  UNKNOWN/overrun handling, crossprocess canonical-schema receipt and fresh phase
+  UUID normal/error cleanup. Earlier187-pass/one-setup-error attempt is retained
+  as FAILED, never relabeled green.
+- Source8026: actual Next16 HTTPS DEV, unchanged verified-user SDK against an
+  explicitly invented HTTPS issuer, actual limited employee identity SQL and
+  mTLS business-review service passed one browser case. Root inspected its
+  screenshot. This is not a real tenant, deployed session or company acceptance.
+- Source9c23: eight actual SQL/SDK/TLS graph cases passed, including typed-core
+  build/rebuild, complete quote/polarity/offset/source lineage mutation denial,
+  retained lineage cases, and refusal to adopt an unacknowledged graph. Repairs
+  retain the exact paid profile and independently pinned typed embedding core;
+  **accepted paid ACK/full-D generation remains unproved**.
+- S06 sourcef459:150 actual SQL/browser/fake-wire cases passed before integration,
+  with immutable original event→actual text custody→metadata link→distinct native
+  byte reader/reviewer→sole SQL014 qualification. Root source d9ce additionally
+  passed the actual text intake/qualification/mTLS viewer/current revocation case.
+  These byte programs prove exact UTF8 roundtrip, not independent semantic quality.
+Every cited owned proof independently verified exact container/network/volume
+absence. Changed-source combined acceptance is still pending. Root found new
+S06 core-to-hosting imports; the runtime agent owns consolidation into actual
+pure core consumers with identical hosting forwarding APIs. No allowlist or
+callback substitute for real SQL/file/claim checks is authorized.
+
+Active bounded owners are `/root/coverage` (actual invited meeting capture,
+original processing, supervisor and worker), `/root/journey` (SQL021 durable host
+enable/participation/once-claim/UNKNOWN receipts), and `/root/runtime` (S06 core
+boundary repair and generic independently appointed1MiB UTF8 original support,
+then ratified SQL022 authoritative answer/MCP serving). Root owns schema,
+architecture/security, shared integration, independent review, delivery and every
+remaining S/W/U acceptance obligation. Conversation public input remains32KiB;
+source/program changes never renew external permission. S07 normalized participant
+turns prove only currently mapped workspace actors; no employee identity or shared
+company-source grant is inferred. Actual S07/S08/provider/company work is held.
 
 **Owner business ruling, October 21, 2026, 6:43 PM EDT:** Albert answered the
 approval-longevity question directly: “Remain in force until withdrawn”.
@@ -115,13 +136,13 @@ distinct. Incident and cleanup evidence remain retained.
 |---|---|---|
 | S01 / #25 | §S01 frozen corpus/splits, `evals/oracle2/acceptance-spec.md`, `S01-baseline.md`; historical PR42 offline evidence | Preserve offline acceptance. Real baseline and reviewed real answer keys unavailable; separate business hold. |
 | S02 / #26 | §S02 isolated stores/authority/outbox/provider denial; `S02-dependencies.md`, historical PR45 synthetic evidence | Reuse accepted synthetic foundation; current changed-source host/target qualification belongs to Q2b/W11, not inherited admission. |
-| S03 / #27/#58 | §S03 plus full U1–U6 and W ledger; PR171 source and PR173 offline CI are real | Actual protected durable original→draft→correction→scope-confirm→cited-answer product bridge remains implementation work; U6, Q2b and independent semantic/native/browser proof open. |
-| S04 / #28 | §S04 real binary formats/coordinates, revisions/withdrawal/restore; text/XML/OCR normalizers and `sources/{revisions,withdrawal}.py` exist | Integrate retained bounded binary parser with actual intake and source pages; replace URL-only `source-revision.spec.ts` with answer/link lifecycle assertions. Depends S03; no preview acceptance. |
-| S05 / #29 | §S05 current/historical corrected answers and scoped authority; identity/temporal/contradiction/summary leaves exist | Integrate coherent review/consolidation/projection on existing authoritative ledger, not another truth store; actual review UI, persistence and correction/history proof missing. Depends S04. |
-| S06 / #30 | §S06 restart/resume/correction/recap/original-language; interview JSON/idempotency primitives exist | Authenticated durable workflow/APIs/UI and ordinary-chat proposals absent; replace skipped proposal/language tests. Depends S05; invented conversations only, employee session deferred. |
-| S07 / #31 | §S07 invitation/capture authorization, signed tenant ingress/dedup/final transcript review; `ingest/{meeting,speakers}.py` are pure leaves | Reuse legacy provider boundaries for replacement capture/review worker, durable permissions/receipts and UI. Depends S06; actual meeting use held. |
-| S08 / #32 | §S08 host-enable/audience/intervention limits/delivery receipt; `meetings/{participation,delivery}.py`, `workflows/meeting_turn.py` now exist | Durable provider/runtime wiring and actual host-enable/capture integration absent; exact signer separation and once-only delivery/disable proof UNKNOWN. Depends S07. |
-| S09 / #33 | §S09 connected/history/global/denied-source/MCP parity; retrieval planner/packing/citation/summary/MCP pure leaves exist | Wire actual authoritative answer/MCP paths and permission revisions; meaningful follow-up/denial/browser proof absent. Depends S05/S08; company baseline held. |
+| S03 / #27/#58 | §S03 plus full U1–U6/W ledger; landed source and prospective original/control/viewer/review/conversation integrations above are real | Complete protected original→native draft→correction→scoped confirmation→cited answer product journey, actual ACK, U6/Q2b and independent semantic/native/browser proof remain open. |
+| S04 / #28 | §S04 retained binary parsers/revisions/withdrawal plus prospective full25MiB actual custody upload and actual text qualification/viewer proof | Complete source-page/lifecycle/answer invalidation browser integration; original semantic/format breadth and deployed session acceptance remain open. Depends S03. |
+| S05 / #29 | §S05 prospective canonical SQL017 immutable corrections/history/scoped decisions, actual authenticated framework review and typed-core SDK graph proof above | Current ACK/full-D graph projection, complete integrated serving and independent semantic/native/company acceptance remain open. No earlier approval transfers to a corrected version. |
+| S06 / #30 | §S06 prospective SQL019 actual own durable thread/events, eight total interview questions, corrections/pause/recap, original-language intake/qualification and bounded native ordinary chat; frozen150-case proof above | Root combined core-boundary repair/full CI and real installed employee session pending; richer interview answers depend S09. Byte qualification is not semantic/business acceptance. |
+| S07 / #31 | §S07 real capture/ingress/custody/current attributed-turn source and owned SQL proofs are being implemented by coverage | Finish supervisor concrete process/queue witness, worker effects/final text chain/UI and combined verification. Legacy ingestion remains separate; actual meeting/provider use held. |
+| S08 / #32 | §S08 SQL021 durable host generation/once claim/observation/UNKNOWN source is being implemented by journey against exact S07 boundary | Complete current turn/audience/chat observation/composer/worker and actual SQL/browser/fake-provider proof. No supplier idempotency or visible-message guarantee is invented. Depends S07. |
+| S09 / #33 | §S09 root-ratified single canonical history/actual ACK/read-only SDK/answer owner and authenticated web/MCP plan; SQL022 reserved | Implement after S06 boundary freeze; no static token becomes an employee, no unappointed query embedding, provider generation or synthetic ACK becomes live authority. Actual company baseline held. |
 | S10 / #34 | §S10 rights/applicability/freshness/pinned destination/cadence; strict rights/fetch repair PR175 and applicability/freshness contracts PR177 landed; retained scheduler correction is pending combined delivery | Actual durable bounded transport/workflow/worker/UI integration and operational cadence proof still missing. Depends S09 for integration; no source fetching authorized here. |
 | S11 / #35 | §S11 supported options/no-change/math/feedback/measurement; calculation/experiment/export leaves exist | Full diagnosis/options/advice workflow/persistence/APIs/UI and authentic measurement binding missing. Depends S10; analytical slice W04/W07/W08 and real observation remain separate. |
 | S12 / #36 | §S12 complete employee/executive workspace, exports/accessibility/mobile; replacement fixture UI exists | Full source/process/interview/meeting/research/advice/experiment pages and actual durable bindings missing. URL-only phase browser assertions are scaffolding. Depends S11; employee review held. |
