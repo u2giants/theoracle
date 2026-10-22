@@ -247,3 +247,33 @@ Slowest tests retained as-is (real-clock semantics, not defects):
 - [x] Safety gates and business-acceptance hold preserved
 - [x] Failed proof not overwritten with an earlier green receipt
 - [x] Native-v2 permission not renewed; no API-for-browser substitution
+
+## 7. Viewer 25MiB CI failure — protected-channel lease format (2026-10-22)
+
+CI run 39849755313 (`Oracle offline suites`) failed only
+`independently pinned exact25MiB original passes full verification before
+release` (`apps/web/lib/replacement-original-viewer.test.ts:137`) with
+`503 !== 200`, in 27 ms (too fast for a full 25 MiB transfer). Adjacent log:
+`Oracle protected channel refused wire-boundary` then `closed-wire`. Sibling
+25 MiB upload (13 chunks) and UTF8 original route cases passed.
+
+Root cause (source, not test expectation): `protected-service-channel.ts`
+required lease `X-Oracle-Original-Valid-Until` to match
+`/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/` (always six fractional
+digits). `canonicalInstantV1` and `validateOriginalViewRequest` emit/accept
+Python canonical UTC that **omits zero fractions** (`2026-10-22T21:02:36Z`
+when ms=000) and otherwise renders six nonzero digits. The test backend echoes
+`caller_deadline` as the lease; when `Date.now() % 1000 === 0` the echoed
+value has no fraction and the channel refused (logged at the stale
+`wire-boundary` stage). `instant()` already accepted that form; the extra
+regex was stricter than the rest of the closed wire.
+
+Fix: lease pattern aligned with `validateOriginalViewRequest` /
+`canonicalInstantV1` — optional six-digit fraction, reject all-zero fraction.
+Still rejects `toISOString` three-digit malformed leases, missing/duplicate
+headers, expired/excessive windows. No guard weakening, no budget raise.
+
+Local proof after fix (Windows; `protectedRead` nlink/mode/uid relaxed only
+for the run, restored before commit): `replacement-original-viewer.test.ts`
+21/21 pass including exact-25MiB (1105 ms). Neighbours:
+`selected25MiB File uses 13 bounded chunks` pass; UTF8 original pass.

@@ -98,7 +98,8 @@ export async function openProtectedChannelV1(installed:InstalledBinding<Protecte
           if(pin||review){
             try{
               const value=res.headers[review?'x-oracle-review-valid-until':'x-oracle-original-valid-until'];
-              if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value)||res.headers['cache-control']!=='no-store, private'||res.headers['x-content-type-options']!=='nosniff'||res.headers['accept-ranges']!==undefined)throw new Error();
+              // Same canonical UTC as validateOriginalViewRequest / canonicalInstantV1 (zero fractions omitted).
+              if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.(?!000000)[0-9]{6})?Z$/.test(value)||res.headers['cache-control']!=='no-store, private'||res.headers['x-content-type-options']!=='nosniff'||res.headers['accept-ranges']!==undefined)throw new Error();
               const end=instant(value);if(end<=Date.now()||end>window.end)throw new Error();
               lease=value;window.end=Math.min(window.end,end);connected.setTimeout(remaining(window));
             }catch{refuse();abort();return;}
