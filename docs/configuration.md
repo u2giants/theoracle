@@ -317,3 +317,14 @@ Actual private worker identity/storage/transport and PM4Py license/resource admi
 The independently reviewed runtime configuration is supplied only as protected files with external SHA256 pins. Gateway/executor use `ORACLE_HOSTING_SETTINGS` and `ORACLE_HOSTING_SETTINGS_SHA256`; the distinct native provider startup uses `ORACLE_PROVIDER_SETTINGS` and `ORACLE_PROVIDER_SETTINGS_SHA256`. Missing, public, changed or unadmitted settings deny startup. These variables choose a sealed file, never arbitrary code. No production files or secrets have been issued by the preparation helpers.
 
 Provider startup has a separate least-privilege billing TLS connection and metadata-only TLS identity on the same ledger, independently pinned ledger/key-coverage/job registries, exact executor mutual-TLS identity, and a fresh external Ed25519-signed coverage witness. The observer signing key stays outside the broker. Only source-extraction chat currently has a qualified fixed hosted validator; private embeddings, source census, assembly and independent semantic assessment remain unavailable in this startup until their actual factories and admissions are reviewed. All company question/report and grading routes remain paused. See `dev/oracle2/hosting/README.md` and workflow plan STATUS for unfinished live inputs.
+
+
+### Qualified company workspace display
+
+`ORACLE2_WORKSPACE_ENABLED` is a server-only optional display/cohort switch.
+Unset or any value other than exactly `true` keeps the new workspace page and
+pilot navigation link unavailable. Enabling the page does not grant model,
+source or recipient permissions; current server authentication, the independently
+installed recipient purpose and backend SQL/SDK permissions still apply.
+This setting has not been installed in any environment. The complete UX and
+acceptance gaps remain in `docs/verification/oracle2/S12-ux.md`.

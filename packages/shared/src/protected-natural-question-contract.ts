@@ -1,6 +1,8 @@
 /** Closed natural question wire only. No identity, admission or permission owner. */
 import {canonicalHash,canonicalJson,canonicalUuid,instant,parseClosedJson,sha256} from './protected-server-binding';
 import {validateDocumentaryAnswerV1,parseConnectedAnswerResponse,type ConnectedAnswerPacket} from './protected-client-contracts';
+import {parseWorkspaceAnswerV1,type WorkspaceAnswerPacketV1} from './protected-workspace-contract';
+export {validateWorkspaceQuestionV1,workspaceQuerySHA256V1,parseWorkspaceAnswerV1,type WorkspaceQuestionV1,type WorkspaceAnswerPacketV1} from './protected-workspace-contract';
 import {parseIndustryAnswerV1,type IndustryAnswerPacketV1} from './protected-industry-contract';
 export {validateIndustryQuestionV1,industryQuerySHA256V1,parseIndustryAnswerV1,type IndustryQuestionV1,type IndustryAnswerPacketV1} from './protected-industry-contract';
 const refuse=():never=>{throw new Error('Current qualified evidence unavailable');};
@@ -44,8 +46,9 @@ export function parseNaturalAnswerResponseV1(bytes:Uint8Array):NaturalAnswerPack
  }else return refuse();
  return Object.freeze(v) as unknown as NaturalAnswerPacketV1;
 }
-export function parseQualifiedAnswerResponseV1(bytes:Uint8Array):ConnectedAnswerPacket|NaturalAnswerPacketV1|IndustryAnswerPacketV1{
+export function parseQualifiedAnswerResponseV1(bytes:Uint8Array):ConnectedAnswerPacket|NaturalAnswerPacketV1|IndustryAnswerPacketV1|WorkspaceAnswerPacketV1{
  const value=parseClosedJson(bytes,262144);
+ if(value!==null&&typeof value==='object'&&!Array.isArray(value)&&'protocol'in value&&value.protocol==='qualified-workspace-answer-v1')return parseWorkspaceAnswerV1(bytes);
  if(value!==null&&typeof value==='object'&&!Array.isArray(value)&&'protocol'in value&&value.protocol==='qualified-industry-answer-v1')return parseIndustryAnswerV1(bytes);
  return value!==null&&typeof value==='object'&&!Array.isArray(value)&&'protocol' in value&&value.protocol==='qualified-natural-answer-v1'?parseNaturalAnswerResponseV1(bytes):parseConnectedAnswerResponse(bytes);
 }

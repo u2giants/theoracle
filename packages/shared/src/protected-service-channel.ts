@@ -4,6 +4,7 @@ import {parseMeetingNormalizationPacketV1,type MeetingNormalizationPacketV1} fro
 import {type ConnectedAnswerPacket} from './protected-client-contracts';
 import {parseQualifiedAnswerResponseV1,type NaturalAnswerPacketV1} from './protected-natural-question-contract';
 import type {IndustryAnswerPacketV1} from './protected-industry-contract';
+import type {WorkspaceAnswerPacketV1} from './protected-workspace-contract';
 /** ONE concrete Node mTLS channel; old web identity stays web-owned.
  * open verifies TLS without HTTP; send is single-use within the original fence.
  * No caller-selected auth adapter, URL, header, role or peer is accepted.
@@ -77,8 +78,9 @@ export async function openProtectedChannelV1(installed:InstalledBinding<Protecte
     const agent = new https.Agent({keepAlive:false,maxSockets:1});
     agent.createConnection = () => connected;
     try {
-      const response = new Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|ConversationPacket|MeetingMetadata|MeetingWorkerPacketV1|MeetingNormalizationPacketV1|MeetingQueuePacketV1|MeetingSupervisionPacketV1|ConnectedAnswerPacket|NaturalAnswerPacketV1|IndustryAnswerPacketV1>((resolve,reject) => {
-        let metadata: Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|ConversationPacket|MeetingMetadata|MeetingWorkerPacketV1|MeetingNormalizationPacketV1|MeetingQueuePacketV1|MeetingSupervisionPacketV1|ConnectedAnswerPacket|NaturalAnswerPacketV1|IndustryAnswerPacketV1|undefined; let ended = false; let peerEnded = false; let responseCount = 0;
+      const response = new Promise<Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|ConversationPacket|MeetingMetadata|MeetingWorkerPacketV1|MeetingNormalizationPacketV1|MeetingQueuePacketV1|MeetingSupervisionPacketV1|ConnectedAnswerPacket|NaturalAnswerPacketV1|IndustryAnswerPacketV1|WorkspaceAnswerPacketV1>((resolve,reject) => {
+        let metadata: Readonly<ControlMetadata>|OriginalPacket|UploadResponse|ModelReviewPacket|ConversationPacket|MeetingMetadata|MeetingWorkerPacketV1|MeetingNormalizationPacketV1|MeetingQueuePacketV1|MeetingSupervisionPacketV1|ConnectedAnswerPacket|NaturalAnswerPacketV1|IndustryAnswerPacketV1|WorkspaceAnswerPacketV1|undefined; let ended = false; let peerEnded = false; let responseCount = 0;
+
         let refusalStage='request-event';
         const refuse = () => {console.error('Oracle protected channel refused',refusalStage);reject(new Error('Replacement control unavailable'));};
         rejectWire=refuse;

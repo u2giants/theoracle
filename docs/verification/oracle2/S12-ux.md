@@ -92,3 +92,41 @@ source unchanged and independently absent owned resources. The latter is one
 recipient and retained singleton configuration, not the still-open actual two-user
 index/browser/SQL journey. All earlier fullS12 obligations and company/business
 holds remain open; source/CI/installation/enterprise acceptance stay distinct.
+
+
+## Current qualified workspace source increment
+
+The optional `/consultant/workspace` page uses the same actual employee guard,
+server-authenticated recipient selection and qualified answer channel. The
+server-only `ORACLE2_WORKSPACE_ENABLED` setting defaults off; exactly `true`
+adds the pilot navigation link and permits the page. This display setting grants
+no recipient/source/model/SQL right and creates no profile. No environment was
+changed or installation performed by this source increment.
+
+A closed overview/process/page request reads the current SDK projection, checks
+its actual body and graph, closes its owned connection and obtains a fresh
+current delivery before returning the same original bounded read. Every displayed
+workflow item retains exact quotes; excessive whole maps refuse rather than
+silently dropping branches. Counts distinguish the first 64 processes and the
+separately selected whole process. Company completeness/policy/action and actual
+source operational health remain explicitly unproved. Existing conversation,
+industry, singleton and recipient-index capabilities remain available.
+
+The English/Simplified Chinese workspace includes reported overview, search,
+source-linked process drawing, exact accounts and evidence categories, known
+coverage/caveats, and fresh-read CSV/process exports. The drawing reuses the
+existing workflow canvas geometry owner. Exports preserve scope, dates, original
+links and caveats; spreadsheet formula cells are neutralized and HTML words are
+escaped. Export has no independent authority or cached fallback. Original links
+still require their own current source-read permission. Hidden/expired views
+clear their evidence. The retained account review also clears expired or hidden
+evidence and rechecks its window before attempting a decision.
+
+Focused source checks: 369 web cases and 20 Python cases passed, seven type
+checks and lint passed. The invented pure Python-packed fixture decoded through
+the actual TypeScript contract. Those checks establish neither actual two-user
+framework/SQL isolation nor task completion. Real SDK/SQL/TLS workspace proof,
+actual browser desktop/mobile/keyboard/export checks, editable source-linked
+corrections, grouped review inbox, actual failures/retry health, recommendations
+and full S12 rubric remain open. The unchanged S11 dependency and separate
+company-use/business acceptance holds remain open. No completeness gate closes.

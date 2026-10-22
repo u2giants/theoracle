@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 interface Assertion {assertion_id:string;revision:number;predicate:string;value:string;provenance:string;scope:{schema_version:1;process:{mode:string;identities:string[]};customer:{mode:string;identities:string[]};product:{mode:string;identities:string[]};region:{mode:string;identities:string[]}};valid_time:string;valid_from:string|null;valid_to:string|null;}
 interface Quote {quote:string;ref:{source_id:string;revision:number};}
 interface Account {assertion:Assertion;evidence:Record<string,Quote[]>;}
@@ -7,17 +7,22 @@ interface Change {assertionId:string;change:string;before:Assertion|null;after:A
 interface Review {modelId:string;currentVersion:number;currentContentHash:string;conflict:boolean;basePermitted:boolean;message:string;changes?:Change[];currentAssertions?:Account[];baseRecordedAt?:string;currentRecordedAt?:string;truncated?:boolean;businessDecisions?:{eventId:string;recordedAt:string;decisionKind:string;challenged:boolean;withdrawn:boolean;policyInForce:boolean}[];}
 const canonical=(value:unknown):string=>value===null||typeof value!=='object'?JSON.stringify(value):Array.isArray(value)?'['+value.map(canonical).join(',')+']':'{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonical((value as Record<string,unknown>)[key])).join(',')+'}';
 const buttonClass='rounded border border-slate-500 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-500';
-const deadline=()=>new Date(Date.now()+25000).toISOString().replace('.000Z','Z').replace(/\.(\d{3})Z$/,'.$1000Z');
+const deadline=(end:number)=>new Date(end).toISOString().replace('.000Z','Z').replace(/\.(\d{3})Z$/,'.$1000Z');
 export default function ModelReview({modelId}:{modelId:string}){
   const [base,setBase]=useState(1),[review,setReview]=useState<Review|null>(null),[selected,setSelected]=useState<string>(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+  const active=useRef<AbortController|null>(null),expires=useRef(0);
+  useEffect(()=>{const clear=()=>{active.current?.abort();active.current=null;expires.current=0;setReview(null);setSelected('');setBusy(false);};const hidden=()=>{if(document.hidden)clear();};const timer=setInterval(()=>{if(expires.current&&Date.now()>=expires.current){clear();setMessage('The reading window ended. Load a current review.');}},100);document.addEventListener('visibilitychange',hidden);window.addEventListener('pagehide',clear);return()=>{clearInterval(timer);active.current?.abort();document.removeEventListener('visibilitychange',hidden);window.removeEventListener('pagehide',clear);};},[]);
   async function send(body:Record<string,unknown>){
-    const response=await fetch('/api/consultant/replacement/v1/protected/model-review',{method:'POST',headers:{'Content-Type':'application/json'},body:canonical({schema_version:1,model_id:modelId,caller_deadline:deadline(),...body}),cache:'no-store'});
-    if(!response.ok)throw new Error('Review is unavailable. A submitted decision may have been recorded; do not repeat it automatically.');return response.json();
+    active.current?.abort();const controller=new AbortController();active.current=controller;const originalEnd=Date.now()+25000;
+
+    const response=await fetch('/api/consultant/replacement/v1/protected/model-review',{method:'POST',headers:{'Content-Type':'application/json'},body:canonical({schema_version:1,model_id:modelId,caller_deadline:deadline(originalEnd),...body}),cache:'no-store',signal:controller.signal});
+    if(!response.ok)throw new Error('Review is unavailable. A submitted decision may have been recorded; do not repeat it automatically.');const result=await response.json();if(active.current!==controller||Date.now()>=originalEnd)throw new Error('The reading window ended. Load a current review.');expires.current=originalEnd;return result;
   }
   async function load(version:number){setBusy(true);setMessage('');setSelected('');setReview(null);try{setReview(await send({operation:'inspect',base_version:version}));setBase(version);}catch(error){setMessage(error instanceof Error?error.message:'Review is unavailable.');}finally{setBusy(false);}}
   async function decide(decision:'accept'|'reject'){
     const item=review?.currentAssertions?.find(a=>a.assertion.assertion_id===selected);
     if(!review||review.conflict||!review.basePermitted||!item||busy)return;
+    if(Date.now()>=expires.current){setReview(null);setSelected('');setMessage('The reading window ended. Load a current review.');return;}
     setBusy(true);setMessage('');try{const event=await send({operation:'decide',version:review.currentVersion,expected_hash:review.currentContentHash,decision,decision_kind:'employee-account',scope:item.assertion.scope,assertions:[{assertion_id:item.assertion.assertion_id,revision:item.assertion.revision}],command_id:crypto.randomUUID()});setMessage(event.decision==='accept'?'Your account decision was recorded. Company policy remains unconfirmed.':'Your rejection was recorded.');setReview(null);setSelected('');}catch(error){setMessage(error instanceof Error?error.message:'Review is unavailable.');setReview(null);}finally{setBusy(false);}
   }
   return <main className="mx-auto max-w-4xl space-y-5 p-6"><h1 className="text-2xl font-semibold">Review documentary accounts</h1><p>These are reported accounts with supporting and conflicting evidence. A decision about your account does not confirm company policy.</p>
