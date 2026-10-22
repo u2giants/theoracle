@@ -149,3 +149,5 @@ export function installedLocalMeetingStopCycleV1(){
  const operation=_captureLocalStopOperationV1(),sequence=buildLocalMeetingStopSequenceV1(operation),queue=_meetingStopSupervisionForOperationV1(operation);
  return Object.freeze({sequence,original_deadline_v1:sequence.original_deadline_v1,current_queue_v1:()=>queue.current_queue_v1(sequence.original_deadline_v1)});
 }
+
+export {installedMeetingQueueWorkerV1} from './protected-meeting-queue';

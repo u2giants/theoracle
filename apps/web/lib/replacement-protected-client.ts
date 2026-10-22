@@ -31,7 +31,7 @@ async function verifiedEmployeeSnapshotV1(window:Window):Promise<IdentitySnapsho
   if(!employee||typeof actualProjectUrl!=='string')return failure();remaining(window);
   return {configuredProjectUrl:process.env.NEXT_PUBLIC_SUPABASE_URL??'',actualProjectUrl,verifiedUserId:data.user.id,employeeId:employee.id,disabledAt:employee.disabledAt};
 }
-async function identity(binding:Readonly<Exclude<ProtectedBinding,{purpose:'replacement-meeting-ingress-web-binding-v1'|'replacement-meeting-worker-binding-v1'|'meeting-normalization-worker-v1'|'meeting-supervision-service-binding-v1'}>>,window:Window):Promise<void>{
+async function identity(binding:Readonly<Exclude<ProtectedBinding,{purpose:'replacement-meeting-ingress-web-binding-v1'|'replacement-meeting-worker-binding-v1'|'meeting-normalization-worker-v1'|'meeting-supervision-service-binding-v1'|'meeting-ingress-queue-worker-v1'}>>,window:Window):Promise<void>{
   if(!matchesIdentity(binding,await verifiedEmployeeSnapshotV1(window)))return failure();remaining(window);
 }
 async function installedForEmployeeV1<P extends EmployeeBindingPurposeV1>(kind:P,window:Window){
@@ -44,7 +44,7 @@ async function installedForEmployeeV1<P extends EmployeeBindingPurposeV1>(kind:P
   return loaders[kind]();
 }
 
-function origin(request: Request, binding: Readonly<Exclude<ProtectedBinding,{purpose:'replacement-meeting-ingress-web-binding-v1'|'replacement-meeting-worker-binding-v1'|'meeting-normalization-worker-v1'|'meeting-supervision-service-binding-v1'}>>): void {
+function origin(request: Request, binding: Readonly<Exclude<ProtectedBinding,{purpose:'replacement-meeting-ingress-web-binding-v1'|'replacement-meeting-worker-binding-v1'|'meeting-normalization-worker-v1'|'meeting-supervision-service-binding-v1'|'meeting-ingress-queue-worker-v1'}>>): void {
   if (request.method !== 'POST' || request.headers.get('origin') !== binding.web_origin || new URL(request.url).origin !== binding.web_origin || request.headers.get('content-type') !== 'application/json' || request.headers.has('content-encoding')) return failure();
 }
 async function readBody(request: Request, window: Window,limit=65536): Promise<Buffer> {
@@ -223,7 +223,7 @@ export async function requestEmployeeConversation(request:Request):Promise<Conve
  }catch{return undefined;}
 }
 async function transport(installed:InstalledBinding<ProtectedBinding>,body:Buffer,window:Window,pin?:Readonly<ViewerSourcePin>){
- if(installed.profile.purpose==='meeting-normalization-worker-v1'||installed.profile.purpose==='meeting-supervision-service-binding-v1')return failure();
+ if(installed.profile.purpose==='meeting-ingress-queue-worker-v1'||installed.profile.purpose==='meeting-normalization-worker-v1'||installed.profile.purpose==='meeting-supervision-service-binding-v1')return failure();
  const channel=await openProtectedChannelV1(installed,window,pin);
  try{
   current(installed,window);
