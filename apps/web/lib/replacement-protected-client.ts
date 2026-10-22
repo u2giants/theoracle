@@ -42,7 +42,7 @@ async function installedForEmployeeV1<P extends EmployeeBindingPurposeV1>(kind:P
   if(employeeRecipientIndexConfiguredV1()){
     const value=readInstalledEmployeeBindingV1(kind,await verifiedEmployeeSnapshotV1(window));current(value,window);return value;
   }
-  const loaders={control:readInstalledBinding,viewer:readInstalledViewerBinding,upload:readInstalledUploadBinding,review:readInstalledModelReviewBinding,conversation:readInstalledConversationBinding,meeting:readInstalledMeetingBinding,answer:readInstalledConnectedAnswerBinding,'mcp-answer':readInstalledMcpAnswerBinding};
+  const loaders={control:readInstalledBinding,viewer:readInstalledViewerBinding,upload:readInstalledUploadBinding,review:readInstalledModelReviewBinding,conversation:readInstalledConversationBinding,meeting:readInstalledMeetingBinding,answer:readInstalledConnectedAnswerBinding,'mcp-answer':readInstalledMcpAnswerBinding,recommendation:readInstalledRecommendationBindingV1};
   return loaders[kind]();
 }
 
@@ -288,7 +288,7 @@ export async function requestRecommendationActionsV1(request:Request):Promise<Re
  const wall=Date.now(),mono=performance.now();const window:Window={wall,mono,end:wall+30000,signal:request.signal,proxyMonoEnd:process.hrtime.bigint()+30000000000n};
  try{
   const proxy=readControlWindow(request.headers);window.end=Math.min(window.end,proxy.wall_end);window.proxyMonoEnd=BigInt(proxy.mono_end);
-  const installed=readInstalledRecommendationBindingV1(),profile=installed.profile;window.end=Math.min(window.end,instant(profile.expires_at),instant(profile.original_horizon));
+  const installed=await installedForEmployeeV1('recommendation',window) as InstalledBinding<import('./replacement-server-binding').RecommendationBindingV1>,profile=installed.profile;window.end=Math.min(window.end,instant(profile.expires_at),instant(profile.original_horizon));
   origin(request,profile);await identity(profile,window);
   const body=await readBody(request,window),dto=validateRecommendationRequestV1(body),end=instant(dto.caller_deadline);
   if(end<=Date.now()||end>window.end)return failure();window.end=end;
@@ -301,7 +301,7 @@ export async function requestRecommendationActionsV1(request:Request):Promise<Re
 export async function authenticatedRecommendationPageAvailableV1():Promise<boolean>{
  const wall=Date.now(),mono=performance.now();const window:Window={wall,mono,end:wall+30000,signal:AbortSignal.timeout(30000),proxyMonoEnd:process.hrtime.bigint()+30000000000n};
  try{
-  const installed=readInstalledRecommendationBindingV1();window.end=Math.min(window.end,instant(installed.profile.expires_at),instant(installed.profile.original_horizon));
+  const installed=await installedForEmployeeV1('recommendation',window) as InstalledBinding<import('./replacement-server-binding').RecommendationBindingV1>;window.end=Math.min(window.end,instant(installed.profile.expires_at),instant(installed.profile.original_horizon));
   current(installed,window);await identity(installed.profile,window);current(installed,window);return true;
  }catch{return false;}
 }

@@ -101,7 +101,7 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
     // The retained singleton path still checks its installed origin before auth.
     let installed:ReturnType<typeof readBinding>|ReturnType<typeof readInstalledEmployeeBindingV1>|undefined=indexed?undefined:readBinding();
     let profile=installed?.profile;
-    const kind:EmployeeBindingPurposeV1=request.nextUrl.pathname===MEETING_CONTROL_PATH?'meeting':request.nextUrl.pathname===CONNECTED_ANSWER_PATH?'answer':request.nextUrl.pathname===CONNECTED_MCP_PATH?'mcp-answer':conversation?'conversation':request.nextUrl.pathname===MODEL_REVIEW_PATH?'review':upload?'upload':viewer?'viewer':'control';
+    const kind:EmployeeBindingPurposeV1=request.nextUrl.pathname===RECOMMENDATION_ACTIONS_PATH?'recommendation':request.nextUrl.pathname===MEETING_CONTROL_PATH?'meeting':request.nextUrl.pathname===CONNECTED_ANSWER_PATH?'answer':request.nextUrl.pathname===CONNECTED_MCP_PATH?'mcp-answer':conversation?'conversation':request.nextUrl.pathname===MODEL_REVIEW_PATH?'review':upload?'upload':viewer?'viewer':'control';
     const configuredProject=process.env.NEXT_PUBLIC_SUPABASE_URL;
     const originRestriction=indexed?admitEmployeeRecipientOriginV1(kind,configuredProject??'',request.headers.get('origin'),request.url):undefined;
     if(originRestriction){

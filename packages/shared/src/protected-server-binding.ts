@@ -334,11 +334,11 @@ export function matchesIdentity(binding: Readonly<Pick<ServerBinding,'project_ur
  * Production callers must obtain this snapshot from real getUser + employee SQL
  * and reverify that identity around the existing protected transport.
  */
-export type EmployeeBindingPurposeV1='control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'answer'|'mcp-answer';
-interface EmployeeBindingsV1 {control:ServerBinding;viewer:ViewerBinding;upload:UploadBinding;review:ModelReviewBinding;conversation:ConversationBinding;meeting:MeetingControlBinding;answer:ConnectedAnswerBinding;'mcp-answer':ConnectedAnswerBinding;}
+export type EmployeeBindingPurposeV1='control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'answer'|'mcp-answer'|'recommendation';
+interface EmployeeBindingsV1 {control:ServerBinding;viewer:ViewerBinding;upload:UploadBinding;review:ModelReviewBinding;conversation:ConversationBinding;meeting:MeetingControlBinding;answer:ConnectedAnswerBinding;'mcp-answer':ConnectedAnswerBinding;recommendation:RecommendationBindingV1;}
 interface RecipientEntryV1 {readonly project_url:string;readonly auth_issuer:string;readonly auth_user_id:string;readonly employee_id:string;readonly bindings:Readonly<Partial<Record<EmployeeBindingPurposeV1,Readonly<{path:string;sha256:string}>>>>;}
 interface RecipientIndexV1 {readonly schema_version:1;readonly purpose:'replacement-employee-recipient-index-v1';readonly issuer_actor:string;readonly reviewer_actor:string;readonly valid_from:string;readonly expires_at:string;readonly original_horizon:string;readonly recipients:readonly Readonly<RecipientEntryV1>[];}
-const employeePurposesV1=['control','viewer','upload','review','conversation','meeting','answer','mcp-answer'] as const;
+const employeePurposesV1=['control','viewer','upload','review','conversation','meeting','answer','mcp-answer','recommendation'] as const;
 export function validateEmployeeRecipientIndexV1(value:unknown):Readonly<RecipientIndexV1>{
  if(!exact(value,['schema_version','purpose','issuer_actor','reviewer_actor','valid_from','expires_at','original_horizon','recipients'])||value.schema_version!==1||value.purpose!=='replacement-employee-recipient-index-v1'||!canonicalUuid(value.issuer_actor)||!canonicalUuid(value.reviewer_actor)||value.issuer_actor===value.reviewer_actor||!Array.isArray(value.recipients)||value.recipients.length<1||value.recipients.length>64)return unavailable();
  if(!(instant(value.valid_from)<instant(value.expires_at)&&instant(value.expires_at)<=instant(value.original_horizon)))return unavailable();
@@ -346,7 +346,7 @@ export function validateEmployeeRecipientIndexV1(value:unknown):Readonly<Recipie
  for(const entry of value.recipients){
   if(!exact(entry,['project_url','auth_issuer','auth_user_id','employee_id','bindings'])||!httpsOrigin(entry.project_url)||entry.auth_issuer!==entry.project_url+'/auth/v1'||!canonicalUuid(entry.auth_user_id)||!canonicalUuid(entry.employee_id)||!entry.bindings||typeof entry.bindings!=='object'||Array.isArray(entry.bindings))return unavailable();
   const key=canonicalJson([entry.project_url,entry.auth_issuer,entry.auth_user_id]);if(identities.has(key))return unavailable();identities.add(key);
-  const purposes=Object.keys(entry.bindings);if(purposes.length<1||purposes.length>8)return unavailable();
+  const purposes=Object.keys(entry.bindings);if(purposes.length<1||purposes.length>9)return unavailable();
   for(const kind of purposes){
    if(!employeePurposesV1.includes(kind as EmployeeBindingPurposeV1))return unavailable();const pin=(entry.bindings as Record<string,unknown>)[kind];
    if(!exact(pin,['path','sha256'])||!text(pin.path,2048)||!isAbsolute(pin.path)||resolve(pin.path)!==pin.path||!canonicalHash(pin.sha256)||paths.has(pin.path))return unavailable();paths.add(pin.path);Object.freeze(pin);
@@ -373,7 +373,7 @@ function currentRecipientIndexV1():Readonly<RecipientIndexV1>{
 /** Static origin restriction only: no auth, employee SQL, transport or key reads. */
 function validateEmployeeProfileV1(kind:EmployeeBindingPurposeV1,bytes:Uint8Array):Readonly<EmployeeBindingsV1[EmployeeBindingPurposeV1]>{
  const value=parseClosedJson(bytes,kind==='viewer'?65536:16384);
- return kind==='answer'||kind==='mcp-answer'?validateConnectedAnswerBinding(value,kind==='answer'?'web':'mcp'):kind==='meeting'?validateMeetingBinding(value,false):kind==='conversation'?validateConversationBinding(value):kind==='review'?validateModelReviewBinding(value):kind==='upload'?validateUploadBinding(value):kind==='viewer'?validateViewerBinding(value):validateBinding(value);
+ return kind==='recommendation'?validateRecommendationBindingV1(value):kind==='answer'||kind==='mcp-answer'?validateConnectedAnswerBinding(value,kind==='answer'?'web':'mcp'):kind==='meeting'?validateMeetingBinding(value,false):kind==='conversation'?validateConversationBinding(value):kind==='review'?validateModelReviewBinding(value):kind==='upload'?validateUploadBinding(value):kind==='viewer'?validateViewerBinding(value):validateBinding(value);
 }
 export function admitEmployeeRecipientOriginV1(kind:EmployeeBindingPurposeV1,configuredProjectUrl:string,requestOrigin:string|null,actualRequestURL:string):Readonly<{origin:string;validUntil:number}>{
  if(!employeePurposesV1.includes(kind)||!httpsOrigin(configuredProjectUrl)||!requestOrigin)return unavailable();
@@ -429,13 +429,13 @@ export interface InstalledBinding<P extends ProtectedBinding=ServerBinding> { re
  * The appointment/peer hashes require independent backend installation; this
  * consumer cannot prove their relationship merely by reading a supplied hash.
  */
-function loadInstalledBinding(purpose:'recommendation-actions'|'control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'meeting-ingress'|'meeting-worker'|'answer'|'mcp-answer'|'meeting-normalization'|'meeting-queue'|FixedSupervisionLoader|FixedWorkerLoader,recipient?:RecipientSelectionV1): InstalledBinding<ProtectedBinding> {
+function loadInstalledBinding(purpose:'recommendation'|'recommendation-actions'|'control'|'viewer'|'upload'|'review'|'conversation'|'meeting'|'meeting-ingress'|'meeting-worker'|'answer'|'mcp-answer'|'meeting-normalization'|'meeting-queue'|FixedSupervisionLoader|FixedWorkerLoader,recipient?:RecipientSelectionV1): InstalledBinding<ProtectedBinding> {
   if(recipient){if(!recipientSelectionsV1.has(recipient)||recipient.kind!==purpose||currentRecipientIndexV1()!==recipient.index)return unavailable();}
   const supervision=Object.hasOwn(supervisionConfiguration,purpose)?purpose as FixedSupervisionLoader:undefined;
   const supervisionFixed=supervision?supervisionConfiguration[supervision]:undefined;
   const fixedWorker=Object.hasOwn(fixedWorkerConfiguration,purpose)?purpose as FixedWorkerLoader:undefined;
   const fixed=fixedWorker?fixedWorkerConfiguration[fixedWorker]:undefined;
-  const advice=purpose==='recommendation-actions';
+  const advice=purpose==='recommendation-actions'||purpose==='recommendation';
   const answer=purpose==='answer',mcpAnswer=purpose==='mcp-answer',normalization=purpose==='meeting-normalization',queue=purpose==='meeting-queue';
   const viewer=purpose==='viewer',upload=purpose==='upload',review=purpose==='review',conversation=purpose==='conversation';
   const meeting=purpose==='meeting',ingress=purpose==='meeting-ingress',worker=purpose==='meeting-worker'||fixedWorker!==undefined;
