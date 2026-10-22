@@ -108,7 +108,7 @@ class _ConversationIngress:
             return self.answering.present_turn_v1(snapshot,q['turn_id'])
         return present(snapshot)
 
-def protected_conversation_server_v1(conversation,peer_profile_path,peer_profile_sha256,*,original_intake=None,answering=None):
+def protected_conversation_server_v1(conversation,peer_profile_path,peer_profile_sha256,*,original_intake=None,answering=None,question_effects=None):
     if type(conversation) is not ConversationSettingsV1:raise TypeError('exact separate conversation settings required')
     profile=_parse(ConversationPeerProfileV1,_pinned(peer_profile_path,peer_profile_sha256))
     settings=_ConversationPeerSettings(conversation,profile,str(peer_profile_path),peer_profile_sha256);settings.current()
@@ -119,9 +119,10 @@ def protected_conversation_server_v1(conversation,peer_profile_path,peer_profile
         if (c.original_intake_config_sha256,c.original_intake_appointment_sha256,c.principal_id,c.workspace_id)!=(original_intake.config_sha256,original_intake.appointment_sha256,i.principal_id,i.workspace_id):raise PermissionError('existing original intake installation not bound to conversation')
         original_intake.current();intake=OriginalIntakeFactoryV1(original_intake)
     control=ConversationControlV1(conversation);answer_owner=None
+    if question_effects is not None and answering is None:raise PermissionError('question effects require separately appointed actual employee answer recipient')
     if answering is not None:
         from .conversation_answer_v1 import ConversationAnswerV1
-        answer_owner=ConversationAnswerV1(control,answering)
+        answer_owner=ConversationAnswerV1(control,answering,effects=question_effects)
     factory=_ConversationIngress(control,intake,answer_owner)
     def encode(value):
         if not isinstance(value,dict) or value.get('schema_version')!=1:raise PermissionError('closed actual conversation response required')

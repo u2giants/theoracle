@@ -61,6 +61,9 @@ def _catalog(connection):
     if any(p.name=='023_maintained_research.sql' for p in canonical_synthetic_migrations()):
         signatures+=('oracle2._research_admission_v1(uuid,text,text,text,text,timestamptz)',
             'oracle2._research_context_v1(oracle2.research_admissions_v1)')
+    if any(p.name=='024_question_effects.sql' for p in canonical_synthetic_migrations()):
+        from oracle_brain.operating_model.question_effects_v1 import PUBLIC_QUESTION_SIGNATURES_V1,PRIVATE_QUESTION_SIGNATURES_V1
+        signatures+=PUBLIC_QUESTION_SIGNATURES_V1+PRIVATE_QUESTION_SIGNATURES_V1
     for signature in signatures:
         row = connection.execute('''SELECT oid::text,pg_get_functiondef(oid),pg_get_userbyid(proowner),
             prosecdef,proconfig,proacl::text FROM pg_proc WHERE oid=to_regprocedure(%s)''', (signature,)).fetchone()
@@ -70,6 +73,10 @@ def _catalog(connection):
             from oracle_brain.operating_model.consolidated_delivery_v1 import validate_direct_history_getter_acl_v1
             validate_direct_history_getter_acl_v1(connection,int(row[0]))
             row=(*row[:-1],'validated-direct-history-logins-v1')
+        if any(p.name=='024_question_effects.sql' for p in canonical_synthetic_migrations()) and signature in PUBLIC_QUESTION_SIGNATURES_V1:
+            from oracle_brain.operating_model.question_effects_v1 import validate_question_effect_acl_v1
+            validate_question_effect_acl_v1(connection,signature,int(row[0]))
+            row=(*row[:-1],'validated-direct-question-logins-v1')
         result.append((signature, row))
     return hashlib.sha256(json.dumps(result, separators=(',', ':')).encode()).hexdigest()
 

@@ -739,15 +739,20 @@ class PaidConsolidationSDKProjectionV1(PaidProcessingSDKProjectionV3):
 
 
 async def _verify_metadata_vectors_v1(projection,payload,inventory,before):
-    from .paid_sdk_embeddings_v3 import graph_vector_coverage_v3,PaidSDKProjectionProofV3
+    from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+    await _metadata_vector_census_v1(projection,inventory,before)
+    proof=PaidSDKProjectionProofV3.model_validate({k:getattr(before,k) for k in PaidSDKProjectionProofV3.model_fields})
+    marker=(await projection.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set
+    if marker!=[[digest(proof.model_dump(mode='json'))]]:raise PermissionError('executor completed graph marker differs')
+
+async def _metadata_vector_census_v1(projection,inventory,before):
+    from .paid_sdk_embeddings_v3 import graph_vector_coverage_v3
     chunks=(await projection.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set
     entities=(await projection.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set
     relations=(await projection.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set
     coverage,_=graph_vector_coverage_v3(inventory,chunks=chunks,entities=entities,relations=relations)
     if coverage!=before.embedding_coverage_hash:raise PermissionError('executor graph vectors differ from authenticated ACK coverage')
-    proof=PaidSDKProjectionProofV3.model_validate({k:getattr(before,k) for k in PaidSDKProjectionProofV3.model_fields})
-    marker=(await projection.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set
-    if marker!=[[digest(proof.model_dump(mode='json'))]]:raise PermissionError('executor completed graph marker differs')
+    return entities
 
 
 def _consolidated_query_timeout_v1(timeout):
@@ -883,3 +888,44 @@ class ConsolidatedMetadataSDKProjectionV1(SDKProjection):
         await self._verify_actual_graph_v1(before[2],before[3])
         after=self._fresh_packet_v1();self._same_packet_v1(before,after)
         return after
+
+    async def answer_with_question_vector_v1(self,owner,operation,*,broker):
+        """Concrete current SQL024 receipt → SAME actual read-only SDK census.
+
+        No caller vector, query embedder, graph selector or authority callback.
+        Similarity only selects/ranks whole qualified opposition groups.
+        """
+        import json,math
+        from .question_effects_v1 import ProtectedQuestionEffectsV1
+        from .native_factory import QualifiedQueryEmbeddingDispatchJobV1,validate_embedding_response
+        from .natural_question_v1 import resolve_natural_question_v1
+        from .qualified_answer_v1 import _pack_vector_answer_v1,QualifiedVectorAnswerV1
+        if type(owner) is not ProtectedQuestionEffectsV1 or owner.authority is not self.authority or type(operation) is not UUID:raise PermissionError('same actual independently admitted query/source owner required')
+        status=owner.status_v1(operation,deadline=self.deadline)
+        job=QualifiedQueryEmbeddingDispatchJobV1.model_validate_json(status['job_utf8'])
+        receipt=owner.read_effect_receipt_v1(job,broker)
+        data=json.loads(receipt['raw']);validate_embedding_response(data,count=1)
+        vector=tuple(float(v) for v in data['data'][0]['embedding'])
+        norm=math.sqrt(math.fsum(v*v for v in vector))
+        if not math.isfinite(norm) or norm<=0:raise ValueError('nonzero finite actual query vector required')
+        before=self._fresh_packet_v1()
+        if (job.qualified_model_id,job.model_version,job.model_content_hash,str(job.accepted_projection_event_id),job.accepted_receipt_body_sha256)!=(self.model_id,self.model_version,digest(before[2]),before[3].retained_receipt.event_id,before[3].retained_receipt_body_sha256):raise PermissionError('actual query receipt/model/accepted ACK differs')
+        await self.verify(before[2])
+        inventory=self._require_receipt_v1(before[2],before[3])
+        entities=await _metadata_vector_census_v1(self,inventory,before[3].retained_receipt)
+        rows={row[0]:row for row in entities}
+        scores={}
+        for assertion in before[0].assertions:
+            identifier='assertion:'+str(assertion.assertion_id)+':'+str(assertion.revision)
+            if identifier not in rows:raise PermissionError('qualified assertion vector absent')
+            stored=rows[identifier][2]
+            other=math.sqrt(math.fsum(v*v for v in stored))
+            if not math.isfinite(other) or other<=0:raise ValueError('qualified assertion vector has no finite direction')
+            scores[assertion.assertion_id]=float(math.fsum(a*b for a,b in zip(vector,stored))/(norm*other))
+        plan,clarification=resolve_natural_question_v1(status['context']['original_text'],before[0],observed_at=before[3].checked_at)
+        if plan is None:raise PermissionError('current question now requires clarification; no vector answer')
+        answer=_pack_vector_answer_v1(before[0],before[2],before[1],plan,observed_at=before[3].checked_at,vector_scores=scores)
+        if plan.mode=='historical':answer=QualifiedVectorAnswerV1.model_validate_json(canonical_bytes(answer.model_dump(mode='json')|{'business_decisions_as_of':[d.model_dump(mode='json') for d in before[3].business_decisions_as_of]}))
+        await self.verify(before[2]);owner.current_for_job_v1(job,deadline=self.deadline)
+        owner.read_effect_receipt_v1(job,broker)
+        return answer
