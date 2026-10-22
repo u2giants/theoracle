@@ -105,7 +105,7 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
             # R7 registration: purpose_coherent_native_journey / native_trigger_v1
             # no longer own singleton groups; original/raw families replaced them.
             for heavy in ('purpose_worker_startup',):
-                assert [values for _,values in groups if heavy in values]==[(heavy,'consolidation_sql_v1')]
+                assert [values for _,values in groups if heavy in values]==[(heavy,'question_effects_sql_v1')]
             for start in ('original_corpus_import','raw_endpoint_inventory_v1'):
                 assert any(values and values[0]==start for _,values in groups)
 
@@ -371,18 +371,18 @@ def test_actual_web_identity_and_framework_source_are_in_recorded_execution_inve
 
 def test_new_database_browser_and_native_families_use_distinct_existing_worker_capacity():
     groups=dict(verifier.test_groups('W10'))
-    assert set(verifier.CONSOLIDATION_SUITES)-{'consolidation_next_auth_browser_v1','consolidation_sql_v1'}<=set(groups['documentary-01'])
+    assert set(verifier.CONSOLIDATION_SUITES)-{'consolidation_next_auth_browser_v1'}<=set(groups['documentary-01'])
     assert 'consolidation_next_auth_browser_v1' in groups['documentary-07']
     assert sum(suites.count('consolidation_next_auth_browser_v1') for suites in groups.values())==1
     assert {'protected_raw_original_factory_sql','original_review_reading_input_sql'}<=set(groups['documentary-04'])
     assert 'protected_raw_original_factory_v1' in groups['documentary-06']
-    assert 'qualified_workspace_sdk_sql_v1' in groups['documentary-09']
+    assert 'qualified_workspace_sdk_sql_v1' in groups['documentary-03']
     assert 'question_effect_native_sql_v1' in groups['documentary-04']
-    assert 'question_effects_sql_v1' in groups['documentary-01']
-    assert 'consolidation_sql_v1' in groups['documentary-08']
+    assert 'question_effects_sql_v1' in groups['documentary-08']
+    assert 'consolidation_sql_v1' in groups['documentary-01']
     assert 'purpose_coherent_native_journey' in groups['documentary-06']
-    assert 'conversation_native_sql' in groups['documentary-03']
-    assert 'conversation_native_sql' not in groups['documentary-09']
+    assert 'conversation_native_sql' in groups['documentary-09']
+    assert 'conversation_native_sql' not in groups['documentary-03']
     assert 'purpose_coherent_native_journey' not in groups['documentary-09']
     for population,selected,anchor in ((('a','a','b'),('a',),'b'),
         (('a','b'),('missing',),'b'),(('a','b'),('a',),'a')):
