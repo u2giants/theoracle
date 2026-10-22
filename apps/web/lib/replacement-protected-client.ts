@@ -18,7 +18,7 @@ if (typeof window !== 'undefined') throw new Error('Replacement control unavaila
 const failure = (): never => { throw new Error('Replacement control unavailable'); };
 const exact = (v: unknown, fields: readonly string[]): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === fields.length && fields.every(k => Object.hasOwn(v,k));
 const integer = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 2147483647;
-async function identity(binding: Readonly<Exclude<ProtectedBinding,{purpose:'replacement-meeting-ingress-web-binding-v1'|'replacement-meeting-worker-binding-v1'}>>, window: Window): Promise<void> {
+async function identity(binding: Readonly<Exclude<ProtectedBinding,{purpose:'replacement-meeting-ingress-web-binding-v1'|'replacement-meeting-worker-binding-v1'|'meeting-normalization-worker-v1'|'meeting-supervision-service-binding-v1'}>>, window: Window): Promise<void> {
   // The sole production adapter: no supplied snapshot, JWT decoding, role,
   // fixture cookie, service client or caller-selected identity can enter here.
   const { getServerSupabase } = await within(import('./supabase/server'),window);
@@ -34,7 +34,7 @@ async function identity(binding: Readonly<Exclude<ProtectedBinding,{purpose:'rep
   if (!employee || !matchesIdentity(binding, { configuredProjectUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', actualProjectUrl, verifiedUserId:data.user.id,employeeId:employee.id,disabledAt:employee.disabledAt })) return failure();
   remaining(window);
 }
-function origin(request: Request, binding: Readonly<Exclude<ProtectedBinding,{purpose:'replacement-meeting-ingress-web-binding-v1'|'replacement-meeting-worker-binding-v1'}>>): void {
+function origin(request: Request, binding: Readonly<Exclude<ProtectedBinding,{purpose:'replacement-meeting-ingress-web-binding-v1'|'replacement-meeting-worker-binding-v1'|'meeting-normalization-worker-v1'|'meeting-supervision-service-binding-v1'}>>): void {
   if (request.method !== 'POST' || request.headers.get('origin') !== binding.web_origin || new URL(request.url).origin !== binding.web_origin || request.headers.get('content-type') !== 'application/json' || request.headers.has('content-encoding')) return failure();
 }
 async function readBody(request: Request, window: Window,limit=65536): Promise<Buffer> {
@@ -213,6 +213,7 @@ export async function requestEmployeeConversation(request:Request):Promise<Conve
  }catch{return undefined;}
 }
 async function transport(installed:InstalledBinding<ProtectedBinding>,body:Buffer,window:Window,pin?:Readonly<ViewerSourcePin>){
+ if(installed.profile.purpose==='meeting-normalization-worker-v1'||installed.profile.purpose==='meeting-supervision-service-binding-v1')return failure();
  const channel=await openProtectedChannelV1(installed,window,pin);
  try{
   current(installed,window);

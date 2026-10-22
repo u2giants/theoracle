@@ -36,3 +36,7 @@ export function matchMeetingWorkerPacketV1(packet:Readonly<MeetingWorkerPacketV1
  if(profile.effect_purpose==='capture-retrieve'&&profile.retrieve_stage&&packet.operation_id!==null&&packet.operation_id!==profile.retrieve_operation_id)return fail();
  if(profile.effect_purpose==='capture-create'&&packet.operation_id!==null&&(packet.operation_id!==profile.create_operation_id||packet.request_sha256!==profile.create_request_sha256))return fail();
 }
+
+export {parseMeetingNormalizationPacketV1,matchMeetingNormalizationPacketV1,parseMeetingNormalizationWakeV1,type MeetingNormalizationPacketV1,type MeetingNormalizationStateV1} from './protected-meeting-normalization-contract';
+
+export {parseMeetingSupervisionPacketV1,matchMeetingSupervisionPacketV1,type MeetingSupervisionPacketV1} from './protected-meeting-supervision-contract';
