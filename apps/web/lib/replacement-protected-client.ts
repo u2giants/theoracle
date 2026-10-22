@@ -166,7 +166,7 @@ export async function requestReplacementMeetingIngress(request:Request):Promise<
   const event=parseClosedJson(raw,1024*1024);
   if(!event||typeof event!=='object'||Array.isArray(event))return unavailableControl();
   const e=event as Record<string,unknown>,data=e.data;if(typeof e.event!=='string'||!(/^(transcript\.(data|partial_data|done|failed)|bot\.[a-z_]{1,64})$/.test(e.event))||!data||typeof data!=='object'||Array.isArray(data))return unavailableControl();
-  const d=data as Record<string,unknown>,bot=d.bot;if(!bot||typeof bot!=='object'||Array.isArray(bot)||typeof (bot as Record<string,unknown>).id!=='string')return unavailableControl();
+  const d=data as Record<string,unknown>,bot=d.bot;if(!bot||typeof bot!=='object'||Array.isArray(bot)||!canonicalUuid((bot as Record<string,unknown>).id))return unavailableControl();
   const words=d.data&&typeof d.data==='object'&&!Array.isArray(d.data)?(d.data as Record<string,unknown>).words:undefined;
   if(words!==undefined&&(!Array.isArray(words)||words.length>4096))return unavailableControl();
   // Canonical initial absolute deadline is generated once; never renewed. Raw

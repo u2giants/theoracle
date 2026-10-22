@@ -93,7 +93,7 @@ before(async () => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = fixture.project;
 });
 after(async () => { hooks.deregister(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(dir,{recursive:true,force:true}); delete (globalThis as unknown as Record<string,unknown>).__replacementIdentityFixture; });
-const raw=(extra:Record<string,unknown>={})=>Buffer.from(JSON.stringify({event:'transcript.data',data:{bot:{id:'actual-provider-bot'},data:{words:[{text:'原话'}]}},...extra}));
+const raw=(extra:Record<string,unknown>={})=>Buffer.from(JSON.stringify({event:'transcript.data',data:{bot:{id:'33333333-3333-4333-8333-333333333333'},data:{words:[{text:'原话'}]}},...extra}));
 const request=(bytes=raw(),headers:Record<string,string>={},signal?:AbortSignal)=>{
  const timestamp=String(Math.floor(Date.now()/1000)),message='invented-provider-message';
  const signature=createHmac('sha256',Buffer.alloc(32,7)).update(message+'.'+timestamp+'.').update(bytes).digest('base64');
@@ -119,7 +119,7 @@ test('bad signatures timestamp families and canonical provider identity deny bef
 });
 test('strict bounded raw UTF8 and word populations reject before outbound',async()=>{
  const count=requests;
- for(const bytes of [raw({data:{bot:{id:'actual-provider-bot'},data:{words:Array.from({length:4097},()=>({text:'x'}))}}}),Buffer.alloc(1024*1024+1,65),Buffer.from([0xc0,0xaf]),raw({event:'arbitrary'})])await refused(request(bytes));
+ for(const bytes of [raw({data:{bot:{id:'33333333-3333-4333-8333-333333333333'},data:{words:Array.from({length:4097},()=>({text:'x'}))}}}),Buffer.alloc(1024*1024+1,65),Buffer.from([0xc0,0xaf]),raw({event:'arbitrary'})])await refused(request(bytes));
  assert.equal(requests,count);assert.equal(fixture.calls,0);
 });
 test('missing protected verifier or binding never falls back to employee or legacy handler',async()=>{
@@ -127,4 +127,11 @@ test('missing protected verifier or binding never falls back to employee or lega
 });
 test('uncertain peer does not acknowledge or retry and changed verifier pin refuses',async()=>{
  const count=requests;mode='uncertain';await refused(request());assert.equal(requests,count+1);mode='valid';writeFileSync(file('verifier.secret'),'whsec_'+Buffer.alloc(32,8).toString('base64'));await refused(request());assert.equal(requests,count+1);assert.equal(fixture.calls,0);
+});
+
+test('invalid provider bot identifiers never reach protected backend',async()=>{
+ const count=received.length;
+ for(const bad of ['', 'actual-provider-bot', 'a'.repeat(4096), 1, null, '33333333-3333-4333-8333-333333333333/extra'])
+  await refused(request(raw({data:{bot:{id:bad},data:{words:[]}}})));
+ assert.equal(received.length,count);
 });
