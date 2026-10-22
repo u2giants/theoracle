@@ -105,7 +105,7 @@ def test_actual_complete_wire_consolidation_capture_and_protocol_separation(cont
 from test_purpose_qualification_v3 import qualified_v3,serving
 
 
-def temporal_qualified_fixture(q,*,predecessor=None):
+def temporal_qualified_fixture(q,*,predecessor=None,assertions=None):
     """Fresh injected capture/assessment/admission chain; never operational authority."""
     from oracle_brain.operating_model.purpose_profiles_v2 import PurposePrivateContextV2
     from oracle_brain.operating_model.purpose_qualification_v3 import (
@@ -123,6 +123,7 @@ def temporal_qualified_fixture(q,*,predecessor=None):
         prior=ConsolidationCoreV1.model_validate_json(canonical_bytes(predecessor['consolidation_core']))
         a=body['assertions'][0];a.update(assertion_id=str(prior.assertions[0].assertion_id),revision=prior.assertions[0].revision+1,
             predecessor_hash=digest(prior.assertions[0].model_dump(mode='json')),value='documentary correction fixture')
+    if assertions is not None:body['assertions']=assertions
     core=ConsolidationCoreV1.model_validate_json(json.dumps(body))
     request=dict(ctx.job.request);request['messages']=assembly_messages(receipts=ctx.receipts,extractions=ctx.extractions,
       census=ctx.census,model_id=ctx.model_id,version=ctx.model_version,candidate_contract=core.contract)

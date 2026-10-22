@@ -54,11 +54,22 @@ def _catalog(connection):
         signatures+=('oracle2._purpose_source_v2(uuid,uuid,uuid,text,text,text,boolean)',
             'oracle2.conversation_model_input_v1(uuid)',
             'oracle2.original_native_program_identity_v1(uuid)')
+    if any(p.name=='022_consolidated_answer_delivery.sql' for p in canonical_synthetic_migrations()):
+        signatures+=('oracle2._processing_projection_receipt_v3(uuid,uuid,integer,jsonb)',
+            'oracle2._retained_processing_projection_receipt_v1(uuid,uuid,integer,jsonb)',
+            'oracle2.hosting_consolidated_projection_delivery_v1(uuid,integer,timestamptz,timestamptz,uuid,text,text,text,timestamptz)')
+    if any(p.name=='023_maintained_research.sql' for p in canonical_synthetic_migrations()):
+        signatures+=('oracle2._research_admission_v1(uuid,text,text,text,text,timestamptz)',
+            'oracle2._research_context_v1(oracle2.research_admissions_v1)')
     for signature in signatures:
         row = connection.execute('''SELECT oid::text,pg_get_functiondef(oid),pg_get_userbyid(proowner),
             prosecdef,proconfig,proacl::text FROM pg_proc WHERE oid=to_regprocedure(%s)''', (signature,)).fetchone()
         if row is None:
             raise PermissionError('complete canonical test capability catalog required')
+        if signature=='oracle2.hosting_consolidated_projection_delivery_v1(uuid,integer,timestamptz,timestamptz,uuid,text,text,text,timestamptz)':
+            from oracle_brain.operating_model.consolidated_delivery_v1 import validate_direct_history_getter_acl_v1
+            validate_direct_history_getter_acl_v1(connection,int(row[0]))
+            row=(*row[:-1],'validated-direct-history-logins-v1')
         result.append((signature, row))
     return hashlib.sha256(json.dumps(result, separators=(',', ':')).encode()).hexdigest()
 

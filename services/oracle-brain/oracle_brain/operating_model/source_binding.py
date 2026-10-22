@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 import psycopg
+from .request_deadline_v1 import sql_execute_current_v1
 
 @dataclass(frozen=True)
 class SourceRoleBinding:
@@ -24,10 +25,10 @@ class SourceRoleBinding:
                             or connection.info.dbname=='oracle2'
                             or connection.info.dbname=='hosting_permissions_test')):
                 raise PermissionError('source binding requires authenticated ledger TLS')
-        role=connection.execute('SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=SESSION_USER').fetchone()
+        role=sql_execute_current_v1(connection,'SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=SESSION_USER').fetchone()
         if role is None or role[0] or role[1]:
             raise PermissionError('source binding requires a non-bypass source role')
-        rows=connection.execute('SELECT runtime_hash,registry_hash,expires_at,clock_timestamp() '
+        rows=sql_execute_current_v1(connection,'SELECT runtime_hash,registry_hash,expires_at,clock_timestamp() '
                                 'FROM oracle2.hosting_source_runtime_binding()').fetchall()
         if (len(rows)!=1 or rows[0][0]!=self.runtime_hash or rows[0][1]!=self.source_role_registry_hash
                 or not isinstance(rows[0][2],datetime) or rows[0][2].tzinfo is None

@@ -363,8 +363,7 @@ from test_purpose_qualification_v3 import qualified_v3
 from test_assembly_context import context
 
 
-@pytest.fixture
-def sql_qualified_v3(monkeypatch):
+def original_sql_qualified_fixture_v3(monkeypatch,*,lifetime_seconds):
     # Build FRESH wire/census/assessment fixtures from SQL-valid original parser
     # identity before any context/capture/admission is produced; never retrofit
     # raw response bindings or relax the canonical SQL provenance guard.
@@ -384,10 +383,24 @@ def sql_qualified_v3(monkeypatch):
             observations.append(create_observation(receipt,item.occurrence_key,item.kind,item.scope,item.value,(quote,)))
         return tuple(observations),tuple({'source_refs':[o.ref.model_dump(mode='json')],'observations':[o.model_dump(mode='json')],'findings':[]} for o in observations)
     monkeypatch.setattr(foundation,'invented_inputs',valid_inputs)
-    return qualified_v3.__wrapped__(foundation.context.__wrapped__())
+    from test_purpose_qualification_v3 import original_qualified_fixture_v3
+    return original_qualified_fixture_v3(foundation.original_context_v1(lifetime_seconds=lifetime_seconds),
+        admission_lifetime_seconds=25 if lifetime_seconds==30 else 115)
 
 
-def prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,*,return_fixture=False,return_stage=False,predecessor=None):
+@pytest.fixture
+def sql_qualified_v3(monkeypatch):
+    return original_sql_qualified_fixture_v3(monkeypatch,lifetime_seconds=30)
+
+
+@pytest.fixture
+def sql_qualified_serving_v3(monkeypatch):
+    # A separate freshly installed invented serving appointment, not renewal
+    # of a completed capture. Every individual request remains at most30s.
+    return original_sql_qualified_fixture_v3(monkeypatch,lifetime_seconds=120)
+
+
+def prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,*,return_fixture=False,return_stage=False,predecessor=None,assertion_factory=None):
     """Injected complete paid wires/semantic pins, ACTUAL compiler SQL/private bytes.
 
     Host prepares immutable extraction fixtures; this is not original D or paid
@@ -431,7 +444,8 @@ def prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,*,return_fixtur
     ctx=ctx.model_copy(update={'handoff':handoff,'expected_handoff_hash':sealed(handoff),'source_registry_hash':REGISTRY,'compiler_digest':RUNTIME})
     wire['context']=ctx;q['wire']=wire;q['manifest']=q['manifest'].model_copy(update={'compiler_digest':RUNTIME})
     q['admission']=q['admission'].model_copy(update={'runtime_hash':RUNTIME,'compiler_login':login})
-    q=temporal_qualified_fixture(q,predecessor=predecessor['q']['payload'] if predecessor is not None else None)
+    q=temporal_qualified_fixture(q,predecessor=predecessor['q']['payload'] if predecessor is not None else None,
+        assertions=assertion_factory(ctx) if assertion_factory is not None else None)
     url=psycopg.conninfo.make_conninfo(admin_url,user=login,password='invented-compiler-only',application_name=app_name)
     source=ProcessingArtifactResolver(url,binding=ProcessingSourceBinding(RUNTIME,REGISTRY,schema_owner,login,actor,'candidate-compiler',expiry,False))
     class CheckedBlobs(FileBlobStore):

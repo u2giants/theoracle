@@ -1,5 +1,6 @@
 'use client';
 import { useCallback,useEffect,useState } from 'react';
+import { QualifiedAnswerView } from './qualified-answer-view';
 import { useSessionValue } from '@/lib/use-session-value';
 import { canonicalJson } from '@/lib/replacement-canonical-json';
 import type { ConversationSnapshot,ConversationIndex,ConversationPacket,ConversationEvent } from '@/lib/replacement-conversation-contract';
@@ -37,6 +38,7 @@ export function InterviewPanel({threadId}:{threadId?:string}){
  {snapshot&&<><p>{snapshot.topic} · {snapshot.state} · {snapshot.question_count} of 8 questions · about 10 minutes per active sitting</p>
  {snapshot.offer_start_interview&&<p><a className="underline" href="/consultant/interviews">You can choose to start a separate interview.</a></p>}
  {snapshot.answer_first&&<p role="status">{snapshot.answer_first}</p>}
+ {'qualified_answer'in snapshot&&snapshot.qualified_answer!==null&&<QualifiedAnswerView packet={snapshot.qualified_answer}/>}
  {snapshot.question&&<p className="rounded border p-3" data-testid="interview-question">{snapshot.question}</p>}
  <ol className="space-y-3">{snapshot.events.filter(e=>e.origin==='employee'||e.origin==='display').map(e=><li className="rounded border p-3" key={e.event_id}>
  {e.origin==='employee'?<><p className="whitespace-pre-wrap" lang={e.original_language??undefined}>{e.original_text}</p><p>{snapshot.events.some(next=>next.corrects_event_id===e.event_id)?'Superseded; original retained':e.corrects_event_id?'Correction; earlier wording remains above.':'Reported account'} · {e.original_language}</p>{e.payload.missing_reason&&<p>Information remains missing: {String(e.payload.missing_reason)}</p>}<button type="button" disabled={disabled||snapshot.events.some(next=>next.corrects_event_id===e.event_id)} onClick={()=>{setCorrecting(e);setText(e.original_text??'');setLanguage(e.original_language??'en');}}>Correct this response</button></>:<><p className="whitespace-pre-wrap">{String(e.payload.display_text??'')}</p><p>Assistant wording is display only.</p></>}

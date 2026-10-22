@@ -4,7 +4,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from .contracts import ArtifactManifest,canonical_bytes,digest
 from .consolidation_contracts_v1 import ConsolidationCoreV1
-from .consolidation_authority_v1 import ConsolidationAuthorityV1
+from .consolidation_authority_v1 import ConsolidationAuthorityV1,_connection_v1,_execute_v1
 from .processing_ledger import require_explicit_compiler_ledger_v3
 
 
@@ -53,10 +53,10 @@ def persist_consolidation_revision_v1(ledger,authority,*,payload,permission_dige
     authority._deadline(deadline)
     attempted=False;committed=False;body_complete=False
     try:
-        with psycopg.connect(authority.url,connect_timeout=2) as c:
+        with _connection_v1(authority.url,deadline,require_pinned_address=bool(authority.delivery_capability_body_hashes)) as c:
             authority._check(c,deadline);ledger.processing_sources._check(c)
             attempted=True
-            result=c.execute('SELECT oracle2.commit_processing_model_revision_v1(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            result=_execute_v1(c,deadline,'SELECT oracle2.commit_processing_model_revision_v1(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (Jsonb(manifest.model_dump(mode='json')),raw,refs_raw,dep_raw,
                  Jsonb([r.model_dump(mode='json') for r in receipts.values()]),*authority._arguments(deadline),idempotency)).fetchone()[0]
             if result['manifest']!=manifest.model_dump(mode='json'):raise PermissionError('canonical commit returned another artifact')
@@ -74,9 +74,9 @@ def persist_consolidation_revision_v1(ledger,authority,*,payload,permission_dige
         raise
     try:
         # Actual new readonly transaction after actual write connection closed.
-        with psycopg.connect(authority.url,connect_timeout=2) as c:
+        with _connection_v1(authority.url,deadline,require_pinned_address=bool(authority.delivery_capability_body_hashes)) as c:
             authority._check(c,deadline)
-            fresh=c.execute('SELECT oracle2.hosting_processing_model_revision_v1(%s,%s,%s,%s,%s,%s,%s)',
+            fresh=_execute_v1(c,deadline,'SELECT oracle2.hosting_processing_model_revision_v1(%s,%s,%s,%s,%s,%s,%s)',
                 (artifact,version,*authority._arguments(deadline))).fetchone()[0]
             authority._check(c,deadline)
         if fresh['manifest']!=result['manifest'] or fresh['recordedAt']!=result['recordedAt']:

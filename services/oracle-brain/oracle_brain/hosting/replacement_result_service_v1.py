@@ -24,6 +24,31 @@ from .replacement_public_view_v1 import (public_snapshot_v1,qualified_map_view_v
 def _target_identity(target):
     return target.model_dump(mode='json',exclude={'checked_at','valid_until'})
 
+
+async def _close_owned_projection_v1(self,projection,deadline):
+    # Cleanup has no authority to read/query/publish or renew the operation.
+    task=asyncio.create_task(projection.connection.close(),name='result-owned-pool-close')
+    self._owned_closes[task]=projection
+    cancelled=False;cleanup_end=asyncio.get_running_loop().time()+5
+    try:
+        done,_=await asyncio.wait({task},timeout=max(0,cleanup_end-asyncio.get_running_loop().time()))
+    except asyncio.CancelledError:
+        cancelled=True
+        try:done,_=await asyncio.wait({task},timeout=max(0,cleanup_end-asyncio.get_running_loop().time()))
+        except asyncio.CancelledError:
+            self._cleanup_unknown=True
+            raise
+    if not done:
+        self._cleanup_unknown=True
+        raise PermissionError('owned result connection cleanup remains unknown')
+    try:task.result()
+    except BaseException:
+        self._cleanup_unknown=True
+        raise PermissionError('owned result connection cleanup failed') from None
+    del self._owned_closes[task]
+    if cancelled:raise asyncio.CancelledError
+    _require(datetime.now(timezone.utc)<deadline,'result completed after original deadline')
+
 class ProtectedReplacementResultServiceV1:
     def __init__(self,settings):
         _require(type(settings) is ProtectedReplacementResultSettingsV1,'actual fixed protected result settings required')
@@ -32,28 +57,7 @@ class ProtectedReplacementResultServiceV1:
         self._cleanup_unknown=False
 
     async def _close_owned_projection(self,projection,deadline):
-        # Cleanup has no authority to read/query/publish or renew the operation.
-        task=asyncio.create_task(projection.connection.close(),name='result-owned-pool-close')
-        self._owned_closes[task]=projection
-        cancelled=False;cleanup_end=asyncio.get_running_loop().time()+5
-        try:
-            done,_=await asyncio.wait({task},timeout=max(0,cleanup_end-asyncio.get_running_loop().time()))
-        except asyncio.CancelledError:
-            cancelled=True
-            try:done,_=await asyncio.wait({task},timeout=max(0,cleanup_end-asyncio.get_running_loop().time()))
-            except asyncio.CancelledError:
-                self._cleanup_unknown=True
-                raise
-        if not done:
-            self._cleanup_unknown=True
-            raise PermissionError('owned result connection cleanup remains unknown')
-        try:task.result()
-        except BaseException:
-            self._cleanup_unknown=True
-            raise PermissionError('owned result connection cleanup failed') from None
-        del self._owned_closes[task]
-        if cancelled:raise asyncio.CancelledError
-        _require(datetime.now(timezone.utc)<deadline,'result completed after original deadline')
+        return await _close_owned_projection_v1(self,projection,deadline)
 
     async def handle_result_v1(self,peer_certificate,raw):
         s=self.settings;c=s.config;start=datetime.now(timezone.utc)
@@ -135,7 +139,8 @@ class ProtectedReplacementResultServiceV1:
 class _ResultOwnedLoopV1:
     """Only the fixed RESULT listener owns this bounded request/cleanup loop."""
     def __init__(self,service):
-        _require(type(service) is ProtectedReplacementResultServiceV1,'exact owned result service required')
+        from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
+        _require(type(service) in (ProtectedReplacementResultServiceV1,ProtectedConnectedAnswerServiceV1),'exact owned result service or fixed answer service required')
         self.service=service;self.requests=set();self.closing=False
         self.records={};self.record_lock=threading.RLock();self.observed_outcomes={'returned':0,'failed':0,'cancelled':0}
         self.loop=asyncio.new_event_loop();self.ready=threading.Event()
@@ -160,7 +165,14 @@ class _ResultOwnedLoopV1:
         _require(not self.closing and not self.service._cleanup_unknown and len(self.requests)<32,
             'owned result lifecycle unavailable')
         self.requests.add(task)
-        try:return await self.service.handle_result_v1(peer,raw)
+        try:
+            from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
+            if type(self.service) is ProtectedConnectedAnswerServiceV1:
+                from oracle_brain.operating_model.request_deadline_v1 import _request_fence_v1
+                _require(peer is None,'answer peer must be verified by the fixed shared listener')
+                with _request_fence_v1(float(original_end)):
+                    return await self.service.handle_answer_v1(raw)
+            return await self.service.handle_result_v1(peer,raw)
         finally:self.requests.remove(task)
 
     def _settled(self,future,record):
@@ -184,7 +196,9 @@ class _ResultOwnedLoopV1:
             and math.isfinite(absolute_monotonic_deadline)
             and time.monotonic()<absolute_monotonic_deadline,'original result handler deadline expired')
         # Narrow the trusted handler clock by the actual strict request, never reset it.
-        now=datetime.now(timezone.utc);request=parse_result_request_v1(raw,now=now)
+        now=datetime.now(timezone.utc)
+        from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1,parse_answer_request_v1
+        request=parse_answer_request_v1(raw) if type(self.service) is ProtectedConnectedAnswerServiceV1 else parse_result_request_v1(raw,now=now)
         original_end=min(absolute_monotonic_deadline,time.monotonic()+max(0,(request.expires_at-now).total_seconds()))
         record={'task':None,'handler_observed':False,'outcome':None,'original_end':original_end}
         future=asyncio.run_coroutine_threadsafe(self._request(peer,raw,original_end,record),self.loop)

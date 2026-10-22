@@ -16,6 +16,14 @@ from .consolidation_contracts_v1 import ConsolidationCoreV1,readable_diff,applic
 from .purpose_qualification_v3 import PurposeAssemblyQualificationV3
 from .semantic_acceptance import sealed
 
+from contextlib import contextmanager
+from .request_deadline_v1 import (request_remaining_v1,sql_remaining_v1 as _sql_remaining_v1,
+    sql_execute_v1 as _execute_v1,sql_rearm_v1,_sql_window_v1,_sql_send_window_v1)
+
+
+from .protected_sql_connection_v1 import _connection_v1
+
+
 _FUNCTIONS=(
  'hosting_consolidated_model_version_v1(uuid,integer,uuid,text,text,text,timestamp with time zone)',
  'commit_processing_model_revision_v1(jsonb,bytea,bytea,bytea,jsonb,uuid,text,text,text,timestamp with time zone,uuid)',
@@ -75,9 +83,18 @@ class ConsolidationOutcomeUnknown(PermissionError):
 
 
 class ConsolidationAuthorityV1:
-    def __init__(self,url,*,binding):
+    def __init__(self,url,*,binding,delivery_capability_body_hashes=()):
         if type(binding) is not ConsolidationBindingV1:raise PermissionError('exact fixed installation binding required')
         self.url,self.binding=url,binding
+        from .consolidated_delivery_v1 import DELIVERY_FUNCTIONS
+        import re
+        pins=delivery_capability_body_hashes
+        if (type(pins) is not tuple or any(type(p) is not tuple or len(p)!=2 for p in pins)
+                or len(dict(pins))!=len(pins)
+                or pins and (set(dict(pins))!={x.split('(')[0] for x in DELIVERY_FUNCTIONS}
+                    or any(type(v) is not str or not re.fullmatch('[a-f0-9]{64}',v) for _,v in pins))):
+            raise PermissionError('exact independently pinned readonly delivery catalog required')
+        self.delivery_capability_body_hashes=pins
         params=psycopg.conninfo.conninfo_to_dict(url)
         if params.get('sslmode')!='verify-full' or params.get('sslrootcert')!=binding.ca_path or params.get('user')!=binding.session_login:
             raise PermissionError('pinned verify-full processing connection required')
@@ -88,6 +105,7 @@ class ConsolidationAuthorityV1:
             raise PermissionError('pinned CA changed')
 
     def _deadline(self,deadline):
+        request_remaining_v1(required=False)
         now=datetime.now(timezone.utc)
         if (not isinstance(deadline,datetime) or deadline.tzinfo is None or deadline.utcoffset() is None
                 or deadline<=now or deadline>self.binding.original_horizon or deadline>now+timedelta(seconds=30)):
@@ -98,23 +116,23 @@ class ConsolidationAuthorityV1:
         self._ca();b=self.binding
         if datetime.now(timezone.utc)>=min(deadline,b.original_horizon) or not c.pgconn.ssl_in_use:
             raise PermissionError('current bounded TLS processing context required')
-        if c.execute('SELECT session_user,current_user').fetchone()!=(b.session_login,b.session_login):
+        if _execute_v1(c,deadline,'SELECT session_user,current_user').fetchone()!=(b.session_login,b.session_login):
             raise PermissionError('actual processing login changed')
-        rows=c.execute('''SELECT p.oid,n.nspname,p.proname,r.rolname,p.prosecdef,pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc,'UTF8')),'hex'),p.proconfig FROM pg_catalog.pg_proc p
+        rows=_execute_v1(c,deadline,'''SELECT p.oid,n.nspname,p.proname,r.rolname,p.prosecdef,pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc,'UTF8')),'hex'),p.proconfig FROM pg_catalog.pg_proc p
           JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
           WHERE p.oid IN (SELECT pg_catalog.to_regprocedure(x) FROM pg_catalog.unnest(%s::text[]) x)''',
           (['oracle2.'+s for s in _FUNCTIONS],)).fetchall()
         if (len(rows)!=len(_FUNCTIONS) or any(n!='oracle2' or owner!=b.expected_owner or defin is not True or body_hash!=dict(b.capability_body_hashes)[name] or settings!=['search_path=pg_catalog, oracle2'] for _,n,name,owner,defin,body_hash,settings in rows)
                 or {r[2] for r in rows}!={s.split('(')[0] for s in _FUNCTIONS}):
             raise PermissionError('fixed canonical capability owners differ')
-        private=c.execute("""SELECT n.nspname,r.rolname,p.prosecdef,
+        private=_execute_v1(c,deadline,"""SELECT n.nspname,r.rolname,p.prosecdef,
           NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) x WHERE x.grantee<>p.proowner),pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc,'UTF8')),'hex'),p.proconfig
           FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
           WHERE p.oid=pg_catalog.to_regprocedure('oracle2._commit_processing_candidate_canonical_v1(jsonb,bytea,bytea,bytea,jsonb,text,text,timestamp with time zone)')""").fetchone()
         if private!=('oracle2',b.expected_owner,True,True,dict(b.capability_body_hashes)['_commit_processing_candidate_canonical_v1'],['search_path=pg_catalog, oracle2']):
             raise PermissionError('canonical owner-private helper identity or ACL changed')
-        remaining=max(1,min(2000,int((deadline-datetime.now(timezone.utc)).total_seconds()*1000)))
-        c.execute("SELECT pg_catalog.set_config('statement_timeout',%s,true),pg_catalog.set_config('lock_timeout',%s,true)",(str(remaining)+'ms',str(remaining)+'ms'))
+        remaining=max(1,min(2000,int(_sql_remaining_v1(deadline)*1000)))
+        sql_rearm_v1(c,deadline,timeout_ms=remaining)
 
     def _arguments(self,deadline):
         b=self.binding
@@ -123,15 +141,15 @@ class ConsolidationAuthorityV1:
     def _metadata(self,model,*,deadline,valid_at=None,known_at=None,version=None):
         self._deadline(deadline)
         if self.binding.operation!='history-read' or type(model) is not UUID or model!=self.binding.model_id:raise PermissionError('distinct fixed history appointment required')
-        with psycopg.connect(self.url,connect_timeout=2) as c:
+        with _connection_v1(self.url,deadline,require_pinned_address=bool(self.delivery_capability_body_hashes)) as c:
             self._check(c,deadline)
             if version is not None:
                 if type(version) is not int or version<1 or valid_at is not None or known_at is not None:raise PermissionError('exact retained version selector required')
-                result=c.execute('SELECT oracle2.hosting_consolidated_model_version_v1(%s,%s,%s,%s,%s,%s,%s)',(model,version,*self._arguments(deadline))).fetchone()[0]
+                result=_execute_v1(c,deadline,'SELECT oracle2.hosting_consolidated_model_version_v1(%s,%s,%s,%s,%s,%s,%s)',(model,version,*self._arguments(deadline))).fetchone()[0]
             elif valid_at is None and known_at is None:
-                result=c.execute('SELECT oracle2.hosting_current_consolidated_model_v1(%s,%s,%s,%s,%s,%s)',(model,*self._arguments(deadline))).fetchone()[0]
+                result=_execute_v1(c,deadline,'SELECT oracle2.hosting_current_consolidated_model_v1(%s,%s,%s,%s,%s,%s)',(model,*self._arguments(deadline))).fetchone()[0]
             elif valid_at is not None and known_at is not None:
-                result=c.execute('SELECT oracle2.hosting_historical_consolidated_model_v1(%s,%s,%s,%s,%s,%s,%s,%s)',(model,valid_at,known_at,*self._arguments(deadline))).fetchone()[0]
+                result=_execute_v1(c,deadline,'SELECT oracle2.hosting_historical_consolidated_model_v1(%s,%s,%s,%s,%s,%s,%s,%s)',(model,valid_at,known_at,*self._arguments(deadline))).fetchone()[0]
             else:raise ValueError('both explicit historical times required')
             self._check(c,deadline)
             if datetime.now(timezone.utc)>=datetime.fromisoformat(result['validUntil']):raise PermissionError('SQL scope expired')
@@ -139,6 +157,7 @@ class ConsolidationAuthorityV1:
         return result
 
     def _check_after_close(self,deadline,result):
+        request_remaining_v1(required=False)
         self._ca()
         if datetime.now(timezone.utc)>=min(deadline,self.binding.original_horizon,datetime.fromisoformat(result['validUntil'])):
             raise PermissionError('authority expired at connection close')
@@ -149,7 +168,10 @@ class ConsolidationAuthorityV1:
         if manifest.workspace_id!=self.binding.workspace_id:raise PermissionError('cross-workspace capability')
         # Existing immutable private-object owner; no caller path/URL/role selector.
         import json
-        payload=json.loads(blobs.read(manifest.private_object_key,manifest.content_hash))
+        request_remaining_v1(required=False)
+        raw=blobs.read(manifest.private_object_key,manifest.content_hash)
+        request_remaining_v1(required=False)
+        payload=json.loads(raw)
         if digest(payload)!=manifest.content_hash:raise PermissionError('retained model bytes differ')
         core=ConsolidationCoreV1.model_validate_json(canonical_bytes(payload['consolidation_core']))
         from .source_receipts import SourceRef
@@ -174,15 +196,83 @@ class ConsolidationAuthorityV1:
         self._check_after_close(deadline,after)
         return core,after,payload
 
+    def _check_delivery_catalog_v1(self,connection,deadline):
+        from .consolidated_delivery_v1 import DELIVERY_FUNCTIONS,DELIVERY_SIGNATURE
+        self._check(connection,deadline)
+        pins=dict(self.delivery_capability_body_hashes)
+        if set(pins)!={x.split('(')[0] for x in DELIVERY_FUNCTIONS}:
+            raise PermissionError('separately installed retained delivery consumer missing')
+        for signature in DELIVERY_FUNCTIONS:
+            row=_execute_v1(connection,deadline,"""SELECT p.oid,r.rolname,p.prosecdef,p.provolatile,p.proconfig,
+                pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc,'UTF8')),'hex'),
+                pg_catalog.has_function_privilege(SESSION_USER,p.oid,'EXECUTE')
+                FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+                WHERE p.oid=pg_catalog.to_regprocedure(%s)""",('oracle2.'+signature,)).fetchone()
+            if (row is None or row[1:3]!=(self.binding.expected_owner,True)
+                    or row[4]!=['search_path=pg_catalog, oracle2'] or row[5]!=pins[signature.split('(')[0]]
+                    or signature==DELIVERY_SIGNATURE and (row[3]!='v' or row[6] is not True)):
+                raise PermissionError('exact retained delivery capability identity changed')
+            grants=_execute_v1(connection,deadline,"""SELECT coalesce(r.rolname,'PUBLIC'),x.is_grantable
+                FROM pg_catalog.pg_proc p CROSS JOIN LATERAL pg_catalog.aclexplode(coalesce(p.proacl,pg_catalog.acldefault('f',p.proowner))) x
+                LEFT JOIN pg_catalog.pg_roles r ON r.oid=x.grantee
+                WHERE p.oid=%s AND x.privilege_type='EXECUTE' AND x.grantee<>p.proowner""",(row[0],)).fetchall()
+            if signature==DELIVERY_SIGNATURE:
+                from .consolidated_delivery_v1 import validate_direct_history_getter_acl_v1
+                _sql_remaining_v1(deadline)
+                validate_direct_history_getter_acl_v1(connection,row[0],required_login=self.binding.session_login,deadline=deadline)
+                _sql_remaining_v1(deadline)
+            elif grants:raise PermissionError('retained delivery private helper ACL changed')
+
+    def projection_delivery_v1(self,model,version,*,deadline,valid_at=None,known_at=None):
+        from .consolidated_delivery_v1 import ConsolidatedReadDeliveryV1
+        from .source_receipts import SourceRef
+        from .request_deadline_v1 import request_remaining_v1
+        request_remaining_v1()
+        if self.binding.operation!='history-read' or type(model) is not UUID or model!=self.binding.model_id or type(version) is not int or version<1:
+            raise PermissionError('exact actual own history delivery consumer required')
+        before=self._metadata(model,deadline=deadline,valid_at=valid_at,known_at=known_at)
+        if before['manifest']['version']!=version:raise PermissionError('selected model changed before delivery read')
+        request_remaining_v1()
+        with _connection_v1(self.url,deadline,require_pinned_address=bool(self.delivery_capability_body_hashes)) as connection:
+            request_remaining_v1();self._check_delivery_catalog_v1(connection,deadline)
+            raw=_execute_v1(connection,deadline,'SELECT oracle2.hosting_consolidated_projection_delivery_v1(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                (model,version,valid_at,known_at,*self._arguments(deadline))).fetchone()[0]
+            request_remaining_v1();self._check_delivery_catalog_v1(connection,deadline)
+        request_remaining_v1()
+        result=ConsolidatedReadDeliveryV1.model_validate_json(canonical_bytes(raw))
+        if ((result.workspace_id,result.model_id,result.version,result.model_content_hash)!=(self.binding.workspace_id,model,version,before['manifest']['content_hash'])
+                or set(result.source_refs)!={SourceRef.model_validate_json(canonical_bytes(r)) for r in before['sourceRefs']}
+                or (result.valid_at,result.known_at)!=(valid_at,known_at)
+                or not result.checked_at<=datetime.now(timezone.utc)<result.valid_until<=min(deadline,self.binding.original_horizon)):
+            raise PermissionError('actual retained delivery/read scope differs')
+        after=self._metadata(model,deadline=deadline,valid_at=valid_at,known_at=known_at)
+        if before!=after:raise PermissionError('recipient model changed during retained delivery read')
+        self._check_after_close(deadline,after);request_remaining_v1()
+        return result
+
+    def read_serving_packet_v1(self,model,*,blobs,deadline,valid_at=None,known_at=None):
+        from .request_deadline_v1 import request_remaining_v1
+        request_remaining_v1()
+        metadata=self._metadata(model,deadline=deadline,valid_at=valid_at,known_at=known_at)
+        version=metadata['manifest']['version']
+        before=self.projection_delivery_v1(model,version,deadline=deadline,valid_at=valid_at,known_at=known_at)
+        request_remaining_v1()
+        core,actual,payload=self._read_model_packet_v1(model,blobs=blobs,deadline=deadline,valid_at=valid_at,known_at=known_at)
+        request_remaining_v1()
+        after=self.projection_delivery_v1(model,version,deadline=deadline,valid_at=valid_at,known_at=known_at)
+        fixed=lambda r:r.model_dump(mode='json',exclude={'checked_at','valid_until'})
+        if metadata!=actual or fixed(before)!=fixed(after):raise PermissionError('retained model or delivery changed around private body')
+        return core,actual,payload,after
+
     def review_v1(self,*,model,version,content_hash,decision,scope,assertions,bundle_hash,idempotency,deadline):
         self._deadline(deadline)
         if self.binding.operation!='business-review' or model!=self.binding.model_id:raise PermissionError('separate scoped business decision appointment required')
         attempted=False;body_complete=False
         try:
-            with psycopg.connect(self.url,connect_timeout=2) as c:
+            with _connection_v1(self.url,deadline,require_pinned_address=bool(self.delivery_capability_body_hashes)) as c:
                 self._check(c,deadline)
                 attempted=True
-                result=c.execute('SELECT oracle2.record_processing_model_review_v1(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                result=_execute_v1(c,deadline,'SELECT oracle2.record_processing_model_review_v1(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                     (model,version,content_hash,decision,canonical_bytes(scope),Jsonb(assertions),bundle_hash,idempotency,*self._arguments(deadline))).fetchone()[0]
                 self._check(c,deadline)
                 body_complete=True
@@ -195,9 +285,9 @@ class ConsolidationAuthorityV1:
         try:
             self._check_after_close(deadline,result)
             # Independent fresh purpose recheck after actual write ACK/connection close.
-            with psycopg.connect(self.url,connect_timeout=2) as c:
+            with _connection_v1(self.url,deadline,require_pinned_address=bool(self.delivery_capability_body_hashes)) as c:
                 self._check(c,deadline)
-                fresh=c.execute('SELECT oracle2.hosting_processing_review_diff_v1(%s,%s,%s,%s,%s,%s,%s)',
+                fresh=_execute_v1(c,deadline,'SELECT oracle2.hosting_processing_review_diff_v1(%s,%s,%s,%s,%s,%s,%s)',
                     (model,version,*self._arguments(deadline))).fetchone()[0]
                 if fresh['currentVersion']!=version or fresh['currentContentHash']!=content_hash:
                     raise PermissionError('accepted version changed after commit')
@@ -215,9 +305,9 @@ class ConsolidationAuthorityV1:
             raise PermissionError('fixed currently scoped decision-change capability required')
         attempted=False;body_complete=False
         try:
-            with psycopg.connect(self.url,connect_timeout=2) as c:
+            with _connection_v1(self.url,deadline,require_pinned_address=bool(self.delivery_capability_body_hashes)) as c:
                 self._check(c,deadline);attempted=True
-                result=c.execute('SELECT oracle2.record_processing_model_decision_change_v1(%s,%s,%s,%s,%s,%s,%s,%s)',
+                result=_execute_v1(c,deadline,'SELECT oracle2.record_processing_model_decision_change_v1(%s,%s,%s,%s,%s,%s,%s,%s)',
                     (target_event,action,idempotency,*self._arguments(deadline))).fetchone()[0]
                 self._check(c,deadline)
                 body_complete=True
@@ -229,9 +319,9 @@ class ConsolidationAuthorityV1:
             raise
         try:
             self._check_after_close(deadline,result)
-            with psycopg.connect(self.url,connect_timeout=2) as c:
+            with _connection_v1(self.url,deadline,require_pinned_address=bool(self.delivery_capability_body_hashes)) as c:
                 self._check(c,deadline)
-                fresh=c.execute('SELECT oracle2.hosting_processing_decision_event_v1(%s,%s,%s,%s,%s,%s)',
+                fresh=_execute_v1(c,deadline,'SELECT oracle2.hosting_processing_decision_event_v1(%s,%s,%s,%s,%s,%s)',
                     (result['eventId'],*self._arguments(deadline))).fetchone()[0]
                 self._check(c,deadline)
             self._check_after_close(deadline,fresh)
@@ -277,9 +367,9 @@ class ConsolidationAuthorityV1:
         self._deadline(deadline)
         if self.binding.operation!='business-review' or model!=self.binding.model_id or type(expected_version) is not int or expected_version<1:
             raise PermissionError('fixed exact current business review selector required')
-        with psycopg.connect(self.url,connect_timeout=2) as c:
+        with _connection_v1(self.url,deadline,require_pinned_address=bool(self.delivery_capability_body_hashes)) as c:
             self._check(c,deadline)
-            result=c.execute('SELECT oracle2.hosting_processing_review_diff_v1(%s,%s,%s,%s,%s,%s,%s)',
+            result=_execute_v1(c,deadline,'SELECT oracle2.hosting_processing_review_diff_v1(%s,%s,%s,%s,%s,%s,%s)',
                 (model,expected_version,*self._arguments(deadline))).fetchone()[0]
             self._check(c,deadline)
         self._check_after_close(deadline,result)

@@ -85,7 +85,7 @@ def parse_conversation_request_v1(raw):
     return SimpleNamespace(caller_deadline=stamp,value=q)
 
 class _ConversationIngress:
-    def __init__(self,control,intake=None):self.control=control;self.intake=intake
+    def __init__(self,control,intake=None,answering=None):self.control=control;self.intake=intake;self.answering=answering
     def execute_v1(self,raw):
         try:return self._execute_v1(raw)
         except ConversationDenied:return dict(schema_version=1,state='DENIED',resend_authorized=False)
@@ -104,9 +104,11 @@ class _ConversationIngress:
             event=next((e for e in snapshot['recap']['events'] if e['turn_id']==q['turn_id'] and e['origin']=='employee'),None)
             if event is None:raise PermissionError('actual committed employee original unavailable')
             snapshot=InterviewWorkflowV1(self.control).register_original_v1(UUID(snapshot['thread_id']),UUID(event['event_id']),self.intake)
+        if self.answering is not None and op in ('employee_turn','correct'):
+            return self.answering.present_turn_v1(snapshot,q['turn_id'])
         return present(snapshot)
 
-def protected_conversation_server_v1(conversation,peer_profile_path,peer_profile_sha256,*,original_intake=None):
+def protected_conversation_server_v1(conversation,peer_profile_path,peer_profile_sha256,*,original_intake=None,answering=None):
     if type(conversation) is not ConversationSettingsV1:raise TypeError('exact separate conversation settings required')
     profile=_parse(ConversationPeerProfileV1,_pinned(peer_profile_path,peer_profile_sha256))
     settings=_ConversationPeerSettings(conversation,profile,str(peer_profile_path),peer_profile_sha256);settings.current()
@@ -116,10 +118,24 @@ def protected_conversation_server_v1(conversation,peer_profile_path,peer_profile
         c=conversation.config;i=original_intake.config
         if (c.original_intake_config_sha256,c.original_intake_appointment_sha256,c.principal_id,c.workspace_id)!=(original_intake.config_sha256,original_intake.appointment_sha256,i.principal_id,i.workspace_id):raise PermissionError('existing original intake installation not bound to conversation')
         original_intake.current();intake=OriginalIntakeFactoryV1(original_intake)
-    factory=_ConversationIngress(ConversationControlV1(conversation),intake)
+    control=ConversationControlV1(conversation);answer_owner=None
+    if answering is not None:
+        from .conversation_answer_v1 import ConversationAnswerV1
+        answer_owner=ConversationAnswerV1(control,answering)
+    factory=_ConversationIngress(control,intake,answer_owner)
     def encode(value):
         if not isinstance(value,dict) or value.get('schema_version')!=1:raise PermissionError('closed actual conversation response required')
         if 'state' not in value or value['state'] not in ('committed','UNKNOWN','DENIED','CONFLICT'):
             if value.get('principal_id')!=str(conversation.config.principal_id) or value.get('workspace_id')!=str(conversation.config.workspace_id) or value.get('company_policy_confirmed') is not False:raise PermissionError('actual own conversation response differs')
         return canonical_bytes(value)
-    return _protected_control_listener_v1(settings,factory,path=PATH,parse_request=parse_conversation_request_v1,encode_response=encode,maximum_response_bytes=4194304)
+    try:
+        server=_protected_control_listener_v1(settings,factory,path=PATH,parse_request=parse_conversation_request_v1,encode_response=encode,maximum_response_bytes=4194304)
+        if answer_owner is not None:
+            original_close=server.server_close
+            def close():
+                original_close();answer_owner.close()
+            server.server_close=close
+        return server
+    except BaseException:
+        if answer_owner is not None:answer_owner.close()
+        raise
