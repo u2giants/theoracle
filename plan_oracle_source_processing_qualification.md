@@ -3,6 +3,18 @@
 
 ## STATUS — read first
 
+**October22,2026 EDT — owner-requested closeout; program OPEN.** Read the [complete current continuation](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-22T1211Z-edge-dev3-codex-parent24-closeout.md) before any execution; it supersedes older present-tense source snapshots below, not the requirements or historical evidence. Mainc187 delivered PR191 source with5370 clean PR cases, then full post-main5370/1 failure. PR193 earlier5224 PR/post-main passed. S03–S16/#27–40 and#58 remain open;#25/#26 retain only their offline/synthetic acceptance. No company/business/adoption/retirement authority or expired native permission is renewed.
+
+| Current delivery | Verification / next action |
+|---|---|
+| S09 preserved11221;PR192 parked, branch retained | Last actual4690 partial failed11setup+2fail/missingXML; canonical fixture/diagnostic pure18 pass. CoherentTLS cause and full120s fit pending. |
+| S12 preserved7def and S11 preservedac539, complete current-main compositions |429/469 web and exact source checks pass; current actualNext/SQL/full-workflow registration and wholeproduct remain pending. PreparedS12runner04 never executed. |
+| S08 preserved81742134;S13 preserved2633 and partialV2ab091 | S08currentSQL unproved;S13actual09 failed25/27,0errors/skips, exact source unchanged/resources absent. Ratified SQLrepair/all56audit not started. V2DTOs partial/untested, no BPF/child effects. |
+| Writer cut / S14–S16 / W/U readiness | Actual all-writer consistentcut, full restore/metrics/cohort/rollback/license/host/semantic qualification and separate business acceptance remain open. Source leaves/tests/closedPRs never complete the program. |
+| Preservation and ownership | Seven exact source heads plus portable source/history/evidence archive published; original worktrees retained. No actual successor accepted. Shared-db closeout check found zero session-owned claims/stages. ToolPR1988 parked/uninstalled after separateCI pacing failure; installedchecker repair is not claimed. |
+
+**Already settled — do not re-ask:** approved exact assertion/version/scope remains in force until explicitly withdrawn when its approver loses authority; new revisions/scopes do not inherit approval, and source-read rights stay separately current. The complete handoff records failures, exact next gates and all remaining phases.
+
 Updated October 15, 2026, 11:30 PM EDT. Owner: parent #24 adopting Codex coordinator; work stays on existing [S03 #27](https://github.com/u2giants/theoracle/issues/27) under [#24](https://github.com/u2giants/theoracle/issues/24). Architecture landed documentation-only in PR145 at f6f22837dcbca64c9492aee840e6506b1cd809c7 and PR146 at a5a5ebe7b1738d1bd871b7776a5b65d3a73b7207; the coordinator accepted the source-only trust-A design and subsequently the explicitly bounded two-column lease extension below. Q2a context source landed in PR147 at 675b2ea1eb3476d1b3f4c1de8efba0a93b4dc1c6. Current combined source candidate 23adcacdcef4697ca8db67d7d997de979c2f9568 passed canonical synthetic W10: 1299 tests,0 skipped,0 failures, no cleanup errors, within the unchanged common 120-second deadline. Final combined independent security review, source shipment and all actual target/action qualification remain OPEN. This is source/synthetic evidence only: no actual provider, private original, business acceptance, installation, production action or new runtime/grant authority is claimed.
 
 | Step | State | Gate and evidence |
