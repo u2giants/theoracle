@@ -199,7 +199,29 @@ def start_unattended(u):
             binding.update(client_certificate_file=str(certs/'leave.pem'),client_certificate_sha256=sha(certs/'leave.pem'),client_certificate_der_sha256=p.client_certificate_sha256,client_key_file=str(certs/'leave.key'),client_key_sha256=sha(certs/'leave.key'))
         br=pin(o['dir']/'web-worker-binding.json',binding)
         key={'stop':'LEAVE','pre':'PRE_STOP_RETRIEVE','post':'POST_STOP_RETRIEVE','create':'CREATE'}[name];env['ORACLE2_MEETING_'+key+'_WORKER_BINDING_FILE']=br['path'];env['ORACLE2_MEETING_'+key+'_WORKER_BINDING_SHA256']=br['sha256']
-        if name=='create':u['create_server']=server
+        if name=='create':
+            u['create_server']=server
+            # Fixture-only response diagnostic: log nonsecret status/header fields
+            # for every create-worker response so a refusal can be diagnosed.
+            _diag_path=short/'create-server-responses.jsonl'
+            _orig_send_response=server.RequestHandlerClass.send_response
+            _orig_send_header=server.RequestHandlerClass.send_header
+            _orig_end_headers=server.RequestHandlerClass.end_headers
+            def _logged_send_response(self,code,message=None):
+                self._diag_status=code;self._diag_headers=[]
+                return _orig_send_response(self,code,message)
+            def _logged_send_header(self,keyword,value):
+                self._diag_headers.append([keyword,value])
+                return _orig_send_header(self,keyword,value)
+            def _logged_end_headers(self):
+                try:
+                    with open(_diag_path,'a') as _f:
+                        _f.write(json.dumps({'status':getattr(self,'_diag_status',None),'headers':getattr(self,'_diag_headers',[])})+'\n')
+                except Exception:pass
+                return _orig_end_headers(self)
+            server.RequestHandlerClass.send_response=_logged_send_response
+            server.RequestHandlerClass.send_header=_logged_send_header
+            server.RequestHandlerClass.end_headers=_logged_end_headers
         return s
     for name in ('pre','stop','post'):worker(name)
     stop=owners['stop'];qs=u['supervisions']['stop'];qp=MeetingSupervisionPeerProfileV1(**peer_fields(stop,certs,'queue',x['until'],purpose='meeting-supervision-service-peer-v1'),process_purpose='meeting-stop-worker-process-v1',supervision_config_sha256=qs.sha256,scope_sha256=digest(u['scope'].model_dump(mode='json')))
@@ -296,6 +318,35 @@ def test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_rece
             if time.monotonic()>=end:raise
             time.sleep(.02)
     actual.stdin.write(b'go\n');actual.stdin.flush();actual.stdin.close();actual.wait(timeout=12)
+    # Fixture-only diagnostic metadata: capture nonsecret status/header fields,
+    # stage, exception type, supervisor witness and claim-time state before the
+    # assertion so a refusal retains exact evidence without leaking production
+    # error detail. No guard change, no retry, no fallback.
+    diag=dict(returncode=actual.returncode)
+    try:
+        outcome=json.loads((tmp_path/'actual-create-child.stdout').read_bytes())
+        diag.update(stage=outcome.get('stage'),error_type=outcome.get('error_type'))
+    except Exception:pass
+    if (u['short']/'create-server-responses.jsonl').exists():
+        (tmp_path/'create-server-responses.jsonl').write_bytes((u['short']/'create-server-responses.jsonl').read_bytes())
+    try:
+        witness_results=[]
+        for profile in profiles:
+            try:
+                obs=observe_supervisor_process_v2(profile,challenge=hashlib.sha256(uuid4().bytes).hexdigest(),deadline=min(now()+timedelta(seconds=5),profile.expires_at))
+                witness_results.append(dict(purpose=profile.purpose,ok=True))
+            except Exception as error:
+                witness_results.append(dict(purpose=profile.purpose,ok=False,error_type=type(error).__name__))
+        diag['supervisor_witness']=witness_results
+    except Exception as error:
+        diag['supervisor_witness_error']=type(error).__name__
+    try:
+        with admin(x) as c:
+            claims=c.execute('SELECT claim_id::text,state,created_at::text FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchall()
+            diag['claim_time']=[dict(claim_id=r[0],state=r[1],created_at=r[2]) for r in claims]
+    except Exception as error:
+        diag['claim_time_error']=type(error).__name__
+    (tmp_path/'create-child-diagnostics.json').write_text(json.dumps(diag,default=str))
     assert actual.returncode==0,'actual Create child refused; exact private diagnostic retained'
     outcome=json.loads((tmp_path/'actual-create-child.stdout').read_bytes());assert outcome['state']=='observed'
     assert outcome['qualification'] is False and outcome['remote_stop_proven'] is False and outcome['resend_authorized'] is False
