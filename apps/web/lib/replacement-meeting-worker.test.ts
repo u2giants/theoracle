@@ -141,17 +141,17 @@ test('provider key drift refuses current worker before any further HTTP',async()
 
 test('aggregate sequence uses a fresh process and SAME fixture owner, with no reused spent state',async()=>{
  const environment:NodeJS.ProcessEnv={...process.env,ORACLE2_TEST_LOCAL_SEQUENCE_ONLY:'1'};delete environment.NODE_TEST_CONTEXT;
- const result=await new Promise<{stdout:string;stderr:string}>((resolve,reject)=>execFile('pnpm',['--filter','@oracle/web','exec','tsx','--test','lib/replacement-meeting-worker.test.ts'],{cwd:new URL('../',import.meta.url),env:environment,timeout:15000},(error,stdout,stderr)=>error?reject(new Error(stdout+'\n'+stderr)):resolve({stdout,stderr})));
+ const result=await new Promise<{stdout:string;stderr:string}>((resolve,reject)=>execFile('pnpm',['--filter','@oracle/web','exec','tsx','--test','--test-reporter=tap','lib/replacement-meeting-worker.test.ts'],{cwd:new URL('../',import.meta.url),env:environment,timeout:15000},(error,stdout,stderr)=>error?reject(new Error(stdout+'\n'+stderr)):resolve({stdout,stderr})));
  assert.match(result.stdout,/# pass 1\b/,result.stderr);assert.match(result.stdout,/# fail 0\b/);assert.match(result.stdout,/# skipped 0\b/);
 });
 test('queue and STOP stages share one original3s in a fresh process',async()=>{
  const environment:NodeJS.ProcessEnv={...process.env,ORACLE2_TEST_LOCAL_SEQUENCE_ONLY:'cycle'};delete environment.NODE_TEST_CONTEXT;
- const result=await new Promise<{stdout:string;stderr:string}>((resolve,reject)=>execFile('pnpm',['--filter','@oracle/web','exec','tsx','--test','lib/replacement-meeting-worker.test.ts'],{cwd:new URL('../',import.meta.url),env:environment,timeout:15000},(error,stdout,stderr)=>error?reject(new Error(stdout+'\n'+stderr)):resolve({stdout,stderr})));
+ const result=await new Promise<{stdout:string;stderr:string}>((resolve,reject)=>execFile('pnpm',['--filter','@oracle/web','exec','tsx','--test','--test-reporter=tap','lib/replacement-meeting-worker.test.ts'],{cwd:new URL('../',import.meta.url),env:environment,timeout:15000},(error,stdout,stderr)=>error?reject(new Error(stdout+'\n'+stderr)):resolve({stdout,stderr})));
  assert.match(result.stdout,/# pass 1\b/,result.stderr);assert.match(result.stdout,/# fail 0\b/);assert.match(result.stdout,/# skipped 0\b/);
 });
 test('concrete local STOP process proves actual armed loop and current queue without effects',async()=>{
  const environment:NodeJS.ProcessEnv={...process.env,ORACLE2_TEST_LOCAL_SEQUENCE_ONLY:'process'};delete environment.NODE_TEST_CONTEXT;
- const result=await new Promise<{stdout:string;stderr:string}>((resolve,reject)=>execFile('pnpm',['--filter','@oracle/web','exec','tsx','--test','lib/replacement-meeting-worker.test.ts'],{cwd:new URL('../',import.meta.url),env:environment,timeout:15000},(error,stdout,stderr)=>error?reject(new Error(stdout+'\n'+stderr)):resolve({stdout,stderr})));
+ const result=await new Promise<{stdout:string;stderr:string}>((resolve,reject)=>execFile('pnpm',['--filter','@oracle/web','exec','tsx','--test','--test-reporter=tap','lib/replacement-meeting-worker.test.ts'],{cwd:new URL('../',import.meta.url),env:environment,timeout:15000},(error,stdout,stderr)=>error?reject(new Error(stdout+'\n'+stderr)):resolve({stdout,stderr})));
  assert.match(result.stdout,/# pass 1\b/,result.stderr);assert.match(result.stdout,/# fail 0\b/);assert.match(result.stdout,/# skipped 0\b/);
 });
 }
