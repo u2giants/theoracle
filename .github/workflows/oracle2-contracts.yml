@@ -95,7 +95,9 @@ jobs:
       - name: Verify replacement journey contract and fixture store
         run: pnpm --filter @oracle/web exec tsx --test lib/replacement-contract.test.ts lib/replacement-fixture-auth.test.ts lib/replacement-fixture-route.test.ts lib/replacement-control-window.test.ts lib/replacement-protected-client.test.ts lib/replacement-protected-control-route.test.ts lib/replacement-original-viewer.test.ts lib/replacement-original-upload-route.test.ts lib/replacement-original-upload.test.ts lib/replacement-model-review.test.ts lib/replacement-conversation-contract.test.ts lib/protected-node-https.test.ts lib/recall-replacement.test.ts lib/replacement-meeting-control.test.ts lib/replacement-meeting-ingress.test.ts lib/replacement-meeting-worker.test.ts lib/replacement-connected-answer.test.ts lib/replacement-worker-receipt.test.ts lib/replacement-meeting-route.test.ts lib/recall-capture-contract.test.ts lib/replacement-natural-question.test.ts lib/replacement-meeting-normalization.test.ts lib/replacement-meeting-supervision.test.ts lib/replacement-local-stop-config.test.ts lib/replacement-meeting-queue.test.ts
       - name: Verify Oracle 2 worker script bundle paths
-        run: node scripts/oracle2/verify_worker_bundle.mjs
+        run: |
+          node scripts/oracle2/verify_worker_bundle.mjs
+          pnpm --filter @oracle/workers exec tsx --test meeting-target-profile.test.mts meeting-bundle-isolation.test.mts meeting-task-entry.test.mts
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:

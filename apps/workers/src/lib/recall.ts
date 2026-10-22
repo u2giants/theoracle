@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+
 const DEFAULT_RECALL_BASE_URL = 'https://us-east-1.recall.ai';
 
 function recallBaseUrl(): string {
@@ -58,4 +60,29 @@ export async function sendRecallChatMessage(args: {
     }
     throw new Error(message);
   }
+}
+
+/** Exact bytes from the independently protected once-only participation claim.
+ * This checks content integrity only: it cannot grant send permission, supply
+ * a provider key, replace currentness or make a supplier idempotency key.
+ * The fixed worker owner must prove its SAME claim immediately before effect.
+ */
+export function protectedParticipationChatBodyV1(body:Uint8Array,expectedSha256:string):Buffer{
+ if(!(body instanceof Uint8Array)||!body.length||body.length>32768||!/^[a-f0-9]{64}$/.test(expectedSha256)){
+  throw new Error('Protected meeting participation unavailable');
+ }
+ const bytes=Buffer.from(body);
+ if(createHash('sha256').update(bytes).digest('hex')!==expectedSha256)throw new Error('Protected meeting participation unavailable');
+ const text=bytes.toString('utf8');
+ if(!Buffer.from(text,'utf8').equals(bytes))throw new Error('Protected meeting participation unavailable');
+ let value:unknown;try{value=JSON.parse(text);}catch{throw new Error('Protected meeting participation unavailable');}
+ if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Protected meeting participation unavailable');
+ const v=value as Record<string,unknown>;
+ if(Object.keys(v).length!==2||v.to!=='everyone'||typeof v.message!=='string'
+  ||!(v.message.startsWith('Could you clarify: ')||v.message.startsWith('You asked: '))
+  ||v.message==='Could you clarify: '||v.message==='You asked: '
+  ||Array.from(v.message).length<1||Array.from(v.message).length>4096||v.message.includes('\0')
+  ||/[<>]/.test(v.message)||/&(?!amp;|lt;|gt;)/.test(v.message)
+  ||text!==JSON.stringify({message:v.message,to:'everyone'}))throw new Error('Protected meeting participation unavailable');
+ return bytes;
 }
