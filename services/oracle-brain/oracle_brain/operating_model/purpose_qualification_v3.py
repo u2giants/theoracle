@@ -297,14 +297,14 @@ class PurposeQualifiedAssemblyReadGuardV3(QualifiedAssemblyReadGuard):
         return result.valid_until
 
     def _validated_recommendation_parent_v1(self,manifest,payload,principal,now):
-        from .consolidation_recommendations_v1 import QualifiedRecommendationsV1,validate_recommendation_parent
+        from .consolidation_recommendations_v1 import parse_qualified_recommendations,validate_recommendation_parent
         from .processing_ledger import PurposeProcessingCompilerLedgerV3,ValidatedQualifiedParentV3
         reader=getattr(self,'_full_parent_v3',None)
         if (type(getattr(reader,'__self__',None)) is not PurposeProcessingCompilerLedgerV3
                 or getattr(reader,'__func__',None) is not PurposeProcessingCompilerLedgerV3.read_validated_qualified_parent_v3
                 or reader.__self__.principal!=principal):
             raise PermissionError('exact current canonical qualified parent owner required')
-        body=QualifiedRecommendationsV1.model_validate_json(canonical_bytes(payload['recommendations']))
+        body=parse_qualified_recommendations(payload['recommendations'])
         result=reader(manifest.workspace_id,body.parent_model_id,body.parent_version)
         if type(result) is not ValidatedQualifiedParentV3:raise PermissionError('validated immutable parent required')
         import json

@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 import psycopg
-from .request_deadline_v1 import sql_execute_current_v1
+from .request_deadline_v1 import sql_execute_current_v1,request_remaining_v1
+from .protected_sql_connection_v1 import require_protected_sql_window_v1,_connection_v1
 
 @dataclass(frozen=True)
 class SourceRoleBinding:
@@ -18,6 +19,7 @@ class SourceRoleBinding:
             raise PermissionError('independently sealed source-role pins required')
 
     def check(self, connection):
+        require_protected_sql_window_v1(connection)
         parameters=connection.info.get_parameters()
         if not connection.pgconn.ssl_in_use or parameters.get('sslmode')!='verify-full':
             if (not self.synthetic or connection.info.host not in {'127.0.0.1','localhost','::1'}
@@ -35,6 +37,13 @@ class SourceRoleBinding:
                 or rows[0][2]<=rows[0][3] or rows[0][2]<=datetime.now(timezone.utc)):
             raise PermissionError('current self-role source registry differs from sealed startup')
 
-    def check_url(self, url):
+    def check_url(self, url, *, caller_deadline=None):
+        if request_remaining_v1(required=False) is not None:
+            if caller_deadline is None:
+                raise PermissionError('protected source URL check requires original caller deadline')
+            with _connection_v1(url,caller_deadline) as connection:
+                self.check(connection)
+            request_remaining_v1()
+            return
         with psycopg.connect(url,connect_timeout=5) as connection:
             self.check(connection)

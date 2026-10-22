@@ -6,7 +6,8 @@ import psycopg
 from oracle_brain.knowledge.authority import _lock, _has_authority_conn
 from oracle_brain.ingest.originals import ReadingProvenance
 from .source_receipts import SourceRef, SourceReceipt
-from .request_deadline_v1 import sql_execute_current_v1
+from .request_deadline_v1 import sql_execute_current_v1,request_remaining_v1
+from .protected_sql_connection_v1 import _connection_v1,require_protected_sql_window_v1
 
 
 def require_review(connection, workspace_id: UUID, actor_id: UUID, scope: str):
@@ -29,7 +30,7 @@ class PostgresSources:
         params=conn.info.get_parameters()
         if self.synthetic is not True or params.get('host') not in {'127.0.0.1','localhost','::1'} or not (params.get('dbname','').startswith('oracle_operating_model_test') or params.get('dbname') in {'oracle2','hosting_permissions_test'}):
             raise PermissionError('externally issued source-role binding required')
-        roles=conn.execute("""WITH RECURSIVE memberships(oid) AS (
+        roles=sql_execute_current_v1(conn,"""WITH RECURSIVE memberships(oid) AS (
           SELECT oid FROM pg_roles WHERE rolname=SESSION_USER
           UNION SELECT m.roleid FROM pg_auth_members m JOIN memberships x ON m.member=x.oid)
           SELECT rolname FROM pg_roles WHERE oid IN (SELECT oid FROM memberships)
@@ -46,7 +47,7 @@ class PostgresSources:
     def current(self, workspace_id: UUID, source_id: UUID) -> SourceReceipt:
         with psycopg.connect(self.url) as conn:
             self._check(conn)
-            rows = conn.execute('''SELECT s.revision,s.status,d.status,b.text,m.text
+            rows = sql_execute_current_v1(conn,'''SELECT s.revision,s.status,d.status,b.text,m.text
               FROM oracle2.sources s JOIN oracle2.drafts d
                ON d.source_id=s.source_id AND d.workspace_id=s.workspace_id
               JOIN oracle2.source_blocks b ON b.source_id=s.source_id AND b.workspace_id=s.workspace_id AND b.kind='original'
@@ -129,6 +130,15 @@ class ProcessingSourceResolver:
     def shared_connection(self):
         """Reuse the socket, releasing each getter transaction before callbacks."""
         existing = getattr(self._shared, 'conn', None)
+        if request_remaining_v1(required=False) is not None:
+            # Inspected callers pass this optional value into _connection or
+            # ignore it. Protected metadata getters must actually CLOSE before
+            # observer/private callbacks; no retained idle socket is admitted.
+            if existing is not None:
+                raise PermissionError('protected request cannot borrow retained legacy SQL socket')
+            yield None
+            request_remaining_v1()
+            return
         if existing is not None:
             yield existing
             return
@@ -145,6 +155,17 @@ class ProcessingSourceResolver:
 
     @contextmanager
     def _connection(self, connection=None):
+        protected = request_remaining_v1(required=False) is not None
+        if protected and connection is None:
+            shared = getattr(self, '_shared', None)
+            if getattr(shared, 'conn', None) is not None:
+                raise PermissionError('original request cannot borrow legacy shared SQL connection')
+            with _connection_v1(self.url, self.binding.expires_at) as conn:
+                yield conn
+            request_remaining_v1()
+            return
+        if protected:
+            require_protected_sql_window_v1(connection)
         if connection is None:
             shared = getattr(self, '_shared', None)
             existing = getattr(shared, 'conn', None) if shared is not None else None
@@ -171,6 +192,7 @@ class ProcessingSourceResolver:
     def _check_role_and_catalog(self, conn):
         # Same identity/ACL facts as the historical multi-statement check, proved
         # in one current catalogue round-trip. No fact is cached or skipped.
+        require_protected_sql_window_v1(conn)
         b = self.binding
         if datetime.now(timezone.utc) >= b.expires_at:
             raise PermissionError('processing caller admission expired')
@@ -267,7 +289,7 @@ class ProcessingSourceResolver:
     def identity(self, workspace_id: UUID, source_id: UUID, *, connection=None) -> SourceRef:
         with self._connection(connection) as conn:
             self._check(conn)
-            rows=conn.execute('SELECT * FROM oracle2.hosting_current_source_identity(%s,%s,%s,%s,%s)',
+            rows=sql_execute_current_v1(conn,'SELECT * FROM oracle2.hosting_current_source_identity(%s,%s,%s,%s,%s)',
                               self._args(workspace_id,source_id)).fetchall()
             self._check(conn)
         if len(rows)!=1:
@@ -281,7 +303,7 @@ class ProcessingSourceResolver:
             raise PermissionError('metadata processing profile cannot read originals')
         with self._connection(connection) as conn:
             self._check(conn)
-            rows=conn.execute('SELECT * FROM oracle2.hosting_processing_source_receipt(%s,%s,%s,%s,%s)',
+            rows=sql_execute_current_v1(conn,'SELECT * FROM oracle2.hosting_processing_source_receipt(%s,%s,%s,%s,%s)',
                               self._args(workspace_id,source_id)).fetchall()
             self._check(conn)
         if len(rows)!=1:
@@ -358,7 +380,7 @@ class BoundProcessingSourceResolver(ProcessingSourceResolver):
         ref=dispatch.source_ref
         with self._connection(connection) as conn:
             self._check(conn)
-            rows=conn.execute('SELECT * FROM oracle2.hosting_current_source_identity(%s,%s,%s,%s,%s)',
+            rows=sql_execute_current_v1(conn,'SELECT * FROM oracle2.hosting_current_source_identity(%s,%s,%s,%s,%s)',
                               self._args(descriptor.workspace_id,ref.source_id)).fetchall()
             if len(rows)!=1:
                 raise PermissionError('unique processing proof identity required')
@@ -416,10 +438,10 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
         with self._connection(connection) as conn:
             # Pre-arm BEFORE fixed getter SELECT and preserve tighter callers.
             for setting,bound in (('statement_timeout','5s'),('lock_timeout','2s')):
-                conn.execute("SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
+                sql_execute_current_v1(conn,"SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
                     (setting,setting,setting,bound,bound,setting))
             self._check(conn);self._check_function_signatures(conn,self._delivery_signatures)
-            rows=conn.execute(query,(workspace_id,artifact_id,version,self.binding.principal,self.binding.runtime_hash,self.binding.source_registry_hash)).fetchall()
+            rows=sql_execute_current_v1(conn,query,(workspace_id,artifact_id,version,self.binding.principal,self.binding.runtime_hash,self.binding.source_registry_hash)).fetchall()
             self._check(conn);self._check_function_signatures(conn,self._delivery_signatures)
             if len(rows)!=1 or rows[0][0] is None:raise PermissionError('unique actual paid projection ACK required')
             model=ProcessingProjectionReceiptV3 if receipt else ProcessingProjectionDeliverySealV3
@@ -435,7 +457,7 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
                     or result.source_refs!=tuple(sorted(result.source_refs,key=lambda r:r.source_id.int))):
                 raise PermissionError('paid projection ACK source population differs')
             until=min(result.valid_until,self.binding.expires_at)
-            actual_clock=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+            actual_clock=sql_execute_current_v1(conn,'SELECT clock_timestamp()').fetchone()[0]
             if not result.checked_at<=actual_clock<until:
                 raise PermissionError('paid projection ACK current authority expired')
             result=result.model_copy(update={'valid_until':until})
@@ -457,12 +479,12 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
             raise PermissionError('exact current replacement executor capability required')
         with self._connection(connection) as conn:
             for setting,bound in (('statement_timeout','5s'),('lock_timeout','2s')):
-                conn.execute("SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
+                sql_execute_current_v1(conn,"SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
                     (setting,setting,setting,bound,bound,setting))
             self._check(conn)
             self._check_function_signatures(conn,self._delivery_signatures)
             self._check_function_signatures(conn,self._replacement_target_signatures)
-            rows=conn.execute('SELECT oracle2.replacement_executor_target_v1(%s)',(run_id,)).fetchall()
+            rows=sql_execute_current_v1(conn,'SELECT oracle2.replacement_executor_target_v1(%s)',(run_id,)).fetchall()
             self._check(conn)
             self._check_function_signatures(conn,self._replacement_target_signatures)
             if len(rows)!=1 or rows[0][0] is None:
@@ -473,7 +495,7 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
             if any(r.workspace_id!=result.workspace_id for r in result.source_refs):
                 raise PermissionError('replacement target source workspace differs')
             until=min(result.valid_until,self.binding.expires_at)
-            actual_clock=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+            actual_clock=sql_execute_current_v1(conn,'SELECT clock_timestamp()').fetchone()[0]
             if not result.checked_at<=actual_clock<until:
                 raise PermissionError('replacement target current authority expired')
             return result.model_copy(update={'valid_until':until})
@@ -486,7 +508,7 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
             raise PermissionError('exact current processing artifact identity required')
         with self._connection(connection) as conn:
             self._check(conn)
-            rows=conn.execute('SELECT * FROM oracle2.hosting_processing_artifact(%s,%s,%s,%s,%s,%s)',
+            rows=sql_execute_current_v1(conn,'SELECT * FROM oracle2.hosting_processing_artifact(%s,%s,%s,%s,%s,%s)',
                 (workspace_id,artifact_id,version,self.binding.principal,self.binding.runtime_hash,self.binding.source_registry_hash)).fetchall()
             self._check(conn)
         if len(rows)!=1:raise PermissionError('unique current processing artifact required')
@@ -507,7 +529,7 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
             raise PermissionError('exact processing extraction seal identity required')
         with self._connection(connection) as conn:
             self._check(conn)
-            rows=conn.execute('SELECT oracle2.hosting_processing_extraction_seal(%s,%s,%s,%s,%s,%s)',
+            rows=sql_execute_current_v1(conn,'SELECT oracle2.hosting_processing_extraction_seal(%s,%s,%s,%s,%s,%s)',
                 (workspace_id,artifact_id,version,self.binding.principal,self.binding.runtime_hash,self.binding.source_registry_hash)).fetchall()
             self._check(conn)
         if len(rows)!=1:raise PermissionError('unique current extraction seal required')
@@ -597,7 +619,7 @@ class _PurposeRoleVerifierV2(ProcessingSourceResolver):
         super()._check(conn)
         # Executed before the fixed getter SELECT, so PostgreSQL actually arms
         # this statement's timer. Preserve any tighter positive caller deadline.
-        conn.execute("SELECT set_config('statement_timeout',CASE WHEN current_setting('statement_timeout')::interval<=interval '0' OR current_setting('statement_timeout')::interval>interval '5 seconds' THEN '5s' ELSE current_setting('statement_timeout') END,true)")
+        sql_execute_current_v1(conn,"SELECT set_config('statement_timeout',CASE WHEN current_setting('statement_timeout')::interval<=interval '0' OR current_setting('statement_timeout')::interval>interval '5 seconds' THEN '5s' ELSE current_setting('statement_timeout') END,true)")
 
 
 class PurposeSourceResolverV2:
@@ -628,7 +650,7 @@ class PurposeSourceResolverV2:
             raise PermissionError('fixed own-login embedding metadata capability required')
         with self._roles._connection(connection) as conn:
             self._population(conn)
-            rows=conn.execute('SELECT oracle2.hosting_projection_embedding_seal_v2(%s,%s,%s,%s,%s,%s)',
+            rows=sql_execute_current_v1(conn,'SELECT oracle2.hosting_projection_embedding_seal_v2(%s,%s,%s,%s,%s,%s)',
                 (workspace_id,artifact_id,version,s.principal,s.runtime_hash,s.source_registry_hash)).fetchall()
             self._population(conn)
             if len(rows)!=1:raise PermissionError('unique qualified projection seal required')
@@ -657,7 +679,7 @@ class PurposeSourceResolverV2:
         self._check(conn)
         outputs=[];deadlines=[]
         for expected in b.source_refs:
-            rows=conn.execute(query,(expected.workspace_id,expected.source_id,s.principal,s.runtime_hash,s.source_registry_hash)).fetchall()
+            rows=sql_execute_current_v1(conn,query,(expected.workspace_id,expected.source_id,s.principal,s.runtime_hash,s.source_registry_hash)).fetchall()
             if len(rows)!=1:raise PermissionError('unique current purpose source required')
             row=rows[0]
             actual=SourceRef(workspace_id=expected.workspace_id,source_id=expected.source_id,revision=row[0],
@@ -675,7 +697,7 @@ class PurposeSourceResolverV2:
                 raise PermissionError('actual finite purpose SQL clock required')
             outputs.append(output);deadlines.append(expiry)
         self._check(conn)
-        now=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+        now=sql_execute_current_v1(conn,'SELECT clock_timestamp()').fetchone()[0]
         deadline=min(*deadlines,s.expires_at)
         if now>=deadline:raise PermissionError('purpose population authority expired')
         return tuple(outputs),deadline,now
@@ -730,7 +752,7 @@ class PurposeSourceResolverV2:
             _,expiry,checked=self._population(conn)
             expiry=min(expiry,descriptor.expires_at)
             if checked>=expiry:raise PermissionError('purpose descriptor expired')
-            caller,role=conn.execute('SELECT session_user,current_user').fetchone()
+            caller,role=sql_execute_current_v1(conn,'SELECT session_user,current_user').fetchone()
             if caller!=s.expected_session_role or (b.caller_kind=='provider' and caller!=descriptor.provider_login):
                 raise PermissionError('actual purpose caller differs')
             proof=PurposeAuthorityProofV2(run_id=descriptor.run_id,workspace_id=descriptor.workspace_id,

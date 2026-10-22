@@ -3,6 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { canonicalJson, parseClosedJson,readInstalledMeetingStopProcessConfigV1,currentInstalledMeetingStopProcessConfigV1,instant,type MeetingStopProcessConfigV1 } from './protected-server-binding';
 if (typeof window !== 'undefined') throw new Error('Replacement control unavailable');
 export const ORIGINAL_VIEW_PATH='/api/consultant/replacement/v1/protected/original';
+export const RECOMMENDATION_ACTIONS_PATH='/api/consultant/replacement/v1/protected/recommendation-actions';
 export const MODEL_REVIEW_PATH='/api/consultant/replacement/v1/protected/model-review';
 export const CONTROL_PATH = '/api/consultant/replacement/v1/protected/control';
 export const CONTROL_WINDOW_HEADER = 'x-oracle2-control-window';

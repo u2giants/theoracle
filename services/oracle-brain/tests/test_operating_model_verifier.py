@@ -91,7 +91,7 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
         '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
         '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-        '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','027_legacy_migration.sql')
+        '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','027_legacy_migration.sql')
 
 
 def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
@@ -105,7 +105,7 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
             # R7 registration: purpose_coherent_native_journey / native_trigger_v1
             # no longer own singleton groups; original/raw families replaced them.
             for heavy in ('purpose_worker_startup',):
-                assert [values for _,values in groups if heavy in values]==[(heavy,)]
+                assert [values for _,values in groups if heavy in values]==[(heavy,'question_effects_sql_v1')]
             for start in ('original_corpus_import','raw_endpoint_inventory_v1'):
                 assert any(values and values[0]==start for _,values in groups)
 
@@ -199,7 +199,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
-    assert verifier.SYNTHETIC_MIGRATIONS[-8:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','027_legacy_migration.sql')
+    assert verifier.SYNTHETIC_MIGRATIONS[-9:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','027_legacy_migration.sql')
 
 
 @pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])

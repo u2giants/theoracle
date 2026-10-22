@@ -1,3 +1,4 @@
+import {validateRecommendationRequestV1} from '@oracle/shared';
 import {validateConnectedAnswerQuery,type ConnectedAnswerPacket} from '@oracle/shared/protected-client-contracts';
 import {validateNaturalQuestionV1,naturalQuerySHA256V1,type NaturalQuestionV1} from '@oracle/shared/protected-natural-question-contract';
 import {validateIndustryQuestionV1,industryQuerySHA256V1,type IndustryQuestionV1} from '@oracle/shared/protected-natural-question-contract';
@@ -8,7 +9,7 @@ export {validateConnectedAnswerQuery,parseConnectedAnswerResponse,type Connected
  * All wire, protected-file, closed payload and original clock owners are shared.
  */
 import {performance} from 'node:perf_hooks';
-import {employeeRecipientIndexConfiguredV1,readInstalledEmployeeBindingV1,type EmployeeBindingPurposeV1,type IdentitySnapshot,canonicalHash,canonicalJson,canonicalUuid,instant,matchesIdentity,parseClosedJson,readInstalledBinding,readInstalledViewerBinding,readInstalledUploadBinding,readInstalledMeetingBinding,readInstalledMeetingIngressBinding,verifyInstalledMeetingIngress,readInstalledModelReviewBinding,readInstalledConversationBinding,readInstalledConnectedAnswerBinding,readInstalledMcpAnswerBinding,MAX_ORIGINAL_BYTES,sha256,type InstalledBinding,type ProtectedBinding,type ViewerSourcePin} from './replacement-server-binding';
+import {employeeRecipientIndexConfiguredV1,readInstalledEmployeeBindingV1,type EmployeeBindingPurposeV1,type IdentitySnapshot,canonicalHash,canonicalJson,canonicalUuid,instant,matchesIdentity,parseClosedJson,readInstalledRecommendationBindingV1,readInstalledBinding,readInstalledViewerBinding,readInstalledUploadBinding,readInstalledMeetingBinding,readInstalledMeetingIngressBinding,verifyInstalledMeetingIngress,readInstalledModelReviewBinding,readInstalledConversationBinding,readInstalledConnectedAnswerBinding,readInstalledMcpAnswerBinding,MAX_ORIGINAL_BYTES,sha256,type InstalledBinding,type ProtectedBinding,type ViewerSourcePin} from './replacement-server-binding';
 import {isConversationPath,readControlWindow,unavailableControl,privateControlHeaders,remaining,within,canonicalInstantV1,type Window} from './replacement-control-window';
 import {parseConversationResponse,validateConversationRequest,type ConversationPacket} from './replacement-conversation-contract';
 import {UPLOAD_CHUNK_BYTES,UPLOAD_MAX_REQUEST_BYTES,type UploadResponse} from './replacement-upload-contract';
@@ -281,3 +282,26 @@ async function connectedAnswer(request:Request,channel:'web'|'mcp',supplied?:{ki
 export async function requestConnectedAnswer(request:Request):Promise<Response>{return connectedAnswer(request,'web');}
 export async function requestEmployeeMcpAnswer(request:Request,query:unknown):Promise<Response>{return connectedAnswer(request,'mcp',{kind:'legacy',query});}
 export async function requestEmployeeMcpQuestion(request:Request,question:string):Promise<Response>{return connectedAnswer(request,'mcp',{kind:'natural',question});}
+
+/** Same sole actual employee identity owner, independently installed advice purpose. */
+export async function requestRecommendationActionsV1(request:Request):Promise<Response>{
+ const wall=Date.now(),mono=performance.now();const window:Window={wall,mono,end:wall+30000,signal:request.signal,proxyMonoEnd:process.hrtime.bigint()+30000000000n};
+ try{
+  const proxy=readControlWindow(request.headers);window.end=Math.min(window.end,proxy.wall_end);window.proxyMonoEnd=BigInt(proxy.mono_end);
+  const installed=readInstalledRecommendationBindingV1(),profile=installed.profile;window.end=Math.min(window.end,instant(profile.expires_at),instant(profile.original_horizon));
+  origin(request,profile);await identity(profile,window);
+  const body=await readBody(request,window),dto=validateRecommendationRequestV1(body),end=instant(dto.caller_deadline);
+  if(end<=Date.now()||end>window.end)return failure();window.end=end;
+  current(installed,window);await identity(profile,window);current(installed,window);
+  const result=await transport(installed,body,window);if(!('advice' in result))return failure();
+  current(installed,window);await identity(profile,window);current(installed,window);remaining(window);
+  return new Response(canonicalJson(result.advice),{status:200,headers:{...privateControlHeaders,'Content-Type':'application/json'}});
+ }catch{return unavailableControl();}
+}
+export async function authenticatedRecommendationPageAvailableV1():Promise<boolean>{
+ const wall=Date.now(),mono=performance.now();const window:Window={wall,mono,end:wall+30000,signal:AbortSignal.timeout(30000),proxyMonoEnd:process.hrtime.bigint()+30000000000n};
+ try{
+  const installed=readInstalledRecommendationBindingV1();window.end=Math.min(window.end,instant(installed.profile.expires_at),instant(installed.profile.original_horizon));
+  current(installed,window);await identity(installed.profile,window);current(installed,window);return true;
+ }catch{return false;}
+}
