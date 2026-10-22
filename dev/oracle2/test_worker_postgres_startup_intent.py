@@ -52,9 +52,10 @@ def test_startup_failure_retains_pre_effect_owner_and_attempts_exact_cleanup(tmp
     assert len(downs)==1 and downs[0][downs[0].index('-p')+1]==value['project']
     assert raw==json.dumps(value,sort_keys=True).encode()+b'\n'
 
-def test_intent_write_failure_prevents_all_compose_effects(tmp_path):
+@pytest.mark.parametrize('failed_operation',['open','fsync'])
+def test_intent_write_failure_prevents_all_compose_effects(tmp_path,failed_operation):
     calls=[];directory=tmp_path/'worker'
-    with patch.object(owner,'run',fixture_run(directory,calls)),patch.object(owner.os,'open',side_effect=OSError('invented receipt write failure')):
+    with patch.object(owner,'run',fixture_run(directory,calls)),patch.object(owner.os,failed_operation,side_effect=OSError('invented receipt write failure')):
         with pytest.raises(OSError,match='receipt write failure'):
             with owner.worker_postgres({'COMPOSE_PROJECT_NAME':BASE},directory,'documentary-01'):
                 raise AssertionError('write failure must not yield')
