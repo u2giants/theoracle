@@ -14,15 +14,19 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
-**October22,2026 EDT — owner-requested closeout; program OPEN.** Read the [complete current continuation](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-22T1211Z-edge-dev3-codex-parent24-closeout.md) before any execution; it supersedes older present-tense source snapshots below, not the requirements or historical evidence. Mainc187 delivered PR191 source with5370 clean PR cases, then full post-main5370/1 failure. PR193 earlier5224 PR/post-main passed. S03–S16/#27–40 and#58 remain open;#25/#26 retain only their offline/synthetic acceptance. No company/business/adoption/retirement authority or expired native permission is renewed.
+**October 23, 2026 EDT — parent24 resume after closeout; program OPEN.** Read the [resume handoff](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-23T1425Z-edge-dev-mimo-parent24-resume.md) and the [October 22 closeout](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-22T1211Z-edge-dev3-codex-parent24-closeout.md) before any execution. Main tip `81f9f6d9`. S03–S16/#27–40 and #58 remain open; #25/#26 retain only their offline/synthetic acceptance. No company/business/adoption/retirement authority is renewed. Business-acceptance hold stays until the whole readiness list is proved.
 
 | Current delivery | Verification / next action |
 |---|---|
-| S09 preserved11221;PR192 parked, branch retained | Last actual4690 partial failed11setup+2fail/missingXML; canonical fixture/diagnostic pure18 pass. CoherentTLS cause and full120s fit pending. |
-| S12 preserved7def and S11 preservedac539, complete current-main compositions |429/469 web and exact source checks pass; current actualNext/SQL/full-workflow registration and wholeproduct remain pending. PreparedS12runner04 never executed. |
-| S08 preserved81742134;S13 preserved2633 and partialV2ab091 | S08currentSQL unproved;S13actual09 failed25/27,0errors/skips, exact source unchanged/resources absent. Ratified SQLrepair/all56audit not started. V2DTOs partial/untested, no BPF/child effects. |
-| Writer cut / S14–S16 / W/U readiness | Actual all-writer consistentcut, full restore/metrics/cohort/rollback/license/host/semantic qualification and separate business acceptance remain open. Source leaves/tests/closedPRs never complete the program. |
-| Preservation and ownership | Seven exact source heads plus portable source/history/evidence archive published; original worktrees retained. No actual successor accepted. Shared-db closeout check found zero session-owned claims/stages. ToolPR1988 parked/uninstalled after separateCI pacing failure; installedchecker repair is not claimed. |
+| Main tip `81f9f6d9` | PR195 S12-04 brief, PR196 S07 diagnostics, PR198 S09 compose + W10 fixes, PR199 S14 writer-cut design, PR202 S07 fresh-proof plan, PR203 V2 DTOs/BPF, PR204 resume handoff all merged. Full W10 **5472 success:true** on run 39855010833 (first complete-population green). Business acceptance remains false. |
+| S09 question-current | Composed and merged (PR198). `conversation_native_sql` stays on documentary-03. Shared timeout flag and lease regex fixed. |
+| S07 Create-child | Diagnostics + fresh-proof plan on main. Failure is flaky (Create-child passed 40.88s on run 39846165685). Fresh invented proof still required after independent SOURCE+ONE resource review and root release. |
+| S13 recovery / PR197 | Ratified SQL repairs (receipts `claim_id` owner join; `AS recovery_scope_item(value)`) composed on `codex/parent24-s13-sql-repair` head `3072140f`. GLM final-check APPROVE. 020/021/023/024/025/027 pins match `OPERATIONAL_OWNER_SOURCE_PINS_V1`. `test_recovery_sql_source_v1.py` 20/20 after refreshing the outside-context frozen hash. 27 SQL cases collect. Audit scope: 56 operational-owner census queries (including 75 census-query sites and 18 DECLARE sites). Linux pglast + pin checks done; runner10 after independent resource assessment. Ship as **true three-way merge only**. |
+| S08 / PR200 | Eight-source compose open at `450dd3e6`. Needs Linux 256 pure + actual 21 SQL + browser→receipt journey. Real Teams producer stays UNQUALIFIED. |
+| S11 / PR201 | Compose + registration open at `ac1a848e`. Needs actual 45 SQL+Next/multiemployee and whole-product W10. No invented business saving claimed. |
+| S12 | Brief on main (PR195). Actual nine-case Next/AuthSDK proof never executed. |
+| Writer cut / S14–S16 / W/U readiness | Design + inventory on main (PR199). Implementation, comparison, adoption, retirement and separate business acceptance remain open. |
+| Preservation and ownership | Open PR branches retained (197/200/201). ToolPR1988 still parked/uninstalled. Shared-db closeout check found zero session-owned claims/stages. |
 
 **Already settled — do not re-ask:** approved exact assertion/version/scope remains in force until explicitly withdrawn when its approver loses authority; new revisions/scopes do not inherit approval, and source-read rights stay separately current. The complete handoff records failures, exact next gates and all remaining phases.
 
