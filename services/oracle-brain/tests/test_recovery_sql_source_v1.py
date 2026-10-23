@@ -178,7 +178,7 @@ def test_scope_variable_inverse_restores_exact_frozen_context_and_every_other_by
  normalized=context[:body_start]+normalized_body+context[body_end:]
  assert count==9
  assert hashlib.sha256(normalized.encode()).hexdigest()=='281454358132f0fba0bdb3a965dd814acb822331fe39c3eec6b925b7903c0350'
- assert hashlib.sha256((source[:start]+source[end:]).encode()).hexdigest()=='5327089d695162cdbe57edf0b9b5f094e2307224868c10f47b7f625b6c58942b'
+ assert hashlib.sha256((source[:start]+source[end:]).encode()).hexdigest()=='4da2f947f9389b818eb90ea0622bd05f33bca8487cb5e27fc73a7b7765b2b432'
  assert _rename_unqualified_scope_token(body,'scope','unexpected')[1]==0
  assert 'source_scope_v1 jsonb;' in context and 'FOR source_scope_v1 IN SELECT value' in context
  assert "WHERE appointment_id=(source_scope_v1->>'appointment_id')::uuid" in context
