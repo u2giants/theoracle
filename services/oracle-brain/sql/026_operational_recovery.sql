@@ -658,7 +658,7 @@ BEGIN
  -- No policy payload/receipt is issued by completeness or snapshot metadata.
  a:=oracle2._recovery_context_v1(wanted,deadline);
  result:=jsonb_build_object('schema_version',1,'protocol',CASE WHEN a.phase_authority='capture' THEN 'oracle-replacement-capture-denials-v1' ELSE 'oracle-replacement-current-denials-v1' END,CASE WHEN a.phase_authority='capture' THEN 'capture_operation_id' ELSE 'restore_operation_id' END,wanted,'descriptor_sha256',a.descriptor_sha256,
- 'source_system_identifier',(SELECT system_identifier::text FROM pg_control_system()),'source_database_oid',(SELECT oid FROM pg_database WHERE datname=current_database()),'source_database_name',current_database(),
+ 'source_system_identifier',(SELECT system_identifier::text FROM pg_control_system()),'source_database_oid',(SELECT oid::bigint FROM pg_database WHERE datname=current_database()),'source_database_name',current_database(),
  'source_session_role',SESSION_USER,'source_principal_id',a.principal_id,'runtime_sha256',a.runtime_hash,'registry_sha256',a.registry_hash,
  'workspace_ids',d->'workspace_ids','coverage',d->'scope_coverage','source_snapshot',snapshot,'watermarks',watermarks,'sources',sources,'withdrawals',withdrawals,'authority_denials',denials,'operational_denials',oracle2._recovery_operational_denials_v1(workspaces,stamp),
  'checked_at',stamp,'valid_until',a.expires_at,'complete',true,'serving_authorized',false,'dispatch_authorized',false);
