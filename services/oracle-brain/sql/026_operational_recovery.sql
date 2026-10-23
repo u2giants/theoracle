@@ -79,6 +79,7 @@ END $f$;
 
 CREATE FUNCTION oracle2._recovery_operational_denials_v1(workspaces uuid[],observed_at timestamptz)
  RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $f$
+#variable_conflict use_variable
 DECLARE result jsonb;BEGIN
  IF workspaces IS NULL OR cardinality(workspaces) NOT BETWEEN 1 AND 256 OR observed_at IS NULL OR NOT isfinite(observed_at) THEN RAISE insufficient_privilege;END IF;
  -- No incomplete or ambiguous joins may disappear behind an inner join.
