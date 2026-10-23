@@ -140,7 +140,8 @@ class _ResultOwnedLoopV1:
     """Only the fixed RESULT listener owns this bounded request/cleanup loop."""
     def __init__(self,service):
         from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
-        _require(type(service) in (ProtectedReplacementResultServiceV1,ProtectedConnectedAnswerServiceV1),'exact owned result service or fixed answer service required')
+        from .question_effect_factory_v1 import ProtectedQuestionEffectFactoryV1
+        _require(type(service) in (ProtectedReplacementResultServiceV1,ProtectedConnectedAnswerServiceV1,ProtectedQuestionEffectFactoryV1),'exact owned result service or fixed answer/question service required')
         self.service=service;self.requests=set();self.closing=False
         self.records={};self.record_lock=threading.RLock();self.observed_outcomes={'returned':0,'failed':0,'cancelled':0}
         self.loop=asyncio.new_event_loop();self.ready=threading.Event()
@@ -167,6 +168,13 @@ class _ResultOwnedLoopV1:
         self.requests.add(task)
         try:
             from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
+            from .question_effect_factory_v1 import ProtectedQuestionEffectFactoryV1
+            if type(self.service) is ProtectedQuestionEffectFactoryV1:
+                from oracle_brain.operating_model.conversation_control_v1 import ConversationControlV1
+                from oracle_brain.operating_model.request_deadline_v1 import _request_fence_v1
+                _require(type(peer) is ConversationControlV1 and type(raw) is dict,'actual server-held producer snapshot required')
+                with _request_fence_v1(float(original_end)):
+                    return await self.service.respond_v1(peer,raw)
             if type(self.service) is ProtectedConnectedAnswerServiceV1:
                 from oracle_brain.operating_model.request_deadline_v1 import _request_fence_v1
                 _require(peer is None,'answer peer must be verified by the fixed shared listener')
@@ -198,8 +206,18 @@ class _ResultOwnedLoopV1:
         # Narrow the trusted handler clock by the actual strict request, never reset it.
         now=datetime.now(timezone.utc)
         from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1,parse_answer_request_v1
-        request=parse_answer_request_v1(raw) if type(self.service) is ProtectedConnectedAnswerServiceV1 else parse_result_request_v1(raw,now=now)
-        original_end=min(absolute_monotonic_deadline,time.monotonic()+max(0,(request.expires_at-now).total_seconds()))
+        from .question_effect_factory_v1 import ProtectedQuestionEffectFactoryV1
+        if type(self.service) is ProtectedQuestionEffectFactoryV1:
+            from oracle_brain.operating_model.conversation_control_v1 import ConversationControlV1
+            import json
+            _require(type(peer) is ConversationControlV1 and type(raw) is dict,'actual server-owned committed employee snapshot required')
+            # Frozen descriptive copy only; actual producer/SQL024 re-reads it.
+            raw=json.loads(canonical_bytes(raw))
+            expires=min(peer.settings.current(),self.service.settings.current(),self.service.owner.config.expires_at,self.service.owner.config.original_horizon)
+        else:
+            request=parse_answer_request_v1(raw) if type(self.service) is ProtectedConnectedAnswerServiceV1 else parse_result_request_v1(raw,now=now)
+            expires=request.expires_at
+        original_end=min(absolute_monotonic_deadline,time.monotonic()+max(0,(expires-now).total_seconds()))
         record={'task':None,'handler_observed':False,'outcome':None,'original_end':original_end}
         future=asyncio.run_coroutine_threadsafe(self._request(peer,raw,original_end,record),self.loop)
         with self.record_lock:self.records[future]=record

@@ -110,7 +110,7 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
-    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','027_legacy_migration.sql')
+    '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','027_legacy_migration.sql')
 DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
@@ -236,6 +236,42 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_citation_sql',),
 DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
     'replacement_documentary_journey',after=True)
 
+# Run39846165685 completed all5472 tests with zero failures but the shared
+# timed_out flag marked every worker when documentary03 exceeded120s wall
+# clock. Shift source_processing_qualification to documentary02's measured
+# sibling: keep the whole population, ten workers and unchanged120s deadline.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('source_processing_qualification',),
+    'workflow_authorization',after=True)
+# Preserve every current suite and the existing ten workers /120s deadline.
+QUESTION_EFFECT_PURE_SUITES=('question_core_forwarding_v1','qualified_synthesis_v1',
+    'question_effect_pricing_v1','question_effect_public_v1','question_vector_packing_v1')
+DOCUMENTARY += QUESTION_EFFECT_PURE_SUITES+('question_effects_sql_v1','question_effect_native_sql_v1')
+DOCUMENTARY=_place_suites(DOCUMENTARY,QUESTION_EFFECT_PURE_SUITES,
+    'workflow_authorization')
+# Prior exact native64s + current doc03 46s; SQL39s +doc08 79s.
+# Measured estimates only; the unchanged whole-run deadline decides success.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
+    'replacement_documentary_journey',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
+    'purpose_worker_startup',after=True)
+
+# Second-repack placement after CI 39842552937: documentary-09 again lacked
+# JUnit because conversation_native_sql had been moved onto its already-full
+# tail. Keep conversation_native_sql on documentary-03 (the PR191 home that
+# main proves can hold it) and leave workspace on documentary-03 beside it.
+# question_effect_native_sql_v1 (~62s) uses documentary-04's vacated original
+# headroom; factory (~17s) sits on documentary-06; question_effects_sql_v1
+# (~37s) shares documentary-08 with purpose_worker_startup.
+# No test body, worker count or deadline changes; whole CI decides fit.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
+    'original_corpus_import',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
+    'purpose_worker_startup',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('protected_raw_original_factory_v1',),
+    'purpose_context_v2',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
+    'replacement_documentary_journey',after=True)
+
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
     'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
@@ -297,18 +333,20 @@ def run_test_groups(jobs,directory,*,deadline):
             except OSError:
                 launch_error=True;break
             workers.append(worker)
-        timed_out=False
+        timeouts=[False]*len(workers)
         if launch_error:cleanup.extend(stop_owned_workers(workers))
-        for worker in workers:
+        for index,worker in enumerate(workers):
             remaining=max(0,deadline-time.monotonic())
             try:worker.wait(timeout=remaining)
-            except subprocess.TimeoutExpired:timed_out=True;break
-        if time.monotonic()>deadline:timed_out=True
-        if timed_out:cleanup.extend(stop_owned_workers(workers))
+            except subprocess.TimeoutExpired:
+                for j in range(index,len(workers)):
+                    if workers[j].poll() is None:timeouts[j]=True
+                break
+        if any(timeouts):cleanup.extend(stop_owned_workers(workers))
         for index,job in enumerate(jobs):
             worker=workers[index] if index<len(workers) else None
             results.append({'name':job['name'],'exit_code':worker.returncode if worker else None,
-                'timed_out':timed_out,'launch_error':launch_error})
+                'timed_out':timeouts[index] if index<len(timeouts) else True,'launch_error':launch_error})
         return results,cleanup
     finally:
         if any(worker.poll() is None for worker in workers):cleanup.extend(stop_owned_workers(workers))
