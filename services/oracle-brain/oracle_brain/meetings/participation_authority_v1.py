@@ -407,6 +407,7 @@ class ParticipationAuthorityV1:
         """Internal fixed SQL only; no request/transport-selected function name."""
         self._deadline(deadline)
         mutation_attempted = False
+        write_returned = False
         try:
             with self._connection(deadline) as connection:
                 self._check(connection, deadline)
@@ -415,6 +416,7 @@ class ParticipationAuthorityV1:
                 # a safe-to-resubmit denial, even if rollback may have occurred.
                 mutation_attempted = True
                 result = sql_execute_v1(connection,deadline,statement, arguments).fetchone()[0]
+                write_returned = True
                 until = self._context(result, deadline)
                 self._check(connection, deadline)
             # Every failure after a possible commit is uncertain, including the
@@ -439,6 +441,11 @@ class ParticipationAuthorityV1:
             metadata=self._public_metadata(fresh)
             return ParticipationClaimV1(metadata,None,min(until,fresh_until)) if claim else metadata
         except Exception as exc:
+            # A complete privilege refusal of the write itself is a typed safe
+            # denial. After a possible commit (including the fresh status
+            # readback) any failure stays UNKNOWN/no-resend.
+            if isinstance(exc, psycopg.errors.InsufficientPrivilege) and not write_returned:
+                raise
             if mutation_attempted or isinstance(exc,(psycopg.OperationalError,psycopg.InterfaceError,OSError,TimeoutError)):
                 raise ParticipationOutcomeUnknown('participation outcome UNKNOWN; read-only reconciliation only, no resend') from None
             raise
