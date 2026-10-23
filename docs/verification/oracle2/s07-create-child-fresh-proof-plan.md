@@ -7,7 +7,8 @@ Root release after independent exact source + one resource-plan assessment is re
 
 | Input | Value |
 |---|---|
-| Current main with diagnostics | `e9531f98` (includes PR196 fixture-only diagnostics) |
+| Historical main pin with diagnostics | `e9531f98` (includes PR196 fixture-only diagnostics) — not current main; re-resolve current main at run time |
+| Current main at plan refresh | `81f9f6d9` (diagnostics still present) |
 | Diagnostic evidence note | `docs/verification/oracle2/s07-create-child-fixture-diagnostics.md` |
 | Failing historical run | 39760061151 (5370 cases, 1 failure) |
 | Known child signal | exit 2, `stage:exchange`, `state:UNKNOWN`, protected channel refused `http-headers` then `closed-wire` |
