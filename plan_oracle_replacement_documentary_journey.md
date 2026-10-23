@@ -3,15 +3,16 @@
 
 ## STATUS — October 21, 2026, 1:12 AM EDT; offline rebuild merged
 
-**October22,2026 EDT — owner-requested closeout; program OPEN.** Read the [complete current continuation](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-22T1211Z-edge-dev3-codex-parent24-closeout.md) before any execution; it supersedes older present-tense source snapshots below, not the requirements or historical evidence. Mainc187 delivered PR191 source with5370 clean PR cases, then full post-main5370/1 failure. PR193 earlier5224 PR/post-main passed. S03–S16/#27–40 and#58 remain open;#25/#26 retain only their offline/synthetic acceptance. No company/business/adoption/retirement authority or expired native permission is renewed.
+**October 23, 2026 EDT — parent24 resume after closeout; program OPEN.** Canonical delivery STATUS lives in [plan_oracle_consultant_overhaul.md](plan_oracle_consultant_overhaul.md) **STATUS first**; this plan tracks its own obligations only. Main tip `81f9f6d9`. S03–S16/#27–40 and #58 remain open; #25/#26 retain only their offline/synthetic acceptance. No company/business/adoption/retirement authority is renewed. Read the [resume handoff](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-23T1425Z-edge-dev-mimo-parent24-resume.md) and the [October 22 closeout](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-22T1211Z-edge-dev3-codex-parent24-closeout.md).
 
 | Current delivery | Verification / next action |
 |---|---|
-| S09 preserved11221;PR192 parked, branch retained | Last actual4690 partial failed11setup+2fail/missingXML; canonical fixture/diagnostic pure18 pass. CoherentTLS cause and full120s fit pending. |
-| S12 preserved7def and S11 preservedac539, complete current-main compositions |429/469 web and exact source checks pass; current actualNext/SQL/full-workflow registration and wholeproduct remain pending. PreparedS12runner04 never executed. |
-| S08 preserved81742134;S13 preserved2633 and partialV2ab091 | S08currentSQL unproved;S13actual09 failed25/27,0errors/skips, exact source unchanged/resources absent. Ratified SQLrepair/all56audit not started. V2DTOs partial/untested, no BPF/child effects. |
-| Writer cut / S14–S16 / W/U readiness | Actual all-writer consistentcut, full restore/metrics/cohort/rollback/license/host/semantic qualification and separate business acceptance remain open. Source leaves/tests/closedPRs never complete the program. |
-| Preservation and ownership | Seven exact source heads plus portable source/history/evidence archive published; original worktrees retained. No actual successor accepted. Shared-db closeout check found zero session-owned claims/stages. ToolPR1988 parked/uninstalled after separateCI pacing failure; installedchecker repair is not claimed. |
+| Main tip `81f9f6d9` | W10 **5472 success:true** (run 39855010833). PR195/196/198/199/202/203/204 merged. |
+| S13 / PR197 | Ratified SQL repairs on `3072140f`; pins match; SQL source tests 20/20; 27 SQL cases collect. Audit: 56 operational-owner census queries (75 census-query sites + 18 DECLARE sites). Runner10 after independent resource assessment. True three-way merge only. |
+| S07 | Diagnostics + fresh-proof plan on main. Fresh invented proof after independent SOURCE+ONE review and root release. |
+| S08 PR200 / S11 PR201 | Open source preservation; Linux proofs before landing. |
+| Writer cut / S14–S16 / W/U readiness | Design on main; implementation and separate business acceptance remain open. |
+| Preservation and ownership | Open PR branches retained. No company originals, production, or POP shared-db writes. |
 
 **Already settled — do not re-ask:** approved exact assertion/version/scope remains in force until explicitly withdrawn when its approver loses authority; new revisions/scopes do not inherit approval, and source-read rights stay separately current. The complete handoff records failures, exact next gates and all remaining phases.
 

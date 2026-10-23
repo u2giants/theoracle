@@ -33,5 +33,5 @@ if(process.env.ORACLE2_INVENTED_CYCLE_DIAGNOSTIC==='1'){
  }
  let stage='prepare';
  try{const prepared=await w.prepare_v1();if(prepared.state!=='prepared')throw new Error('not prepared');assert.equal(prepared.executable,false);assert.equal(prepared.body_base64,null);stage='claim';const claim=await w.claim_v1();if(!claim.executable)throw new Error('not executable');assert.equal(claim.state,'claimed');assert.ok(claim.body_base64);stage='current';const current=await w.current_v1(claim);assert.equal(current.executable,false);assert.equal(current.state,'inflight');stage='exchange';const raw=await w.exchange_provider_v1(claim);stage='observe';const receipt=await w.observe_v1(claim,raw.wire);process.stdout.write(canonicalJson({state:receipt.state,qualification:receipt.qualification,remote_stop_proven:receipt.remote_stop_proven,resend_authorized:receipt.resend_authorized,operation_id:claim.operation_id,claim_event_id:claim.claim_event_id,request_sha256:claim.request_sha256,deadline:w.original_deadline_v1})+'\n');}
- catch{process.stdout.write(canonicalJson({state:'UNKNOWN',remote_stop_proven:false,stage})+'\n');process.exitCode=2;}
+ catch(error){const error_type=error instanceof Error?error.constructor.name:typeof error;process.stdout.write(canonicalJson({state:'UNKNOWN',remote_stop_proven:false,stage,error_type})+'\n');process.exitCode=2;}
 }

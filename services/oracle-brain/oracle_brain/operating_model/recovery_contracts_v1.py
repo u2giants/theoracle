@@ -1359,3 +1359,194 @@ def parse_replacement_backup_manifest_v1(raw,*,metadata_bound=1048576):
     if type(metadata_bound) is not int or not 1<=metadata_bound<=1073741824:raise ValueError('exact bounded metadata ceiling required')
     if type(raw) is not bytes or not 1<=len(raw)<=metadata_bound:raise ValueError('bounded complete backup manifest bytes required')
     return _parse(ReplacementBackupManifestV1,raw)
+
+
+# Explicit source-only v2 records. V1 records/parsers above remain unchanged.
+# Constructing any of these records is descriptive: no runtime qualification,
+# custody permission, filter installation or child execution is supplied here.
+RECOVERY_ARCHIVE_GLIBC_TUNABLES_V2=(
+    'glibc.malloc.arena_max=1:glibc.malloc.mmap_threshold=0:'
+    'glibc.malloc.trim_threshold=18446744073709551615:glibc.malloc.top_pad=0')
+
+class RecoveryArchiveEnforcementVariantV2(RecoveryRecordV1):
+    protocol:Literal['oracle-recovery-archive-enforcement-v2']='oracle-recovery-archive-enforcement-v2'
+    platform:Literal['linux-x86_64']='linux-x86_64'
+    audit_arch:Literal[3221225534]=3221225534
+    kernel_build_sha256:SHA
+    kernel_mapping_policy_sha256:SHA
+    vdso_code_sha256:SHA
+    vsyscall:Literal['none','emulate']
+    interpreter_build_sha256:SHA
+    glibc_build_sha256:SHA
+    bpf_program_sha256:SHA
+    memory_limit_bytes:int=Field(ge=1,le=9223372036854775807)
+    required_map_headroom:int=Field(ge=1,le=1048576)
+    glibc_tunables:str
+    bootstrap_threads:Literal[1]=1
+    personality:Literal[0]=0
+    read_implies_exec:Literal[False]=False
+    tsync:Literal[False]=False
+    kernel_exported_filter_bytes_verified:Literal[False]=False
+    enforcement_qualified:Literal[False]=False
+    @field_validator('glibc_tunables')
+    @classmethod
+    def exact_allocator(cls,value):
+        if value!=RECOVERY_ARCHIVE_GLIBC_TUNABLES_V2:raise ValueError('exact independently installed allocator channel required')
+        return value
+    @field_validator('audit_arch','bootstrap_threads','personality',mode='before')
+    @classmethod
+    def literal_integer(cls,value):
+        if type(value) is not int:raise ValueError('exact installed variant integer required')
+        return value
+    @field_validator('read_implies_exec','tsync','kernel_exported_filter_bytes_verified','enforcement_qualified',mode='before')
+    @classmethod
+    def literal_false(cls,value):
+        if type(value) is not bool:raise ValueError('exact unavailable variant boolean required')
+        return value
+    def bind_descriptive_program(self,program_bytes):
+        """Source-level pin only: never installs a filter or exports kernel bytes."""
+        from .recovery_seccomp_bpf_v2 import classic_bpf_program_sha256,sock_filter_bytes
+        import hashlib
+        if type(program_bytes) is not bytes:raise TypeError('exact emitted classic-BPF bytes required')
+        # Re-serialize through the closed opcode inventory before hashing.
+        n=len(program_bytes)//8
+        insns=tuple(
+            (int.from_bytes(program_bytes[i*8:i*8+2],'little'),program_bytes[i*8+2],program_bytes[i*8+3],
+             int.from_bytes(program_bytes[i*8+4:i*8+8],'little'))
+            for i in range(n))
+        if sock_filter_bytes(insns)!=program_bytes:raise ValueError('noncanonical classic-BPF byte image required')
+        if hashlib.sha256(program_bytes).hexdigest()!=self.bpf_program_sha256:raise PermissionError('emitted program differs from installed enforcement variant')
+        return self
+
+class RecoveryArchiveRuntimeManifestV2(RecoveryArchiveRuntimeManifestV1):
+    protocol:Literal['oracle-recovery-archive-runtime-v2']='oracle-recovery-archive-runtime-v2'
+    preexec_executable:RecoveryRuntimeFileV1
+    enforcement:RecoveryArchiveEnforcementVariantV2
+    bootstrap_nofile_limit:int=Field(ge=6,le=1024)
+    bootstrap_output_limit_bytes:Literal[65536]=65536
+    native_loader_available:Literal[False]=False
+    archive_child_available:Literal[False]=False
+    @field_validator('bootstrap_output_limit_bytes',mode='before')
+    @classmethod
+    def exact_output_integer(cls,value):
+        if type(value) is not int:raise ValueError('exact bounded output integer required')
+        return value
+    @field_validator('native_loader_available','archive_child_available',mode='before')
+    @classmethod
+    def unavailable(cls,value):
+        if type(value) is not bool:raise ValueError('exact unavailable runtime boolean required')
+        return value
+    @model_validator(mode='after')
+    def fixed_variant(self):
+        pre=self.preexec_executable
+        if pre.kind!='native-loader' or pre.mode not in (365,493):raise ValueError('exact independently pinned preexec executable required')
+        if not any(PurePosixPath(pre.path).is_relative_to(PurePosixPath(r.path)) for r in self.installed_roots):raise ValueError('preexec executable outside complete installed roots')
+        if any(pre.path==f.path or (pre.device,pre.inode)==(f.device,f.inode) for f in (self.interpreter,self.entrypoint)):raise ValueError('distinct pinned preexec executable required')
+        if self.enforcement.memory_limit_bytes!=self.memory_limit_bytes:raise ValueError('installed resource ceiling differs from exact enforcement variant')
+        return self
+
+class RecoveryArchiveChildRequestV2(RecoveryArchiveChildRequestV1):
+    protocol:Literal['oracle-recovery-archive-check-v2']='oracle-recovery-archive-check-v2'
+    installation_sha256:SHA
+    enforcement_variant_sha256:SHA
+    @model_validator(mode='after')
+    def fixed_descriptors(self):
+        if (self.archive.fd,self.inventory.fd,self.manifest.fd)!=(3,4,5):raise ValueError('exact inherited data ABI3/4/5 required')
+        return self
+    def bind_descriptive_installation(self,installed):
+        if type(installed) is not RecoveryArchiveRuntimeManifestV2:raise TypeError('exact v2 installed manifest required')
+        if (self.operation_id,self.descriptor_sha256,self.custody_sha256,self.installation_sha256,
+            self.runtime_closure_sha256,self.enforcement_variant_sha256,self.memory_limit_bytes)!=(
+            installed.operation_id,installed.descriptor_sha256,installed.custody_sha256,digest(installed.model_dump(mode='json')),
+            installed.census.sha256,digest(installed.enforcement.model_dump(mode='json')),installed.memory_limit_bytes):
+            raise PermissionError('request differs from independently installed operation/closure/variant/resource')
+        if not installed.valid_from<self.original_deadline<=min(installed.expires_at,installed.original_horizon):raise PermissionError('original window exceeds unchanged installation')
+        return self
+
+class RecoveryArchiveStructuralFrameV2(RecoveryRecordV1):
+    """Child-authored structural consistency only; never parent process evidence."""
+    protocol:Literal['oracle-recovery-archive-structural-v2']='oracle-recovery-archive-structural-v2'
+    operation_id:UUID
+    descriptor_sha256:SHA
+    custody_sha256:SHA
+    installation_sha256:SHA
+    runtime_closure_sha256:SHA
+    enforcement_variant_sha256:SHA
+    archive_sha256:SHA
+    inventory_sha256:SHA
+    manifest_sha256:SHA
+    file_count:int=Field(ge=1,le=4096)
+    sealed_population_total_bytes:int=Field(ge=1,le=1073741824)
+    structural_success:Literal[True]=True
+    source_authenticated:Literal[False]=False
+    serving_authorized:Literal[False]=False
+    dispatch_authorized:Literal[False]=False
+    automatic_retry_allowed:Literal[False]=False
+    @field_validator('structural_success','source_authenticated',mode='before')
+    @classmethod
+    def exact_structural_boolean(cls,value):
+        if type(value) is not bool:raise ValueError('exact structural-only boolean required')
+        return value
+    def bind_descriptive_request(self,request):
+        if type(request) is not RecoveryArchiveChildRequestV2:raise TypeError('exact v2 request required')
+        names=('operation_id','descriptor_sha256','custody_sha256','installation_sha256','runtime_closure_sha256','enforcement_variant_sha256')
+        if any(getattr(self,n)!=getattr(request,n) for n in names):raise PermissionError('structural frame belongs to another request')
+        if (self.archive_sha256,self.inventory_sha256,self.manifest_sha256)!=(request.archive.sha256,request.inventory.sha256,request.manifest.sha256):raise PermissionError('checked triplet differs from exact inherited seals')
+        if self.sealed_population_total_bytes>request.archive_limit:raise PermissionError('sealed population exceeds unchanged installed archive limit')
+        return self
+
+class RecoveryArchiveParentObservationV2(RecoveryRecordV1):
+    """Parent-only descriptive final observation. Never accepted as a child frame.
+
+    Carries the exact child-frame hash, actual preexec/stopped hard+soft AS
+    readbacks, and the one exclusive actual wait4 outcome. A recorded wait4
+    never grants serve/dispatch/retry/source authority.
+    """
+    protocol:Literal['oracle-recovery-archive-parent-observation-v2']='oracle-recovery-archive-parent-observation-v2'
+    operation_id:UUID
+    descriptor_sha256:SHA
+    custody_sha256:SHA
+    installation_sha256:SHA
+    runtime_closure_sha256:SHA
+    enforcement_variant_sha256:SHA
+    child_frame_sha256:SHA
+    preexec_soft_as_bytes:int=Field(ge=1,le=9223372036854775807)
+    preexec_hard_as_bytes:int=Field(ge=1,le=9223372036854775807)
+    stopped_soft_as_bytes:int=Field(ge=1,le=9223372036854775807)
+    stopped_hard_as_bytes:int=Field(ge=1,le=9223372036854775807)
+    exit_code:int|None=Field(default=None,ge=0,le=255)
+    term_signal:int|None=Field(default=None,ge=1,le=64)
+    actual_max_rss_kib:int=Field(ge=0)
+    actual_user_seconds:float=Field(ge=0,allow_inf_nan=False)
+    actual_system_seconds:float=Field(ge=0,allow_inf_nan=False)
+    currentness_verified:bool
+    exact_cleanup_verified:bool
+    terminal_observation:Literal['refused','UNKNOWN','observed']
+    kernel_exported_filter_bytes_verified:Literal[False]=False
+    enforcement_qualified:Literal[False]=False
+    source_authenticated:Literal[False]=False
+    serving_authorized:Literal[False]=False
+    dispatch_authorized:Literal[False]=False
+    automatic_retry_allowed:Literal[False]=False
+    @field_validator('currentness_verified','exact_cleanup_verified','kernel_exported_filter_bytes_verified','enforcement_qualified','source_authenticated',mode='before')
+    @classmethod
+    def exact_observation_boolean(cls,value):
+        if type(value) is not bool:raise ValueError('exact parent observation boolean required')
+        return value
+    _seconds=field_validator('actual_user_seconds','actual_system_seconds',mode='before')(RecoveryArchiveChildResultV1.exact_observed_seconds.__func__)
+    @model_validator(mode='after')
+    def one_waiter_outcome(self):
+        if (self.exit_code is None)==(self.term_signal is None):raise ValueError('one exclusive actual wait4 terminal outcome required')
+        if len({self.preexec_soft_as_bytes,self.preexec_hard_as_bytes,self.stopped_soft_as_bytes,self.stopped_hard_as_bytes})!=1:raise ValueError('same exact preexec/stopped hard and soft resource ceiling required')
+        return self
+
+
+def _parse_archive_v2(record,raw):
+    if type(raw) is not bytes or not 1<=len(raw)<=65536:raise ValueError('bounded complete canonical v2 archive frame required')
+    return _parse(record,raw)
+
+def parse_recovery_archive_child_request_v2(raw):return _parse_archive_v2(RecoveryArchiveChildRequestV2,raw)
+def parse_recovery_archive_structural_frame_v2(raw):return _parse_archive_v2(RecoveryArchiveStructuralFrameV2,raw)
+def parse_recovery_archive_parent_observation_v2(raw):return _parse_archive_v2(RecoveryArchiveParentObservationV2,raw)
+def parse_recovery_archive_runtime_manifest_v2(raw):return _parse_archive_v2(RecoveryArchiveRuntimeManifestV2,raw)
+def parse_recovery_archive_enforcement_variant_v2(raw):return _parse_archive_v2(RecoveryArchiveEnforcementVariantV2,raw)
