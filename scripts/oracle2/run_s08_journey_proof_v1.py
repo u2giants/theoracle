@@ -473,10 +473,16 @@ def _receipt_stat_ok(path: Path) -> tuple[dict, bytes]:
         raw = os.read(fd, before.st_size + 1)
 
         def _identity(s: os.stat_result) -> tuple:
-            return (
+            # H1: on Windows, st_ctime_ns differs between fstat and lstat
+            # (platform quirk, not a security signal). Exclude it from the
+            # cross-check comparison on Windows.
+            base = (
                 s.st_dev, s.st_ino, s.st_mode, s.st_uid,
-                s.st_nlink, s.st_size, s.st_mtime_ns, s.st_ctime_ns,
+                s.st_nlink, s.st_size, s.st_mtime_ns,
             )
+            if not is_windows:
+                base += (s.st_ctime_ns,)
+            return base
 
         checks["stat_stable"] = _identity(before) == _identity(os.fstat(fd))
         # H7: lstat cross-check — same identity as the O_NOFOLLOW fd (test_canonical_schema.py:107).
