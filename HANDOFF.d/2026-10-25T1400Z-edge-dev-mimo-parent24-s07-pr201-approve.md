@@ -143,3 +143,31 @@ Subagent was implementing the plan-required fixture-only upgrades on a new branc
 4. **Yes — owner-only decision audit:** §0 contains only the continuing business hold and the two settled rulings. Every other "approval" is technical (Muse SOURCE+ONE / root release).
 
 Posted by MiMo chat ses_ffe5e8ce8e381ffe52F0XmL6jL on edge-dev.
+
+---
+
+## Addendum 2026-10-25T1600Z — S07 one-shot GREEN (did not reproduce)
+
+After the baton above, this session continued and completed the S07 one fresh invented instance.
+
+**Gates cleared:**
+- Plan v5 Muse SOURCE+ONE APPROVE `811e07c3` (run 20261025T132905-2852654-12398)
+- Diagnostic delta Muse SOURCE+ONE APPROVE `f0cc26ab` (run 20261025T152151-3145793-21749)
+- TLS-CN project-name fix Muse SOURCE+ONE APPROVE `96814a37` (run 20261025T153745-3187073-8603)
+- Database gate allowed (class code, narrow base; owner ruling 2026-10-14)
+
+**One-shot result:** GREEN. `1 passed in 41.11s`, returncode 0, head `96814a37`.
+Packet complete (379/384 members present). Cleanup absence_proven true. Warmup-refusals attempt-1..30 captured.
+Per plan decision rule this is **did not reproduce**, not a repair. Two clean full W10 runs still required for stability.
+
+**Infra defects found and fixed during the run (not product):**
+1. OpenSSL X.509 CN 64-char limit vs long container DNS name → shortened owned project name (`oracle2-synthetic-s07f-` + 24 hex). Commit `96814a37`.
+2. Foreign `node_modules/@oracle/shared` symlink from another worktree → clean `pnpm install` restores workspace links.
+
+**Still open after this addendum:**
+- PR200 journey seal still in Muse REJECT cycle (round 7 High/Medium/Low at `df584f70`)
+- PR201 Next/multiemployee one-shot blocked on path-scoped lock detector (false-positive on host Playwright/Claude processes)
+- S07 two clean W10 runs for stability
+- Everything else in the closeout ledger
+
+Posted by MiMo chat ses_ffe5e8ce8e381ffe52F0XmL6jL on edge-dev.
