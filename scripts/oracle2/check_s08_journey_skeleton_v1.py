@@ -675,62 +675,62 @@ def main() -> int:
                     raise SystemExit(f"gate timeout refusal not tagged (M4): {e}")
             else:
                 raise SystemExit("gate timeout was not refused (M4)")
+        # H1 (round-7): zero-exit contract was vacuous — the runner's zero-exit
+        # DENIED and zero-exit no-ALLOW branches had no behavioral coverage, so a
+        # mutation deleting them would pass all three nonzero/timeout mock cases.
+        # DENIED-with-0 must refuse naming DENIED; garbage-with-0 must refuse
+        # (no precise ALLOW); clean ALLOW-with-0 must return the output.
+        fake_denied0 = "gate: DENIED\nreason: not authorized\n"
+        with _mock.patch.object(_sp, "check_output", return_value=fake_denied0):
+            try:
+                mod.require_database_gate(gscratch, gate_tools)
+            except mod.JourneyRefusal as e:
+                if "DENIED" not in str(e):
+                    raise SystemExit(
+                        f"zero-exit DENIED refusal does not name DENIED (H1): {e}"
+                    )
+            except _sp.CalledProcessError:
+                raise SystemExit("raw CalledProcessError escaped on zero-exit DENIED (H1)")
+            else:
+                raise SystemExit("zero-exit DENIED was accepted as gate success (H1)")
+        fake_garbage0 = "something else entirely\nnot a gate line\n"
+        with _mock.patch.object(_sp, "check_output", return_value=fake_garbage0):
+            try:
+                mod.require_database_gate(gscratch, gate_tools)
+            except mod.JourneyRefusal as e:
+                if "ALLOW" not in str(e):
+                    raise SystemExit(
+                        f"zero-exit garbage refusal does not name ALLOW (H1): {e}"
+                    )
+            else:
+                raise SystemExit("zero-exit garbage was accepted as gate success (H1)")
+        fake_allow0 = "gate: ALLOW\n"
+        with _mock.patch.object(_sp, "check_output", return_value=fake_allow0):
+            try:
+                out0 = mod.require_database_gate(gscratch, gate_tools)
+            except mod.JourneyRefusal as e:
+                raise SystemExit(f"clean ALLOW-with-0 was refused (H1): {e}")
+            else:
+                if "ALLOW" not in out0:
+                    raise SystemExit(
+                        f"clean ALLOW-with-0 did not return the gate output (H1): {out0!r}"
+                    )
+        # L6: OSError (missing/unexecutable gate binary) must raise a tagged
+        # M4/M7 JourneyRefusal — never escape untagged to main's generic handler.
+        with _mock.patch.object(
+            _sp, "check_output", side_effect=FileNotFoundError(2, "no such file", "fake-gate")
+        ):
+            try:
+                mod.require_database_gate(gscratch, gate_tools)
+            except mod.JourneyRefusal as e:
+                if "M4" not in str(e) and "M7" not in str(e):
+                    raise SystemExit(f"gate OSError refusal not tagged M4/M7 (L6): {e}")
+            except OSError:
+                raise SystemExit("raw OSError escaped require_database_gate (L6)")
+            else:
+                raise SystemExit("gate OSError was not refused (L6)")
     print("M4_GATE_EXIT_CODE_CONTRACT")
-    # H1 (round-7): zero-exit contract was vacuous — the runner's zero-exit
-    # DENIED and zero-exit no-ALLOW branches had no behavioral coverage, so a
-    # mutation deleting them would pass all three nonzero/timeout mock cases.
-    # DENIED-with-0 must refuse naming DENIED; garbage-with-0 must refuse
-    # (no precise ALLOW); clean ALLOW-with-0 must return the output.
-    fake_denied0 = "gate: DENIED\nreason: not authorized\n"
-    with _mock.patch.object(_sp, "check_output", return_value=fake_denied0):
-        try:
-            mod.require_database_gate(gscratch, gate_tools)
-        except mod.JourneyRefusal as e:
-            if "DENIED" not in str(e):
-                raise SystemExit(
-                    f"zero-exit DENIED refusal does not name DENIED (H1): {e}"
-                )
-        except _sp.CalledProcessError:
-            raise SystemExit("raw CalledProcessError escaped on zero-exit DENIED (H1)")
-        else:
-            raise SystemExit("zero-exit DENIED was accepted as gate success (H1)")
-    fake_garbage0 = "something else entirely\nnot a gate line\n"
-    with _mock.patch.object(_sp, "check_output", return_value=fake_garbage0):
-        try:
-            mod.require_database_gate(gscratch, gate_tools)
-        except mod.JourneyRefusal as e:
-            if "ALLOW" not in str(e):
-                raise SystemExit(
-                    f"zero-exit garbage refusal does not name ALLOW (H1): {e}"
-                )
-        else:
-            raise SystemExit("zero-exit garbage was accepted as gate success (H1)")
-    fake_allow0 = "gate: ALLOW\n"
-    with _mock.patch.object(_sp, "check_output", return_value=fake_allow0):
-        try:
-            out0 = mod.require_database_gate(gscratch, gate_tools)
-        except mod.JourneyRefusal as e:
-            raise SystemExit(f"clean ALLOW-with-0 was refused (H1): {e}")
-        else:
-            if "ALLOW" not in out0:
-                raise SystemExit(
-                    f"clean ALLOW-with-0 did not return the gate output (H1): {out0!r}"
-                )
     print("M4_ZERO_EXIT_DENIED_GARBAGE_ALLOW")
-    # L6: OSError (missing/unexecutable gate binary) must raise a tagged
-    # M4/M7 JourneyRefusal — never escape untagged to main's generic handler.
-    with _mock.patch.object(
-        _sp, "check_output", side_effect=FileNotFoundError(2, "no such file", "fake-gate")
-    ):
-        try:
-            mod.require_database_gate(gscratch, gate_tools)
-        except mod.JourneyRefusal as e:
-            if "M4" not in str(e) and "M7" not in str(e):
-                raise SystemExit(f"gate OSError refusal not tagged M4/M7 (L6): {e}")
-        except OSError:
-            raise SystemExit("raw OSError escaped require_database_gate (L6)")
-        else:
-            raise SystemExit("gate OSError was not refused (L6)")
     print("L6_GATE_OSError_TAGGED")
     # M4: the pytest identity preflight must be wrapped (tagged M4/M7), not a
     # bare check_output that surfaces a raw CalledProcessError.
