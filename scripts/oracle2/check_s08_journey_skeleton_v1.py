@@ -1161,8 +1161,14 @@ def main() -> int:
             raise SystemExit(
                 f"_route_unknown({end_stage!r}) must end at that stage: {onward!r} (M1)"
             )
-    if "except JourneyUnknown" not in main_src:
-        raise SystemExit("main loop does not catch JourneyUnknown (M1)")
+    # M1: the stage-loop helper (the real main-loop body) must catch
+    # JourneyUnknown; main must call that helper. The catch moved into
+    # _run_stage_order when the loop was extracted for the flow test.
+    if "_run_stage_order(" not in main_src:
+        raise SystemExit("main does not call _run_stage_order (M1 wiring)")
+    run_order_src = src[src.find("def _run_stage_order") : src.find("SKELETON_STAGE_BINDINGS")]
+    if "except JourneyUnknown" not in run_order_src:
+        raise SystemExit("stage-order helper does not catch JourneyUnknown (M1)")
     # M1 (round-7): main-loop flow — a routable UNKNOWN must route to its
     # onward stage then END the sequence. It must NOT resume STAGE_ORDER
     # (no receipt_bytes_in wire-byte injection after an UNKNOWN sender claim,
@@ -1251,10 +1257,6 @@ def main() -> int:
             f"M1 earlier-UNKNOWN continued the loop after STOP: {calls!r}"
         )
     print("M1_MAIN_LOOP_FLOW_EARLIER_UNKNOWN_STOPS")
-    # main must actually call the extracted stage-order helper (a mutation
-    # that reintroduces an inline loop with `continue` would bypass it).
-    if "_run_stage_order(" not in main_src:
-        raise SystemExit("main does not call _run_stage_order (M1 wiring)")
     print("M1_JOURNEY_UNKNOWN_ROUTING")
 
     # M3/L5: Python floor must be enforced — behaviorally, not just a static
