@@ -192,15 +192,19 @@ present, so the worker entrypoint cannot be reached by accident.
 - **On head conflict, expired observation, or elapsed window: STOP.**
   No transparent retry. Record the failing stage in the outcome record and
   leave **UNKNOWN** semantics.
-- **UNKNOWN routing (H5):** UNKNOWN from claim commit ACK loss / response drop
-  / worker restart / readback-loss proceeds to **stage 5** (read-only
-  reconcile of the OUTCOME). UNKNOWN from any earlier stage (provision,
-  observe, host-control, current-turn) **ends the journey at that stage**.
-  **Mechanism (M1):** a stage raises `JourneyUnknown(JourneyRefusal)` for
-  routable UNKNOWN; the main loop catches `JourneyUnknown` separately from
-  plain `JourneyRefusal` (which is always fatal STOP) and applies the routing
-  above. This is how an implementer distinguishes routable UNKNOWN from
-  fatal refusal.
+- **UNKNOWN routing (H5/M1):** UNKNOWN from claim commit ACK loss / response
+  drop / worker restart / readback-loss (`sender`, `receipt_bytes_in`)
+  proceeds to **stage 5** `status_reconcile` (read-only reconcile of the
+  OUTCOME). UNKNOWN from any earlier stage (provision, observe, host-control,
+  current-turn) **ends the journey at that stage**. **Mechanism (M1):** a
+  stage raises `JourneyUnknown(JourneyRefusal)` for routable UNKNOWN; the
+  main stage loop catches `JourneyUnknown` separately from plain
+  `JourneyRefusal` (which is always fatal STOP) and applies
+  `_route_unknown(stage)` — `("status_reconcile",)` for the claim/readback
+  stages, `()` (STOP) for every other stage. This is how an implementer
+  distinguishes routable UNKNOWN from fatal refusal. The checker exercises
+  `_route_unknown` offline and asserts `except JourneyUnknown` is present in
+  the main loop.
 - **"No re-read" scope (H5):** the journey layer never re-reads a failing
   stage's inputs to retry. Factory-internal fresh readbacks
   (`meeting_participation_v1.py:201-210,231-240,256-269`) are the tested
@@ -323,13 +327,24 @@ those files are in the sealed inventory.
 - `ai-task-gates check --before database` must print a **precise ALLOW line**
   (`^ALLOW$` or `^gate: ALLOW$` per line — never a substring match) and must
   **not** print any `^DENIED$` / `^gate: DENIED$` line (M1). The sealed runner
-  invokes it and refuses on non-ALLOW or on any DENIED. Each tool uses its
-  own working identity command (C1): `git --version`, `docker --version`,
-  `ai-task-gates version` (subcommand — `--version` does not exist and
-  would refuse every run), `openssl version` (not `--version`), and
-  `pytest` (via `sys.executable -m pytest --version`) are resolved to absolute
-  paths and their version identity is recorded in evidence; a missing version
-  is a **refusal**, not a recorded gap (M7). The `docker compose` plugin is
+  invokes it and refuses on non-ALLOW or on any DENIED. **Exit-code contract
+  (M4, pinned):** a zero exit with a precise ALLOW line and no DENIED line is
+  the only pass. A nonzero exit or timeout is **always** a refusal — the
+  runner captures stdout/stderr, writes `ops-database-gate.txt` **even on
+  nonzero exit**, searches the captured output for DENIED lines so the
+  refusal names the gate's own denial when present, and raises a tagged
+  **M4/M7** refusal with the output tail. A raw `CalledProcessError` must
+  never escape `require_database_gate`. The pytest identity preflight
+  (`sys.executable -m pytest --version`) follows the same contract: nonzero
+  exit or timeout is a tagged **M4/M7** preflight refusal, never a raw
+  `CalledProcessError`. Each tool uses its own working identity command (C1):
+  `git --version`, `docker --version`, `ai-task-gates version` (subcommand —
+  `--version` does not exist and would refuse every run), `openssl version`
+  (not `--version`), and `pytest` (via `sys.executable -m pytest --version`)
+  are resolved to absolute paths and their version identity is recorded in
+  evidence; a missing version is a **refusal**, not a recorded gap (M7).
+  Every gate/preflight/git subprocess is bounded by a **60s** timeout (M5) so
+  a hang cannot outlast the one-shot run. The `docker compose` plugin is
   also preflighted (`docker compose version`) — a missing plugin is a
   preflight refusal, not a late fixture failure (M8).
 - Review receipt required before release: exact full 40-char HEAD + runner
@@ -367,12 +382,15 @@ use git-blob semantics (`git show HEAD:path | sha256sum`), not working-tree
 bytes. A receipt minted on Windows will verify on the mandated Linux rerun.
 
 **Source snapshot of the runner (H-F/M2)** hashes **worktree file CONTENTS**
-(sha256 of bytes + mode) for `.py/.ts/.tsx/.sql/.json/.md/.yaml/.yml/.toml/
-.sh/.bash/.ps1/.dockerignore` plus `Dockerfile`, `.dockerignore`, `compose.yaml`
-/ `compose.yml` / `docker-compose.*` and lockfiles
-(`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `poetry.lock`, `uv.lock`,
-`Cargo.lock`, `go.sum`) — uses `lstat` so symlink swaps are visible (M2).
-Sealed blob pins stay git-blob; the snapshot is for mutation detection only.
+(sha256 of bytes + mode) for `.py/.ts/.tsx/.js/.mjs/.cjs/.mts/.sql/.json/.md/
+.yaml/.yml/.toml/.sh/.bash/.ps1/.dockerignore` plus `Dockerfile` and its
+variants (`Dockerfile.web`, `api.Dockerfile`), `requirements*.txt`,
+`.dockerignore`, `compose.yaml` / `compose.yml` / `docker-compose.*` and
+lockfiles (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `poetry.lock`,
+`uv.lock`, `Cargo.lock`, `go.sum`) — uses `lstat` so symlink swaps are
+visible (M2). Sealed blob pins stay git-blob; the snapshot is for mutation
+detection only. (L10: JS module extensions and Dockerfile/requirements
+variants included — `dev/oracle2` ships `.mjs/.mts` files.)
 
 ## Test figures (H1 correction — no 230/256 mixing)
 
@@ -508,7 +526,10 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
    collect-only counts for the six S08 gate modules are to be measured on that
    rerun** (four measured on Windows + `test_meeting_participation.py` +
    `test_outbound_replay.py` unreported). No historical pure total is demanded
-   or claimed.
+   or claimed. **The offline skeleton checker must also be rerun on Linux**
+   (M6) so the H4 mode/nlink/O_NOFOLLOW file negatives that skip on the
+   sealing Windows host (`H4_MODE_SKIP`, `H4_NLINK_SKIP`, `H4_SYMLINK_SKIP`)
+   actually execute — only the size negative fires where the seal was minted.
 3. Actual 21 SQL against an owned synthetic database under the **sealed bootstrap**
    inventory (not a contiguous 001..014 claim). **The 21 SQL must go green
    before the journey runs** (see Sequencing; enforced in the runner, H4).
@@ -563,11 +584,17 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
    **always**, including pre-identity refusals with prefix-aware listing — C2),
    else STOP when identity was established.
 10. Each stage's `deadline_s` is validated as an int in `(0, 30]` (M5).
-11. Stage binding dicts include all required keys per `STAGE_BINDING_SCHEMAS` (M9).
+11. Stage binding dicts include all required keys per `STAGE_BINDING_SCHEMAS`
+    (M9). The main loop passes `SKELETON_STAGE_BINDINGS` — valid-shaped
+    placeholders — so a fresh skeleton run reaches the UNPROVEN refusal after
+    binding validation, never M9 missing-keys (L14). An implementer replaces
+    those placeholders with real journey bindings at the call sites when
+    stages are released (C5 SHA churn applies).
 12. Per-tool identity is established via each tool's working command (C1):
     `git --version`, `docker --version`, `ai-task-gates version` (subcommand,
-    NOT `--version` which does not exist), `openssl version` (not `--version`).
-    A missing identity command is a refusal (M7).
+    NOT `--version` which does not exist), `openssl version` (not `--version`),
+    and `pytest` via `sys.executable -m pytest --version` (L16). A missing
+    identity command is a refusal (M7).
 
 **C8 — refusal/evidence exclusivity:** refused runs write only `refusal.json`
 with `refused: true` / `non_evidence: true` and **never** `journey-evidence.json`.

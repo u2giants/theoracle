@@ -5,30 +5,44 @@ Proves only what can be proved without Docker/database/provider:
   - every journey stage refuses closed (JourneyRefusal / NotImplementedError)
   - every journey stage with VALID bindings still refuses UNPROVEN (so
     deleting the final raise would fail this checker)
+  - deadline negatives are driven with VALID bindings and assert the refusal
+    message names the deadline (H5 — not a vacuous M9 refusal)
   - review receipt is fail-closed when absent, wrong-head, wrong-runner-SHA,
     wrong plan/checker/evidence SHA (H2: ALL FOUR SHA negatives tested), or
     non-APPROVE verdict
   - a CORRECT receipt (git-blob SHAs + matching head + APPROVE) is ACCEPTED
+    and its returned bindings echo the four computed SHAs (L9)
   - database-gate helper requires a precise ALLOW line, rejects DENIED lines,
     and is invoked AFTER the review receipt (gate-before-database order)
+  - gate exit-code contract: nonzero exit / timeout writes ops-database-gate.txt,
+    searches DENIED in captured output, raises a tagged M4/M7 refusal (M4)
   - HEAD helper requires a full 40-char SHA
   - RECALL_* env refusal is present
   - inventory assertion helper is present and compares the sealed tuple
   - H3 sealed constants (SEALED_INVENTORY_DIGEST / SEALED_CATALOG_DIGEST)
     exist and are used instead of self-referential goldens
+  - _inventory_digest_git_blob binds the exact 40-char head, not symbolic HEAD (L13)
   - budget helpers enforce a monotonic deadline (finite-only, entry+exit)
   - cleanup readback helper exists and is called from finally
+  - cleanup paths use add_note to preserve the original exception (L15)
   - SCRATCH must not live inside the repository
   - SCRATCH reuse unlinks opposite markers (refusal.json vs journey-evidence.json)
   - refused runs write refusal.json with refused=true and do NOT write
     journey-evidence.json (C8 exclusivity)
   - success path writes journey-evidence.json and does NOT write refusal.json
   - ops artifacts are labeled ops/non-evidence (sibling markers or inline)
-  - stage binding schemas are present (M9)
-  - H4 pytest regex rejects failed/error counts and TimeoutExpired is handled
+  - stage binding schemas are present (M9) and main passes skeleton-shaped
+    bindings (L14)
+  - H4 pytest green-receipt logic is factored into sql_green_receipt_ok and
+    behaves correctly on synthetic tails (H3/H4)
   - openssl and pytest identities are checked (M7)
-  - bare assert is not used for safety-critical checks
-  - snapshot is computed exactly twice (before + after gate), not 3×
+  - bare assert is not used for safety-critical checks (any indent / nesting)
+  - snapshot is computed exactly twice (before + after gate), not 3×, and
+    comment mentions do not count (L11)
+  - SOURCE_SUFFIXES covers JS modules and Dockerfile/requirements variants (L10)
+  - o_nofollow is honest both statically and behaviorally (L12)
+  - JourneyUnknown routing is implemented, not just documented (M1)
+  - docker compose preflight uses the argv literal ["compose","version"] (L8)
 
 This checker restores runner state after every mutation. It does NOT execute
 the journey and does NOT constitute acceptance. All SHA bindings use git-blob
@@ -38,6 +52,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -415,6 +430,19 @@ def main() -> int:
             else:
                 if result.get("receipt", {}).get("verdict") != "APPROVE":
                     raise SystemExit("positive receipt accepted but verdict not APPROVE")
+                # L9: pin the bindings echo against the four computed SHAs.
+                got_bindings = result.get("bindings") or {}
+                expected_bindings = {
+                    "runner_sha256": runner_sha,
+                    "plan_sha256": plan_sha,
+                    "checker_sha256": checker_sha,
+                    "evidence_sha256": evidence_sha,
+                }
+                if got_bindings != expected_bindings:
+                    raise SystemExit(
+                        f"positive receipt bindings echo mismatch (L9): "
+                        f"got={got_bindings} expected={expected_bindings}"
+                    )
                 print("REVIEW_RECEIPT_POSITIVE_ACCEPTED")
         finally:
             if saved_release is not None:
@@ -447,6 +475,77 @@ def main() -> int:
     if mod.DENIED_LINE.search("ALLOW") is not None:
         raise SystemExit("DENIED_LINE matches ALLOW")
     print("ALLOW_DENIED_LINE_PRECISE")
+
+    # M4: gate exit-code contract — nonzero exit must write ops-database-gate.txt,
+    # search DENIED in the captured output, and raise a tagged refusal with tail.
+    # A raw CalledProcessError must never escape require_database_gate.
+    import subprocess as _sp
+    from unittest import mock as _mock
+
+    with tempfile.TemporaryDirectory() as td:
+        gscratch = Path(td)
+        gate_tools = {
+            "ai-task-gates": {"path": "fake-gate", "name": "ai-task-gates", "version": "fake"}
+        }
+        fake_denied = "gate: DENIED\nreason: not authorized\n"
+        with _mock.patch.object(
+            _sp,
+            "check_output",
+            side_effect=_sp.CalledProcessError(2, ["fake-gate"], output=fake_denied),
+        ):
+            try:
+                mod.require_database_gate(gscratch, gate_tools)
+            except mod.JourneyRefusal as e:
+                msg = str(e)
+                if "DENIED" not in msg:
+                    raise SystemExit(f"gate nonzero-exit refusal does not name DENIED (M4): {e}")
+                if "M4" not in msg and "M7" not in msg:
+                    raise SystemExit(f"gate nonzero-exit refusal not tagged M4/M7 (M4): {e}")
+            except _sp.CalledProcessError:
+                raise SystemExit("raw CalledProcessError escaped require_database_gate (M4)")
+            else:
+                raise SystemExit("gate nonzero exit was not refused (M4)")
+            ops = gscratch / "ops-database-gate.txt"
+            if not ops.exists():
+                raise SystemExit("ops-database-gate.txt not written on nonzero exit (M4)")
+            if "DENIED" not in ops.read_text(encoding="utf-8"):
+                raise SystemExit("ops-database-gate.txt missing captured DENIED output (M4)")
+        # Nonzero exit WITHOUT a DENIED line must still refuse with a tail.
+        fake_nodeny = "something went wrong\n"
+        with _mock.patch.object(
+            _sp,
+            "check_output",
+            side_effect=_sp.CalledProcessError(2, ["fake-gate"], output=fake_nodeny),
+        ):
+            try:
+                mod.require_database_gate(gscratch, gate_tools)
+            except mod.JourneyRefusal as e:
+                if "M4" not in str(e) and "M7" not in str(e):
+                    raise SystemExit(f"gate nonzero-no-DENIED refusal not tagged (M4): {e}")
+                if "tail" not in str(e).lower() and "exited" not in str(e).lower():
+                    raise SystemExit(f"gate nonzero refusal missing tail/exit info (M4): {e}")
+            else:
+                raise SystemExit("gate nonzero exit without DENIED was not refused (M4)")
+        # Timeout must also refuse with a tag.
+        with _mock.patch.object(
+            _sp,
+            "check_output",
+            side_effect=_sp.TimeoutExpired(cmd="fake-gate", timeout=60),
+        ):
+            try:
+                mod.require_database_gate(gscratch, gate_tools)
+            except mod.JourneyRefusal as e:
+                if "M4" not in str(e) and "M5" not in str(e):
+                    raise SystemExit(f"gate timeout refusal not tagged (M4): {e}")
+            else:
+                raise SystemExit("gate timeout was not refused (M4)")
+    print("M4_GATE_EXIT_CODE_CONTRACT")
+    # M4: the pytest identity preflight must be wrapped (tagged M4/M7), not a
+    # bare check_output that surfaces a raw CalledProcessError.
+    if "pytest identity unavailable" not in src:
+        raise SystemExit("pytest preflight tagged refusal missing (M4)")
+    if "except (" not in main_src and "except subprocess.CalledProcessError" not in main_src:
+        raise SystemExit("pytest preflight not wrapped in try/except (M4)")
 
     # Static order: review receipt BEFORE database gate; gate BEFORE any
     # worker_postgres / database work (M-B gate-before-database).
@@ -558,18 +657,26 @@ def main() -> int:
     if "golden_catalog = schema_receipt_data" in src:
         raise SystemExit("catalog golden from schema-receipt (self-referential, H3)")
     # C2: recompute the inventory digest over git-blob bytes and verify the
-    # constant matches. Not just a presence check.
+    # constant matches. Not just a presence check. L13: pass the bound head.
     if not callable(getattr(mod, "_inventory_digest_git_blob", None)):
         raise SystemExit("_inventory_digest_git_blob missing (C2)")
     sealed_inv = mod.SEALED_INVENTORY_DIGEST
     if not isinstance(sealed_inv, str) or not __import__("re").fullmatch(r"[0-9a-f]{64}", sealed_inv):
         raise SystemExit(f"SEALED_INVENTORY_DIGEST is not 64-hex: {sealed_inv!r}")
-    observed_inv = mod._inventory_digest_git_blob(mod.SEALED_MIGRATION_INVENTORY)
+    observed_inv = mod._inventory_digest_git_blob(mod.SEALED_MIGRATION_INVENTORY, head)
     if observed_inv != sealed_inv:
         raise SystemExit(
             f"SEALED_INVENTORY_DIGEST wrong: sealed={sealed_inv} observed={observed_inv} (C2)"
         )
     print("C2_INVENTORY_DIGEST_RECOMPUTED", observed_inv[:16])
+    # L13: symbolic HEAD must be refused — only a full 40-char bound head.
+    try:
+        mod._inventory_digest_git_blob(mod.SEALED_MIGRATION_INVENTORY, "HEAD")
+    except mod.JourneyRefusal as e:
+        if "40-char" not in str(e) and "L13" not in str(e):
+            raise SystemExit(f"symbolic-head refusal not tagged (L13): {e}")
+    else:
+        raise SystemExit("symbolic HEAD accepted by _inventory_digest_git_blob (L13)")
     # C3: catalog check must be "recorded, not golden" — no refuse-on-empty.
     # Verify the runner does NOT refuse when SEALED_CATALOG_DIGEST is empty.
     if 'raise JourneyRefusal(\n                    "SEALED_CATALOG_DIGEST is not a 64-hex' in src:
@@ -609,11 +716,35 @@ def main() -> int:
     print("OPS_ARTIFACTS_SIBLING_MARKERS")
 
     # H3: source snapshot must be computed exactly twice in main (before + after gate).
-    # The def is outside main_src; count only calls inside main.
-    snap_calls = main_src.count("source_snapshot()")
+    # The def is outside main_src; count only calls inside main, excluding
+    # comment text (L11 — a comment mentioning source_snapshot() must not count).
+    snap_calls = 0
+    for line in main_src.splitlines():
+        code = line.split("#", 1)[0]
+        snap_calls += code.count("source_snapshot()")
     if snap_calls != 2:  # exactly 2 calls in main: before gate + after gate
         raise SystemExit(f"source_snapshot called {snap_calls}× in main; expected exactly 2 (M4)")
     print("SNAPSHOT_COMPUTED_TWICE")
+
+    # L10: SOURCE_SUFFIXES must cover JS module extensions (dev/oracle2 ships
+    # .mjs/.mts), and Dockerfile variants / requirements files must be
+    # snapshotted via _is_snapshotted_source.
+    for ext in (".js", ".mjs", ".cjs", ".mts"):
+        if ext not in mod.SOURCE_SUFFIXES:
+            raise SystemExit(f"SOURCE_SUFFIXES missing {ext} (L10)")
+    if not callable(getattr(mod, "_is_snapshotted_source", None)):
+        raise SystemExit("_is_snapshotted_source missing (L10)")
+    from pathlib import Path as _P
+
+    if not mod._is_snapshotted_source(_P("/x/Dockerfile.web"), "Dockerfile.web"):
+        raise SystemExit("Dockerfile variant not snapshotted (L10)")
+    if not mod._is_snapshotted_source(_P("/x/api.Dockerfile"), "api.Dockerfile"):
+        raise SystemExit(".Dockerfile suffix variant not snapshotted (L10)")
+    if not mod._is_snapshotted_source(_P("/x/requirements-dev.txt"), "requirements-dev.txt"):
+        raise SystemExit("requirements-*.txt not snapshotted (L10)")
+    if mod._is_snapshotted_source(_P("/x/notes.txt"), "notes.txt"):
+        raise SystemExit("ordinary .txt wrongly snapshotted (L10)")
+    print("L10_SOURCE_SUFFIXES_EXTENDED")
 
     # H4: pytest regex must reject failed/error counts.
     if r"\b\d+\s+(?:failed|errors?)\b" not in src and r"\d+\s+(?:failed|errors?)" not in src:
@@ -627,6 +758,33 @@ def main() -> int:
     if "PYTHONDONTWRITEBYTECODE" not in src:
         raise SystemExit("PYTHONDONTWRITEBYTECODE missing (H4 tree cleanliness)")
     print("H4_REGEX_STRICT_AND_TIMEOUT_HANDLED")
+
+    # H3/H4: the 21-passed / failed-error logic is factored into
+    # sql_green_receipt_ok and must behave correctly on synthetic tails —
+    # a static string scan cannot detect a disconnected regex (Muse H3/H4).
+    if not callable(getattr(mod, "sql_green_receipt_ok", None)):
+        raise SystemExit("sql_green_receipt_ok missing (H3/H4)")
+    green_cases = (
+        # (tail, expected_ok)
+        ("21 passed in 3.0s", True),
+        ("21 passed, 1 failed", False),
+        ("1 failed, 20 passed", False),
+        ("121 passed", False),  # boundary: 121 is NOT 21
+        ("2 errors", False),
+        ("21 passed", True),
+        ("= 21 passed, 1 error in 1.0s =", False),
+        ("21  passed", True),  # whitespace-flexible inside the count
+        ("22 passed", False),
+    )
+    for tail, expected_ok in green_cases:
+        ok, reason = mod.sql_green_receipt_ok(tail)
+        if ok is not expected_ok:
+            raise SystemExit(
+                f"sql_green_receipt_ok({tail!r}) returned {ok}, expected {expected_ok} (H3/H4); reason={reason!r}"
+            )
+        if not ok and not reason:
+            raise SystemExit(f"sql_green_receipt_ok({tail!r}) failed without a reason (H3/H4)")
+    print("H3_H4_SQL_GREEN_HELPER_BEHAVIORAL_OK")
 
     # H3: "21 passed" positive requirement must be enforced in the runner.
     if r"\b21\s+passed\b" not in src:
@@ -705,6 +863,11 @@ def main() -> int:
             print("H4_NLINK_SKIP unavailable-on-windows")
 
     # H5: deadline negatives — stages must reject 0, 31, "30", None.
+    # Drive with VALID bindings (valid_bindings above) so the deadline check
+    # is actually reached: empty bindings refuse on M9 missing-keys first and
+    # never execute the M5 line. Assert the refusal message names the deadline
+    # (M5 tag or "deadline"), so a vacuous JourneyRefusal from some other
+    # check cannot satisfy this test (Muse H5).
     deadline_negatives = (0, 31, "30", None)
     for bad_dl in deadline_negatives:
         for stage_name, stage_fn in (
@@ -717,12 +880,14 @@ def main() -> int:
             ("status_reconcile", mod.stage_status_reconcile),
         ):
             try:
-                if stage_name == "receipt_bytes_in":
-                    stage_fn({"raw_wire": b"x"}, bad_dl)
-                else:
-                    stage_fn({}, bad_dl)
-            except mod.JourneyRefusal:
-                pass
+                stage_fn(dict(valid_bindings[stage_name]), bad_dl)
+            except mod.JourneyRefusal as e:
+                msg = str(e).lower()
+                if "deadline" not in msg and "m5" not in msg:
+                    raise SystemExit(
+                        f"stage {stage_name} refused bad deadline {bad_dl!r} "
+                        f"but message does not name the deadline (H5): {e}"
+                    )
             else:
                 raise SystemExit(
                     f"stage {stage_name} accepted bad deadline {bad_dl!r} (H5)"
@@ -737,6 +902,21 @@ def main() -> int:
         if "o_nofollow_available" not in src:
             raise SystemExit("o_nofollow honest check missing (H6)")
     print("H6_O_NOFOLLOW_HONEST")
+    # L12: one-call behavioral check — the o_nofollow value in the returned
+    # checks must equal real O_NOFOLLOW availability on this host.
+    import os as _os_h6
+
+    with tempfile.TemporaryDirectory() as td:
+        ok_file = Path(td) / "ok.json"
+        ok_file.write_text("{}\n")
+        checks_ok, _ = mod._receipt_stat_ok(ok_file)
+        expected_o_nofollow = getattr(_os_h6, "O_NOFOLLOW", 0) != 0
+        if checks_ok.get("o_nofollow") is not expected_o_nofollow:
+            raise SystemExit(
+                f"o_nofollow not honest (L12): checks={checks_ok.get('o_nofollow')!r} "
+                f"host={expected_o_nofollow!r}"
+            )
+    print("H6_O_NOFOLLOW_BEHAVIORAL_OK")
 
     # H1: Windows mode/nlink degradation must be present.
     if "unavailable-on-windows" not in src:
@@ -751,16 +931,46 @@ def main() -> int:
     if not issubclass(mod.JourneyUnknown, mod.JourneyRefusal):
         raise SystemExit("JourneyUnknown must subclass JourneyRefusal (M1)")
     print("M1_JOURNEY_UNKNOWN_SUBCLASS")
+    # M1: routing must be implemented, not just documented. The main loop
+    # catches JourneyUnknown separately, and _route_unknown encodes the H5
+    # policy: claim/readback-loss (sender, receipt_bytes_in) -> stage 5;
+    # every other stage -> empty (STOP at that stage).
+    if not callable(getattr(mod, "_route_unknown", None)):
+        raise SystemExit("_route_unknown missing (M1 routing stub)")
+    for routed_stage in ("sender", "receipt_bytes_in"):
+        onward = mod._route_unknown(routed_stage)
+        if onward != ("status_reconcile",):
+            raise SystemExit(
+                f"_route_unknown({routed_stage!r}) must route to stage 5: {onward!r} (M1)"
+            )
+    for end_stage in (
+        "provision_capture_admission",
+        "observe_audience",
+        "host_control",
+        "current_turn",
+        "status_reconcile",
+    ):
+        onward = mod._route_unknown(end_stage)
+        if onward != ():
+            raise SystemExit(
+                f"_route_unknown({end_stage!r}) must end at that stage: {onward!r} (M1)"
+            )
+    if "except JourneyUnknown" not in main_src:
+        raise SystemExit("main loop does not catch JourneyUnknown (M1)")
+    print("M1_JOURNEY_UNKNOWN_ROUTING")
 
     # M3: Python floor must be checked in main().
     if "sys.version_info" not in main_src:
         raise SystemExit("Python version floor not enforced (M3)")
     print("M3_PYTHON_FLOOR_ENFORCED")
 
-    # M8: docker compose plugin must be preflighted.
-    if "compose" not in main_src or "docker compose" not in src.lower() and "compose version" not in src:
-        if "docker compose plugin" not in src and "compose_ver" not in src:
-            raise SystemExit("docker compose preflight missing (M8)")
+    # M8/L8: docker compose plugin must be preflighted via the argv literal
+    # ["compose", "version"] — not comment substrings. Deleting the try/except
+    # while leaving the comment must fail this check.
+    if '"compose", "version"' not in src and "'compose', 'version'" not in src:
+        raise SystemExit("compose version argv literal missing (M8/L8)")
+    if "docker compose plugin unavailable" not in src:
+        raise SystemExit("compose preflight refusal message missing (M8)")
     print("M8_COMPOSE_PREFLIGHT_PRESENT")
 
     # M7: openssl and pytest identities must be checked.
@@ -770,12 +980,25 @@ def main() -> int:
         raise SystemExit("pytest identity not checked (M7)")
     print("M7_TOOL_IDENTITIES_EXTENDED")
 
-    # M6: bare assert must not be used for safety checks in main (any indent).
-    main_body = main_src
-    for indent in ("    ", "        ", "            "):
-        if f"\n{indent}assert " in main_body:
-            raise SystemExit(f"bare assert found in main() at indent {len(indent)} (M6)")
+    # M6: bare assert must not be used for safety checks in main — any indent
+    # level, any nesting depth, both `assert x` and `assert(x)` forms (L11).
+    # Covers main() only; stages and helpers are covered by the offline
+    # behavioral tests above.
+    if re.search(r"(?m)^\s+assert[\s(]", main_src):
+        raise SystemExit("bare assert found in main() (M6/L11)")
     print("NO_BARE_ASSERT_IN_MAIN")
+
+    # L15: cleanup paths must preserve the original exception via add_note —
+    # never a bare pass that would drop the cleanup refusal. Three add_note
+    # call sites: cleanup-also-failed, cleanup-refusal, cleanup-probe-failed.
+    finally_src = main_src.split("finally:", 1)[-1]
+    if finally_src.count(".add_note(") < 3:
+        raise SystemExit(
+            f"cleanup add_note calls missing (L15): found {finally_src.count('.add_note(')}"
+        )
+    for m in re.finditer(r"except [^\n]+:\n(\s+)pass\b", finally_src):
+        raise SystemExit(f"bare pass in cleanup except (L15): {m.group(0)!r}")
+    print("L15_ADD_NOTE_IN_CLEANUP")
 
     # H1: citation must note runner is STRICTER (entry+exit vs entry-only).
     if "STRICTER" not in src and "entry-check-only" not in src:

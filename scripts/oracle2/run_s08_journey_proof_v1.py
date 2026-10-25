@@ -92,6 +92,9 @@ RECEIPT_RELEASE_ENV = "ORACLE2_S08_JOURNEY_RECEIPT"
 SHARED_BUDGET_S = 120
 PER_REQUEST_S = 30
 DOCKER_PROBE_TIMEOUT_S = 60
+# M5: every gate/preflight/git subprocess is bounded so a hang cannot outlast
+# the one-shot run. The 120s stage budget is armed only after bootstrap.
+TOOL_CALL_TIMEOUT_S = 60
 COMPOSE_PROJECT_PREFIX = "oracle2-synthetic-p24s08-journey"
 WORKER_LABEL = "documentary-01"
 # Sealed SYNTHETIC_MIGRATIONS inventory. The runner applies the sealed
@@ -143,10 +146,18 @@ SEALED_CATALOG_DIGEST = ""  # recorded, not golden (C3 option-a)
 # present causes refusal regardless of ALLOW (M1).
 ALLOW_LINE = re.compile(r"^(?:gate: )?ALLOW$", re.MULTILINE)
 DENIED_LINE = re.compile(r"^(?:gate: )?DENIED$", re.MULTILINE)
+# H3/H4: pytest green-receipt patterns. Factored into a helper so the checker
+# can exercise ordering, singular/plural, and boundary behavior offline
+# ("21 passed", "21 passed, 1 failed", "1 failed, 20 passed", "121 passed",
+# "2 errors") — a static string scan cannot (Muse H3/H4).
+SQL_GREEN_PASSED = re.compile(r"\b21\s+passed\b")
+SQL_GREEN_FAILED = re.compile(r"\b\d+\s+(?:failed|errors?)\b")
 # Worktree-content suffixes and lock/compose/docker names the DB image
 # depends on (H-F/M2). Shell scripts and build config included (M2).
+# L10: JS module extensions included — dev/oracle2 ships .mjs/.mts files.
 SOURCE_SUFFIXES = (
-    ".py", ".ts", ".tsx", ".sql", ".json", ".md", ".yaml", ".yml",
+    ".py", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".mts",
+    ".sql", ".json", ".md", ".yaml", ".yml",
     ".toml", ".sh", ".bash", ".ps1", ".dockerignore",
 )
 SOURCE_BASENAMES = frozenset(
@@ -157,6 +168,7 @@ SOURCE_BASENAMES = frozenset(
         "docker-compose.yml",
         "Dockerfile",
         ".dockerignore",
+        "requirements.txt",
         "pnpm-lock.yaml",
         "package-lock.json",
         "yarn.lock",
@@ -166,6 +178,22 @@ SOURCE_BASENAMES = frozenset(
         "go.sum",
     }
 )
+
+
+def _is_snapshotted_source(path: Path, name: str) -> bool:
+    """L10: worktree files the DB image depends on.
+
+    Covers the suffix list, the named basenames, Dockerfile variants
+    (`Dockerfile`, `Dockerfile.web`, `api.Dockerfile`), and requirements
+    files (`requirements.txt`, `requirements-dev.txt`).
+    """
+    if name in SOURCE_BASENAMES or path.suffix in SOURCE_SUFFIXES:
+        return True
+    if name == "Dockerfile" or name.startswith("Dockerfile.") or name.endswith(".Dockerfile"):
+        return True
+    if name.startswith("requirements") and name.endswith(".txt"):
+        return True
+    return False
 # Forbidden network entry points (H-E). Named so a stage implementer cannot
 # reach them by accident.
 FORBIDDEN_NETWORK_PATHS = (
@@ -217,24 +245,32 @@ def sha256_git_blob(path: Path) -> str:
     raw = subprocess.check_output(
         [git["path"], "show", f"HEAD:{rel}"],
         cwd=ROOT,
+        timeout=TOOL_CALL_TIMEOUT_S,
     )
     return hashlib.sha256(raw).hexdigest()
 
 
-def _inventory_digest_git_blob(names: tuple[str, ...]) -> str:
+def _inventory_digest_git_blob(names: tuple[str, ...], head: str) -> str:
     """Inventory digest over git-blob bytes (C2/M2 — host-independent LF).
 
     Same shape as test_canonical_schema._inventory_digest (name + NUL +
     sha256(content) per entry, concatenated then hashed) but reads content
-    via `git show HEAD:services/oracle-brain/sql/<name>` so the digest is
-    identical on every host regardless of checkout line endings.
+    via `git show <head>:services/oracle-brain/sql/<name>` using the bound
+    full 40-char HEAD (L13) so a mid-run checkout cannot hash a different
+    commit than the receipt names. `head` is the exact SHA returned by
+    require_head(); a symbolic HEAD is refused.
     """
+    if not FULL_SHA40.fullmatch(head):
+        raise JourneyRefusal(
+            f"inventory digest requires a full 40-char bound head (L13): {head!r}"
+        )
     git = _tool_identity("git")
     parts: list[bytes] = []
     for name in names:
         raw = subprocess.check_output(
-            [git["path"], "show", f"HEAD:services/oracle-brain/sql/{name}"],
+            [git["path"], "show", f"{head}:services/oracle-brain/sql/{name}"],
             cwd=ROOT,
+            timeout=TOOL_CALL_TIMEOUT_S,
         )
         parts.append(name.encode() + b"\0" + hashlib.sha256(raw).digest())
     return hashlib.sha256(b"".join(parts)).hexdigest()
@@ -375,12 +411,18 @@ def require_head() -> str:
     """
     git = _tool_identity("git")
     head = subprocess.check_output(
-        [git["path"], "rev-parse", "HEAD"], cwd=ROOT, text=True
+        [git["path"], "rev-parse", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        timeout=TOOL_CALL_TIMEOUT_S,
     ).strip()
     if not FULL_SHA40.fullmatch(head):
         raise JourneyRefusal(f"HEAD is not a full 40-char SHA: {head!r}")
     dirty = subprocess.check_output(
-        [git["path"], "status", "--porcelain"], cwd=ROOT, text=True
+        [git["path"], "status", "--porcelain"],
+        cwd=ROOT,
+        text=True,
+        timeout=TOOL_CALL_TIMEOUT_S,
     ).strip()
     if dirty:
         raise JourneyRefusal(
@@ -417,9 +459,17 @@ def _tool_identity(name: str, version_args: tuple[str, ...] | None = None) -> di
     resolved = str(Path(path).resolve())
     try:
         version = subprocess.check_output(
-            [resolved, *version_args], text=True, stderr=subprocess.STDOUT
+            [resolved, *version_args],
+            text=True,
+            stderr=subprocess.STDOUT,
+            timeout=TOOL_CALL_TIMEOUT_S,
         ).splitlines()[0][:200]
-    except (subprocess.CalledProcessError, OSError, IndexError) as exc:
+    except (
+        subprocess.CalledProcessError,
+        OSError,
+        IndexError,
+        subprocess.TimeoutExpired,
+    ) as exc:
         raise JourneyRefusal(
             f"tool identity unavailable for {name}: {version_args} failed ({type(exc).__name__}); "
             "refusing to trust an unidentified tool (M7)"
@@ -594,19 +644,64 @@ def _label_ops_artifact(scratch: Path, artifact_name: str) -> None:
     )
 
 
+def sql_green_receipt_ok(sql_out: str) -> tuple[bool, str]:
+    """H3/H4: require `21 passed` and reject any failed/error count.
+
+    Returns (ok, reason). reason names which check failed so the caller can
+    raise a tagged JourneyRefusal with the output tail. Testable offline with
+    synthetic pytest tails — ordering, singular/plural, and boundary behavior
+    (e.g. "121 passed" must NOT count as 21) are exercised by the checker.
+    """
+    if not SQL_GREEN_PASSED.search(sql_out):
+        return False, "21 SQL green receipt not observed in pytest output (H4)"
+    if SQL_GREEN_FAILED.search(sql_out):
+        return False, "21 SQL pytest output reports failed/error cases (H4)"
+    return True, ""
+
+
 def require_database_gate(scratch: Path, tools: dict) -> str:
     """ai-task-gates check --before database must print a precise ALLOW line (H-G/M1).
 
     Refuses if any DENIED line is present even when an ALLOW line also appears.
+
+    M4 exit-code contract (pinned in the plan): a zero exit with a precise
+    ALLOW line and no DENIED line is the only pass. A nonzero exit or timeout
+    is always a refusal — the runner captures stdout/stderr, writes
+    ops-database-gate.txt even on nonzero exit, searches the captured output
+    for DENIED lines so the refusal names the gate's own denial when present,
+    and raises a tagged M4/M7 refusal with the output tail. A raw
+    CalledProcessError must never escape this helper.
     """
     gate = tools["ai-task-gates"]
-    out = subprocess.check_output(
-        [gate["path"], "check", "--before", "database"],
-        cwd=ROOT,
-        text=True,
-        stderr=subprocess.STDOUT,
-        timeout=60,
-    )
+    try:
+        out = subprocess.check_output(
+            [gate["path"], "check", "--before", "database"],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.STDOUT,
+            timeout=TOOL_CALL_TIMEOUT_S,
+        )
+    except subprocess.CalledProcessError as exc:
+        out = exc.output or ""
+        (scratch / "ops-database-gate.txt").write_text(out[:8192])
+        _label_ops_artifact(scratch, "ops-database-gate.txt")
+        if DENIED_LINE.search(out):
+            raise JourneyRefusal(
+                f"database gate exited {exc.returncode} with a DENIED line (M4/M7):\n"
+                f"{out[:2000]}"
+            ) from exc
+        raise JourneyRefusal(
+            f"database gate exited nonzero ({exc.returncode}) without a precise "
+            f"ALLOW line (M4/M7); tail: {out[-500:]}"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        out = exc.output if isinstance(exc.output, str) else ""
+        (scratch / "ops-database-gate.txt").write_text(out[:8192])
+        _label_ops_artifact(scratch, "ops-database-gate.txt")
+        raise JourneyRefusal(
+            f"database gate timed out after {TOOL_CALL_TIMEOUT_S}s (M4/M5/M7); "
+            f"tail: {out[-500:]}"
+        ) from exc
     if DENIED_LINE.search(out):
         (scratch / "ops-database-gate.txt").write_text(out[:8192])
         _label_ops_artifact(scratch, "ops-database-gate.txt")
@@ -653,7 +748,7 @@ def source_snapshot() -> dict[str, str]:
         if rel.startswith((".git/", "node_modules/", ".ai/reviews/packets/")):
             continue
         name = path.name
-        if name not in SOURCE_BASENAMES and path.suffix not in SOURCE_SUFFIXES:
+        if not _is_snapshotted_source(path, name):
             continue
         try:
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -725,6 +820,82 @@ STAGE_BINDING_SCHEMAS: dict[str, tuple[str, ...]] = {
     "status_reconcile": (
         "intent_id", "claim_event_id", "admission_id",
     ),
+}
+
+# Journey stage order (H5/M1). The main loop iterates this tuple.
+STAGE_ORDER: tuple[str, ...] = (
+    "provision_capture_admission",
+    "observe_audience",
+    "host_control",
+    "current_turn",
+    "sender",
+    "receipt_bytes_in",
+    "status_reconcile",
+)
+# H5/M1 UNKNOWN routing: claim commit / readback-loss stages whose UNKNOWN
+# routes to stage 5 (read-only reconcile of the OUTCOME). UNKNOWN from any
+# earlier stage ends the journey at that stage.
+UNKNOWN_ROUTES_TO_STAGE5 = frozenset({"sender", "receipt_bytes_in"})
+STAGE5_NAME = "status_reconcile"
+
+
+def _route_unknown(stage: str) -> tuple[str, ...]:
+    """H5/M1: onward stages after a JourneyUnknown from `stage`.
+
+    Claim commit ACK loss / response drop / worker restart / readback-loss
+    (sender, receipt_bytes_in) routes to stage 5 status_reconcile (read-only
+    reconcile of the OUTCOME — never a re-read of failing stage inputs).
+    UNKNOWN from any earlier stage (provision, observe, host-control,
+    current-turn) ends the journey at that stage: empty tuple = STOP.
+    """
+    if stage in UNKNOWN_ROUTES_TO_STAGE5 and stage != STAGE5_NAME:
+        return (STAGE5_NAME,)
+    return ()
+
+
+# Skeleton stage bindings (L14). Valid-shaped placeholders so the main loop
+# complies with the M9 contract it enforces: a fresh skeleton run refuses
+# UNPROVEN (after binding validation), never M9 missing-keys. An implementer
+# replaces these with real journey bindings at the call sites when stages are
+# released. The offline checker's valid_bindings mirror this shape.
+SKELETON_STAGE_BINDINGS: dict[str, dict] = {
+    "provision_capture_admission": {
+        "workspace_id": "workspace-skeleton",
+        "meeting_id": "meeting-skeleton",
+        "owner_actor": "owner-skeleton",
+    },
+    "observe_audience": {
+        "meeting_id": "meeting-skeleton",
+        "observation_owner_sha256": "0" * 64,
+    },
+    "host_control": {
+        "meeting_id": "meeting-skeleton",
+        "expected_head": "0" * 40,
+        "operation_id": "operation-skeleton-0001",
+        "observation_id": "observation-skeleton",
+    },
+    "current_turn": {
+        "event_id": "00000000-0000-0000-0000-000000000001",
+        "epoch_id": "epoch-skeleton",
+        "capture_sha256": "0" * 64,
+    },
+    "sender": {
+        "expected_revision": 0,
+        "intent_id": "intent-skeleton",
+        "operation_id": "operation-skeleton-0002",
+        "admission_id": "admission-skeleton",
+    },
+    "receipt_bytes_in": {
+        "raw_wire": b"",
+        "claim_event_id": "00000000-0000-0000-0000-000000000002",
+        "operation_id": "operation-skeleton-0003",
+        "admission_id": "admission-skeleton",
+    },
+    "status_reconcile": {
+        "intent_id": "intent-skeleton",
+        "claim_event_id": "00000000-0000-0000-0000-000000000002",
+        "admission_id": "admission-skeleton",
+    },
 }
 
 
@@ -811,7 +982,7 @@ def stage_host_control(bindings: dict, deadline_s: int) -> dict:
     named remaining gate: peer-file minting, seals, openssl re-sign,
     certificates/WORKER fixtures (test_hosting_boundary.py:18,28), and the
     closed-denial matrix (bad identity/path/body/headers -> 404/503) plus
-    peer-tamper -> 503 (test_meeting_participation_sql.py:371-439). Stage 1
+    peer-tamper -> 503 (test_meeting_participation_sql.py:428,436). Stage 1
     cannot execute until that gate is discharged.
     """
     _validate_bindings("host_control", bindings)
@@ -1041,10 +1212,24 @@ def main() -> int:
                 f"docker compose plugin unavailable: {type(exc).__name__}: {exc}; "
                 "the fixture requires docker compose (M8)"
             ) from exc
-        _pytest_version = subprocess.check_output(
-            [sys.executable, "-m", "pytest", "--version"],
-            text=True, stderr=subprocess.STDOUT,
-        ).splitlines()[0][:200]
+        # M4: the pytest identity preflight follows the same exit-code contract
+        # as the database gate — nonzero exit or timeout is a tagged M4/M7
+        # preflight refusal, never a raw CalledProcessError. M5: bounded.
+        try:
+            _pytest_version = subprocess.check_output(
+                [sys.executable, "-m", "pytest", "--version"],
+                text=True, stderr=subprocess.STDOUT, timeout=TOOL_CALL_TIMEOUT_S,
+            ).splitlines()[0][:200]
+        except (
+            subprocess.CalledProcessError,
+            OSError,
+            IndexError,
+            subprocess.TimeoutExpired,
+        ) as exc:
+            raise JourneyRefusal(
+                f"pytest identity unavailable (M4/M7): {type(exc).__name__}: {exc}; "
+                "the 21 SQL harness requires a working pytest"
+            ) from exc
         tools["pytest"] = {
             "name": "pytest", "path": sys.executable, "version": _pytest_version,
         }
@@ -1128,9 +1313,10 @@ def main() -> int:
             )
             _label_ops_artifact(scratch, "ops-schema-receipt.json")
             # H3/C2: compare observed inventory digest against the SEALED
-            # constant using git-blob bytes (host-independent).
+            # constant using git-blob bytes (host-independent). L13: the
+            # digest reads the bound 40-char head, never symbolic HEAD.
             observed_inventory_digest = _inventory_digest_git_blob(
-                tuple(p.name for p in files)
+                tuple(p.name for p in files), head
             )
             if observed_inventory_digest != SEALED_INVENTORY_DIGEST:
                 raise JourneyRefusal(
@@ -1197,17 +1383,14 @@ def main() -> int:
                 ) from exc
             (scratch / "ops-sql-green.txt").write_text(sql_out[:16384])
             _label_ops_artifact(scratch, "ops-sql-green.txt")
-            # H4: require "21 passed" AND reject any failed/error count in the
-            # output. A bare "21 passed" regex accepts "21 passed, 1 error".
-            if not re.search(r"\b21\s+passed\b", sql_out):
+            # H3/H4: require "21 passed" AND reject any failed/error count in
+            # the output. A bare "21 passed" regex accepts "21 passed, 1 error".
+            # Factored into sql_green_receipt_ok so the checker can exercise
+            # ordering, singular/plural, and boundaries offline (Muse H3/H4).
+            sql_ok, sql_reason = sql_green_receipt_ok(sql_out)
+            if not sql_ok:
                 raise JourneyRefusal(
-                    "21 SQL green receipt not observed in pytest output (H4); "
-                    f"tail: {sql_out[-500:]}"
-                )
-            if re.search(r"\b\d+\s+(?:failed|errors?)\b", sql_out):
-                raise JourneyRefusal(
-                    "21 SQL pytest output reports failed/error cases (H4); "
-                    f"tail: {sql_out[-500:]}"
+                    f"{sql_reason}; tail: {sql_out[-500:]}"
                 )
 
             # C9: budget armed AFTER worker_postgres + bootstrap_canonical_test_schema
@@ -1223,20 +1406,50 @@ def main() -> int:
                 "receipt_bytes_in": "UNPROVEN",
                 "status_reconcile": "UNPROVEN",
             }
+            stage_fns = {
+                "provision_capture_admission": stage_provision_capture_admission,
+                "observe_audience": stage_observe_audience,
+                "host_control": stage_host_control,
+                "current_turn": stage_current_turn,
+                "sender": stage_sender,
+                "receipt_bytes_in": stage_receipt_bytes_in,
+                "status_reconcile": stage_status_reconcile,
+            }
             # Stages refuse until implemented; the budget fence is armed first.
+            # L14: SKELETON_STAGE_BINDINGS are valid-shaped so a fresh skeleton
+            # run reaches the UNPROVEN refusal (never M9 missing-keys). An
+            # implementer replaces them with real journey bindings at these
+            # call sites when stages are released (C5 SHA churn applies).
             with _request_fence_v1(budget_end):
-                for name, call in (
-                    ("provision_capture_admission", lambda: stage_provision_capture_admission({}, PER_REQUEST_S)),
-                    ("observe_audience", lambda: stage_observe_audience({}, PER_REQUEST_S)),
-                    ("host_control", lambda: stage_host_control({}, PER_REQUEST_S)),
-                    ("current_turn", lambda: stage_current_turn({}, PER_REQUEST_S)),
-                    ("sender", lambda: stage_sender({}, PER_REQUEST_S)),
-                    ("receipt_bytes_in", lambda: stage_receipt_bytes_in({"raw_wire": b""}, PER_REQUEST_S)),
-                    ("status_reconcile", lambda: stage_status_reconcile({}, PER_REQUEST_S)),
-                ):
+                for name in STAGE_ORDER:
                     failing_stage = name
                     _budget_check(budget_end, name)
-                    call()
+                    call = stage_fns[name]
+                    try:
+                        call(dict(SKELETON_STAGE_BINDINGS[name]), PER_REQUEST_S)
+                    except JourneyUnknown as exc:
+                        # M1/H5: routable UNKNOWN — not a fatal refusal. Apply
+                        # the H5 policy via _route_unknown: claim/readback-loss
+                        # stages route to stage 5 (read-only reconcile of the
+                        # OUTCOME); earlier stages end the journey there.
+                        stages[name] = "UNKNOWN"
+                        failing_stage = None
+                        onward = _route_unknown(name)
+                        if not onward:
+                            raise JourneyRefusal(
+                                f"routable UNKNOWN at {name} ends the journey at "
+                                "this stage (H5/M1); no onward route"
+                            ) from exc
+                        for routed in onward:
+                            failing_stage = routed
+                            _budget_check(budget_end, routed)
+                            stage_fns[routed](
+                                dict(SKELETON_STAGE_BINDINGS[routed]), PER_REQUEST_S
+                            )
+                            stages[routed] = "PROVEN"
+                            failing_stage = None
+                        stages[name] = f"UNKNOWN->{'/'.join(onward)}"
+                        continue
                     stages[name] = "PROVEN"
                     failing_stage = None
 
