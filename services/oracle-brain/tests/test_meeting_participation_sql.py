@@ -1,7 +1,9 @@
 """Actual owned synthetic SQL/privatebytes proof. Observation facts INVENTED.
 
 No provider/Teams/employee/business acceptance is established by this fixture.
-Canonical001..014+frozen020+021 runs once in the exact-owned fresh UUID wrapper.
+Bootstraps the full sealed SYNTHETIC_MIGRATIONS inventory via conftest
+(20 entries: 001,002,004,006-014,017-020,021-023,027; omits 003/005) once in
+the exact-owned fresh UUID wrapper — not a contiguous 001..014 chain.
 """
 from contextlib import contextmanager
 from datetime import datetime,timezone,timedelta

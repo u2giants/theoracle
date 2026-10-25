@@ -54,6 +54,18 @@ not working-tree bytes; a CRLF checkout measures differently and must not be quo
 - `services/oracle-brain/tests/test_operating_model_verifier.py` SYNTHETIC_MIGRATIONS assertions updated
   (`[-8:]` → `[-9:]`); the three registration assertions pass.
 
+## Migration inventory (actual sealed fact — no contiguous chain)
+
+There is **no contiguous `001–021` chain**. The sealed inventory is
+`SYNTHETIC_MIGRATIONS` in `scripts/oracle2/verify_workflow_integrity.py:112-117`:
+
+`001, 002, 004, 006, 007, 008, 009, 010, 011, 012, 013, 014, 017, 018, 019, 020, 021, 022, 023, 027`
+
+(20 entries; **omits `003` and `005`; includes `017/018/019/022/023/027`**). The
+journey and the 21 SQL use the sealed bootstrap
+(`dev/oracle2/test_canonical_schema.py` `bootstrap_canonical_test_schema`), not a
+custom contiguous chain.
+
 ## Pure results (this Windows host)
 
 | Suite | Passed | Failed | Errors | Note |
@@ -67,10 +79,47 @@ Historical 256 pure / 21 SQL was a Linux run and is not re-claimed here. SQL021 
 all 21 SQL case bytes unchanged from the parked source. Registration assertions and all
 edited modules compile clean.
 
+## S08 gate files — all six (M-A)
+
+`scripts/oracle2/verify_phase.py:96-103` gates **six** modules. Disposition at
+this head:
+
+| Module | This host | Linux rerun target |
+|---|---|---|
+| test_meeting_participation.py | **not measured** | collect-only count to be measured |
+| test_meeting_participation_control_v1.py | clean (all pass) | reconcile |
+| test_meeting_participation_sql.py | 21 collected, NOT executed | must go green before the journey runs |
+| test_meeting_participation_v1.py | 31 passed / 57 failed / 2 errors (Windows `os.getuid()`) | reconcile on Linux |
+| test_meeting_participation_wire_v1.py | all pass / 2 errors (env-var length) | reconcile on Linux |
+| test_outbound_replay.py | **not measured**; module-skips when `oracle_brain.meetings.delivery` is absent (`test_outbound_replay.py:11-20`) | record skip-vs-pass explicitly |
+
+**Skip-vs-pass for `test_outbound_replay.py`:** the module performs a
+module-level `pytest.skip` when `oracle_brain.meetings.delivery` is absent (not
+built on main). Under the "skips fail" verifier
+(`verify_workflow_integrity.py:2`) a skip is **not** a green case — it is a
+disposition that must be reported. The Linux rerun records whether the module
+skipped or ran. `test_meeting_participation.py` is likewise unreported on this
+host.
+
+## Sequencing — 21 SQL before the journey (M-E)
+
+The 21 SQL cases must go green against an owned synthetic database under the
+sealed bootstrap **before** the journey one-shot runs. Failure attribution:
+red 21 SQL + failed journey stage = backend failure; green 21 SQL + failed
+journey stage = journey-adapter failure. The 021 blob pin above remains a
+**git-blob** pin (`git show HEAD:… | sha256sum`), never working-tree bytes.
+
 ## Remaining gate (source preservation is not acceptance)
 
-1. Fresh-current complete composition review on a Linux host (full 256 pure).
-2. Actual 21 SQL against an owned synthetic database under the canonical 001–021 chain.
+1. Fresh-current complete composition review on a Linux host. **Per-suite
+   collect-only counts for the six S08 gate modules are to be measured on that
+   rerun** (four measured above + `test_meeting_participation.py` +
+   `test_outbound_replay.py` unreported). No "full 256 pure" figure is demanded
+   or claimed.
+2. Actual 21 SQL against an owned synthetic database under the **sealed
+   20-entry `SYNTHETIC_MIGRATIONS` inventory** (omits 003/005; includes
+   017/018/019/022/023/027) — **not** a contiguous 001–021 chain. The 21 SQL
+   must go green before the journey runs.
 3. Browser → current-turn → sender → provider fixture → receipt path.
 4. Full installed invitation / supervision / audience-currentness proof.
 5. Revocation, lost-ACK, cooldown, cap, global-once, current-audience negatives.
