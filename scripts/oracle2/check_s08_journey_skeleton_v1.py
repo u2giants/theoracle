@@ -379,43 +379,47 @@ def main() -> int:
                 _os_m3.environ[mod.SCRATCH_ENV] = saved_scratch_env
     # L2: sticky-bit / parent-mode ordering behavioral — a world-writable
     # non-sticky parent must refuse BEFORE mkdir (no litter). Feasible only
-    # where the host can express POSIX write bits (not Windows).
+    # where the host can express POSIX write bits (the runner degrades this
+    # check on Windows via the same os.getuid pattern as _receipt_stat_ok).
     import stat as _stat_m3
 
-    with tempfile.TemporaryDirectory() as td:
-        parent = Path(td) / "ww-parent"
-        parent.mkdir()
-        try:
-            parent.chmod(0o777)
-        except OSError:
-            print("L2_STICKY_BIT_SKIP chmod-unavailable")
-        else:
-            pst = parent.stat()
-            # S_ISVTX is the sticky-bit mask constant (no predicate function).
-            if pst.st_mode & 0o022 and not (pst.st_mode & _stat_m3.S_ISVTX):
-                child = parent / "scratch-child"
-                _os_m3.environ[mod.SCRATCH_ENV] = str(child)
-                try:
-                    mod._scratch()
-                except mod.JourneyRefusal as e:
-                    if "sticky" not in str(e).lower() and "L2" not in str(e):
-                        raise SystemExit(f"L2 parent-mode refusal not tagged: {e}")
-                    if child.exists():
-                        raise SystemExit(
-                            "scratch created despite L2 parent refusal (litter)"
-                        )
-                    print("L2_PARENT_MODE_REFUSED_BEFORE_MKDIR", str(e)[:80])
-                else:
-                    raise SystemExit(
-                        "_scratch accepted a world-writable non-sticky parent (L2)"
-                    )
-                finally:
-                    if saved_scratch_env is None:
-                        _os_m3.environ.pop(mod.SCRATCH_ENV, None)
-                    else:
-                        _os_m3.environ[mod.SCRATCH_ENV] = saved_scratch_env
+    if not hasattr(_os_m3, "getuid"):
+        print("L2_STICKY_BIT_SKIP unavailable-on-windows")
+    else:
+        with tempfile.TemporaryDirectory() as td:
+            parent = Path(td) / "ww-parent"
+            parent.mkdir()
+            try:
+                parent.chmod(0o777)
+            except OSError:
+                print("L2_STICKY_BIT_SKIP chmod-unavailable")
             else:
-                print("L2_STICKY_BIT_SKIP host-cannot-express-mode-bits")
+                pst = parent.stat()
+                # S_ISVTX is the sticky-bit mask constant (no predicate function).
+                if pst.st_mode & 0o022 and not (pst.st_mode & _stat_m3.S_ISVTX):
+                    child = parent / "scratch-child"
+                    _os_m3.environ[mod.SCRATCH_ENV] = str(child)
+                    try:
+                        mod._scratch()
+                    except mod.JourneyRefusal as e:
+                        if "sticky" not in str(e).lower() and "L2" not in str(e):
+                            raise SystemExit(f"L2 parent-mode refusal not tagged: {e}")
+                        if child.exists():
+                            raise SystemExit(
+                                "scratch created despite L2 parent refusal (litter)"
+                            )
+                        print("L2_PARENT_MODE_REFUSED_BEFORE_MKDIR", str(e)[:80])
+                    else:
+                        raise SystemExit(
+                            "_scratch accepted a world-writable non-sticky parent (L2)"
+                        )
+                    finally:
+                        if saved_scratch_env is None:
+                            _os_m3.environ.pop(mod.SCRATCH_ENV, None)
+                        else:
+                            _os_m3.environ[mod.SCRATCH_ENV] = saved_scratch_env
+                else:
+                    print("L2_STICKY_BIT_SKIP host-cannot-express-mode-bits")
 
     # C3: receipt release path env must exist.
     if not hasattr(mod, "RECEIPT_RELEASE_ENV"):
