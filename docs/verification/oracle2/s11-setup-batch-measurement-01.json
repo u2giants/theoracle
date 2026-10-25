@@ -1,0 +1,35 @@
+{
+  "sequential_install_plus_repin": {
+    "counts": {
+      "admin_contexts": 5,
+      "pins_calls": 5,
+      "admissions": 4,
+      "authorities_constructed": 4,
+      "events": 65
+    },
+    "wall_n": 20,
+    "wall_median_s": 0.00012,
+    "wall_min_s": 0.000112,
+    "wall_max_s": 0.001011
+  },
+  "one_admin_batch": {
+    "counts": {
+      "admin_contexts": 1,
+      "pins_calls": 1,
+      "admissions": 4,
+      "authorities_constructed": 4,
+      "events": 37
+    },
+    "wall_n": 20,
+    "wall_median_s": 0.000107,
+    "wall_min_s": 0.000104,
+    "wall_max_s": 0.000124
+  },
+  "delta": {
+    "admin_contexts": 4,
+    "pins_calls": 4,
+    "wall_median_s": 1.3e-05
+  },
+  "label": "TEST SETUP measurement only \u2014 UNPROVED for business/realized savings; recording harness wall time is not production install cost",
+  "static_reduction": "admin contexts 5->1; pins 5->1; admissions 4->4 unchanged; authorities 4->4 unchanged"
+}
