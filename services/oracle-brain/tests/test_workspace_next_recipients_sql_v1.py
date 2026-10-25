@@ -76,18 +76,15 @@ def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,g
             setup_end=time.monotonic()+30
             setup_deadline=datetime.now(timezone.utc)+timedelta(seconds=29)
             with _request_fence_v1(float(setup_end)):
-                h,own=own_history(admin_url,f)
                 # This browser journey runs far longer than the default fixture
-                # admission window. Extend only this test-owned history admission
-                # (and the authority horizon derived from it) so the post-restore
-                # read is still inside the original window. Expiry-negatives in
-                # other modules keep their short windows.
+                # admission window. Create this test-owned history admission
+                # (and the authority horizon derived from it) with a longer
+                # original window. The admissions table is append-only, so the
+                # lifetime must be chosen at insert. Expiry-negatives in other
+                # modules keep their short windows.
                 horizon=datetime.now(timezone.utc)+timedelta(minutes=10)
-                with psycopg.connect(admin_url) as extend:
-                    extend.execute(
-                        'UPDATE oracle2.processing_model_admissions_v1 SET expires_at=%s WHERE admission_id=%s',
-                        (horizon,h['aid']),
-                    )
+                f_long={**f,'expiry':horizon}
+                h,own=own_history(admin_url,f_long)
                 own=ConsolidationAuthorityV1(h['url'],binding=replace(own.binding,original_horizon=horizon,retained_semantic_admissions=state['q']['trusted_admission_hashes']),delivery_capability_body_hashes=own.delivery_capability_body_hashes)
                 before=own.projection_delivery_v1(state['manifest'].artifact_id,state['manifest'].version,deadline=setup_deadline)
                 assert before.model_content_hash==state['manifest'].content_hash
