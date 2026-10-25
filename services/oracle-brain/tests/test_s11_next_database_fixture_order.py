@@ -1,4 +1,14 @@
-"""Offline fixture-order proof only: no socket, Docker, DB or actual Next."""
+"""Offline fixture-order proof only: no socket, Docker, DB or actual Next.
+
+L3 (pytest-version sensitivity): this test accesses pytest fixture objects via
+``.__wrapped__`` to invoke the underlying generator functions directly.  The
+``__wrapped__`` attribute is set by ``functools.wraps`` and its presence on
+pytest fixture wrappers is pytest-version-sensitive.  If pytest drops or
+changes ``__wrapped__``, this test will fail at the ``.fixture.__wrapped__``
+calls — that is a test-harness compatibility issue, not a product defect.
+No pytest version is currently pinned; pin pytest or adapt the ``__wrapped__``
+access if the attribute disappears.
+"""
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch

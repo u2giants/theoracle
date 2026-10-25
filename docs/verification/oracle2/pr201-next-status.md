@@ -27,10 +27,17 @@ This file is sealed source. It replaces the /tmp-only status Muse REJECT found u
 ## Fail-closed claims (now inspectable in the sealed runner)
 
 - **exact-head pin** — `receipt.head == git rev-parse HEAD` of the execution worktree
-- **receipt fields** — `head`, `verdict=APPROVE`, `reviewer`, `reviewed_at`
-- **STOP exit 2** — missing/incomplete receipt refuses before any DB/Next work
-- **owned cleanup** — compose-project absence proof (containers/networks/volumes) + name/port/lock post-run scan
-- **source-before/after equality** — sha256 over the sealed truth source set must match after the run
+- **clean-tree check** — `git status --porcelain` must be empty; uncommitted edits refuse (H1)
+- **receipt fields** — `head`, `verdict=APPROVE`, `reviewer`, `reviewed_at`; receipt is **procedural/operator-minted** unsigned `/tmp` JSON (M3); sealed-file digests bound into `result.json`
+- **STOP exit 2** — every pre/post-gate failure prints a reason and exits 2 (M1/M6); no bare asserts; no traceback exits
+- **owned cleanup** — compose-project absence proof (containers/networks/volumes) + name/port/lock post-run scan (H4: broader tokens + `ss`/`lsof` port inspection)
+- **source-before/after equality** — sha256 over **all git-tracked files** (content+mode) must match after the run (M4)
+- **JUnit totals** — tests>0, failures==0, errors==0, skipped==0; missing XML reports returncode/timeout/stderr tail (H2)
+- **timeout handler** — `start_new_session=True` + `os.killpg` on timeout; writes `result.json` with `timeout: true`; still runs post-scan and cleanup (H3)
+- **resource preflight** — executable `preflight_resources()` checks DNS/::1, Chromium, pnpm/tsx, openssl, docker, git, ps, venv path with psycopg/pytest (H5)
+- **stale-lock** — detects **live process holder**, not mere directory existence (C3)
+- **FalkorDB** — runner provisions `falkor-candidate` and exports `ORACLE2_OPERATING_TEST_GRAPH_URL` (C2)
+- **label** — `event` (legal for `worker_postgres` allowlist) (C1)
 
 ## Prior session (retained, not re-run)
 
@@ -69,11 +76,12 @@ See `docs/verification/oracle2/s11-next-dist-lock-note.md`. Three drivers share 
 
 ## Known gaps named (not fixed in this seal)
 
-1. Drivers' `ppid == child.pid` cleanup proof misses reparented grandchildren. Runner adds name/port/lock scans and stale-lock pre-check; closing the driver-level gap remains open.
-2. `pg_stat_activity` sampling can miss fast queries; invented JWT expires after 240s. Fail-closed flake risks, named.
+1. Drivers' `ppid == child.pid` cleanup proof misses reparented grandchildren. Runner adds name/port scans (with `ss`/`lsof`) and live-lock pre-check; closing the driver-level gap remains open.
+2. `pg_stat_activity` sampling can miss fast queries. Fail-closed flake risk, named. JWT-240s is a **non-risk** under sealed bounds (45s startup + 110s communicate, mint at driver start) (L1).
 3. Invented LOGIN roles are cluster-global and accumulate; containment is whole-project `down --volumes`.
 4. `/proc` probing is Linux-only (runner refuses elsewhere).
 5. Chromium unpinned in CI; record the version in the receipt/evidence.
+6. `__wrapped__` access on pytest fixtures is pytest-version-sensitive; no pytest version is pinned (L3). Note in `test_s11_next_database_fixture_order.py` docstring.
 
 ## What remains
 

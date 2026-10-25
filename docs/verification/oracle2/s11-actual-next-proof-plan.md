@@ -11,11 +11,15 @@ Sealed companion artifacts (in-repo, inspectable at this head):
 - `services/oracle-brain/tests/test_s11_next_database_fixture_order.py` — offline fixture-order proof (real file; sealed from edge-dev3)
 - `docs/verification/oracle2/pr201-next-status.md` — status / receipt requirements
 
-## Required natural unblock
+## Required natural unblock — procedural / operator-minted (M2, M3)
 
 Root first integrates and lands the exact complete consumer source, SQL025, SAME shared transport/purpose and canonical migration inventory on main under required review/release gates. Then journey creates a NEW current-upstream test worktree, captures every executed web/backend/SQL/test source hash, declares the actual task class and runs the actual database preflight. No database resource, employee-SQL read, Next database-using process or browser claim starts unless that complete source declaration returns ALLOW. If effective class remains deployment, preserve STOP; no B+C partition, dropping protected files, ancestry laundering or target reuse.
 
+**These preconditions are procedural / operator-minted.** The runner records them in `result.json` (`natural_unblock` object) but does not independently re-verify main-landed source, worktree freshness, or ALLOW — the reviewer who mints the receipt is assumed to have confirmed them. The runner does enforce a **clean-tree check**: `git status --porcelain` must be empty before any DB/Next work (uncommitted edits refuse with STOP exit 2).
+
 The one-shot additionally requires a review receipt at `/tmp/oracle-parent24-wy02uT/s11-next-multiemployee-review-receipt.json` with fields `head` (full 40-char, equal to checked-out HEAD), `verdict=APPROVE`, `reviewer`, `reviewed_at`. Missing receipt is STOP exit 2 before any DB/Next work.
+
+**Receipt honesty (M3):** the receipt is an operator-minted, unsigned `/tmp` JSON file. It is a procedural gate, not an integrity-bound signature. The runner binds the sealed-set file content digests (plan, note, JSON, status, measure script, plus all git-tracked files via whole-worktree content+mode sha256) into `result.json` so a reviewer can verify the sealed set matches the reviewed head.
 
 ## Budget honesty (Muse REJECT Critical 2) — this is NOT a W10 120s pair
 
@@ -49,24 +53,32 @@ Contention observation plan (documentation, not a fix):
 | Requirement | Why | Where |
 |---|---|---|
 | Fresh PG (compose worker_postgres) | owned child DB `oracle_operating_model_test_<32hex>` | `dev/oracle2/test_worker_postgres_fixture.py` |
-| FalkorDB graph stores | multiemployee / connected-answer journey | compose worker stack |
+| FalkorDB graph stores | multiemployee / connected-answer journey | compose worker stack (`falkor-candidate` service) |
 | TLS fixtures (`verify-full` + `sslrootcert`) | every DB entry point | `test_worker_postgres_fixture.py` |
 | `openssl` | auth-browser cert fixtures | PATH |
 | `pnpm` / `tsx` | TS proof drivers | `apps/web` |
 | Chromium | browser proof (CI installs **unpinned**) | `.github/workflows/oracle2-contracts.yml` |
 | `localhost.localdomain` DNS + `::1` | invented auth issuer and Next origins | host resolver |
-| Compose project name | `oracle2-synthetic-p24s11-next-me` names the **project**, not the database; database is `oracle_operating_model_test_<32hex>` | guard allowlist |
+| `docker` | compose provisioning / cleanup | PATH (hard runner dep) |
+| `git` | exact-head pin + clean-tree check + source digest | PATH (hard runner dep) |
+| `ps` | post-run leak scan | PATH (hard runner dep) |
+| Fixed venv `/tmp/pglast-venv-20261023` with `psycopg` + `pytest` | runner imports + pytest invocation | hard runner dep |
+| Compose file `dev/oracle2/compose.yaml` | service definitions for postgres + falkor-candidate | repo |
 
-Pre-flight checklist (must all pass before the one-shot):
+All of the above are checked by the runner's executable `preflight_resources()` before any DB/Next work. Failure is STOP exit 2 with a named reason.
 
-- [ ] Linux host (edge-dev3). `/proc` exists. Sealed drivers' `/proc` probing is Linux-only.
-- [ ] `openssl`, `pnpm`, `tsx`, Chromium present (Chromium version unpinned — record it in the receipt).
-- [ ] `localhost.localdomain` resolves; `::1` serves the invented auth issuer and Next.
-- [ ] FalkorDB graph stores up in the owned compose project.
-- [ ] TLS fixture path + `sslrootcert` present and `verify-full` capable.
-- [ ] No pre-existing `apps/web/.next/dev` lock (stale-lock pre-check; runner asserts).
-- [ ] Review receipt exists with `head`/`verdict=APPROVE`/`reviewer`/`reviewed_at`.
-- [ ] Compose project `oracle2-synthetic-p24s11-next-me` unused (owned namespace).
+Pre-flight checklist (runner enforces what is executable; items marked *procedural* are operator-confirmed):
+
+- [x] Linux host (edge-dev3). `/proc` exists. Sealed drivers' `/proc` probing is Linux-only. *(runner enforces)*
+- [x] `openssl`, `pnpm`, `tsx`, Chromium present (Chromium version unpinned — record it in the receipt). *(runner `preflight_resources()` enforces)*
+- [x] `localhost.localdomain` resolves; `::1` serves the invented auth issuer and Next. *(runner `preflight_resources()` enforces)*
+- [x] FalkorDB graph stores up in the owned compose project (`falkor-candidate` service). *(runner provisions at runtime)*
+- [x] TLS fixture path + `sslrootcert` present and `verify-full` capable. *(verified by `worker_postgres`)*
+- [x] No LIVE process holds the `apps/web/.next/dev` lock (stale-lock pre-check; runner checks for live processes, not mere directory existence — the cache dir persists after clean exit).
+- [x] Review receipt exists with `head`/`verdict=APPROVE`/`reviewer`/`reviewed_at`. *(runner enforces; receipt is procedural/operator-minted)*
+- [x] Clean tree: `git status --porcelain` empty. *(runner enforces)*
+- [x] Fresh compose project: `worker_postgres` appends `-w<12hex>` to the base project name and refuses if any container with that exact project label already exists. *(enforced by `worker_postgres`; a separate "project unused" check is meaningless because the suffixed project name is always unique)*
+- *procedural* — main-landed source, new worktree, complete source declaration/ALLOW (see "Required natural unblock")
 
 Provisioning and cleanup are **outside** the per-invocation wall clock.
 
@@ -103,15 +115,16 @@ All three drivers assert no remaining processes via `ppid == child.pid` only. Gr
 
 Mitigations in the sealed runner (additive, not a replacement of the drivers' proof):
 
-1. **Stale-lock pre-check** before each Next invocation (`apps/web/.next/dev` must be absent).
-2. **Post-run scan** after each invocation and after cleanup: process name/args scan for `next dev` / `next-server` / `turbopack` / `playwright` / `chromium`, plus `.next/dev` lock presence. Recorded in `scans.json`.
+1. **Stale-lock pre-check** before each Next invocation: refuses only when a **live process** holds the `.next/dev` lock (process name/args scan). Directory existence alone is NOT a lock — any clean Next run creates `apps/web/.next/dev` and leaves it behind. Between invocations the runner does not need to delete the cache dir; the check detects live holders only.
+2. **Post-run scan** after each invocation and after cleanup: process name/args scan for `next dev` / `next-server` / `turbopack` / `playwright` / `chromium` / `tsx` / `headless_shell` / `chrome` / proof-TS basenames, **plus port/socket inspection** (`ss -tlnp` with `lsof` fallback). Recorded in `scans.json` (written AFTER the post-cleanup scan).
+3. **Timeout handler (H3):** `subprocess.Popen` with `start_new_session=True`; on `TimeoutExpired` the runner kills the process group (`os.killpg`), writes `result.json` with `timeout: true`, still runs the post-scan and full cleanup. No Next/Chromium leak is tolerated.
 
 The drivers themselves are not edited in this seal. Closing the ppid gap inside the drivers (recursive `psutil` trees, as `verify_workflow_integrity.py` already uses) remains a **named remaining risk**.
 
 ## Flake honesty (Muse High flake) — named, fail-closed
 
 - `pg_stat_activity` sampling (50–100ms) can miss fast `employee_identities` queries. `assert observations` then fails a correct run. Fail-closed; **named flake risk**. The sealed runner does not widen sampling (that lives in the sealed drivers).
-- Invented auth JWT expires after 240s against flows with 45s Next startups plus 60s page timeouts. Fail-closed; **named flake risk**.
+- **JWT-240s expiry (L1):** under the sealed bounds (45s Next startup + 110s `communicate` cap per driver, token minted at driver start) the 240s expiry **cannot fire** within a single driver invocation. This is a **non-risk** under sealed bounds; the expiry path was not separately traced. Keep as non-risk; do not present as a flake.
 - No retry is permitted on this one-shot. A flake is a fail, not a re-run.
 
 ## Medium notes (Muse Medium)

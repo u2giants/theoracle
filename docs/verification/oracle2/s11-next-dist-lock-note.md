@@ -44,8 +44,9 @@ Legitimate fix surface already in framework source (not yet wired):
 
 The sealed runner (`scripts/oracle2/run-s11-next-multiemployee-proof-01.py`) adds:
 
-- stale `apps/web/.next/dev` lock pre-check before each Next invocation;
-- post-run name/port/lock scan after each invocation and after cleanup.
+- **Stale-lock pre-check** before each Next invocation: refuses only when a **live process** holds the `apps/web/.next/dev` lock (process name/args scan for `next dev` / `next-server` / `turbopack` / `playwright` / `chromium` / `tsx` / `headless_shell` / `chrome` / proof-TS basenames). Directory existence alone is NOT a lock — any clean Next run creates `apps/web/.next/dev` and leaves it behind. The check detects live holders only.
+- **Post-run scan** after each invocation and after cleanup: broader process name/args scan **plus port/socket inspection** (`ss -tlnp` with `lsof` fallback). Recorded in `scans.json` (written after the post-cleanup scan).
+- **Timeout handler**: `start_new_session=True` + `os.killpg` on `TimeoutExpired`, then post-scan and full cleanup.
 
 These are additive. The drivers' own `ppid == child.pid` cleanup proof still misses reparented grandchildren; that gap stays named (see the ONE plan).
 

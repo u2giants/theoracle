@@ -7,6 +7,10 @@ Label on both this script and that JSON:
   TEST SETUP measurement only — UNPROVED for business/realized savings.
 Static 5->1 (admin contexts / pins) is real in code; live-DB install wall-time
 saving is unmeasured and is not claimed.
+
+L2: output path defaults to the in-repo sealed JSON.  Pass --output to write
+elsewhere.  The script also writes its own output hash alongside the JSON and
+removes the scratch CA file it creates.
 """
 from pathlib import Path
 from datetime import datetime, timezone
@@ -14,6 +18,8 @@ from uuid import uuid4
 from unittest.mock import patch
 from types import SimpleNamespace
 from contextlib import contextmanager
+import argparse
+import hashlib
 import json
 import sys
 import time
@@ -215,6 +221,32 @@ out["static_reduction"] = (
     "admin contexts 5->1; pins 5->1; admissions 4->4 unchanged; "
     "authorities 4->4 unchanged"
 )
-path = Path("/tmp/oracle-parent24-wy02uT/s11-setup-batch-measurement-01.json")
-path.write_text(json.dumps(out, indent=2) + "\n")
+
+# L2: default output is the in-repo sealed JSON; --output overrides.
+parser = argparse.ArgumentParser(description="S11 setup-batch measurement (TEST SETUP only)")
+parser.add_argument(
+    "--output",
+    type=Path,
+    default=root / "docs/verification/oracle2/s11-setup-batch-measurement-01.json",
+    help="output JSON path (default: in-repo sealed JSON)",
+)
+args = parser.parse_args()
+
+# L2: clean up the scratch CA file created by make_stage
+ca_scratch = Path("/tmp/oracle-parent24-wy02uT/measure-ca.pem")
+try:
+    ca_scratch.unlink(missing_ok=True)
+except OSError:
+    pass
+
+output_json = json.dumps(out, indent=2) + "\n"
+args.output.parent.mkdir(parents=True, exist_ok=True)
+args.output.write_text(output_json)
+
+# L2: bind script output hash (sha256 of the written file) as a sidecar
+output_hash = hashlib.sha256(output_json.encode("utf-8")).hexdigest()
+hash_sidecar = args.output.with_suffix(args.output.suffix + ".sha256")
+hash_sidecar.write_text(output_hash + "\n")
+
 print(json.dumps(out, indent=2))
+print(f"output_sha256={output_hash}", file=sys.stderr)
