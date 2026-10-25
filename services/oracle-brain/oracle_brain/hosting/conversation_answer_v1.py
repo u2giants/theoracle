@@ -61,7 +61,7 @@ class ConversationAnswerV1:
                 result['answer_first']='The response outcome is unknown. Your original words are saved; no request has been repeated.'
                 return result
             except (PermissionError,psycopg.Error,ValueError):
-                if self.effect_owned.service._cleanup_unknown:raise
+                if any(not t.done() for t in self.effect_owned.service._owned_closes):raise
                 capability_gap='The independently authorized search or synthesis capability is unavailable. This answer uses existing qualified records only.'
             else:
                 latest=self.control.snapshot_v1(thread)
@@ -86,7 +86,7 @@ class ConversationAnswerV1:
             # This is a structured quoted record answer, never a second native
             # interviewer. A scope clarification is displayed as an honest gap.
         except (PermissionError,psycopg.Error):
-            if self.owned.service._cleanup_unknown:raise
+            if any(not t.done() for t in self.owned.service._owned_closes):raise
         latest=self.control.snapshot_v1(thread)
         if latest['revision']!=revision:raise PermissionError('conversation changed during evidence answer')
         if packet is not None:
