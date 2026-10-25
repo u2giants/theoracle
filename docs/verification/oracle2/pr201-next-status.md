@@ -22,6 +22,7 @@ This file is sealed source. It replaces the /tmp-only status Muse REJECT found u
 | `docs/verification/oracle2/s11-next-dist-lock-note.md` | shared Next dist lock note |
 | `docs/verification/oracle2/s11-setup-batch-measurement-01.json` | measurement JSON (test-setup only) |
 | `services/oracle-brain/tests/test_s11_next_database_fixture_order.py` | offline fixture-order proof |
+| `services/oracle-brain/tests/test_s11_live_lock_path_scope.py` | offline path-scoped live-lock contract proof |
 | `docs/verification/oracle2/pr201-next-status.md` | this file |
 
 ## Fail-closed claims (now inspectable in the sealed runner)
@@ -30,12 +31,12 @@ This file is sealed source. It replaces the /tmp-only status Muse REJECT found u
 - **clean-tree check** — `git status --porcelain` must be empty; uncommitted edits refuse (H1)
 - **receipt fields** — `head`, `verdict=APPROVE`, `reviewer`, `reviewed_at`; receipt is **procedural/operator-minted** unsigned `/tmp` JSON (M3); sealed-file digests bound into `result.json`
 - **STOP exit 2** — every pre/post-gate failure prints a reason and exits 2 (M1/M6); no bare asserts; no traceback exits
-- **owned cleanup** — compose-project absence proof (containers/networks/volumes) + name/port/lock post-run scan (H4: broader tokens + `ss`/`lsof` port inspection)
+- **owned cleanup** — compose-project absence proof (containers/networks/volumes) + name/port post-run leak scan (H4: broader tokens + `ss`/`lsof` port inspection; leak evidence only, never a live-lock claim)
 - **source-before/after equality** — sha256 over **all git-tracked files** (content+mode) must match after the run (M4)
 - **JUnit totals** — tests>0, failures==0, errors==0, skipped==0; missing XML reports returncode/timeout/stderr tail (H2)
 - **timeout handler** — `start_new_session=True` + `os.killpg` on timeout; writes `result.json` with `timeout: true`; still runs post-scan and cleanup (H3)
 - **resource preflight** — executable `preflight_resources()` checks DNS/::1, Chromium, pnpm/tsx, openssl, docker, git, ps, venv path with psycopg/pytest (H5)
-- **stale-lock** — detects **live process holder**, not mere directory existence (C3)
+- **stale-lock** — path-scoped **live process holder** only (C3): cwd/fd/argv must reference this worktree's `apps/web` or `.next/dev`. Host node/chromium/playwright/claude name matches never count; directory existence alone is not a lock. Fail-closed for real holders (see `test_s11_live_lock_path_scope.py`)
 - **FalkorDB** — runner provisions `falkor-candidate` and exports `ORACLE2_OPERATING_TEST_GRAPH_URL` (C2)
 - **label** — `event` (legal for `worker_postgres` allowlist) (C1)
 
@@ -47,6 +48,7 @@ This file is sealed source. It replaces the /tmp-only status Muse REJECT found u
 
 - `test_recommendation_setup_batch_v1.py` — **13/13 PASS** (offline).
 - `test_s11_next_database_fixture_order.py` — **2/2 PASS** (offline pure only; no socket/DB/Next). File is real and sealed at `services/oracle-brain/tests/test_s11_next_database_fixture_order.py`.
+- `test_s11_live_lock_path_scope.py` — **8/8 PASS** (offline pure only; no `/proc` required). Seals the path-scoped live-lock contract after the PR201 one-shot false-positive (host Playwright MCP / `chrome_crashpad_handler` / `claude-headroom` / disclaimer wrappers matched broad `PROCESS_TOKENS` and STOPped at `pre-workspace_next_recipients_sql_v1` with `next_dev_dir_exists: False`).
 
 ## Next/multiemployee actual — NOT executed
 
@@ -76,7 +78,7 @@ See `docs/verification/oracle2/s11-next-dist-lock-note.md`. Three drivers share 
 
 ## Known gaps named (not fixed in this seal)
 
-1. Drivers' `ppid == child.pid` cleanup proof misses reparented grandchildren. Runner adds name/port scans (with `ss`/`lsof`) and live-lock pre-check; closing the driver-level gap remains open.
+1. Drivers' `ppid == child.pid` cleanup proof misses reparented grandchildren. Runner adds name/port leak scans (with `ss`/`lsof`) and a path-scoped live-lock pre-check; closing the driver-level gap remains open.
 2. `pg_stat_activity` sampling can miss fast queries. Fail-closed flake risk, named. JWT-240s is a **non-risk** under sealed bounds (45s startup + 110s communicate, mint at driver start) (L1).
 3. Invented LOGIN roles are cluster-global and accumulate; containment is whole-project `down --volumes`.
 4. `/proc` probing is Linux-only (runner refuses elsewhere).
