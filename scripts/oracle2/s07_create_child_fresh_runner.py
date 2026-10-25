@@ -158,7 +158,7 @@ def main(argv)->int:
         env={**os.environ,'PYTHONPATH':pythonpath,'PYTHONDONTWRITEBYTECODE':'1'}
         env.pop('PYTHONHOME',None)  # never inherit; pin is pythonhome_exported: False
         # Owned Compose project. UUID lowercase (test_worker_postgres_fixture regex).
-        project='oracle2-synthetic-p24s07fresh-'+uuid4().hex
+        project='oracle2-synthetic-s07f-'+uuid4().hex[:24]  # container DNS name (project-postgres-1) must fit OpenSSL 64-char CN
         env['COMPOSE_PROJECT_NAME']=project
         env['ORACLE2_POSTGRES_PORT']='0'
         step='compose-up'
