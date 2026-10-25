@@ -7,6 +7,13 @@ ai-task-gates check --before database ALLOW line. One fresh owned synthetic
 Postgres (oracle2-synthetic-p24s08-journey-<unique>). Owned cleanup with
 absence readback always — including pre-identity refusals.
 
+Release workflow for the review receipt (C3):
+  1. Operator mints review-receipt.json at a known path OUTSIDE any SCRATCH.
+  2. Operator sets ORACLE2_S08_JOURNEY_RECEIPT to that path.
+  3. Runner mints a unique per-run SCRATCH, then copies the receipt into it.
+  A unique SCRATCH cannot hold a pre-minted receipt; the release path is the
+  only supported minting location.
+
 Journey stages (invented data only):
   provision-capture-admission -> observe-audience -> host-control ->
   current-turn -> sender -> bytes-in receipt -> status/reconcile
@@ -30,23 +37,34 @@ Deadline / CAS / conflict policy (H-C):
   expired observation, or elapsed window: STOP. No transparent retry. Record
   the failing stage and leave UNKNOWN semantics. One shared monotonic budget
   (120s) covers the journey stages only; fixture/bootstrap setup sits OUTSIDE
-  that budget, matching verify_workflow_integrity.py:384-386.
+  that budget, matching verify_workflow_integrity.py:384-386,407.
+
+  UNKNOWN routing (H5): UNKNOWN from claim commit/readback-loss proceeds to
+  stage 5 (read-only reconcile of the OUTCOME). UNKNOWN from any earlier stage
+  ends the journey at that stage. The journey layer never re-reads failing
+  stage inputs; factory-internal fresh readbacks are the tested factory
+  behaviour and are outside the "no re-read" scope.
 
 Migration inventory is the sealed SYNTHETIC_MIGRATIONS bootstrap
 (001,002,004,006..014,017,018,019,020,021,022,023,027) — NOT a contiguous
 001..014 chain. The runner calls bootstrap_canonical_test_schema and asserts
-the sealed inventory and catalog; it never merely echoes a note.
+the sealed inventory and catalog against golden digests; it never merely
+echoes a note.
 
 Real Teams producer stays UNQUALIFIED. Business acceptance HELD.
 
 This is a prepared one-shot skeleton: stages refuse until implemented and
 reviewed. Offline checks only until a reviewed release. Do not invent a
 production effect.
+
+Any edit to this file invalidates the receipt-bound SHA and requires a new
+review and a new receipt (C5). There is no "no SHA churn" guarantee.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -55,6 +73,7 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from uuid import uuid4
 
@@ -63,6 +82,9 @@ ROOT = Path(__file__).resolve().parents[2]
 # Unique per-run scratch; override only for offline checker isolation.
 # SCRATCH must never live inside the repository (H-F/M-C).
 SCRATCH_ENV = "ORACLE2_S08_JOURNEY_SCRATCH"
+# Release path for the operator-minted review receipt (C3). Must live OUTSIDE
+# SCRATCH; the runner copies it into SCRATCH after minting SCRATCH.
+RECEIPT_RELEASE_ENV = "ORACLE2_S08_JOURNEY_RECEIPT"
 SHARED_BUDGET_S = 120
 PER_REQUEST_S = 30
 DOCKER_PROBE_TIMEOUT_S = 60
@@ -97,16 +119,24 @@ SEALED_MIGRATION_INVENTORY_NOTE = ",".join(
 )
 FULL_SHA40 = re.compile(r"^[0-9a-f]{40}$")
 # Precise ALLOW token: a whole line that is exactly ALLOW, optionally with a
-# `gate: ` prefix. Substring match is forbidden (H-G).
-ALLOW_LINE = re.compile(r"^\s*(?:gate:\s*)?ALLOW\s*$", re.MULTILINE)
-# Worktree-content suffixes and lock/compose names the DB image depends on (H-F).
-SOURCE_SUFFIXES = (".py", ".ts", ".tsx", ".sql", ".json", ".md", ".yaml", ".yml")
+# `gate: ` prefix. Substring match is forbidden (H-G/M1). Any DENIED line
+# present causes refusal regardless of ALLOW (M1).
+ALLOW_LINE = re.compile(r"^(?:gate: )?ALLOW$", re.MULTILINE)
+DENIED_LINE = re.compile(r"^(?:gate: )?DENIED$", re.MULTILINE)
+# Worktree-content suffixes and lock/compose/docker names the DB image
+# depends on (H-F/M2). Shell scripts and build config included (M2).
+SOURCE_SUFFIXES = (
+    ".py", ".ts", ".tsx", ".sql", ".json", ".md", ".yaml", ".yml",
+    ".toml", ".sh", ".bash", ".ps1", ".dockerignore",
+)
 SOURCE_BASENAMES = frozenset(
     {
         "compose.yaml",
         "compose.yml",
         "docker-compose.yaml",
         "docker-compose.yml",
+        "Dockerfile",
+        ".dockerignore",
         "pnpm-lock.yaml",
         "package-lock.json",
         "yarn.lock",
@@ -125,17 +155,43 @@ FORBIDDEN_NETWORK_PATHS = (
 )
 RECALL_ENV_PREFIX = "RECALL_"
 
+# Shared budget fence ContextVar (H1): narrowing, finite-only, entry + exit
+# check — same shape as request_deadline_v1.py:13-35.
+_request_end_v1: ContextVar = ContextVar(
+    "s08_journey_original_end_v1", default=None
+)
+
 
 class JourneyRefusal(RuntimeError):
     """Fail-closed refusal. Carries the failing stage for the outcome record."""
+
+
+class JourneyComplete(RuntimeError):
+    """Internal signal: journey evidence written; NOT a refusal (C8)."""
 
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def sha256_git_blob(path: Path) -> str:
+    """Git-blob SHA-256 for receipt bindings (H6).
+
+    Uses `git show HEAD:<relpath> | sha256sum` semantics so CRLF checkouts
+    cannot diverge from the pinned bytes. All four receipt SHA bindings
+    (runner/plan/checker/evidence) use this helper.
+    """
+    rel = path.resolve().relative_to(ROOT.resolve()).as_posix()
+    git = _tool_identity("git")
+    raw = subprocess.check_output(
+        [git["path"], "show", f"HEAD:{rel}"],
+        cwd=ROOT,
+    )
+    return hashlib.sha256(raw).hexdigest()
+
+
 def _scratch() -> Path:
-    """Unique per-run scratch, never inside the repository (M-C)."""
+    """Unique per-run scratch, never inside the repository (M-C/L2)."""
     raw = os.environ.get(SCRATCH_ENV)
     if raw:
         scratch = Path(raw).resolve()
@@ -151,29 +207,64 @@ def _scratch() -> Path:
             "SCRATCH must not live inside the repository worktree (M-C)"
         )
     scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
+    scratch.chmod(0o700)
+    # L2: parent directory must not be group/other-writable.
+    parent = scratch.parent
+    if parent.exists():
+        pst = parent.stat()
+        if pst.st_mode & 0o022:
+            raise JourneyRefusal(
+                f"SCRATCH parent directory is group/other-writable: {parent}"
+            )
     return scratch
 
 
 def _monotonic_end(seconds: float) -> float:
-    if type(seconds) not in (int, float) or seconds <= 0:
+    if type(seconds) not in (int, float) or not math.isfinite(float(seconds)):
+        raise JourneyRefusal("finite budget seconds required (L1)")
+    if seconds <= 0:
         raise JourneyRefusal("positive budget seconds required")
     return time.monotonic() + float(seconds)
 
 
+def _budget_remaining(*, required: bool = True) -> float | None:
+    """Remaining seconds on the shared fence; raises when elapsed (H1)."""
+    end = _request_end_v1.get()
+    if end is None:
+        if required:
+            raise JourneyRefusal("shared budget fence required")
+        return None
+    remaining = end - time.monotonic()
+    if remaining <= 0:
+        raise JourneyRefusal("shared budget fence elapsed; STOP")
+    return remaining
+
+
 @contextmanager
 def _request_fence_v1(original_monotonic_end: float):
-    """Same shape as the sealed _request_fence_v1 (H-H).
+    """Shared budget fence — same shape as request_deadline_v1.py:26-35 (H1).
 
-    Compares a monotonic deadline; never a wall-clock label.
+    ContextVar narrowing, finite-float requirement, entry remaining check,
+    and exit remaining check so an overrunning stage is caught at the fence.
+    Never a wall-clock label.
     """
-    if type(original_monotonic_end) is not float:
-        raise JourneyRefusal("exact original monotonic fence required")
-    if original_monotonic_end <= time.monotonic():
-        raise JourneyRefusal("shared budget already elapsed; STOP")
+    if (
+        type(original_monotonic_end) is not float
+        or not math.isfinite(original_monotonic_end)
+    ):
+        raise JourneyRefusal("exact finite original monotonic fence required (H1)")
+    prior = _request_end_v1.get()
+    token = _request_end_v1.set(
+        min(prior, original_monotonic_end)
+        if prior is not None
+        else original_monotonic_end
+    )
     try:
+        _budget_remaining(required=True)  # entry check
         yield
+        _budget_remaining(required=True)  # exit check — catches overrun
     finally:
-        pass
+        _request_end_v1.reset(token)
 
 
 def _budget_check(end: float, stage: str) -> None:
@@ -198,7 +289,13 @@ def require_recall_env_absent() -> None:
 
 
 def require_head() -> str:
-    """Exact full 40-char clean HEAD; never a short SHA, never a dirty tree."""
+    """Exact full 40-char clean HEAD; never a short SHA, never a dirty tree.
+
+    Ordering (M10): operator review artifacts under .ai/reviews/ must be
+    committed or gitignored before the journey run binds the head. The
+    .ai/reviews/packets/ subtree is excluded from the source snapshot (not
+    from this dirty check) — commit packet output or add it to .gitignore.
+    """
     git = _tool_identity("git")
     head = subprocess.check_output(
         [git["path"], "rev-parse", "HEAD"], cwd=ROOT, text=True
@@ -209,31 +306,43 @@ def require_head() -> str:
         [git["path"], "status", "--porcelain"], cwd=ROOT, text=True
     ).strip()
     if dirty:
-        raise JourneyRefusal(f"worktree dirty at bind head:\n{dirty}")
+        raise JourneyRefusal(
+            f"worktree dirty at bind head:\n{dirty}\n"
+            "(M10: commit or gitignore .ai/reviews output before the journey run)"
+        )
     return head
 
 
 def _tool_identity(name: str) -> dict:
-    """Resolve a tool to an absolute path and record its identity (H-G)."""
+    """Resolve a tool to an absolute path and record its identity (H-G/M7).
+
+    Refuses when --version is unavailable: the tool's identity must be
+    established before its authority is trusted (M7).
+    """
     path = shutil.which(name)
     if not path:
         raise JourneyRefusal(f"required tool not on PATH: {name}")
     resolved = str(Path(path).resolve())
-    version = ""
     try:
         version = subprocess.check_output(
             [resolved, "--version"], text=True, stderr=subprocess.STDOUT
         ).splitlines()[0][:200]
-    except (subprocess.CalledProcessError, OSError, IndexError):
-        version = "(--version unavailable)"
+    except (subprocess.CalledProcessError, OSError, IndexError) as exc:
+        raise JourneyRefusal(
+            f"tool identity unavailable for {name}: --version failed ({type(exc).__name__}); "
+            "refusing to trust an unidentified tool (M7)"
+        ) from exc
     return {"name": name, "path": resolved, "version": version}
 
 
-def _receipt_stat_ok(path: Path) -> dict:
-    """uid/mode/nlink/O_NOFOLLOW checks in the shape of test_canonical_schema.py:96-114.
+def _receipt_stat_ok(path: Path) -> tuple[dict, bytes]:
+    """uid/mode/nlink/O_NOFOLLOW checks + same-fd payload read (H7).
 
-    os.getuid is absent on Windows; there the uid check is skipped and the
-    limit is recorded explicitly (H-J).
+    Shape follows test_canonical_schema.py:96-114: O_NOFOLLOW open, fstat
+    before/after, lstat cross-check, stable identity, and the payload is read
+    from the SAME fd (never a fresh read_text that could follow a symlink
+    swap). os.getuid is absent on Windows; there the uid check is skipped and
+    the limit is recorded explicitly (H-J).
     """
     checks: dict[str, object] = {"o_nofollow": True, "uid_checked": False}
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
@@ -253,17 +362,19 @@ def _receipt_stat_ok(path: Path) -> dict:
                 "procedural receipt cannot be enforced here"
             )
         raw = os.read(fd, before.st_size + 1)
-        identity = lambda s: (
-            s.st_dev,
-            s.st_ino,
-            s.st_mode,
-            s.st_uid,
-            s.st_nlink,
-            s.st_size,
-            s.st_mtime_ns,
-            s.st_ctime_ns,
-        )
-        checks["stat_stable"] = identity(before) == identity(os.fstat(fd))
+
+        def _identity(s: os.stat_result) -> tuple:
+            return (
+                s.st_dev, s.st_ino, s.st_mode, s.st_uid,
+                s.st_nlink, s.st_size, s.st_mtime_ns, s.st_ctime_ns,
+            )
+
+        checks["stat_stable"] = _identity(before) == _identity(os.fstat(fd))
+        # H7: lstat cross-check — same identity as the O_NOFOLLOW fd (test_canonical_schema.py:107).
+        try:
+            checks["lstat_matches"] = _identity(before) == _identity(path.lstat())
+        except OSError:
+            checks["lstat_matches"] = False
     finally:
         os.close(fd)
     checks["passed"] = bool(
@@ -272,32 +383,53 @@ def _receipt_stat_ok(path: Path) -> dict:
         and checks.get("mode_no_group_other")
         and checks.get("size_le_4096")
         and checks.get("stat_stable")
+        and checks.get("lstat_matches")
         and (checks.get("uid_is_self") in (True, None))
     )
-    return checks
+    return checks, raw
 
 
 def require_review_receipt(head: str, scratch: Path) -> dict:
-    """Exact-head review receipt must already exist; never manufacture one.
+    """Exact-head review receipt — release workflow (C3).
 
-    Procedural trust model (H-J): the receipt is an operator-minted JSON file
-    under SCRATCH. It is not a cryptographic authority. It must bind the exact
-    full 40-char head plus the SHA-256 of the runner, plan, checker and
-    evidence artifacts, and verdict APPROVE. Any mismatch or absence fails
-    closed. File-mode checks follow test_canonical_schema.py:96-114 where the
-    host supports them.
+    The operator mints review-receipt.json at a known path OUTSIDE SCRATCH
+    (ORACLE2_S08_JOURNEY_RECEIPT). The runner copies it into the unique
+    per-run SCRATCH after SCRATCH is minted. This avoids the deadlock where a
+    unique SCRATCH cannot hold a pre-minted receipt.
+
+    Procedural trust model (H-J): the receipt is an operator-minted JSON file.
+    It is not a cryptographic authority. It must bind the exact full 40-char
+    head plus the git-blob SHA-256 of the runner, plan, checker and evidence
+    artifacts (H6), and verdict APPROVE. Any mismatch or absence fails closed.
+    File-mode checks follow test_canonical_schema.py:96-114 where the host
+    supports them. Payload is read via the same O_NOFOLLOW fd (H7).
     """
-    receipt_path = scratch / "review-receipt.json"
-    if not receipt_path.is_file():
+    release_raw = os.environ.get(RECEIPT_RELEASE_ENV)
+    if not release_raw:
         raise JourneyRefusal(
-            "review-receipt.json absent — release requires an independent review "
-            "receipt binding exact full 40-char head + runner/plan/checker/evidence "
-            "SHA-256 + verdict APPROVE. STOP. Do not invent a production effect."
+            "ORACLE2_S08_JOURNEY_RECEIPT not set — release workflow requires an "
+            "operator-minted receipt at a known path outside SCRATCH; the runner "
+            "copies it into the unique per-run SCRATCH after minting SCRATCH (C3). "
+            "STOP. Do not invent a production effect."
         )
-    stat_checks = _receipt_stat_ok(receipt_path)
+    release_path = Path(release_raw).resolve()
+    if not release_path.is_file():
+        raise JourneyRefusal(
+            f"review receipt release path absent: {release_path} (C3)"
+        )
+    receipt_path = scratch / "review-receipt.json"
+    if receipt_path.exists():
+        receipt_path.unlink()
+    shutil.copyfile(release_path, receipt_path)
+    receipt_path.chmod(0o600)
+
+    stat_checks, raw = _receipt_stat_ok(receipt_path)
     if not stat_checks["passed"]:
         raise JourneyRefusal(f"review receipt file checks failed: {stat_checks}")
-    receipt = json.loads(receipt_path.read_text())
+    try:
+        receipt = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise JourneyRefusal(f"review receipt is not valid JSON: {exc}") from exc
     if not isinstance(receipt, dict):
         raise JourneyRefusal("review receipt must be a JSON object")
     got_head = receipt.get("head")
@@ -307,15 +439,16 @@ def require_review_receipt(head: str, scratch: Path) -> dict:
         raise JourneyRefusal(
             f"review receipt head mismatch: receipt={got_head} current={head}"
         )
+    # H6: git-blob SHA-256 for all four bindings — CRLF-safe.
     bindings = {
-        "runner_sha256": sha256_file(Path(__file__).resolve()),
-        "plan_sha256": sha256_file(
+        "runner_sha256": sha256_git_blob(Path(__file__).resolve()),
+        "plan_sha256": sha256_git_blob(
             ROOT / "docs/verification/oracle2/s08-journey-proof-plan.md"
         ),
-        "checker_sha256": sha256_file(
+        "checker_sha256": sha256_git_blob(
             ROOT / "scripts/oracle2/check_s08_journey_skeleton_v1.py"
         ),
-        "evidence_sha256": sha256_file(
+        "evidence_sha256": sha256_git_blob(
             ROOT / "docs/verification/oracle2/s08-compose-81742134-evidence.md"
         ),
     }
@@ -330,32 +463,56 @@ def require_review_receipt(head: str, scratch: Path) -> dict:
 
 
 def require_database_gate(scratch: Path, tools: dict) -> str:
-    """ai-task-gates check --before database must print a precise ALLOW line (H-G)."""
+    """ai-task-gates check --before database must print a precise ALLOW line (H-G/M1).
+
+    Refuses if any DENIED line is present even when an ALLOW line also appears.
+    """
     gate = tools["ai-task-gates"]
     out = subprocess.check_output(
         [gate["path"], "check", "--before", "database"],
         cwd=ROOT,
         text=True,
         stderr=subprocess.STDOUT,
+        timeout=60,
     )
+    if DENIED_LINE.search(out):
+        (scratch / "ops-database-gate.txt").write_text(out[:8192])
+        raise JourneyRefusal(f"database gate printed a DENIED line:\n{out[:2000]}")
     if not ALLOW_LINE.search(out):
-        # Persist only after the check, and never as forensic evidence (M-D).
-        raise JourneyRefusal(f"database gate did not print a precise ALLOW line:\n{out}")
-    (scratch / "database-gate.txt").write_text(out)
+        (scratch / "ops-database-gate.txt").write_text(out[:8192])
+        raise JourneyRefusal(f"database gate did not print a precise ALLOW line:\n{out[:2000]}")
+    # Ops artifact (C8) — never forensic evidence.
+    (scratch / "ops-database-gate.txt").write_text(out[:8192])
     return out
 
 
 def source_snapshot() -> dict[str, str]:
-    """Hash worktree file CONTENTS (sha256 of bytes) + mode (H-F).
+    """Hash worktree file CONTENTS (sha256 of bytes) + mode (H-F/M2).
 
     Not git ls-files index blobs: an edit after bind must be visible. Includes
-    compose.yaml and lockfiles the DB image depends on. Sealed blob pins stay
-    git-blob (git show HEAD:path | sha256sum); this snapshot is for worktree
-    mutation detection only.
+    Dockerfile, .dockerignore, pyproject.toml, shell scripts, compose files
+    and lockfiles the DB image depends on (M2). Uses lstat so symlink swaps
+    are visible (M2). Sealed blob pins stay git-blob (sha256_git_blob); this
+    snapshot is for worktree mutation detection only.
     """
     snap: dict[str, str] = {}
     for path in ROOT.rglob("*"):
-        if not path.is_file():
+        try:
+            st = path.lstat()
+        except OSError:
+            continue
+        if stat.S_ISLNK(st.st_mode):
+            # Record symlinks as present-with-target-hash so a swap is visible.
+            rel = path.relative_to(ROOT).as_posix()
+            if rel.startswith((".git/", "node_modules/", ".ai/reviews/packets/")):
+                continue
+            try:
+                target_hash = hashlib.sha256(os.readlink(path).encode()).hexdigest()
+            except OSError:
+                target_hash = "unreadable"
+            snap[rel] = f"symlink:{target_hash}:mode:{st.st_mode & 0o777:o}"
+            continue
+        if not stat.S_ISREG(st.st_mode):
             continue
         rel = path.relative_to(ROOT).as_posix()
         if rel.startswith((".git/", "node_modules/", ".ai/reviews/packets/")):
@@ -364,7 +521,6 @@ def source_snapshot() -> dict[str, str]:
         if name not in SOURCE_BASENAMES and path.suffix not in SOURCE_SUFFIXES:
             continue
         try:
-            st = path.stat()
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
         except OSError:
             continue
@@ -378,7 +534,8 @@ def assert_sealed_inventory() -> dict:
     Parses the tuple from verify_workflow_integrity.py the same way
     canonical_synthetic_migrations does. The live bootstrap assertion happens
     later inside main() via bootstrap_canonical_test_schema / _inventory_digest /
-    _catalog. This helper never merely echoes SEALED_MIGRATION_INVENTORY_NOTE.
+    _catalog with golden comparison (H3). This helper never merely echoes
+    SEALED_MIGRATION_INVENTORY_NOTE.
     """
     import ast
 
@@ -407,35 +564,95 @@ def assert_sealed_inventory() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Journey stages. Signatures carry the plan's bindings (H-D) so implementation
-# does not churn the receipt-bound runner SHA.
+# Stage binding schemas (M9). Each stage validates its bindings dict before
+# any work. Required keys are named here so implementers and the checker share
+# one contract.
+# ---------------------------------------------------------------------------
+STAGE_BINDING_SCHEMAS: dict[str, tuple[str, ...]] = {
+    "provision_capture_admission": (
+        "workspace_id", "meeting_id", "owner_actor",
+    ),
+    "observe_audience": (
+        "meeting_id", "observation_owner_sha256",
+    ),
+    "host_control": (
+        "meeting_id", "expected_head", "operation_id", "observation_id",
+    ),
+    "current_turn": (
+        "event_id", "epoch_id", "capture_sha256",
+    ),
+    "sender": (
+        "expected_revision", "intent_id", "operation_id", "admission_id",
+    ),
+    "receipt_bytes_in": (
+        "raw_wire", "claim_event_id", "operation_id", "admission_id",
+    ),
+    "status_reconcile": (
+        "intent_id", "claim_event_id", "admission_id",
+    ),
+}
+
+
+def _validate_bindings(stage: str, bindings: dict) -> None:
+    """M9: refuse missing required binding keys before any stage work."""
+    required = STAGE_BINDING_SCHEMAS.get(stage, ())
+    missing = [k for k in required if k not in bindings]
+    if missing:
+        raise JourneyRefusal(
+            f"stage {stage} bindings missing required keys: {missing} (M9)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Journey stages. Signatures carry the plan's bindings (H-D). NOTE (C5):
+# any edit to this file churns the receipt-bound runner SHA and requires a
+# new review and a new receipt. There is no "no SHA churn" guarantee.
+# Call layers are pinned per stage (H10).
 # ---------------------------------------------------------------------------
 
 
 def stage_provision_capture_admission(bindings: dict, deadline_s: int) -> dict:
     """Stage 0a: capture / admission provisioning precondition (H-B).
 
+    Call layer (H10): FACTORY — MeetingCaptureFactoryV1.transition_v1 and
+    retain_ingress_v1 (meeting_capture_v1.py:353,359).
+
     Cites the SQL fixture construction at
-    test_meeting_participation_sql.py:69-125: appointments, capture
-    admissions, roles/grants, invite -> retain_ingress -> finalize, and the
-    host/sender/observer participation admissions. Without this stage the
-    later stages have no admission linkage.
+    test_meeting_participation_sql.py:68-133: appointments, capture
+    admissions, roles/grants, invite -> retain_ingress (TWO capture calls
+    only — there is NO finalize method; C4), and the host/sender/observer
+    participation admissions. Without this stage the later stages have no
+    admission linkage.
     """
+    _validate_bindings("provision_capture_admission", bindings)
+    if type(deadline_s) is not int or not (0 < deadline_s <= PER_REQUEST_S):
+        raise JourneyRefusal(
+            f"per-request deadline must be int in (0,{PER_REQUEST_S}]; got {deadline_s!r} (M5)"
+        )
     raise JourneyRefusal(
         "capture/admission provisioning not released; journey stage 0a UNPROVEN "
-        "(invite -> retain_ingress -> finalize; host/sender/observer admissions)"
+        "(invite -> retain_ingress — two capture calls, no finalize; "
+        "host/sender/observer admissions)"
     )
 
 
 def stage_observe_audience(bindings: dict, deadline_s: int) -> dict:
     """Stage 0b: observer / audience observation (H-A).
 
+    Call layer (H10): AUTHORITY — observe_audience_v1
+    (participation_authority_v1.py:480).
+
     observe_audience_v1 / invent_observation pattern from
-    test_meeting_participation_sql.py:128-136. Produces the observation_id
+    test_meeting_participation_sql.py:136-144. Produces the observation_id
     that stage 1 host enable requires (participation_authority_v1.py:458;
-    meeting_participation_v1.py:201-202 derives it from current SQL status).
+    meeting_participation_v1.py:202 derives it from current SQL status).
     Observation expiry <=30s (021_meeting_participation.sql:259).
     """
+    _validate_bindings("observe_audience", bindings)
+    if type(deadline_s) is not int or not (0 < deadline_s <= PER_REQUEST_S):
+        raise JourneyRefusal(
+            f"per-request deadline must be int in (0,{PER_REQUEST_S}]; got {deadline_s!r} (M5)"
+        )
     raise JourneyRefusal(
         "observer/audience observation not released; journey stage 0b UNPROVEN "
         "(observe_audience_v1 / invent_observation; observation_id required by enable)"
@@ -445,25 +662,49 @@ def stage_observe_audience(bindings: dict, deadline_s: int) -> dict:
 def stage_host_control(bindings: dict, deadline_s: int) -> dict:
     """Stage 1: mTLS host enable/control at /v1/replacement/meetings/participation/control.
 
+    Call layer (H10): SERVICE (mTLS HTTP) -> AUTHORITY control_v1
+    (meeting_participation_service_v1.py; participation_authority_v1.py:453).
+
     bindings carry: meeting selector, CAS expected_head, operation UUID,
     and the observation_id from stage 0b. Server-derived principal. No Next
     browser enable/control web surface exists on this head — that is a named
     remaining gate, not this stage. UI-only screenshots and fixture auth are
     NOT this stage. Deadline <=30s. On CAS conflict: STOP, no transparent
     retry, leave UNKNOWN.
+
+    mTLS prerequisites (H8) are NOT carried by this runner and are an explicit
+    named remaining gate: peer-file minting, seals, openssl re-sign,
+    certificates/WORKER fixtures (test_hosting_boundary.py:18,28), and the
+    closed-denial matrix (bad identity/path/body/headers -> 404/503) plus
+    peer-tamper -> 503 (test_meeting_participation_sql.py:371-439). Stage 1
+    cannot execute until that gate is discharged.
     """
+    _validate_bindings("host_control", bindings)
+    if type(deadline_s) is not int or not (0 < deadline_s <= PER_REQUEST_S):
+        raise JourneyRefusal(
+            f"per-request deadline must be int in (0,{PER_REQUEST_S}]; got {deadline_s!r} (M5)"
+        )
     raise JourneyRefusal(
         "host-control mTLS journey adapter not released; journey stage 1 UNPROVEN "
-        "(no Next browser surface on head; see s08-journey-proof-plan.md)"
+        "(mTLS prerequisites deferred — named remaining gate H8; "
+        "no Next browser surface on head; see s08-journey-proof-plan.md)"
     )
 
 
 def stage_current_turn(bindings: dict, deadline_s: int) -> dict:
     """Stage 2: S07 read_current_participant_turn_v1 / meeting_capture_current_turn_v1.
 
+    Call layer (H10): FACTORY — MeetingCaptureFactoryV1.read_current_participant_turn_v1
+    (meeting_capture_v1.py).
+
     bindings carry: exact finalized ingress event UUID + epoch + raw/normalized
     SHA binding. Unknown/Oracle speaker never produces a turn.
     """
+    _validate_bindings("current_turn", bindings)
+    if type(deadline_s) is not int or not (0 < deadline_s <= PER_REQUEST_S):
+        raise JourneyRefusal(
+            f"per-request deadline must be int in (0,{PER_REQUEST_S}]; got {deadline_s!r} (M5)"
+        )
     raise JourneyRefusal(
         "current-turn live consumer not released; journey stage 2 UNPROVEN"
     )
@@ -472,10 +713,20 @@ def stage_current_turn(bindings: dict, deadline_s: int) -> dict:
 def stage_sender(bindings: dict, deadline_s: int) -> dict:
     """Stage 3: prepare_v1 + claim_v1 under CURRENT enabled generation.
 
+    Call layer (H10): FACTORY — MeetingParticipationFactoryV1.prepare_v1 /
+    claim_v1 (meeting_participation_v1.py:212,243). Only the factory enforces
+    turn freshness, bot identity, body composition, and post-commit
+    currentness. Raw SQL is forbidden at this layer.
+
     bindings carry: CAS expected_revision, intent_id, operation UUIDs, and
     SAME-admission linkage. Body only after commit+close+fresh own current
-    status. No transparent retry. Lost claim = UNKNOWN.
+    status. No transparent retry. Lost claim = UNKNOWN (routes to stage 5).
     """
+    _validate_bindings("sender", bindings)
+    if type(deadline_s) is not int or not (0 < deadline_s <= PER_REQUEST_S):
+        raise JourneyRefusal(
+            f"per-request deadline must be int in (0,{PER_REQUEST_S}]; got {deadline_s!r} (M5)"
+        )
     raise JourneyRefusal(
         "sender live path not released; journey stage 3 UNPROVEN"
     )
@@ -483,6 +734,9 @@ def stage_sender(bindings: dict, deadline_s: int) -> dict:
 
 def stage_receipt_bytes_in(bindings: dict, deadline_s: int) -> dict:
     """Stage 4: bytes-in receipt path (meeting_participation_v1.receipt_v1:291).
+
+    Call layer (H10): FACTORY — MeetingParticipationFactoryV1.receipt_v1
+    (meeting_participation_v1.py:291, bytes-in / artifact-out).
 
     bindings carry: raw wire bytes, claim_event_id, operation UUID, SAME
     admission linkage. Injects bounded raw wire bytes into the sealed receipt
@@ -492,6 +746,11 @@ def stage_receipt_bytes_in(bindings: dict, deadline_s: int) -> dict:
     recall.ts HTTPS POST) is never called. HTTP 200/201/429/5xx network
     negatives and exactly-one-network-invocation are UNPROVED.
     """
+    _validate_bindings("receipt_bytes_in", bindings)
+    if type(deadline_s) is not int or not (0 < deadline_s <= PER_REQUEST_S):
+        raise JourneyRefusal(
+            f"per-request deadline must be int in (0,{PER_REQUEST_S}]; got {deadline_s!r} (M5)"
+        )
     raise JourneyRefusal(
         "bytes-in receipt journey adapter not released; journey stage 4 UNPROVEN "
         "(factory bytes-in only; no fake-Recall HTTPS owner; network negatives UNPROVED)"
@@ -501,40 +760,92 @@ def stage_receipt_bytes_in(bindings: dict, deadline_s: int) -> dict:
 def stage_status_reconcile(bindings: dict, deadline_s: int) -> dict:
     """Stage 5: status_v1 readback + forensic receipt + read-only reconcile.
 
-    bindings carry: intent_id, claim_event_id, admission linkage. Ambiguous
-    outcome UNKNOWN. Receipt never reauthorizes send. ACK is never a visible
-    message or provider idempotency.
+    Call layer (H10): FACTORY status_v1 (meeting_participation_v1.py:164) +
+    AUTHORITY read-only reconcile. Stage 5 is reached on success OR on
+    UNKNOWN from claim commit/readback-loss (H5). It never reauthorizes send.
+    ACK is never a visible message or provider idempotency.
     """
+    _validate_bindings("status_reconcile", bindings)
+    if type(deadline_s) is not int or not (0 < deadline_s <= PER_REQUEST_S):
+        raise JourneyRefusal(
+            f"per-request deadline must be int in (0,{PER_REQUEST_S}]; got {deadline_s!r} (M5)"
+        )
     raise JourneyRefusal(
         "status/reconcile journey adapter not released; journey stage 5 UNPROVEN"
     )
 
 
-def _owned_absence_readback(project: str) -> dict:
-    """Always callable. Proves absence of exact owned synthetic residue (M-C)."""
+def _owned_absence_readback(project: str, *, prefix_aware: bool = False) -> dict:
+    """Always callable. Proves absence of owned synthetic residue (M-C/C2).
+
+    When identity is established, `project` is the real suffixed project name
+    (identity['project'], e.g. base+'-w'+12hex) and an exact label filter is
+    used. Before identity, `prefix_aware=True` lists ALL compose-labeled
+    resources and filters client-side by project label startswith(base),
+    because docker label filters are exact-match and the fixture suffixes the
+    base name (C2). An exact-match on the base name alone is vacuous.
+    """
     docker = _tool_identity("docker")
-    remains = {}
-    for kind, cmd in (
-        ("containers", ["ps", "-aq"]),
-        ("networks", ["network", "ls", "-q"]),
-        ("volumes", ["volume", "ls", "-q"]),
-    ):
-        try:
-            out = subprocess.check_output(
-                [docker["path"], *cmd, "--filter", f"label=com.docker.compose.project={project}"],
-                text=True,
-                stderr=subprocess.STDOUT,
-                timeout=DOCKER_PROBE_TIMEOUT_S,
-            )
-            remains[kind] = bool(out.strip())
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
-            remains[kind] = f"probe-failed:{type(exc).__name__}"
+    remains: dict[str, object] = {}
+    if prefix_aware:
+        # Client-side prefix filter: list all compose-labeled resources and
+        # keep only those whose project label starts with `project` (base).
+        for kind, cmd in (
+            ("containers", ["ps", "-aq", "--filter", "label=com.docker.compose.project",
+                            "--format", '{{.Label "com.docker.compose.project"}}']),
+            ("networks", ["network", "ls", "-q", "--filter", "label=com.docker.compose.project",
+                          "--format", '{{.Label "com.docker.compose.project"}}']),
+            ("volumes", ["volume", "ls", "-q", "--filter", "label=com.docker.compose.project",
+                         "--format", '{{.Label "com.docker.compose.project"}}']),
+        ):
+            try:
+                out = subprocess.check_output(
+                    [docker["path"], *cmd],
+                    text=True,
+                    stderr=subprocess.STDOUT,
+                    timeout=DOCKER_PROBE_TIMEOUT_S,
+                )
+                hits = [
+                    line.strip()
+                    for line in out.splitlines()
+                    if line.strip().startswith(project)
+                ]
+                remains[kind] = bool(hits)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+                remains[kind] = f"probe-failed:{type(exc).__name__}"
+    else:
+        # Exact-match on the real suffixed project name (identity['project']).
+        for kind, cmd in (
+            ("containers", ["ps", "-aq"]),
+            ("networks", ["network", "ls", "-q"]),
+            ("volumes", ["volume", "ls", "-q"]),
+        ):
+            try:
+                out = subprocess.check_output(
+                    [docker["path"], *cmd,
+                     "--filter", f"label=com.docker.compose.project={project}"],
+                    text=True,
+                    stderr=subprocess.STDOUT,
+                    timeout=DOCKER_PROBE_TIMEOUT_S,
+                )
+                remains[kind] = bool(out.strip())
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+                remains[kind] = f"probe-failed:{type(exc).__name__}"
     absent = all(v is False for v in remains.values())
-    return {"project": project, "remaining": remains, "absent": absent}
+    return {
+        "project": project,
+        "prefix_aware": prefix_aware,
+        "remaining": remains,
+        "absent": absent,
+    }
 
 
 def _write_refusal(scratch: Path, reason: str, stage: str | None, head: str | None) -> None:
-    """Refused runs write ONLY a refusal marker — never forensic evidence (M-D)."""
+    """Refused runs write ONLY a refusal marker — never forensic evidence (C8/M-D).
+
+    journey-evidence.json is exclusively a success-path artifact.
+    cleanup.json and other ops artifacts are labeled ops/non-evidence.
+    """
     payload = {
         "refused": True,
         "non_evidence": True,
@@ -548,10 +859,11 @@ def _write_refusal(scratch: Path, reason: str, stage: str | None, head: str | No
 def main() -> int:
     os.umask(0o077)
     scratch = _scratch()
-    project = f"{COMPOSE_PROJECT_PREFIX}-{uuid4().hex[:8]}"  # unique per run (M-C)
+    project_base = f"{COMPOSE_PROJECT_PREFIX}-{uuid4().hex[:8]}"  # unique per run (M-C)
     head: str | None = None
     failing_stage: str | None = None
-    identity = None
+    identity: dict | None = None
+    evidence_written = False
     try:
         require_recall_env_absent()  # H-E: refuse before any other work
         tools = {
@@ -559,19 +871,15 @@ def main() -> int:
         }
         head = require_head()
         inventory = assert_sealed_inventory()  # H-I before any DB
-        before = source_snapshot()  # H-F worktree bytes + mode
-        receipt = require_review_receipt(head, scratch)  # H-J
-        require_database_gate(scratch, tools)  # H-G precise ALLOW
+        before = source_snapshot()  # H-F worktree bytes + mode (computed once; L3)
+        receipt = require_review_receipt(head, scratch)  # H-J / C3
+        require_database_gate(scratch, tools)  # H-G/M1 precise ALLOW, no DENIED
         if before != source_snapshot():
             raise JourneyRefusal("source changed during gate; STOP")
-        (scratch / "source-after-gate.json").write_text(
+        # Ops artifact (C8) — never forensic evidence.
+        (scratch / "ops-source-after-gate.json").write_text(
             json.dumps(source_snapshot(), sort_keys=True) + "\n"
         )
-
-        # Bootstrap sits OUTSIDE the shared 120s budget, matching
-        # verify_workflow_integrity.py:384-386 (H-H). The shared budget covers
-        # journey stages only.
-        budget_end = _monotonic_end(SHARED_BUDGET_S)
 
         # One fresh owned synthetic PG via the sealed fixture. The sealed
         # bootstrap inventory is used and asserted — never a custom contiguous
@@ -579,13 +887,31 @@ def main() -> int:
         sys.path.insert(0, str(ROOT))
         from dev.oracle2.test_worker_postgres_fixture import worker_postgres
 
+        # C3: use a unique worker subdirectory so the fixture's
+        # mkdir(exist_ok=False) cannot collide on reuse.
+        worker_dir = scratch / f"worker-{uuid4().hex[:8]}"
         with worker_postgres(
-            {**os.environ, "COMPOSE_PROJECT_NAME": project},
-            scratch / "worker",
+            {**os.environ, "COMPOSE_PROJECT_NAME": project_base},
+            worker_dir,
             WORKER_LABEL,
-        ) as (tls, identity):
-            assert identity["project"].startswith(project)
+        ) as (worker_env, identity):
+            # C1: the fixture yields (env_dict, identity), NOT a URL.
+            # Use worker_env['ORACLE2_TEST_ADMIN_URL'] exactly as
+            # verify_workflow_integrity.py:390-391. Never pass the dict to
+            # bootstrap; never fall back to an outer ORACLE2_TEST_ADMIN_URL.
+            target = worker_env["ORACLE2_TEST_ADMIN_URL"]
+            if not isinstance(target, str) or not target:
+                raise JourneyRefusal(
+                    "worker_env['ORACLE2_TEST_ADMIN_URL'] missing or not a string (C1)"
+                )
+            assert identity["project"].startswith(project_base)
             assert identity.get("synthetic_only") is True
+            # C2: after identity, cleanup uses the REAL suffixed project name.
+            real_project = identity["project"]
+
+            # C9: budget armed AFTER worker_postgres + bootstrap, matching
+            # verify_workflow_integrity.py:384-386 (setup outside budget) and
+            # :407 (deadline armed after setup).
             # H-I: real bootstrap + inventory/catalog assertion on the live DB.
             from dev.oracle2.test_canonical_schema import (
                 _catalog,
@@ -595,18 +921,94 @@ def main() -> int:
             )
             import psycopg
 
-            target = os.environ.get("ORACLE2_TEST_ADMIN_URL") or tls
-            schema_receipt = (scratch / "schema-receipt.json").resolve()
-            bootstrap_canonical_test_schema(
-                target, container_id=identity["container_id"], receipt_path=schema_receipt
-            )
+            # H3 golden: compute the expected inventory digest BEFORE bootstrap.
             files = canonical_synthetic_migrations()
+            expected_inventory_digest = _inventory_digest(files)
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_inventory_digest):
+                raise JourneyRefusal("sealed inventory digest is not a 64-hex golden (H3)")
+
+            schema_receipt = (scratch / "ops-schema-receipt.json").resolve()
+            schema_seal = bootstrap_canonical_test_schema(
+                target,
+                container_id=identity["container_id"],
+                receipt_path=schema_receipt,
+            )
+            # H3: compare post-bootstrap inventory digest against the golden.
+            observed_inventory_digest = _inventory_digest(files)
+            if observed_inventory_digest != expected_inventory_digest:
+                raise JourneyRefusal(
+                    "sealed inventory digest drift after bootstrap: "
+                    f"golden={expected_inventory_digest} observed={observed_inventory_digest} (H3)"
+                )
             with psycopg.connect(target) as connection:
                 catalog = _catalog(connection)
             if tuple(p.name for p in files) != tuple(SEALED_MIGRATION_INVENTORY):
                 raise JourneyRefusal("sealed inventory names drift after bootstrap")
-            if _inventory_digest(files) is None:
-                raise JourneyRefusal("sealed inventory digest unavailable after bootstrap")
+            # H3: compare catalog against the bootstrap schema receipt golden.
+            try:
+                schema_receipt_data = json.loads(schema_receipt.read_text())
+                golden_catalog = schema_receipt_data.get("catalog")
+            except (OSError, json.JSONDecodeError, AttributeError):
+                golden_catalog = None
+            if golden_catalog is None:
+                raise JourneyRefusal("schema receipt catalog golden missing (H3)")
+            live_catalog_digest = (
+                hashlib.sha256(json.dumps(catalog, sort_keys=True).encode()).hexdigest()
+                if isinstance(catalog, (list, tuple))
+                else str(catalog)
+            )
+            # _catalog already returns a hex digest; compare directly.
+            catalog_digest = catalog if isinstance(catalog, str) else live_catalog_digest
+            if catalog_digest != golden_catalog:
+                raise JourneyRefusal(
+                    "live catalog digest differs from schema-receipt golden (H3): "
+                    f"golden={golden_catalog} live={catalog_digest}"
+                )
+
+            # H4: enforce "21 SQL green first". Run the 21 SQL module against
+            # the bootstrapped DB before any journey stage. The SQL module
+            # reads ORACLE2_TEST_ADMIN_URL directly (C7).
+            sql_green_cmd = [
+                sys.executable, "-m", "pytest",
+                str(ROOT / "services/oracle-brain/tests/test_meeting_participation_sql.py"),
+                "-v", "--tb=short", "-x",
+            ]
+            sql_env = {
+                **os.environ,
+                **worker_env,
+                "ORACLE2_TEST_ADMIN_URL": target,
+                "ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT": str(schema_receipt),
+                "ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256": schema_seal,
+                "PYTHONPATH": str(ROOT / "services/oracle-brain") + os.pathsep + str(ROOT),
+            }
+            try:
+                sql_out = subprocess.check_output(
+                    sql_green_cmd,
+                    cwd=ROOT,
+                    text=True,
+                    stderr=subprocess.STDOUT,
+                    env=sql_env,
+                    timeout=SHARED_BUDGET_S + 60,
+                )
+            except subprocess.CalledProcessError as exc:
+                sql_out = exc.output or ""
+                (scratch / "ops-sql-green.txt").write_text(sql_out[:16384])
+                raise JourneyRefusal(
+                    "21 SQL must go green before the journey (H4); "
+                    f"pytest exit={exc.returncode}"
+                ) from exc
+            (scratch / "ops-sql-green.txt").write_text(sql_out[:16384])
+            if "21 passed" not in sql_out and "21 passed" not in sql_out.replace("=", " "):
+                # Accept common pytest summary forms: "21 passed", "21 passed in".
+                if not re.search(r"\b21\s+passed\b", sql_out):
+                    raise JourneyRefusal(
+                        "21 SQL green receipt not observed in pytest output (H4); "
+                        f"tail: {sql_out[-500:]}"
+                    )
+
+            # C9: budget armed AFTER worker_postgres + bootstrap_canonical_test_schema
+            # + 21 SQL green, matching verify_workflow_integrity.py:384-386,407.
+            budget_end = _monotonic_end(SHARED_BUDGET_S)
 
             stages = {
                 "provision_capture_admission": "UNPROVEN",
@@ -634,34 +1036,59 @@ def main() -> int:
                     stages[name] = "PROVEN"
                     failing_stage = None
 
-            # Success-path evidence only (M-D). Never written on refusal.
+            # Success-path evidence only (C8). Never written on refusal.
             evidence = {
                 "refused": False,
+                "non_evidence": False,
                 "head": head,
                 "review_receipt_sha256": sha256_file(scratch / "review-receipt.json"),
-                "runner_sha256": sha256_file(Path(__file__).resolve()),
+                "runner_sha256": receipt["bindings"]["runner_sha256"],
                 "plan_sha256": receipt["bindings"]["plan_sha256"],
                 "checker_sha256": receipt["bindings"]["checker_sha256"],
                 "evidence_sha256": receipt["bindings"]["evidence_sha256"],
+                "sha_binding_semantics": "git-blob (git show HEAD:path | sha256sum) (H6)",
                 "sealed_migration_inventory": list(SEALED_MIGRATION_INVENTORY),
                 "inventory_assertion": inventory,
-                "catalog_digest": hashlib.sha256(
-                    json.dumps(catalog, sort_keys=True).encode()
-                ).hexdigest()
-                if isinstance(catalog, (list, tuple))
-                else str(catalog),
+                "inventory_digest_golden": expected_inventory_digest,
+                "inventory_digest_observed": observed_inventory_digest,
+                "catalog_digest": catalog_digest,
+                "catalog_golden": golden_catalog,
+                "sql_green": True,
                 "stages": stages,
                 "tools": tools,
                 "limits": {
                     "shared_budget_s": SHARED_BUDGET_S,
                     "per_request_s": PER_REQUEST_S,
                     "bootstrap_inside_shared_budget": False,
-                    "budget_mechanism": "monotonic (_request_fence_v1 shape)",
+                    "budget_mechanism": (
+                        "ContextVar monotonic fence, finite-only, entry+exit check "
+                        "(request_deadline_v1.py:26-35 shape) (H1)"
+                    ),
+                    "budget_armed_after": "worker_postgres + bootstrap + 21 SQL green (C9)",
                 },
                 "deadline_cas_policy": {
                     "max_deadline_s": 30,
                     "observation_expiry_max_s": 30,
                     "on_conflict": "STOP; record failing stage; leave UNKNOWN; no transparent retry",
+                    "unknown_routing": (
+                        "UNKNOWN from claim commit/readback-loss -> stage 5 "
+                        "read-only reconcile; UNKNOWN from earlier stages -> end "
+                        "at failing stage (H5)"
+                    ),
+                    "no_re_read_scope": (
+                        "journey layer never re-reads failing stage inputs; "
+                        "factory-internal fresh readbacks are the tested factory "
+                        "behaviour and are outside this scope (H5)"
+                    ),
+                },
+                "stage_call_layers": {
+                    "provision_capture_admission": "factory (MeetingCaptureFactoryV1)",
+                    "observe_audience": "authority (observe_audience_v1)",
+                    "host_control": "service (mTLS HTTP) -> authority (control_v1)",
+                    "current_turn": "factory (read_current_participant_turn_v1)",
+                    "sender": "factory (prepare_v1, claim_v1)",
+                    "receipt_bytes_in": "factory (receipt_v1)",
+                    "status_reconcile": "factory (status_v1) + authority read-only",
                 },
                 "forbidden_network_paths": list(FORBIDDEN_NETWORK_PATHS),
                 "unproved": [
@@ -672,6 +1099,7 @@ def main() -> int:
                     "permission_expiry_before_after_close_matrix_journey",
                     "next_browser_enable_control_web_surface",
                     "w10_same_worker_fit_measurement",
+                    "mtls_peer_file_minting_seals_openssl_closed_denial_matrix (H8 deferred)",
                 ],
                 "business_acceptance": "HELD",
                 "real_teams_producer": "UNQUALIFIED",
@@ -679,33 +1107,59 @@ def main() -> int:
             (scratch / "journey-evidence.json").write_text(
                 json.dumps(evidence, sort_keys=True) + "\n"
             )
-            raise JourneyRefusal(
-                "skeleton only — stage implementations absent; no journey effect performed"
-            )
+            evidence_written = True  # C8: suppress refusal.json on success path
+            return 0
+    except JourneyComplete:
+        return 0
     except JourneyRefusal as exc:
-        _write_refusal(scratch, str(exc), failing_stage, head)
+        if not evidence_written:  # C8: refusal.json ONLY on refusal paths
+            _write_refusal(scratch, str(exc), failing_stage, head)
         raise
     except Exception as exc:  # noqa: BLE001 — any failure is a refusal
-        _write_refusal(scratch, f"{type(exc).__name__}: {exc}", failing_stage, head)
+        if not evidence_written:  # C8: never write refusal after evidence
+            _write_refusal(scratch, f"{type(exc).__name__}: {exc}", failing_stage, head)
         raise
     finally:
         # Cleanup readback ALWAYS, even pre-identity (M-C). Project name is
         # generated before the try so residue can be named on every path.
+        # M8: record both the original exception and any cleanup error; never
+        # mask the original. cleanup.json is an ops artifact (C8).
+        original_exc = sys.exc_info()[1]
         try:
-            readback = _owned_absence_readback(project)
+            # C2: use the real suffixed project when identity is established;
+            # prefix-aware listing on pre-identity paths.
+            if identity is not None:
+                readback = _owned_absence_readback(identity["project"], prefix_aware=False)
+            else:
+                readback = _owned_absence_readback(project_base, prefix_aware=True)
+            readback["ops"] = True
+            readback["non_evidence"] = True
             (scratch / "cleanup.json").write_text(
                 json.dumps(readback, sort_keys=True) + "\n"
             )
             if not readback["absent"] and identity is not None:
-                raise JourneyRefusal(
+                cleanup_err = JourneyRefusal(
                     "exact owned synthetic cleanup incomplete; absence not proven; STOP"
                 )
+                if original_exc is not None:
+                    # M8: preserve the original exception; add cleanup as note.
+                    original_exc.add_note(f"cleanup also failed: {cleanup_err}")
+                else:
+                    raise cleanup_err
         except JourneyRefusal:
-            raise
-        except Exception:
-            # A cleanup probe failure on a pre-identity refusal is recorded but
-            # must not mask the original refusal.
-            pass
+            if original_exc is not None:
+                # M8: do not mask the original with the cleanup refusal.
+                pass
+            else:
+                raise
+        except Exception as cleanup_probe_exc:  # noqa: BLE001
+            # M8: a cleanup probe failure is recorded but must not mask the
+            # original refusal. Attach as a note when an original exists.
+            if original_exc is not None:
+                original_exc.add_note(
+                    f"cleanup probe failed: {type(cleanup_probe_exc).__name__}: {cleanup_probe_exc}"
+                )
+            # else: silent on pre-identity probe failure (recorded above when possible)
 
 
 if __name__ == "__main__":  # pragma: no cover

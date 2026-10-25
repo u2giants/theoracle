@@ -1,32 +1,38 @@
 # S08 participation source composition on current main — evidence note
 
 Recorded: 2026-10-22 2:35 PM EST. Branch `parent24-s08-compose-81742134` from origin/main bf788080.
-Task class `code` declared before writes. No actual 21 SQL execution, no browser journey,
-no real Teams, no production, no company data, no paid providers.
+Updated: 2026-10-25 EDT (round-3 review fixes). Task class `code` declared before writes.
+No actual 21 SQL execution, no browser journey, no real Teams, no production,
+no company data, no paid providers.
 
 ## Composition inventory
 
 Parked head `81742134d6cb753d5bef4d0372eeea2117192e8b` composed additively. Eight effective
-files. Byte-identity to the parked commit holds for the seven **added** files only;
-`participation_authority_v1.py` is **updated** (inherited authority repair) and is
-therefore NOT byte-identical to the parked blob. Byte-identity pins are git blob
-bytes (`git show HEAD:path | sha256sum`), never working-tree bytes (CRLF hosts diverge):
+files. Byte-identity to the parked commit holds for the **added-and-unchanged** files only.
+Two files are **updated** on this branch and are therefore NOT byte-identical to the
+parked blob. Byte-identity pins are git blob bytes (`git show HEAD:path | sha256sum`),
+never working-tree bytes (CRLF hosts diverge).
 
-| File | Action | Byte-identical to parked `81742134…` |
-|---|---|---|
-| hosting/meeting_participation_service_v1.py | added | yes |
-| meetings/participation_authority_v1.py | updated (inherited authority repair) | **no** |
-| meetings/participation_control_contracts_v1.py | added | yes |
-| sql/021_meeting_participation.sql | added | yes |
-| tests/test_meeting_participation_control_v1.py | added | yes |
-| tests/test_meeting_participation_sql.py | added | yes |
-| tests/test_meeting_participation_v1.py | added | yes |
-| tests/test_meeting_participation_wire_v1.py | added | yes |
+| File | Action | Byte-identical to parked `81742134…` | Git-blob SHA-256 at current HEAD |
+|---|---|---|---|
+| hosting/meeting_participation_service_v1.py | added | yes | *(pin at release)* |
+| meetings/participation_authority_v1.py | updated (inherited authority repair) | **no** | *(pin at release)* |
+| meetings/participation_control_contracts_v1.py | added | yes | *(pin at release)* |
+| sql/021_meeting_participation.sql | added | yes | `959a77553849616eee1d7b4eba4ed8a3bc146aaa432b7e0e2ca8d83ff17b2f7c` |
+| tests/test_meeting_participation_control_v1.py | added | yes | *(pin at release)* |
+| tests/test_meeting_participation_sql.py | **updated (C-B docstring correction on this branch)** | **no** | *(pin at release)* |
+| tests/test_meeting_participation_v1.py | added | yes | *(pin at release)* |
+| tests/test_meeting_participation_wire_v1.py | added | yes | *(pin at release)* |
 
 Current-main owners retained unchanged (byte-identical to both main and parked):
 hosting/meeting_participation_v1.py, meetings/participation.py,
 meetings/participation_runtime_v1.py, meetings/participation_wire_v1.py,
 tests/test_meeting_participation.py.
+
+Per-file git-blob SHA-256 pins are computed at release time via
+`git show HEAD:<path> | sha256sum` and recorded in the review receipt. The
+byte-identity column above states which files match the parked blob; it does
+not claim byte-identity for files updated on this branch.
 
 Authority repair preserves: explicit password/port in the fixed URL guard, numeric pin and
 PG* deny in `protected_sql_connection_v1._connection_v1`, original deadline and prearmed
@@ -101,13 +107,15 @@ disposition that must be reported. The Linux rerun records whether the module
 skipped or ran. `test_meeting_participation.py` is likewise unreported on this
 host.
 
-## Sequencing — 21 SQL before the journey (M-E)
+## Sequencing — 21 SQL before the journey (M-E/H4)
 
 The 21 SQL cases must go green against an owned synthetic database under the
-sealed bootstrap **before** the journey one-shot runs. Failure attribution:
-red 21 SQL + failed journey stage = backend failure; green 21 SQL + failed
-journey stage = journey-adapter failure. The 021 blob pin above remains a
-**git-blob** pin (`git show HEAD:… | sha256sum`), never working-tree bytes.
+sealed bootstrap **before** the journey one-shot runs. The runner enforces this
+by invoking pytest on the SQL module after bootstrap and refusing unless
+`21 passed` is observed (H4). Failure attribution: red 21 SQL + failed journey
+stage = backend failure; green 21 SQL + failed journey stage = journey-adapter
+failure. The 021 blob pin above remains a **git-blob** pin
+(`git show HEAD:… | sha256sum`), never working-tree bytes.
 
 ## Remaining gate (source preservation is not acceptance)
 
@@ -119,9 +127,17 @@ journey stage = journey-adapter failure. The 021 blob pin above remains a
 2. Actual 21 SQL against an owned synthetic database under the **sealed
    20-entry `SYNTHETIC_MIGRATIONS` inventory** (omits 003/005; includes
    017/018/019/022/023/027) — **not** a contiguous 001–021 chain. The 21 SQL
-   must go green before the journey runs.
+   must go green before the journey runs (enforced in the runner, H4).
 3. Browser → current-turn → sender → provider fixture → receipt path.
 4. Full installed invitation / supervision / audience-currentness proof.
-5. Revocation, lost-ACK, cooldown, cap, global-once, current-audience negatives.
+5. **Journey-orphaned negatives only** (M4): HTTP 201/429/5xx network
+   negatives, exactly-one-network-invocation, host-disable-between-prepare-
+   and-claim zero-network, observation-commit ACK loss as a journey sequence,
+   permission-expiry before/after close matrix as a journey executor.
+   Backend-covered negatives (revocation, lost-ACK, cooldown, cap, global-once,
+   current-audience) are exercised by the 21 SQL and are **not** remaining
+   gates — they are listed under the plan's backend-covered map (M4).
 6. Real Teams chat/audience producer remains UNQUALIFIED; ACK never equals visible message
    or provider idempotency. Business-acceptance hold stays separate and closed.
+7. mTLS stage-1 prerequisites (H8): peer-file minting, seals, openssl re-sign,
+   certificates/WORKER fixtures, closed-denial matrix, peer-tamper → 503.

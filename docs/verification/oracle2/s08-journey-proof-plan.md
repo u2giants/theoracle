@@ -16,46 +16,82 @@ this branch.
 | `docs/verification/oracle2/s08-journey-proof-plan.md` | this plan |
 | `scripts/oracle2/run_s08_journey_proof_v1.py` | one-shot journey runner (fail-closed; refuses without review receipt + database gate) |
 | `scripts/oracle2/check_s08_journey_skeleton_v1.py` | offline skeleton checker (no DB, no effects) |
-| `docs/verification/oracle2/s08-compose-81742134-evidence.md` | composition evidence note (byte-identity wording corrected) |
+| `docs/verification/oracle2/s08-compose-81742134-evidence.md` | composition evidence note |
 
 Backend source of truth this journey binds (already sealed on the head):
 
 - `services/oracle-brain/tests/test_meeting_participation_sql.py`
 - `services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py`
+- `services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py`
+- `services/oracle-brain/oracle_brain/meetings/participation_runtime_v1.py`
+- `services/oracle-brain/oracle_brain/meetings/participation_wire_v1.py`
 - `services/oracle-brain/oracle_brain/hosting/meeting_participation_v1.py`
 - `services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py`
+- `services/oracle-brain/oracle_brain/hosting/meeting_capture_v1.py`
+- `services/oracle-brain/tests/conftest.py`
+- `services/oracle-brain/tests/test_hosting_boundary.py`
 - `dev/oracle2/test_worker_postgres_fixture.py`
 - `dev/oracle2/test_canonical_schema.py`
 - `scripts/oracle2/verify_workflow_integrity.py`
 - `scripts/oracle2/verify_phase.py`
 - `apps/workers/src/lib/recall.ts`
 - `apps/workers/src/lib/meeting-participation.ts`
+- `packages/shared/src/protected-meeting-worker.ts` (owner of `exchange_provider_v1`)
+
+Harness deps: `openssl` (mTLS peer-file re-sign), `docker compose`
+(`dev/oracle2/compose.yaml`). (H9: the prior list omitted
+`participation_control_contracts_v1.py`, `participation_runtime_v1`,
+`participation_wire_v1`, `meeting_capture_v1`, the `@oracle/shared/
+protected-meeting-worker` owner, `conftest.py`, `test_hosting_boundary`, and
+`openssl` — all load-bearing for the cited stages.)
 
 ## Exact journey stages the eventual one-shot must prove (invented data only)
 
 The journey is **provision-capture-admission → observe-audience →
 host-control → current-turn → sender → bytes-in receipt → status/reconcile**.
-There is no Next browser stage in this one-shot. Stage signatures on the sealed
-runner already carry the bindings named below (H-D), so filling in the stage
-bodies does not churn the receipt-bound runner SHA.
+There is no Next browser stage in this one-shot.
+
+**C5 — SHA churn:** any edit to the runner file churns the receipt-bound
+SHA-256 and requires a new independent review and a new receipt. There is no
+"no SHA churn" guarantee. Stage signatures carry the plan's bindings (H-D) so
+that an implementer has a contract, but the whole-file SHA is still bound.
+
+Each stage pins its **call layer** (H10):
+
+| Stage | Call layer | Owner |
+|---|---|---|
+| 0a provision-capture-admission | **factory** | `MeetingCaptureFactoryV1.transition_v1` / `retain_ingress_v1` |
+| 0b observe-audience | **authority** | `observe_audience_v1` |
+| 1 host-control | **service → authority** | mTLS HTTP `/v1/.../control` → `control_v1` |
+| 2 current-turn | **factory** | `read_current_participant_turn_v1` |
+| 3 sender | **factory** | `prepare_v1` / `claim_v1` (never raw SQL) |
+| 4 bytes-in receipt | **factory** | `receipt_v1` (bytes-in / artifact-out) |
+| 5 status/reconcile | **factory + authority** | `status_v1` + read-only reconcile |
+
+Only the factory layer enforces turn freshness, bot identity, body
+composition, and post-commit currentness
+(`meeting_participation_v1.py:212-272`). Raw SQL at the sender layer is
+forbidden.
 
 ### Stage 0a — capture / admission provisioning (precondition)
 
 Cites the SQL fixture construction at
-`test_meeting_participation_sql.py:69-125`: appointments, capture admissions,
-roles/grants, **invite → retain_ingress → finalize**, and the host/sender/
-observer participation admissions (`meeting_participation_admissions_v1`).
-Whoever runs the journey must mint these first. Without stage 0a there is no
-admission linkage for any later stage. This is a real stage, not an implicit
-fixture assumption.
+`test_meeting_participation_sql.py:68-133`: appointments, capture admissions,
+roles/grants, **invite → retain_ingress** (exactly TWO capture calls —
+`transition_v1(action='invite')` at line 114 and `retain_ingress_v1` at line
+117; there is **no finalize method** — C4), and the host/sender/observer
+participation admissions (`meeting_participation_admissions_v1`). Whoever runs
+the journey must mint these first. Without stage 0a there is no admission
+linkage for any later stage. This is a real stage, not an implicit fixture
+assumption.
 
 ### Stage 0b — observer / audience observation (precondition for enable)
 
 `observe_audience_v1` / `invent_observation` pattern from
-`test_meeting_participation_sql.py:128-136`. Enabling the host requires an
+`test_meeting_participation_sql.py:136-144`. Enabling the host requires an
 `observation_id` (`participation_authority_v1.py:458`); the factory derives it
-from current SQL status (`meeting_participation_v1.py:201-202`), which only
-exists after this observation. Observation expiry ≤30s
+from current SQL status (`meeting_participation_v1.py:202`), which only exists
+after this observation. Observation expiry ≤30s
 (`021_meeting_participation.sql:259`). Stage 1 enable is unsatisfiable without
 stage 0b producing an `observation_id`.
 
@@ -71,6 +107,14 @@ NOT this stage. **No Next host enable/control web surface exists on this head.**
 A browser enable/control surface is a named remaining gate (see Remaining
 gates), not a stage of this one-shot.
 
+**H8 — mTLS prerequisites deferred.** The peer-file minting, seals, `openssl`
+re-sign, `certificates`/`WORKER` fixtures
+(`test_hosting_boundary.py:18,28`), closed-denial matrix (bad identity/path/
+body/headers → 404/503), and peer-tamper → 503 case
+(`test_meeting_participation_sql.py:371-439`) are **not carried** by this
+runner. They are an explicit named remaining gate. Stage 1 cannot execute
+until that gate is discharged. See Remaining gates #9.
+
 ### Stage 2 — Current-turn
 
 S07 `MeetingCaptureFactoryV1.read_current_participant_turn_v1` / SQL
@@ -81,10 +125,11 @@ a turn.
 ### Stage 3 — Sender
 
 `meeting_participation_prepare_v1` then `meeting_participation_claim_v1` under
-CURRENT enabled generation. **Bindings:** CAS `expected_revision`, intent_id,
-operation UUIDs, SAME-admission linkage. One executable body only after
-commit+close+fresh own current status. No transparent retry. Lost claim =
-UNKNOWN.
+CURRENT enabled generation, via the **factory** layer
+(`meeting_participation_v1.py:212,243`). **Bindings:** CAS `expected_revision`,
+intent_id, operation UUIDs, SAME-admission linkage. One executable body only
+after commit+close+fresh own current status. No transparent retry. Lost claim
+= UNKNOWN (routes to stage 5 — see H5).
 
 ### Stage 4 — Bytes-in receipt
 
@@ -104,9 +149,9 @@ one network invocation is sealed and reviewed.
 
 ### Stage 5 — Status/reconcile
 
-`meeting_participation_status_v1` readback, forensic receipt, read-only
-reconciliation after ambiguity. ACK never equals visible message or provider
-idempotency.
+`meeting_participation_status_v1` readback (`meeting_participation_v1.py:164`),
+forensic receipt, read-only reconciliation after ambiguity. ACK never equals
+visible message or provider idempotency.
 
 ## Forbidden network path (H-E)
 
@@ -132,14 +177,44 @@ present, so the worker entrypoint cannot be reached by accident.
   (`expected_head` / `expected_revision`).
 - **On head conflict, expired observation, or elapsed window: STOP.**
   No transparent retry. Record the failing stage in the outcome record and
-  leave **UNKNOWN** semantics. A single re-read is not authorised; the journey
-  ends at the failing stage.
+  leave **UNKNOWN** semantics.
+- **UNKNOWN routing (H5):** UNKNOWN from claim commit ACK loss / response drop
+  / worker restart / readback-loss proceeds to **stage 5** (read-only
+  reconcile of the OUTCOME). UNKNOWN from any earlier stage (provision,
+  observe, host-control, current-turn) **ends the journey at that stage**.
+- **"No re-read" scope (H5):** the journey layer never re-reads a failing
+  stage's inputs to retry. Factory-internal fresh readbacks
+  (`meeting_participation_v1.py:201-210,231-240,256-269`) are the tested
+  factory behaviour and are **outside** this scope. Stage 5's `status_v1` is a
+  read-only reconcile of the outcome, not a re-read of stage inputs.
 - The shared **120s** monotonic budget covers journey stages only.
   Fixture/bootstrap setup sits **outside** that budget, matching
-  `verify_workflow_integrity.py:384-386`. The runner enforces the budget with
-  a monotonic deadline helper shaped like `_request_fence_v1`
-  (`request_deadline_v1.py:26-35`), never a wall-clock label.
-- Per-request ceiling **≤30s**.
+  `verify_workflow_integrity.py:384-386`; the budget is armed only **after**
+  `worker_postgres` + `bootstrap_canonical_test_schema` + 21 SQL green,
+  matching `:407` (C9). The runner enforces the budget with a ContextVar
+  monotonic fence that requires finite floats and performs entry + exit
+  remaining checks — same shape as `_request_fence_v1`
+  (`request_deadline_v1.py:26-35`), never a wall-clock label (H1).
+- Per-request ceiling **≤30s**. The runner validates each stage's `deadline_s`
+  is an int in `(0, 30]` and refuses otherwise (M5). Per-stage budget
+  allocation: the shared 120s covers all seven stages; a stage that would
+  exceed its share of the remaining budget is refused by the fence (M5).
+
+## Release workflow for the review receipt (C3)
+
+A unique per-run SCRATCH **cannot** hold a pre-minted receipt. The release
+workflow is:
+
+1. The operator mints `review-receipt.json` at a known path **OUTSIDE** any
+   SCRATCH directory.
+2. The operator sets `ORACLE2_S08_JOURNEY_RECEIPT` to that path.
+3. The runner mints a unique per-run SCRATCH (uuid directory), then **copies**
+   the receipt into it and verifies the copy.
+
+The runner never manufactures a receipt. The `ORACLE2_S08_JOURNEY_SCRATCH`
+override exists only for offline checker isolation and is not the release
+workflow. The fixture's `mkdir(exist_ok=False)` for the worker subdirectory is
+avoided by using a unique per-run worker subdirectory name (C3).
 
 ## Migration inventory (C5 correction — actual sealed fact)
 
@@ -152,10 +227,13 @@ There is **no contiguous `001..014` chain**. The sealed inventory is
 canonical inventory is derived from that tuple
 (`dev/oracle2/test_canonical_schema.py:27-43`) and the sealed bootstrap executes
 all of it (`dev/oracle2/test_canonical_schema.py:157-160`). **The journey uses the
-sealed bootstrap** and the runner **asserts** inventory and catalog equality via
-`bootstrap_canonical_test_schema` / `_inventory_digest` / `_catalog` — it never
-merely echoes a note. It does not claim a custom `001..014+020+021` chain, and
-it does not claim "no 17/18/19 union" — those files are in the sealed inventory.
+sealed bootstrap** and the runner **asserts** inventory and catalog equality
+against golden digests via `bootstrap_canonical_test_schema` /
+`_inventory_digest` / `_catalog` (H3) — it never merely echoes a note. The
+inventory digest is compared against a golden computed before bootstrap, and
+the catalog is compared against the schema-receipt golden. It does not claim a
+custom `001..014+020+021` chain, and it does not claim "no 17/18/19 union" —
+those files are in the sealed inventory.
 
 ## Resource and budget contract
 
@@ -167,29 +245,39 @@ it does not claim "no 17/18/19 union" — those files are in the sealed inventor
   never live inside the repository worktree (it would dirty the tree the
   source snapshot cannot see).
 - Owned cleanup: after `finally`, **always** read back
-  `docker ps|network ls|volume ls` filtered by the exact project label —
-  including pre-identity refusals — and **absence must be proven**. Never broad
-  cleanup. Docker probes use a 60s timeout (matching the fixture).
-- Budgets: shared **120s** monotonic ceiling for journey stages (bootstrap
-  outside); **per-request ≤30s**; 0 F/E/S/timeout/launch/cleanup. No case
+  `docker ps|network ls|volume ls`. Once identity is established, the filter
+  uses the **real suffixed project name** (`identity['project']`, e.g.
+  `base+'-w'+12hex`) — exact-match on the base name alone is vacuous (C2).
+  Before identity, the readback is **prefix-aware** (client-side filter on
+  project label `startswith(base)`), because docker label filters are
+  exact-match. Absence must be proven. Never broad cleanup. Docker probes use
+  a 60s timeout (matching the fixture). cleanup.json is an **ops artifact**
+  (labeled `ops: true` / `non_evidence: true`) — never forensic evidence (C8).
+- Budgets: shared **120s** monotonic ceiling for journey stages (bootstrap +
+  21 SQL green outside; budget armed only after both — C9); **per-request
+  ≤30s** validated per stage (M5); 0 F/E/S/timeout/launch/cleanup. No case
   cuts, no budget raises. **W10 SAME worker-fit for the participation suites
   is asserted, not measured** — they are appended to DOCUMENTARY/EVENT without
   the `_place_suites` measurement other families receive
   (`verify_workflow_integrity.py:104-122` vs `:201-242`). This one-shot does
   **not** prove W10 SAME.
 - `ai-task-gates check --before database` must print a **precise ALLOW line**
-  (`^ALLOW$` or `^gate: ALLOW$` per line — never a substring match) before any
-  DB; the sealed runner invokes it and refuses on non-ALLOW. `git`,
+  (`^ALLOW$` or `^gate: ALLOW$` per line — never a substring match) and must
+  **not** print any `^DENIED$` / `^gate: DENIED$` line (M1). The sealed runner
+  invokes it and refuses on non-ALLOW or on any DENIED. `git`,
   `ai-task-gates` and `docker` are resolved to absolute paths and their
-  `--version` identity is recorded in evidence.
+  `--version` identity is recorded in evidence; a missing `--version` is a
+  **refusal**, not a recorded gap (M7).
 - Review receipt required before release: exact full 40-char HEAD + runner
   SHA-256 + plan SHA-256 + checker SHA-256 + evidence SHA-256 + verdict
-  `APPROVE`. The sealed runner refuses without it and never manufactures one.
-  The receipt under SCRATCH is **procedural** (operator-minted); it is not a
-  cryptographic authority. File checks follow `test_canonical_schema.py:96-114`
-  (`O_NOFOLLOW`, regular file, nlink=1, mode 0600, size ≤4096, stable stat)
-  where the host supports them; on Windows `os.getuid` is absent and that limit
-  is recorded. Stop, do not bypass.
+  `APPROVE`. All four SHA bindings use **git-blob semantics**
+  (`git show HEAD:path | sha256sum`) so CRLF checkouts cannot diverge (H6).
+  The sealed runner refuses without the receipt and never manufactures one.
+  File checks follow `test_canonical_schema.py:96-114`
+  (`O_NOFOLLOW`, regular file, nlink=1, mode 0600, size ≤4096, stable stat,
+  lstat cross-check) where the host supports them; the payload is read via
+  the **same O_NOFOLLOW fd** (H7 — no TOCTOU). On Windows `os.getuid` is
+  absent and that limit is recorded. Stop, do not bypass.
 - Synthetic/invented only. No company originals, production, paid providers,
   real Teams. **Real Teams producer stays UNQUALIFIED.** ACK ≠ visible message.
   Business acceptance held.
@@ -205,16 +293,18 @@ git show HEAD:services/oracle-brain/sql/021_meeting_participation.sql | sha256su
 
 The earlier sealed note recorded `959a7755…` / 63753 B LF. A working-tree
 measurement on a CRLF host is **not** a valid pin and must not be quoted as one.
-Runner-SHA bindings likewise hash the runner file as checked out at receipt time;
-the receipt binds that exact hash together with the exact HEAD.
 
-**Source snapshot of the runner (H-F)** hashes **worktree file CONTENTS**
-(sha256 of bytes + mode) for `.py/.ts/.tsx/.sql/.json/.md/.yaml/.yml` plus
-`compose.yaml` / `compose.yml` / `docker-compose.*` and lockfiles
+**All receipt SHA bindings (H6)** — runner, plan, checker, evidence — likewise
+use git-blob semantics (`git show HEAD:path | sha256sum`), not working-tree
+bytes. A receipt minted on Windows will verify on the mandated Linux rerun.
+
+**Source snapshot of the runner (H-F/M2)** hashes **worktree file CONTENTS**
+(sha256 of bytes + mode) for `.py/.ts/.tsx/.sql/.json/.md/.yaml/.yml/.toml/
+.sh/.bash/.ps1/.dockerignore` plus `Dockerfile`, `.dockerignore`, `compose.yaml`
+/ `compose.yml` / `docker-compose.*` and lockfiles
 (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `poetry.lock`, `uv.lock`,
-`Cargo.lock`, `go.sum`) — never `git ls-files` index blobs, which cannot see a
-worktree edit after bind. Sealed blob pins stay git-blob; the snapshot is for
-mutation detection only.
+`Cargo.lock`, `go.sum`) — uses `lstat` so symlink swaps are visible (M2).
+Sealed blob pins stay git-blob; the snapshot is for mutation detection only.
 
 ## Test figures (H1 correction — no 230/256 mixing)
 
@@ -255,7 +345,7 @@ whether the module skipped or ran, and a skip is not a green case. The two
 unreported modules (`test_meeting_participation.py`, `test_outbound_replay.py`)
 are named above so the Linux rerun has a target to reconcile against.
 
-## Sequencing — the 21 SQL must go green first (M-E)
+## Sequencing — the 21 SQL must go green first (M-E/H4)
 
 **Failure attribution rule:** the 21 SQL cases
 (`test_meeting_participation_sql.py`) must go green against an owned synthetic
@@ -264,18 +354,36 @@ journey stage fails while the 21 SQL are red, the failure is attributed to the
 backend, not the journey. If the 21 SQL are green and a journey stage fails,
 the failure is attributed to the journey adapter. This order is mandatory.
 
+**Runner enforcement (H4):** the runner **invokes** the 21 SQL module via
+pytest against the bootstrapped database after `bootstrap_canonical_test_schema`
+and refuses unless `21 passed` is observed in the output. This is not merely
+procedural — it is a hard gate inside the runner.
+
+The SQL module reads `ORACLE2_TEST_ADMIN_URL` directly (see C7 correction
+below) and does **not** bootstrap via conftest. The journey runner provides the
+externally bootstrapped admin URL. A standalone fresh-DB run of the SQL module
+needs the runner's bootstrap first.
+
 ## Privilege-typing note (M1)
 
 The head commit's semantic change (typed write-time privilege refusals;
 post-commit denials stay UNKNOWN) is present on this head
 (`participation_authority_v1.py`: `InsufficientPrivilege` re-raised only when
-`write_returned` is False; `mutation_attempted` set before the guarded send).
-It is exercised by the 21 SQL tests **when those run**. Pure tests use fakes and
-do **not** prove the real-DB path. Do not overclaim pure coverage of it.
+`write_returned` is False; `mutation_attempted` set at `:417` before the
+guarded send at `:418`). It is exercised by the 21 SQL tests **when those run**.
+Pure tests use fakes and do **not** prove the real-DB path. Do not overclaim
+pure coverage of it.
 
-## Negative cases — split (H4)
+## Negative cases — split (H4/M3)
 
-### Backend-covered (the 21 SQL module, when executed)
+### Backend-covered (the 21 SQL module, when executed) — NON-EXHAUSTIVE (M3)
+
+The list below is the subset the journey plan maps to journey stages. The 21
+SQL module covers additional behaviours not enumerated here; this map is
+**not exhaustive** and must not be read as a complete inventory of what the
+SQL tests prove.
+
+Mapped to journey stages:
 
 - Missing/off/disabled/stale generation; wrong role/account/bot/platform/channel/chat-unknown
 - Broken selected root with alternate valid grant
@@ -288,6 +396,13 @@ do **not** prove the real-DB path. Do not overclaim pure coverage of it.
 - Forensic receipt after host disable completes inflight only
 - Deadline non-renewal; permission-expiry enforcement points at SQL 021
   (`021_meeting_participation.sql:163-168`)
+
+Additional backend-covered behaviours **not mapped** to journey stages (M3 —
+previously omitted): wrong-login/TLS/owner fail-closed
+(`test_meeting_participation_sql.py:266-284`); runtime-login private-helper
+denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
+(`:508-513`); window-expiry forensic (`:532-542`); short-observation clip
+(`:494-506`); late-wire orphan (`:475-492`).
 
 ### Journey-orphaned / UNPROVED by this one-shot
 
@@ -316,7 +431,7 @@ do **not** prove the real-DB path. Do not overclaim pure coverage of it.
    or claimed.
 3. Actual 21 SQL against an owned synthetic database under the **sealed bootstrap**
    inventory (not a contiguous 001..014 claim). **The 21 SQL must go green
-   before the journey runs** (see Sequencing).
+   before the journey runs** (see Sequencing; enforced in the runner, H4).
 4. Next host enable/control **web** surface (named remaining gate; out of scope
    for this one-shot). Until then the journey's control stage is the mTLS
    `/v1/replacement/meetings/participation/control` path only.
@@ -327,6 +442,12 @@ do **not** prove the real-DB path. Do not overclaim pure coverage of it.
 6. Full installed invitation / supervision / audience-currentness proof.
 7. W10 SAME worker-fit measurement for the participation suites (currently asserted).
 8. Real Teams chat/audience producer remains UNQUALIFIED.
+9. **mTLS stage-1 prerequisites (H8).** Peer-file minting, seals, `openssl`
+   re-sign, `certificates`/`WORKER` fixtures
+   (`test_hosting_boundary.py:18,28`), closed-denial matrix (bad identity/path/
+   body/headers → 404/503), and peer-tamper → 503
+   (`test_meeting_participation_sql.py:371-439`). Named remaining gate; stage 1
+   cannot execute until discharged.
 
 ## Fail-closed bindings enforced in the sealed runner
 
@@ -336,22 +457,43 @@ do **not** prove the real-DB path. Do not overclaim pure coverage of it.
 2. `git rev-parse HEAD` is a full 40-char hex SHA and the worktree is clean.
 3. The sealed migration inventory matches `canonical_synthetic_migrations()`
    exactly (20 entries).
-4. A review receipt exists whose `head` equals that exact 40-char HEAD, whose
-   `runner_sha256` / `plan_sha256` / `checker_sha256` / `evidence_sha256` match
-   the files on disk, and whose `verdict` is `APPROVE`. The runner never
-   manufactures a receipt. File checks follow `test_canonical_schema.py:96-114`
-   where the host supports them.
+4. A review receipt exists at the `ORACLE2_S08_JOURNEY_RECEIPT` release path
+   (C3), whose `head` equals that exact 40-char HEAD, whose `runner_sha256` /
+   `plan_sha256` / `checker_sha256` / `evidence_sha256` match the git-blob
+   hashes of the files on disk (H6), and whose `verdict` is `APPROVE`. The
+   runner never manufactures a receipt. File checks follow
+   `test_canonical_schema.py:96-114` (same-fd payload read, H7) where the host
+   supports them.
 5. `ai-task-gates check --before database` prints a precise ALLOW line
-   (`^ALLOW$` or `^gate: ALLOW$`).
-6. Source snapshot (worktree bytes + mode, including compose/lockfiles) before
-   the gate equals source snapshot after the gate.
-7. After bootstrap the live inventory and catalog match the sealed inventory.
-8. After the run, exact owned synthetic containers/networks/volumes for the
-   project are absent (readback **always**, including pre-identity refusals),
+   (`^ALLOW$` or `^gate: ALLOW$`) and **no** DENIED line (M1).
+6. Source snapshot (worktree bytes + mode, including Dockerfile/.dockerignore/
+   pyproject.toml/shell/compose/lockfiles, lstat not follow — M2) before the
+   gate equals source snapshot after the gate.
+7. After bootstrap the live inventory digest and catalog digest match their
+   golden values (H3): inventory digest equals the pre-bootstrap golden;
+   catalog equals the schema-receipt golden.
+8. The 21 SQL module runs green against the bootstrapped DB before any journey
+   stage (H4).
+9. After the run, exact owned synthetic containers/networks/volumes for the
+   **real suffixed project** (`identity['project']`) are absent (readback
+   **always**, including pre-identity refusals with prefix-aware listing — C2),
    else STOP when identity was established.
+10. Each stage's `deadline_s` is validated as an int in `(0, 30]` (M5).
+11. Stage binding dicts include all required keys per `STAGE_BINDING_SCHEMAS` (M9).
+12. `--version` identity is established for every required tool; a missing
+    `--version` is a refusal (M7).
 
-Refused runs write only `refusal.json` with `refused: true` /
-`non_evidence: true` and never `journey-evidence.json`. Stages that are not
-implemented raise `JourneyRefusal` and refuse. The runner is a one-shot journey
-runner: it binds the exact head + review receipt and must not be reused across
-heads without a new receipt.
+**C8 — refusal/evidence exclusivity:** refused runs write only `refusal.json`
+with `refused: true` / `non_evidence: true` and **never** `journey-evidence.json`.
+Success runs write `journey-evidence.json` and **never** `refusal.json`. Always-
+allowed ops artifacts (`cleanup.json`, `ops-database-gate.txt`,
+`ops-source-after-gate.json`, `ops-schema-receipt.json`, `ops-sql-green.txt`)
+are labeled `ops: true` / `non_evidence: true` and are never journey evidence.
+Stages that are not implemented raise `JourneyRefusal` and refuse. The runner
+is a one-shot journey runner: it binds the exact head + review receipt and must
+not be reused across heads without a new receipt.
+
+**M10 — snapshot-vs-clean-tree ordering:** operator review output under
+`.ai/reviews/` must be committed or gitignored **before** the journey run binds
+the clean head. The source snapshot excludes `.ai/reviews/packets/`; the dirty
+check does not. Commit packet output or add it to `.gitignore` before running.

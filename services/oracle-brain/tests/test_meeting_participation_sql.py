@@ -1,9 +1,15 @@
 """Actual owned synthetic SQL/privatebytes proof. Observation facts INVENTED.
 
 No provider/Teams/employee/business acceptance is established by this fixture.
-Bootstraps the full sealed SYNTHETIC_MIGRATIONS inventory via conftest
-(20 entries: 001,002,004,006-014,017-020,021-023,027; omits 003/005) once in
-the exact-owned fresh UUID wrapper — not a contiguous 001..014 chain.
+This module reads ORACLE2_TEST_ADMIN_URL directly and expects an externally
+bootstrapped admin URL — as the S08 journey runner provides after calling
+bootstrap_canonical_test_schema. It does NOT call bootstrap itself and does
+NOT use the conftest admin_url fixture (that fixture is opt-in and not
+requested here). A standalone fresh-DB run needs the runner's bootstrap first.
+The sealed SYNTHETIC_MIGRATIONS inventory is 20 entries
+(001,002,004,006-014,017-020,021-023,027; omits 003/005) — not a contiguous
+001..014 chain. The "21 SQL green first" rule is enforced by the journey
+runner, which bootstraps then runs this module before any journey stage.
 """
 from contextlib import contextmanager
 from datetime import datetime,timezone,timedelta
