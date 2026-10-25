@@ -4,7 +4,7 @@ Binds the exact full 40-char HEAD at run time and a review receipt that names
 that HEAD, this file's SHA-256, the plan SHA-256, the checker SHA-256 and the
 evidence SHA-256, plus verdict APPROVE. Refuses without a precise
 ai-task-gates check --before database ALLOW line. One fresh owned synthetic
-Postgres (oracle2-synthetic-p24s08-journey-<unique>). Owned cleanup with
+Postgres (oracle2-synthetic-p24s08-jrny-<unique>). Owned cleanup with
 absence readback always — including pre-identity refusals.
 
 Release workflow for the review receipt (C3):
@@ -95,7 +95,9 @@ DOCKER_PROBE_TIMEOUT_S = 60
 # M5: every gate/preflight/git subprocess is bounded so a hang cannot outlast
 # the one-shot run. The 120s stage budget is armed only after bootstrap.
 TOOL_CALL_TIMEOUT_S = 60
-COMPOSE_PROJECT_PREFIX = "oracle2-synthetic-p24s08-journey"
+# Shortened from ...-journey so the generated postgres container DNS name
+# (project_base + -w + 12hex + -postgres-1) stays <= 64 chars for OpenSSL CN.
+COMPOSE_PROJECT_PREFIX = "oracle2-synthetic-p24s08-jrny"
 WORKER_LABEL = "documentary-01"
 # Sealed SYNTHETIC_MIGRATIONS inventory. The runner applies the sealed
 # bootstrap and asserts equality; it never a custom contiguous 001..014 chain.

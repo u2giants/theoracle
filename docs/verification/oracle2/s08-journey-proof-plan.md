@@ -303,7 +303,7 @@ those files are in the sealed inventory.
 ## Resource and budget contract
 
 - ONE fresh owned synthetic Postgres via `dev/oracle2/test_worker_postgres_fixture.worker_postgres`.
-  Project class `oracle2-synthetic-p24s08-journey-<hex>` (required regex
+  Project class `oracle2-synthetic-p24s08-jrny-<hex>` (required regex
   `oracle2-(?:ci|synthetic)-[a-z0-9-]{1,80}`); worker label `documentary-01`
   (required regex `(?:documentary-[0-9]{2}|event)`).
 - **Unique project name per run** and **unique SCRATCH per run**. SCRATCH must
