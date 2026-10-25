@@ -4,15 +4,15 @@ Prepared only. No database, provider, native, or production effect is authorized
 Root release after independent exact SOURCE + one resource-plan assessment is required before any run.
 Business-acceptance hold remains in force.
 
-Revision note: this packet is **v4**. It answers Muse plan-review
-`20261023T213157-676022-23280` findings M1–M5, m1–m10, n1–n8 against head
-`f886989ca0386139bb1c7aafa4bf3e300771a7b9`, and keeps the H-E erasure honesty
-and decision-rule rows from v3 (which answered
-`20261023T210410-633252-7795` H-A..H-E, M-A..M-K, L-A..L-E against
-`9132df584bbb333f61d1adad1e3abc152a568d86`). Every identifier below is taken
-from sealed source in this worktree. It supersedes the previous revision's
-interception ranking, runner sequence, artifact-index write order, cleanup
-proof, claim-state columns, deadline count, and redaction scope.
+Revision note: this packet is **v5**. It answers Muse plan-review
+`20261025T130709-2784963-21083` findings M6, m11, m12 and three Lows against head
+`8cbf4487b02674521facc5016760552e51b5c746`, and keeps every previously accepted
+fix (M1–M5, m1–m10, n1–n8 from `20261023T213157-676022-23280`; H-A..H-E, M-A..M-K,
+L-A..L-E from `20261023T210410-633252-7795`; H-E erasure honesty and decision-rule
+rows from v3). Every identifier below is taken from sealed source in this worktree.
+It supersedes the previous revision's runner invocation/cwd/`PYTHONPATH` pins,
+redaction application list, schema-receipt filename, sequence-counter lock scope,
+wrap re-raise rule, and `_parse`/fence-entry wrap scope.
 
 ## Exact inputs (M-A, H-B)
 
@@ -73,24 +73,40 @@ swallowed exception nor the body. Do **not** specify a `do_POST` wrap as the rai
 | `Handler.send_response` / `send_header` / `end_headers` (already wrapped) | Existing wrap in `worker()` for the create server (`test_meeting_unattended_sql.py`, `_logged_send_response` / `_logged_send_header` / `_logged_end_headers`) | status, header pairs | yes — existing jsonl |
 | Production `_deny` / listener source | — | refusal shape | **never touch** |
 
+**Every recording wrap — primary and module-global — must re-raise or return-through
+unchanged.** Never swallow an exception, never convert a 503 to a 200, never alter the
+refusal shape or production response bytes (still `503` / empty body / `Cache-Control: no-store`).
+A swallowing wrap would destroy the very evidence this packet exists to capture.
+
 **Module-global wraps for do_POST-level sites (named, M1):** the following production functions
 are called from `do_POST` **before** or **around** `factory.execute_v1` and raise with propagation
 to the same swallowed `except`. A fixture-only **module-global** wrap (monkeypatch of the name
 imported into `oracle_brain.hosting._protected_control_listener_v1` or of the defining module) can
-record entry/exit/exception for each:
+record entry/exit/exception for each. **Every recording wrap in this packet must re-raise or
+return-through unchanged** — never swallow, never convert a 503 to a 200, never alter the
+refusal shape or response bytes.
 
 | Wrap target (module-global) | Sealed source | Covers |
 |---|---|---|
 | `oracle_brain.hosting.replacement_transport_v1.peer_der_v1` | called twice in `do_POST` (`_protected_control_listener_v1.py` — before body read, and after `factory.execute_v1`) | peer-pin refusal |
 | `oracle_brain.hosting.replacement_transport_v1.fixed_request_length_v1` | `do_POST` framing/content-length | framing |
 | `oracle_brain.hosting.replacement_transport_v1.read_request_body_v1` | `do_POST` body read | framing / body-length |
+| `oracle_brain.hosting.meeting_worker_service_v1._parse` (the name bound by `from .original_intake_v1 import _parse` at `meeting_worker_service_v1.py:16`) | `parse_request=lambda raw:_parse(MeetingWorkerRequestV1,raw)` (`meeting_worker_service_v1.py:193`) invoked at `_protected_control_listener_v1.py:60`; also the same `_parse` inside `execute_v1` at `:177` | malformed-body / parse refusal **before** `execute_v1` (the `parse_request` call site never reaches the factory) and inside it |
+| `oracle_brain.hosting._protected_control_listener_v1._request_fence_v1` (the name bound by the import at `_protected_control_listener_v1.py:11` from `oracle_brain.operating_model.request_deadline_v1._request_fence_v1`, defined at `request_deadline_v1.py:26`) | fence entry at `_protected_control_listener_v1.py:68` (`with _request_fence_v1(float(original_end)):`) | fence-entry refusal before `execute_v1`, and fence exit around it |
+
+These two are **module-global wraps of the same class** as the three named above (fixture-only
+monkeypatch of the imported name; they never edit production). `_parse` and fence entry are not
+UNKNOWN sites: their wrap seams exist. Inline `raise` statements inside `do_POST` itself remain
+UNKNOWN (below).
 
 **Sites that remain UNKNOWN (exact reason).** These are **inline** `raise PermissionError(...)`
-statements inside `do_POST` itself, with no callable seam. A delegating `do_POST` wrap cannot see
-them (the bare `except Exception` swallows and calls `_deny()`). The module-global wraps above
-never enter. The raise-site tag for these is therefore **UNKNOWN** unless an ordered wrap-trace
-(which of the wraps above returned successfully, and in what order) narrows the window; the plan
-records the ordered wrap-trace as `wrap_trace` and sets `raise_site: "UNKNOWN"` for:
+statements inside `do_POST` itself, with no callable seam of their own. A delegating `do_POST` wrap
+cannot see them (the bare `except Exception` swallows and calls `_deny()`). The module-global wraps
+above either never enter these sites or only bracket them (the `_request_fence_v1` wrap sees an
+exception on context-manager exit for any raise inside the `with` body, which does not uniquely
+identify which inline raise fired). The raise-site tag for these is therefore **UNKNOWN** unless an
+ordered wrap-trace (which of the wraps above returned successfully, and in what order) narrows the
+window; the plan records the ordered wrap-trace as `wrap_trace` and sets `raise_site: "UNKNOWN"` for:
 
 - framing: `self.server.closing or self.headers.get_all('Content-Encoding', []) != []` → `PermissionError('fixed requester lifecycle/framing required')`
 - window expiry: `not datetime.now(timezone.utc) < request.caller_deadline <= min(...)` → `PermissionError('original requester window expired or excessive')`
@@ -102,8 +118,9 @@ If a raise-site tag cannot be added without touching production refusal shape, r
 `raise_site: UNKNOWN` and say so — do not invent one. Keep production response bytes identical
 (still `503` / empty body / `Cache-Control: no-store`).
 
-Record per request: monotonic timestamp (`time.monotonic()` at wrap entry), request sequence index,
-`operation` **from the POST body JSON `operation` field** (captured in the `execute_v1` wrap from
+Record per request: monotonic timestamp (`time.monotonic()` at wrap entry), request sequence index
+(**the per-request sequence counter lives under the §8 module lock** — wraps run on handler threads
+and the counter is shared), `operation` **from the POST body JSON `operation` field** (captured in the `execute_v1` wrap from
 `raw`; not from the fixture, not from the route): the wire operations are `prepare`, `claim`,
 `current`, `observe`, `status` — there is **no** `repeated-claim` wire operation; that string is a
 **test phase** name only. The repeated-claim request's wire `operation` is `claim`. And a
@@ -186,13 +203,37 @@ jsonl wrap fields (`raise_site`, `wrap_trace`, `operation`, `caller_deadline`, m
   passwords; certificate/key bytes; Authorization header values; raw request/response bodies
   (including `RecallWireUncertaintyV1.wire` bytes — capture only its byte count and sha);
   free-form exception text that is not one of the allow-listed fixed strings.
-- **Implementation hook (m8):** one function `redact_record(record: dict) -> dict` in the test/
+- **Implementation hook (m8, m11):** one function `redact_record(record: dict) -> dict` in the test/
   fixture module. It walks every value; anything not matched by the allow-list becomes
   `"REDACTED"` and the parallel key `"<field>_kind": "unlisted"` is set. Apply it to every jsonl
-  append and every JSON artifact write (`create-child-diagnostics.json`,
-  `supervision-scope.json`, spool-copy manifest, deadline snapshot fields inside
-  `create-child-diagnostics.json`, `warmup-refusals*.json` message fields,
-  `post-create-current-queue-refusal.json`, `infra-failed.json`). Never ship a deny-rule miss.
+  append and every JSON artifact write. **The list below is exhaustive for this packet** — any
+  writer outside it must add its artifact here before the run; never ship a deny-rule miss:
+  `create-child-diagnostics.json`, `supervision-scope.json`, spool-copy manifest, deadline
+  snapshot fields inside `create-child-diagnostics.json`, `warmup-refusals*.json` message fields,
+  `post-create-current-queue-refusal.json`, `infra-failed.json`, **`pre-child-failure.json`**
+  (naming the failing step and exception type), and **`actual-create-child.stdout`** (the driver
+  catch/success JSON, which carries `error_message`, `error_cause_type`, `wire_byte_count`,
+  `wire_sha256`, and the deadline snapshot fields). Pre-existing writes keep their current shape:
+  `actual-create-child.stderr`, `queue-diagnostic.*`, `cycle-diagnostic.*` are raw process streams
+  limited to the allow-listed fixed production refusal strings and are not re-parsed; if any other
+  free-form text appears there it is a deny-rule miss and the run stops.
+
+- **Enforcement owners for Node-written stdout (m11).** The driver
+  (`services/oracle-brain/tests/fixtures/meeting-unattended-driver.mts`) writes one `canonicalJson`
+  line to stdout (catch at the `catch(error)` write; success at the success write). Two named
+  owners enforce the deny rule on that line:
+  1. **Driver-side allow-list (primary):** the driver emits only the enumerated keys
+     (`state`, `remote_stop_proven`, `stage`, `error_type`, `error_message`, `error_cause_type`,
+     `wire_byte_count`, `wire_sha256`, `deadline`, and the success keys already present). Before
+     the catch write, `error_message` is replaced with `"REDACTED"` unless it is exactly one of the
+     allow-listed fixed production refusal strings; `error_cause_type` is written only when it is a
+     bare class name. No other key may be added.
+  2. **Fixture post-pass (enforcement):** when the fixture copies child stdout into
+     `tmp_path/actual-create-child.stdout`, it parses the JSON line and runs `redact_record` on it
+     before the file is finalized (and again before the runner hashes it into
+     `artifact-index.json`). A line that does not parse is written as
+     `{"state":"UNKNOWN","stage":"<stage>","error_type":"UnparsedStdout","raw_kind":"unlisted"}`
+     and the raw bytes are **not** kept.
 
 ### 6. Always-on diagnostics and try/finally scope (M-I, m5)
 
@@ -275,6 +316,7 @@ array deep-equality defined in Exact inputs.
 - `actual-unattended-outcome.json` (only on success — index marks `present: false` otherwise)
 - `source-before.json`, `source-after.json`
 - `runner-environment.json`
+- `s07fresh-schema.json` (bootstrap receipt; m12 literal name)
 - `supervision-scope.json`, `replay-spool/` (directory, listed recursively)
 - `pre-child-failure.json` (if present)
 - `infra-failed.json` (if present; runner-written on infra failure)
@@ -292,7 +334,8 @@ deltas. The final `warmup-refusals.json` equals `warmup-refusals-attempt-N.json`
 - **Lock placement:** one module-level `threading.Lock` in `test_meeting_unattended_sql.py`
   (shared across all `Handler` instances of the same server — `ThreadingHTTPServer` creates one
   `Handler` class per server, so a class attribute or module global is required; an instance
-  attribute is not sufficient).
+  attribute is not sufficient). **The per-request sequence counter is taken under this same lock**
+  (§1) so concurrent handler threads cannot share a sequence number.
 - **Reader:** the test currently copies the jsonl while the server still serves. Replace with
   close-then-copy in the fixture teardown (§7 step 3). If any interim read is needed for the
   in-test diagnostics, take the same lock and drop a trailing partial line (a line that does not
@@ -322,15 +365,15 @@ deltas. The final `warmup-refusals.json` equals `warmup-refusals-attempt-N.json`
 
 | Item | Value |
 |---|---|
-| Exact selector (H-A) | `pytest services/oracle-brain/tests/test_meeting_unattended_sql.py::test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_receipt -q --tb=short` — this is the real test node at `services/oracle-brain/tests/test_meeting_unattended_sql.py:282`. The second node `test_actual_producer_death_refuses_Create_before_any_provider_HTTP` (`:409`) is the producer-death **negative** and is **not** the S07 target. `capture_seconds` is an **indirect `meeting_sql` param** (50 for `:282`, 40 for `:408`/`:409`), not a `capture_seconds` fixture kwarg. Do not invent a `test_meeting_unattended_create_child_actual` symbol; it does not exist. Run this one node only; "do not cut cases" applies to W10, not to this single-node diagnostic. |
+| Exact selector (H-A, **M6**) | **`python -m pytest services/oracle-brain/tests/test_meeting_unattended_sql.py::test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_receipt -q --tb=short`** — **never bare `pytest`**. Bare `pytest services/oracle-brain/tests/...` fails at collection with `ModuleNotFoundError: No module named 'dev'` because `test_meeting_capture_sql.py:11` does `from dev.oracle2.test_worker_postgres_fixture import owned_worker_database` (reached from the S07 module's line 29 import) and a bare `pytest` console script does **not** put the working directory on `sys.path`. The runner invokes this as `sys.executable -m pytest` (exact precedent `scripts/oracle2/verify_workflow_integrity.py:437-439`: `command=[sys.executable,'-m','pytest',...]`) with `cwd=worktree root` (same file `:331` `cwd=ROOT`) and the pinned `PYTHONPATH` below. This is the real test node at `services/oracle-brain/tests/test_meeting_unattended_sql.py:282`. The second node `test_actual_producer_death_refuses_Create_before_any_provider_HTTP` (`:409`) is the producer-death **negative** and is **not** the S07 target. `capture_seconds` is an **indirect `meeting_sql` param** (50 for `:282`, 40 for `:408`/`:409`), not a `capture_seconds` fixture kwarg. Do not invent a `test_meeting_unattended_create_child_actual` symbol; it does not exist. Run this one node only; "do not cut cases" applies to W10, not to this single-node diagnostic. |
 | Runner path (H-C, m9) | `/tmp/oracle-parent24-wy02uT/s07-fresh-invented-runner.py` on **`edge-dev3`** (this is the only host name in this packet). That script, not a shell one-liner, owns the sequence below. |
-| Runner sequence (M2, m3, m6) | (1) write `source-before.json` to `RUNNER_DIR/`; (2) owned Compose project up (`docker compose -f dev/oracle2/compose.yaml -p <project> up -d --wait postgres` with `ORACLE2_POSTGRES_PORT=0`); (3) **TLS bootstrap** — call `dev/oracle2/test_tls_bootstrap.bootstrap(container, plain_admin_url, RUNNER_DIR/tls)` (the established helper; see `test_meeting_capture_sql.py` `admin()` → `owned_worker_database` and `test_worker_postgres_fixture.py`). This produces `ORACLE2_TEST_ADMIN_URL` with `sslmode=verify-full` + `sslrootcert`, plus `ORACLE2_TEST_TLS_ROOT` and `ORACLE2_TEST_TLS_QUALIFICATION`. **S07 cannot reuse `worker_postgres()` unchanged** because it requires a `(documentary-NN|event)` label (`test_worker_postgres_fixture.py:54-55`); the runner performs the same steps `worker_postgres` performs internally: compose up, identity checks, `bootstrap(...)` for TLS, then uses the verify-full URL. Every later DB touch goes through `admin()` → `owned_worker_database`, which refuses unless the conninfo carries `sslmode=verify-full`, `sslrootcert`, and an exact dbname (`test_worker_postgres_fixture.py:20-46`); (4) **`bootstrap_canonical_test_schema(admin_url, container_id=..., receipt_path=RUNNER_DIR/<label>-schema.json)`** exactly once, using the verify-full URL. **m3:** this is **not** the only caller — `test_owned_worker_database.py`, `scripts/oracle2/verify_workflow_integrity.py`, and `owned_phase_database` (`test_canonical_schema.py`) also call it — but the substance holds: `meeting_sql` uses `ORACLE2_TEST_ADMIN_URL` directly (`test_meeting_capture_sql.py` `admin()`), not the `admin_url` pytest fixture, so the runner **must** call bootstrap explicitly or the run errors before any child or diagnostic exists. **Double-bootstrap hazard:** if bootstrap runs twice against the same owned container, the second run must not re-apply migrations over a live schema; the runner calls it exactly once and the S07 test path does not call it. The historical "S08 21-error failure mode" (n6) is **historical handoff corroboration only**, not sealed-source specification; (5) export env; (6) run the exact selector with `--basetemp=RUNNER_DIR/pytest-tmp` (absolute, runner-owned; precedent `scripts/oracle2/verify_workflow_integrity.py` `--basetemp=`) and `-p no:cacheprovider` (m6: `-p no:cacheprovider` removes pytest last-run pointers, so `--basetemp` is the only artifact-discovery mechanism); (7) write `source-after.json` to `RUNNER_DIR/`; (8) write `artifact-index.json` to `RUNNER_DIR/` (§7); (9) cleanup proof (below). |
-| Real environment (M-F, M2, n5) | `ORACLE2_TEST_ADMIN_URL` (owned DB, **`sslmode=verify-full` + `sslrootcert`**, from `test_tls_bootstrap.bootstrap`), `ORACLE2_TEST_TLS_ROOT`, `ORACLE2_TEST_TLS_QUALIFICATION` (same), `ORACLE2_SYNTHETIC_POSTGRES_CONTAINER` (owned container id), `ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT` + `ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256` (from `bootstrap_canonical_test_schema`), `COMPOSE_PROJECT_NAME=oracle2-synthetic-p24s07fresh-<UUID>` where **`<UUID>` is lowercase** `uuid4().hex` (the regex `oracle2-(?:ci\|synthetic)-[a-z0-9-]{1,80}` at `test_worker_postgres_fixture.py` allows lowercase only; the full name is ~65 chars and fits), `PYTHONDONTWRITEBYTECODE=1` (**n1:** the fixture **propagates** it via `env={**os.environ,...}` at `test_meeting_unattended_sql.py` `env=` construction — it does not set it; the runner export covers the runner and is inherited by children), `PYTHONHOME` (the interpreter prefix the fixture already sets for children). **There is no `ORACLE2_WORKER_CONTAINER_ID`** — that name has zero consumers repo-wide; do not invent it. `ORACLE2_INVENTED_PROVIDER_PORT`, `ORACLE2_MEETING_*_WORKER_BINDING_*`, `ORACLE2_INVENTED_DRIVER_PRELOAD`, `ORACLE2_INVENTED_READY_FILE`, `ORACLE2_INVENTED_QUEUE_DIAGNOSTIC`, `ORACLE2_INVENTED_CYCLE_DIAGNOSTIC`, `ORACLE2_INVENTED_OBSERVER_CONFIG_*` are set by the fixture itself; the runner does not set them. |
-| Interpreter / toolchain pins (M-F) | Linux-only (`test_meeting_unattended_sql.py` reads `/proc/<pid>/stat`, `os.getuid()`; `conftest.py` has a Windows FileBlobStore workaround that is **not** sufficient for this test). Python = the venv/site-packages that already import `oracle_brain`, `psycopg`, `cryptography`, `pytest`. Node = `/usr/bin/node` (hardcoded in the test) with `tsx` importable via `--import tsx`. `openssl` CLI required (`certs` fixture runs `openssl req`/`x509`). Record `python -V`, `node -v`, `openssl version`, and `python -c 'import sys; print(sys.prefix, sys.path)'` in `runner-environment.json`. |
-| `runner-environment.json` (n4) | Written by the runner to **`RUNNER_DIR/runner-environment.json`** (relative path `runner-environment.json`). On infra failure the runner writes **`RUNNER_DIR/infra-failed.json`** (relative path `infra-failed.json`) naming the failing step and the exact error, and both files are listed in `artifact-index.json`. |
+| Runner sequence (M2, m3, m6, **M6**) | **Invocation pins (M6 — apply to the runner script itself and to every subprocess it starts, including the pytest step).** (a) **cwd = worktree root** for the runner process and for pytest (`verify_workflow_integrity.py:331` `cwd=ROOT`); the runner script lives under `/tmp/...` but is launched with `cwd` set to the worktree root before any `dev.oracle2` import. (b) **`PYTHONPATH` exact value the runner exports:** `PYTHONPATH="<WORKTREE_ROOT>:<WORKTREE_ROOT>/services/oracle-brain"` (Linux `:` separator; `<WORKTREE_ROOT>` is the absolute worktree root, e.g. `/home/.../oracle-wt-s07-plan`). This matches the documented rule at `plan_oracle_replacement_documentary_journey.md:309` ("Use repository-root working directory and exact PYTHONPATH including root and service"). Root is required for `dev.oracle2.*` (`test_worker_postgres_fixture`, `test_tls_bootstrap`, `test_canonical_schema`); `services/oracle-brain` is required for `oracle_brain.*` (`verify_workflow_integrity.py:438` sets `PYTHONPATH=str(ROOT/'services/oracle-brain')` and relies on `python -m pytest` for root — this packet pins both explicitly). (c) **pytest is `sys.executable -m pytest`**, never bare `pytest`. (d) The runner script itself (its imports of `dev.oracle2.test_tls_bootstrap.bootstrap` and `dev.oracle2.test_canonical_schema.bootstrap_canonical_test_schema`) gets the **same** cwd + `PYTHONPATH` pin; without them the runner dies at import before any child or diagnostic exists. (e) All three pins are recorded in `runner-environment.json`. Sequence: (1) write `source-before.json` to `RUNNER_DIR/`; (2) owned Compose project up (`docker compose -f dev/oracle2/compose.yaml -p <project> up -d --wait postgres` with `ORACLE2_POSTGRES_PORT=0`); (3) **TLS bootstrap** — call `dev/oracle2/test_tls_bootstrap.bootstrap(container, plain_admin_url, RUNNER_DIR/tls)` (the established helper; see `test_meeting_capture_sql.py` `admin()` → `owned_worker_database` and `test_worker_postgres_fixture.py`). This produces `ORACLE2_TEST_ADMIN_URL` with `sslmode=verify-full` + `sslrootcert`, plus `ORACLE2_TEST_TLS_ROOT` and `ORACLE2_TEST_TLS_QUALIFICATION`. **S07 cannot reuse `worker_postgres()` unchanged** because it requires a `(documentary-NN|event)` label (`test_worker_postgres_fixture.py:54-55`); the runner performs the same steps `worker_postgres` performs internally: compose up, identity checks, `bootstrap(...)` for TLS, then uses the verify-full URL. Every later DB touch goes through `admin()` → `owned_worker_database`, which refuses unless the conninfo carries `sslmode=verify-full`, `sslrootcert`, and an exact dbname (`test_worker_postgres_fixture.py:20-46`); (4) **`bootstrap_canonical_test_schema(admin_url, container_id=..., receipt_path=RUNNER_DIR/s07fresh-schema.json)`** exactly once, using the verify-full URL. **m12:** the receipt filename is the **literal** `s07fresh-schema.json` (not `RUNNER_DIR/<label>-schema.json`); the only `label` gate in sealed source is the `documentary-NN|event` gate this runner deliberately avoids (`test_worker_postgres_fixture.py:54-55`), and the concrete-naming precedent is `verify_workflow_integrity.py:435-436` (`schema_receipt=(evidence/(label+'-schema.json')).resolve()`), so this runner pins its own literal name. **m3:** this is **not** the only caller — `test_owned_worker_database.py`, `scripts/oracle2/verify_workflow_integrity.py`, and `owned_phase_database` (`test_canonical_schema.py`) also call it — but the substance holds: `meeting_sql` uses `ORACLE2_TEST_ADMIN_URL` directly (`test_meeting_capture_sql.py` `admin()`), not the `admin_url` pytest fixture, so the runner **must** call bootstrap explicitly or the run errors before any child or diagnostic exists. **Double-bootstrap hazard:** if bootstrap runs twice against the same owned container, the second run must not re-apply migrations over a live schema; the runner calls it exactly once and the S07 test path does not call it. The historical "S08 21-error failure mode" (n6) is **historical handoff corroboration only**, not sealed-source specification; (5) export env (including the `PYTHONPATH` pin above and `PYTHONDONTWRITEBYTECODE=1`); (6) run the exact selector as `sys.executable -m pytest ...` with `cwd=worktree root`, `PYTHONPATH` as pinned, `--basetemp=RUNNER_DIR/pytest-tmp` (absolute, runner-owned; precedent `scripts/oracle2/verify_workflow_integrity.py` `--basetemp=`) and `-p no:cacheprovider` (m6: `-p no:cacheprovider` removes pytest last-run pointers, so `--basetemp` is the only artifact-discovery mechanism); (7) write `source-after.json` to `RUNNER_DIR/`; (8) write `artifact-index.json` to `RUNNER_DIR/` (§7); (9) cleanup proof (below). |
+| Real environment (M-F, M2, n5, **M6**) | `ORACLE2_TEST_ADMIN_URL` (owned DB, **`sslmode=verify-full` + `sslrootcert`**, from `test_tls_bootstrap.bootstrap`), `ORACLE2_TEST_TLS_ROOT`, `ORACLE2_TEST_TLS_QUALIFICATION` (same), `ORACLE2_SYNTHETIC_POSTGRES_CONTAINER` (owned container id), `ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT` + `ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256` (from `bootstrap_canonical_test_schema`, receipt path `RUNNER_DIR/s07fresh-schema.json`), `COMPOSE_PROJECT_NAME=oracle2-synthetic-p24s07fresh-<UUID>` where **`<UUID>` is lowercase** `uuid4().hex` (the regex `oracle2-(?:ci\|synthetic)-[a-z0-9-]{1,80}` at `test_worker_postgres_fixture.py` allows lowercase only; the full name is ~65 chars and fits), `PYTHONDONTWRITEBYTECODE=1` (**n1:** the fixture **propagates** it via `env={**os.environ,...}` at `test_meeting_unattended_sql.py` `env=` construction — it does not set it; the runner export covers the runner and is inherited by children), `PYTHONHOME` (the interpreter prefix the fixture already sets for children), **`PYTHONPATH="<WORKTREE_ROOT>:<WORKTREE_ROOT>/services/oracle-brain"`** (**M6:** exact value the runner exports; root for `dev.oracle2.*`, service for `oracle_brain.*`; without it collection fails `ModuleNotFoundError: No module named 'dev'`). **There is no `ORACLE2_WORKER_CONTAINER_ID`** — that name has zero consumers repo-wide; do not invent it. `ORACLE2_INVENTED_PROVIDER_PORT`, `ORACLE2_MEETING_*_WORKER_BINDING_*`, `ORACLE2_INVENTED_DRIVER_PRELOAD`, `ORACLE2_INVENTED_READY_FILE`, `ORACLE2_INVENTED_QUEUE_DIAGNOSTIC`, `ORACLE2_INVENTED_CYCLE_DIAGNOSTIC`, `ORACLE2_INVENTED_OBSERVER_CONFIG_*` are set by the fixture itself; the runner does not set them. |
+| Interpreter / toolchain pins (M-F, **M6**) | Linux-only (`test_meeting_unattended_sql.py` reads `/proc/<pid>/stat`, `os.getuid()`; `conftest.py` has a Windows FileBlobStore workaround that is **not** sufficient for this test). Python = the venv/site-packages that already import `oracle_brain`, `psycopg`, `cryptography`, `pytest`. Node = `/usr/bin/node` (hardcoded in the test) with `tsx` importable via `--import tsx`. `openssl` CLI required (`certs` fixture runs `openssl req`/`x509`). **cwd and `PYTHONPATH` pins (M6)** apply to the runner process and to pytest: cwd = worktree root, `PYTHONPATH="<WORKTREE_ROOT>:<WORKTREE_ROOT>/services/oracle-brain"`, invocation `sys.executable -m pytest` (never bare `pytest`). Record `python -V`, `node -v`, `openssl version`, and `python -c 'import sys; print(sys.prefix, sys.path)'` in `runner-environment.json`. |
+| `runner-environment.json` (n4, **M6**) | Written by the runner to **`RUNNER_DIR/runner-environment.json`** (relative path `runner-environment.json`). **Must record the M6 pins:** `cwd` (absolute worktree root), `PYTHONPATH` (the exact exported string), `python_executable` (`sys.executable`), `pytest_invocation` (`sys.executable -m pytest`), plus the versions above. On infra failure the runner writes **`RUNNER_DIR/infra-failed.json`** (relative path `infra-failed.json`) naming the failing step and the exact error, and both files are listed in `artifact-index.json`. |
 | Resource plan | ONE fresh invented Create-child instance. Synthetic fixture universe only. Owned Compose project/containers/networks/volumes only (`dev/oracle2/compose.yaml`: `postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297`, `mem_limit: 1g`, `cpus: 1.0`, loopback `127.0.0.1:${ORACLE2_POSTGRES_PORT:-55432}:5432`; the worker fixture forces `ORACLE2_POSTGRES_PORT=0` for an ephemeral host port). TLS fixture: the test's own `certs` fixture generates an invented CA + leaf certs via `openssl` subprocess into `tmp_path/tls` (there are no "certificate issuer containers"). No company originals, no real meetings, no paid provider, no host OS changes. |
 | Limits | Child wait remains `timeout=12` in the case (do not raise). Surrounding W10 120s / per-request ≤30 / ten workers is **not** this run. This run is one diagnostic-capture instance. |
-| Cache hygiene (L-A, n2) | `pytest -p no:cacheprovider`. `PYTHONDONTWRITEBYTECODE=1` exported by the runner **and** inherited by children (the fixture propagates it via `env={**os.environ,...}`; the runner export is what supplies it). **One rule for tsx/node caches (n2):** if `node`/`tsx` writes a cache under the worktree, it **appears in source-after and fails the equality gate**; the runner does **not** pre-exclude it and does **not** hash-ignore it. The `stop_runtime` chmod (`apps/workers/src/services/oracle2-meeting-stop-process.ts` mode 0o600 → restore) must be restored on **every** exit path including SIGKILL; the kill path in §6 owns that restore. |
+| Cache hygiene (L-A, n2) | `python -m pytest -p no:cacheprovider` (same M6 invocation pin). `PYTHONDONTWRITEBYTECODE=1` exported by the runner **and** inherited by children (the fixture propagates it via `env={**os.environ,...}`; the runner export is what supplies it). **One rule for tsx/node caches (n2):** if `node`/`tsx` writes a cache under the worktree, it **appears in source-after and fails the equality gate**; the runner does **not** pre-exclude it and does **not** hash-ignore it. The `stop_runtime` chmod (`apps/workers/src/services/oracle2-meeting-stop-process.ts` mode 0o600 → restore) must be restored on **every** exit path including SIGKILL; the kill path in §6 owns that restore. |
 | Cleanup proof (L-B, M4) | **M4 correction.** Nine LOGIN roles are created by the fixture stack: three in `test_meeting_capture_sql.py` `meeting_sql` (`employee-control`, `provider-ingress`, `worker` channel roles; `CREATE ROLE ... LOGIN` with `meeting_`+`uuid4().hex[:16]` names) and six in `test_meeting_unattended_sql.py` `role()` (`scheduler`, `stop`, `observer`, `create`, `pre`, `post`; `CREATE ROLE ... LOGIN` with `unattended_`+`uuid4().hex[:12]` names). These roles are **cluster-wide** (`CREATE ROLE ... LOGIN` at both sites; `test_worker_postgres_fixture.py` module docstring: "isolate cluster-wide roles"; `owned_phase_database` drops only the database). They have **random uuid4-hex names** and no artifact records them. **Do NOT require `DROP ROLE` of unnamed roles.** The established cleanup is **whole-project** `docker compose -p <project> down --volumes` (exactly what `worker_postgres()`'s `finally` already does at `test_worker_postgres_fixture.py`); on a fresh owned cluster this destroys the roles with the container. Prove absence afterwards with all three empty: `docker ps -aq --filter label=com.docker.compose.project=<project>`, `docker network ls -q --filter label=com.docker.compose.project=<project>`, `docker volume ls -q --filter label=com.docker.compose.project=<project>`. If role-census proof is desired, state it **only** as an optional `pg_roles` prefix census (`rolname` LIKE `'meeting_%'` OR `'unattended_%'`) on the fresh cluster **before** teardown; otherwise prove cluster teardown alone. **Remove** the impossible "live only inside the dropped test database" disjunct — cluster-level roles survive a database drop. Also prove: no leftover child processes (`owned-process-cleanup.json` `remaining_pids: []`), unix sockets absent (`scheduler.sock`, `stop.sock`), scratch `short/` deleted (`private.cleanup()` assert), `.pytest_cache` absent. Workspace rows retained by design (`oracle2.meeting_capture_*` history inside the dropped DB) are called out as `dropped_with_database: true`, not hidden as "retained". Record `absence_proven: true` only when all of the above are true. |
 | Failure retention | On any non-zero exit or timeout: artifacts already written by the `try/finally` and the artifact index; never retry under a weaker class; never delete the packet. |
 
