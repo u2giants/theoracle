@@ -1,7 +1,8 @@
 # S07 Create-child fixture-only diagnostic metadata
 
 **Date**: 2026-10-25 (upgraded per plan v5 §1–§8 and Muse APPROVE
-`20261025T132905-2852654-12398` build-instruction hardening)
+`20261025T132905-2852654-12398` build-instruction hardening; REJECT
+`20261025T140952-2951761-15922` leftovers fixed in this revision)
 **Branch**: `codex/parent24-s07-diag-upgrades`
 **Base**: `4e365535f294c28a804827bd9293885bd09b9e6c` (origin/main at branch creation)
 
@@ -72,7 +73,10 @@ Per-request record (locked jsonl, §8): `kind`, `request_id`, `seq`,
 Each `wrap_trace` entry has `wrap`, `event` (`enter`/`exit`/`error`), `seq`,
 `mono` (`time.monotonic()`), and on error `error_type` + `raise_site`.
 `raise_site` = `type(error).__name__` + the raise-site frame code name when
-available, else `UNKNOWN`.
+available, else `UNKNOWN`. `outcome` is `ok` / `error` from the wraps, or
+`response` / `refused` from `_logged_end_headers` (non-200, e.g. the inline
+503 path, flushes as `refused`). `_WRAP.flush` on a thread that never began a
+wrap returns `None` (no AttributeError).
 
 **Sites that remain UNKNOWN (exact reason).** These are inline `raise
 PermissionError(...)` statements inside `do_POST` itself with no callable seam.
@@ -120,6 +124,11 @@ Also recorded: latest event (`action`, `payload`, `created_at`), head state
 (`admission_id`, `admission_sha256`, `role_name`, `actions`, `capture_until`,
 `stop_until`, `original_horizon`, `expires_at`).
 
+Each of the five query groups has its own try/except
+(`claim_time`, `receipts`, `latest_event`, `head_state`, `admission_state`),
+so one bad expression cannot wipe the other four; per-group failures land as
+`<group>_error`.
+
 Supervision scope: `scope.model_dump(mode='json')` pinned to
 `tmp_path/supervision-scope.json` before teardown deletes scratch.
 Replay spool: copied to `tmp_path/replay-spool/` before `private.cleanup()`,
@@ -128,20 +137,53 @@ only; no secrets).
 
 ### 5. Redaction rule (§5)
 
-One function `redact_record(record) -> dict` in the test module. Walks every
-value; anything not matched by the allow-list becomes `"REDACTED"` and the
-parallel key `"<field>_kind": "unlisted"` is set. Applied to **every** jsonl
-append and **every** JSON artifact write (via `_write_json_artifact`).
+One function `redact_record(record) -> dict` in
+`services/oracle-brain/tests/meeting_unattended_redact.py` (imported by the
+test module). Walks every value; anything not matched by the allow-list
+becomes `"REDACTED"` and the parallel key `"<field>_kind": "unlisted"` is
+set. A list field sets `"<field>_kind": "unlisted"` when **any** member is
+redacted. Applied to **every** jsonl append and **every** JSON artifact write
+(via `_write_json_artifact`).
+
+Allow-list keeps the packet's fixed hyphenated tokens (Muse M1 fix), mirrored
+on the `_EFFECT_NAMES` pattern:
+
+- pre-child step names: `install-wraps`, `queue-diagnostic`, `cycle-diagnostic`,
+  `warmup-queue-reads`, `refused-prepare-warmup`, `sql-zero-asserts`,
+  `child-spawn-ready`, `warmup-observations`, `child-wait`, `stdout-redact`,
+  `collect-diagnostics`, `returncode-assert`, `outcome-parse`, `repeated-claim`,
+  `post-create-current-queue`, `terminal-loop`, `terminal-asserts`,
+  `unattended-outcome` (plus `start_unattended`, a bare ident)
+- teardown step names (§7): `supervision-scope`, `replay-spool-copy`,
+  `selected-state`, `provider-routes`, `observer-files`, `stack-close`,
+  `jsonl-close-then-copy`, `owned-process-cleanup`, `private-cleanup`
+- claim/receipt stages (`020_meeting_capture.sql:664`): `-`,
+  `pre-stop-consistency`, `post-stop-terminal`
+- observation kinds (`020_meeting_capture.sql:806`): `create-observed`,
+  `leave-observed`, `metadata-observed`
+- header keywords the wrap logs: `Content-Length`, `Cache-Control`,
+  `Connection`, `Content-Type`, `Server`, `Date`, plus fixed values
+  `no-store`, `close`, `application/json`, digit strings (Content-Length),
+  HTTP-date and `BaseHTTP/x Python/x.y.z` (Server)
+- the literal `-` stage placeholder
+
+Deny rules for paths/hosts/secrets are unchanged (`_PATHY_RE`, free-form
+strings, bytes). Offline unit tests in
+`services/oracle-brain/tests/test_meeting_unattended_redact.py` cover the
+allow-list and the deny rule.
 
 Exhaustive writer list for this packet: `create-child-diagnostics.json`,
 `supervision-scope.json`, `replay-spool-manifest.json`, deadline snapshot
 fields inside `create-child-diagnostics.json`, `warmup-refusals*.json` message
 fields, `post-create-current-queue-refusal.json`, `pre-child-failure.json`,
-`actual-create-child.stdout`, `teardown-steps.json`, and every
+`actual-create-child.stdout`, `teardown-steps.json`,
+`*-actual-queue.json`, `post-create-current-queue.json`, and every
 `create-server-responses.jsonl` append (kind `request` / `response`).
 Raw streams `actual-create-child.stderr`, `queue-diagnostic.*`,
-`cycle-diagnostic.*` are not re-parsed; unexpected free-form text there is a
-deny-rule miss and the run stops.
+`cycle-diagnostic.*` are captured as-is and are **not** re-parsed or
+redacted; they sit outside the JSON allow-list contract (the previous
+"free-form text stops the run" claim is dropped — node diagnostics routinely
+contain paths and the packet needs them).
 
 **Node-written stdout owners (M11).** The child writes
 `tmp_path/actual-create-child.stdout` directly via `child()`. Two owners:
@@ -169,7 +211,10 @@ Pre-child steps (each named in `pre-child-failure.json` on failure):
 `start_unattended`, `install-wraps`, `queue-diagnostic`, `cycle-diagnostic`,
 `warmup-queue-reads`, `refused-prepare-warmup`, `sql-zero-asserts`,
 `child-spawn-ready`, **`warmup-observations`** (the warmup loop is inside the
-named try/finally — Muse m5).
+named try/finally — Muse m5), `child-wait`, `stdout-redact`,
+`collect-diagnostics`, `returncode-assert`, `outcome-parse`, `repeated-claim`,
+`post-create-current-queue`, `terminal-loop`, `terminal-asserts`,
+`unattended-outcome`.
 Child wait stays `timeout=12`. On `TimeoutExpired`: record
 `stage:"wait"`, `error_type:"TimeoutExpired"`, SIGKILL
 (`os.kill(actual.pid, signal.SIGKILL)` then `actual.wait(timeout=5)`), and
@@ -197,14 +242,25 @@ Each index member is
 `{"path","sha256","mode","present","note"}` with `members` sorted by `path`.
 `warmup-refusals-attempt-N.json` are **cumulative snapshots** (attempt N
 contains every refusal observed through attempt N), not deltas; the final
-`warmup-refusals.json` equals the last attempt file.
+`warmup-refusals.json` equals the last attempt file and is written on **both**
+the clean first-try success path and the refusal path. Attempt files carry
+note `cumulative snapshot` in the index.
 
 Exact selector (M6 / Muse Low): **`sys.executable -m pytest`** with
 `--basetemp=RUNNER_DIR/pytest-tmp` and `-p no:cacheprovider` in the same
 invocation — never bare `pytest`. cwd = worktree root;
 `PYTHONPATH="<WORKTREE_ROOT>:<WORKTREE_ROOT>/services/oracle-brain"`;
-`PYTHONDONTWRITEBYTECODE=1`. All three pins are recorded in
-`runner-environment.json`.
+`PYTHONDONTWRITEBYTECODE=1`. **`PYTHONHOME` is not exported** to the venv
+pytest invocation (it can skew stdlib/site resolution). All pins are recorded
+in `runner-environment.json`.
+
+The pytest subprocess is bounded by `PYTEST_TIMEOUT_SECONDS=600` and its
+stdout/stderr are captured into `pytest-output.stdout` /
+`pytest-output.stderr` (index members) with the returncode recorded in
+`pytest-returncode.json`. The runner pins HEAD first: it refuses a dirty
+worktree and an `EXPECTED_HEAD` mismatch (optional 4th argument) before the
+one-fresh budget is consumed. `infra-failed.json` error strings go through
+`redact_record`.
 
 ### 8. Locked jsonl append + reader (§8)
 
@@ -222,7 +278,10 @@ lock and drops a trailing partial line (`partial_tail_lines`).
 - No window refresh, no resend, no retry, no fallback.
 - UNKNOWN/no-resend semantics preserved (driver still writes
   `state:'UNKNOWN', remote_stop_proven:false` on catch).
-- All existing meaningful positives and negatives retained.
+- All existing meaningful positives and negatives retained. In particular the
+  post-create current-queue read **records and continues** on refusal
+  (`post-create-current-queue-refusal.json`) — the base diagnostic behavior —
+  so a queue-read refusal is not a new failure mode.
 - No production public error leak: only allow-listed nonsecret fields.
 - Production response bytes identical (503 / empty body / no-store).
 
@@ -231,8 +290,10 @@ lock and drops a trailing partial line (`partial_tail_lines`).
 | Check | Result |
 |---|---|
 | `python -m py_compile` of `test_meeting_unattended_sql.py` | pass |
+| `python -m py_compile` of `meeting_unattended_redact.py` | pass |
+| `python -m py_compile` of `test_meeting_unattended_redact.py` | pass |
 | `python -m py_compile` of `scripts/oracle2/s07_create_child_fresh_runner.py` | pass |
-| `redact_record` offline unit tests (allow/deny, wrap_trace, bytes deny, hostname deny) | pass |
+| `python -m pytest services/oracle-brain/tests/test_meeting_unattended_redact.py` (16 offline unit tests: hyphenated tokens survive; paths/hosts redact; list kind markers) | pass |
 | Full SQL/actual tests | **Not run** (require Linux, PostgreSQL, OpenSSL, Docker — `edge-dev3` is the run host) |
 
 ## Remaining gate / UNKNOWN

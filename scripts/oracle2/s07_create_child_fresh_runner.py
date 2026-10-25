@@ -11,6 +11,13 @@ pytest is sys.executable -m pytest with --basetemp and -p no:cacheprovider
 (never bare pytest). Basetemp layout: enumerate pytest-generated subdirs;
 do not assume testid names.
 
+HEAD pin: refuse a dirty worktree or a mismatched EXPECTED_HEAD before the
+one-fresh budget is consumed. PYTHONHOME is NOT exported to the venv pytest
+invocation (it can skew stdlib/site resolution under a venv interpreter).
+
+pytest stdout/stderr are captured into pytest-output.stdout/.stderr and the
+returncode is recorded; the subprocess is bounded by PYTEST_TIMEOUT_SECONDS.
+
 No company originals, no production, no paid providers. Business-acceptance hold.
 """
 from __future__ import annotations
@@ -19,6 +26,10 @@ from pathlib import Path
 from uuid import uuid4
 
 EXCLUDE_DIRS={'.git'}
+# Bound on the single pytest invocation (seconds). The S07 child wait is 12 s
+# and meeting_sql capture_seconds is 50; 600 s covers the full selector with
+# margin for Compose-backed setup without hanging forever.
+PYTEST_TIMEOUT_SECONDS=600
 INDEX_MEMBERS=[
  'actual-create-child.stdout','actual-create-child.stderr','create-child-diagnostics.json',
  'create-server-responses.jsonl','actual-provider-routes.json','actual-observer-refusals.json',
@@ -30,6 +41,7 @@ INDEX_MEMBERS=[
  'source-before.json','source-after.json','runner-environment.json','s07fresh-schema.json',
  'supervision-scope.json','replay-spool','pre-child-failure.json','infra-failed.json',
  'teardown-steps.json','replay-spool-manifest.json',
+ 'pytest-output.stdout','pytest-output.stderr','pytest-returncode.json',
 ]
 
 def _sha256(path:Path)->str:
@@ -92,31 +104,48 @@ def _write_index(runner_dir:Path)->None:
     for rel in sorted(discovered-named):
         p=runner_dir/rel
         if p.is_file():
-            members.append(dict(path=rel,sha256=_sha256(p),mode=_mode(p),present=True,note=''))
-    # n8: warmup-refusals-attempt-N.json are cumulative snapshots per attempt.
-    if pytest_tmp.is_dir():
-        for p in sorted(pytest_tmp.rglob('warmup-refusals-attempt-*.json')):
-            rel=p.relative_to(runner_dir).as_posix()
-            if not any(m['path']==rel for m in members):
-                members.append(dict(path=rel,sha256=_sha256(p),mode=_mode(p),present=True,note='cumulative snapshot'))
+            note='cumulative snapshot' if rel.rsplit('/',1)[-1].startswith('warmup-refusals-attempt-') else ''
+            members.append(dict(path=rel,sha256=_sha256(p),mode=_mode(p),present=True,note=note))
     members.sort(key=lambda m:m['path'])
     _write(runner_dir/'artifact-index.json',dict(root=str(runner_dir.resolve()),members=members))
 
+def _redact_infra_message(message:str,worktree:Path|None=None)->str:
+    """Keep infra-failed.json free of paths/hosts; reuse the fixture allow-list."""
+    try:
+        root=worktree if worktree is not None else Path(__file__).resolve().parents[2]
+        tests=root/'services/oracle-brain/tests'
+        if str(tests) not in sys.path:
+            sys.path.insert(0,str(tests))
+        from meeting_unattended_redact import redact_record
+        return redact_record(dict(message=message)).get('message','REDACTED')
+    except Exception:
+        return 'REDACTED'
+
 def main(argv)->int:
-    if len(argv)!=3:
-        print('usage: s07_create_child_fresh_runner.py RUNNER_DIR WORKTREE',file=sys.stderr)
+    if len(argv) not in (3,4):
+        print('usage: s07_create_child_fresh_runner.py RUNNER_DIR WORKTREE [EXPECTED_HEAD]',file=sys.stderr)
         return 2
     runner_dir=Path(argv[1]).resolve();worktree=Path(argv[2]).resolve()
+    expected_head=argv[3] if len(argv)==4 else None
     runner_dir.mkdir(parents=True,exist_ok=True)
-    step='source-before'
+    step='head-pin'
     project='';container=''
     try:
         if not (worktree/'services/oracle-brain/tests/test_meeting_unattended_sql.py').is_file():
             raise RuntimeError('worktree missing S07 test module')
+        head=subprocess.check_output(['git','-C',str(worktree),'rev-parse','HEAD'],text=True,timeout=30).strip()
+        dirty=subprocess.check_output(['git','-C',str(worktree),'status','--porcelain'],text=True,timeout=30).strip()
+        if dirty:
+            raise RuntimeError('worktree dirty; refusing to consume the one-fresh budget')
+        if expected_head is not None and head!=expected_head:
+            raise RuntimeError('HEAD mismatch: expected '+expected_head+' got '+head)
+        step='source-before'
         _write(runner_dir/'source-before.json',snapshot(worktree))
-        # M6 pins exported to the runner and every child.
+        # M6 pins exported to the runner and every child. PYTHONHOME is
+        # deliberately NOT exported: under a venv interpreter it can skew
+        # stdlib/site resolution for the pytest child.
         pythonpath=os.pathsep.join([str(worktree),str(worktree/'services/oracle-brain')])
-        env={**os.environ,'PYTHONPATH':pythonpath,'PYTHONDONTWRITEBYTECODE':'1','PYTHONHOME':sys.base_prefix}
+        env={**os.environ,'PYTHONPATH':pythonpath,'PYTHONDONTWRITEBYTECODE':'1'}
         # Owned Compose project. UUID lowercase (test_worker_postgres_fixture regex).
         project='oracle2-synthetic-p24s07fresh-'+uuid4().hex
         env['COMPOSE_PROJECT_NAME']=project
@@ -153,6 +182,10 @@ def main(argv)->int:
             compose_project=project,container=container,
             basetemp=str(runner_dir/'pytest-tmp'),
             cacheprovider_disabled=True,
+            head=head,
+            expected_head=expected_head,
+            pytest_timeout_seconds=PYTEST_TIMEOUT_SECONDS,
+            pythonhome_exported=False,
         ))
         step='pytest'
         pytest_tmp=runner_dir/'pytest-tmp'
@@ -164,7 +197,10 @@ def main(argv)->int:
              '-q','--tb=short',
              '--basetemp='+str(pytest_tmp),
              '-p','no:cacheprovider']
-        proc=subprocess.run(cmd,cwd=str(worktree),env=env)
+        proc=subprocess.run(cmd,cwd=str(worktree),env=env,capture_output=True,timeout=PYTEST_TIMEOUT_SECONDS)
+        (runner_dir/'pytest-output.stdout').write_bytes(proc.stdout or b'')
+        (runner_dir/'pytest-output.stderr').write_bytes(proc.stderr or b'')
+        _write(runner_dir/'pytest-returncode.json',dict(returncode=proc.returncode))
         step='source-after'
         _write(runner_dir/'source-after.json',snapshot(worktree))
         step='cleanup-proof'
@@ -185,7 +221,7 @@ def main(argv)->int:
         _write_index(runner_dir)
         return proc.returncode
     except BaseException as error:
-        try:_write(runner_dir/'infra-failed.json',dict(step=step,error_type=type(error).__name__,error_message=str(error)))
+        try:_write(runner_dir/'infra-failed.json',dict(step=step,error_type=type(error).__name__,error_message=_redact_infra_message(str(error),worktree)))
         except Exception:pass
         if project:
             try:
