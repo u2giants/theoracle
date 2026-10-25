@@ -391,7 +391,8 @@ def main() -> int:
             print("L2_STICKY_BIT_SKIP chmod-unavailable")
         else:
             pst = parent.stat()
-            if pst.st_mode & 0o022 and not _stat_m3.S_ISVTX(pst.st_mode):
+            # S_ISVTX is the sticky-bit mask constant (no predicate function).
+            if pst.st_mode & 0o022 and not (pst.st_mode & _stat_m3.S_ISVTX):
                 child = parent / "scratch-child"
                 _os_m3.environ[mod.SCRATCH_ENV] = str(child)
                 try:

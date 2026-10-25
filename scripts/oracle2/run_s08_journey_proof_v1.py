@@ -308,8 +308,16 @@ def _scratch() -> Path:
     def _check_parent_mode(p: Path) -> None:
         if not p.exists():
             return
+        # H1 (Windows degradation): POSIX write bits and the sticky bit are
+        # not meaningfully expressible on Windows (a plain Temp dir reports
+        # 0o777 with no sticky bit). Degrade honestly — skip and do not fail.
+        # The journey runs on the Linux host where this check is live.
+        if not hasattr(os, "getuid"):
+            return
         pst = p.stat()
-        if pst.st_mode & 0o022 and not stat.S_ISVTX(pst.st_mode):
+        # L2: S_ISVTX is the sticky-bit MASK constant (there is no
+        # stat.S_ISVTX(mode) predicate function). Check the bit, don't call it.
+        if pst.st_mode & 0o022 and not (pst.st_mode & stat.S_ISVTX):
             raise JourneyRefusal(
                 f"SCRATCH parent is group/other-writable without sticky bit: {p} (L2)"
             )
