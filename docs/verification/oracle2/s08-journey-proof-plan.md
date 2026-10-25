@@ -4,6 +4,11 @@ Recorded: 2026-10-25 EDT. Branch `parent24-s08-compose-81742134`, PR #200.
 Status: **PLAN + SEALED RUNNER + CHECKER ONLY.** No journey execution, no
 database, no provider, no browser acceptance in this seal.
 
+Python floor: **≥3.11** (the runner uses `Exception.add_note` in cleanup
+paths; on 3.10 the finally handler itself raises and masks the original
+exception). edge-dev3 runs 3.14; the Linux-host interpreter must meet this
+floor.
+
 This document replaces the edge-dev3 `/tmp` journey brief. The prior brief
 claimed a Next browser enable/control web surface and a fake-Recall HTTPS owner;
 both claims are withdrawn. What follows is bound only to artifacts that exist in
@@ -20,14 +25,20 @@ this branch.
 
 Backend source of truth this journey binds (already sealed on the head):
 
+- `services/oracle-brain/sql/021_meeting_participation.sql` (deadline/admission enforcement)
 - `services/oracle-brain/tests/test_meeting_participation_sql.py`
 - `services/oracle-brain/oracle_brain/meetings/participation_authority_v1.py`
 - `services/oracle-brain/oracle_brain/meetings/participation_control_contracts_v1.py`
 - `services/oracle-brain/oracle_brain/meetings/participation_runtime_v1.py`
 - `services/oracle-brain/oracle_brain/meetings/participation_wire_v1.py`
+- `services/oracle-brain/oracle_brain/meetings/participant_epoch.py`
 - `services/oracle-brain/oracle_brain/hosting/meeting_participation_v1.py`
 - `services/oracle-brain/oracle_brain/hosting/meeting_participation_service_v1.py`
 - `services/oracle-brain/oracle_brain/hosting/meeting_capture_v1.py`
+- `services/oracle-brain/oracle_brain/hosting/original_intake_v1.py`
+- `services/oracle-brain/oracle_brain/operating_model/protected_sql_connection_v1.py`
+- `services/oracle-brain/oracle_brain/operating_model/request_deadline_v1.py`
+- `services/oracle-brain/oracle_brain/operating_model/artifact_storage.py`
 - `services/oracle-brain/tests/conftest.py`
 - `services/oracle-brain/tests/test_hosting_boundary.py`
 - `dev/oracle2/test_worker_postgres_fixture.py`
@@ -39,11 +50,14 @@ Backend source of truth this journey binds (already sealed on the head):
 - `packages/shared/src/protected-meeting-worker.ts` (owner of `exchange_provider_v1`)
 
 Harness deps: `openssl` (mTLS peer-file re-sign), `docker compose`
-(`dev/oracle2/compose.yaml`). (H9: the prior list omitted
-`participation_control_contracts_v1.py`, `participation_runtime_v1`,
-`participation_wire_v1`, `meeting_capture_v1`, the `@oracle/shared/
-protected-meeting-worker` owner, `conftest.py`, `test_hosting_boundary`, and
-`openssl` — all load-bearing for the cited stages.)
+(`dev/oracle2/compose.yaml`), `pytest` (21 SQL runner). (H9: the prior list
+omitted `021_meeting_participation.sql`, `participant_epoch.py`,
+`original_intake_v1`, `protected_sql_connection_v1`, `request_deadline_v1`,
+`artifact_storage`, `participation_control_contracts_v1.py`,
+`participation_runtime_v1`, `participation_wire_v1`, `meeting_capture_v1`,
+the `@oracle/shared/protected-meeting-worker` owner, `conftest.py`,
+`test_hosting_boundary`, and `openssl` — all load-bearing for the cited
+stages.)
 
 ## Exact journey stages the eventual one-shot must prove (invented data only)
 
@@ -193,12 +207,14 @@ present, so the worker entrypoint cannot be reached by accident.
   `worker_postgres` + `bootstrap_canonical_test_schema` + 21 SQL green,
   matching `:407` (C9). The runner enforces the budget with a ContextVar
   monotonic fence that requires finite floats and performs entry + exit
-  remaining checks — same shape as `_request_fence_v1`
-  (`request_deadline_v1.py:26-35`), never a wall-clock label (H1).
+  remaining checks (H1). Note: `request_deadline_v1._request_fence_v1`
+  (request_deadline_v1.py:26-35) is entry-check-only; the runner adds an
+  exit remaining check and is therefore STRICTER than that source.
 - Per-request ceiling **≤30s**. The runner validates each stage's `deadline_s`
-  is an int in `(0, 30]` and refuses otherwise (M5). Per-stage budget
-  allocation: the shared 120s covers all seven stages; a stage that would
-  exceed its share of the remaining budget is refused by the fence (M5).
+  is an int in `(0, 30]` and refuses otherwise (M5). The shared 120s budget
+  is a total ceiling for all seven stages; there is no per-stage allocation
+  mechanism — a stage may consume the whole remaining budget. The fence
+  refuses only when the budget is fully elapsed (`remaining > 0` check).
 
 ## Release workflow for the review receipt (C3)
 
@@ -228,10 +244,9 @@ canonical inventory is derived from that tuple
 (`dev/oracle2/test_canonical_schema.py:27-43`) and the sealed bootstrap executes
 all of it (`dev/oracle2/test_canonical_schema.py:157-160`). **The journey uses the
 sealed bootstrap** and the runner **asserts** inventory and catalog equality
-against golden digests via `bootstrap_canonical_test_schema` /
-`_inventory_digest` / `_catalog` (H3) — it never merely echoes a note. The
-inventory digest is compared against a golden computed before bootstrap, and
-the catalog is compared against the schema-receipt golden. It does not claim a
+against **sealed review-time constants** (H3) — `SEALED_INVENTORY_DIGEST` and
+`SEALED_CATALOG_DIGEST` — never against values computed from the same bytes
+the assertion re-reads. It does not claim a
 custom `001..014+020+021` chain, and it does not claim "no 17/18/19 union" —
 those files are in the sealed inventory.
 
@@ -243,14 +258,18 @@ those files are in the sealed inventory.
   (required regex `(?:documentary-[0-9]{2}|event)`).
 - **Unique project name per run** and **unique SCRATCH per run**. SCRATCH must
   never live inside the repository worktree (it would dirty the tree the
-  source snapshot cannot see).
+  source snapshot cannot see). SCRATCH parent must not be group/other-writable
+  unless the sticky bit is set (standard `/tmp` mode 1777 is allowed — L2).
 - Owned cleanup: after `finally`, **always** read back
   `docker ps|network ls|volume ls`. Once identity is established, the filter
   uses the **real suffixed project name** (`identity['project']`, e.g.
   `base+'-w'+12hex`) — exact-match on the base name alone is vacuous (C2).
   Before identity, the readback is **prefix-aware** (client-side filter on
   project label `startswith(base)`), because docker label filters are
-  exact-match. Absence must be proven. Never broad cleanup. Docker probes use
+  exact-match. NOTE: the pre-identity path uses a unique per-run random base,
+  so it can never match residue from a prior run — it is vacuous as an absence
+  proof for prior leaks and is kept for cleanup-contract uniformity only.
+  Absence must be proven. Never broad cleanup. Docker probes use
   a 60s timeout (matching the fixture). cleanup.json is an **ops artifact**
   (labeled `ops: true` / `non_evidence: true`) — never forensic evidence (C8).
 - Budgets: shared **120s** monotonic ceiling for journey stages (bootstrap +
@@ -265,9 +284,10 @@ those files are in the sealed inventory.
   (`^ALLOW$` or `^gate: ALLOW$` per line — never a substring match) and must
   **not** print any `^DENIED$` / `^gate: DENIED$` line (M1). The sealed runner
   invokes it and refuses on non-ALLOW or on any DENIED. `git`,
-  `ai-task-gates` and `docker` are resolved to absolute paths and their
-  `--version` identity is recorded in evidence; a missing `--version` is a
-  **refusal**, not a recorded gap (M7).
+  `ai-task-gates`, `docker`, `openssl` (via `version`, not `--version`), and
+  `pytest` (via `sys.executable -m pytest --version`) are resolved to absolute
+  paths and their version identity is recorded in evidence; a missing version
+  is a **refusal**, not a recorded gap (M7).
 - Review receipt required before release: exact full 40-char HEAD + runner
   SHA-256 + plan SHA-256 + checker SHA-256 + evidence SHA-256 + verdict
   `APPROVE`. All four SHA bindings use **git-blob semantics**
@@ -356,8 +376,13 @@ the failure is attributed to the journey adapter. This order is mandatory.
 
 **Runner enforcement (H4):** the runner **invokes** the 21 SQL module via
 pytest against the bootstrapped database after `bootstrap_canonical_test_schema`
-and refuses unless `21 passed` is observed in the output. This is not merely
-procedural — it is a hard gate inside the runner.
+and refuses unless `21 passed` is observed in the output **with no
+`failed`/`error` count**. The pytest timeout bound is **180s**
+(`SHARED_BUDGET_S + 60`). `TimeoutExpired` is handled — `ops-sql-green.txt`
+is still written and the run refuses with an H4 attribution. The runner
+passes `-p no:cacheprovider` and sets `PYTHONDONTWRITEBYTECODE=1` so the
+tree stays clean post-bind. This is not merely procedural — it is a hard
+gate inside the runner.
 
 The SQL module reads `ORACLE2_TEST_ADMIN_URL` directly (see C7 correction
 below) and does **not** bootstrap via conftest. The journey runner provides the
@@ -470,8 +495,9 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
    pyproject.toml/shell/compose/lockfiles, lstat not follow — M2) before the
    gate equals source snapshot after the gate.
 7. After bootstrap the live inventory digest and catalog digest match their
-   golden values (H3): inventory digest equals the pre-bootstrap golden;
-   catalog equals the schema-receipt golden.
+   **sealed review-time constants** (H3): `SEALED_INVENTORY_DIGEST` and
+   `SEALED_CATALOG_DIGEST`. These are hardcoded at review time and are never
+   computed from the same on-disk files or DB state the assertion re-reads.
 8. The 21 SQL module runs green against the bootstrapped DB before any journey
    stage (H4).
 9. After the run, exact owned synthetic containers/networks/volumes for the
@@ -488,7 +514,11 @@ with `refused: true` / `non_evidence: true` and **never** `journey-evidence.json
 Success runs write `journey-evidence.json` and **never** `refusal.json`. Always-
 allowed ops artifacts (`cleanup.json`, `ops-database-gate.txt`,
 `ops-source-after-gate.json`, `ops-schema-receipt.json`, `ops-sql-green.txt`)
-are labeled `ops: true` / `non_evidence: true` and are never journey evidence.
+are labeled `ops: true` / `non_evidence: true` via inline keys (cleanup.json)
+or **sibling `.ops.json` markers** (the other four, which are text- or
+externally-written formats). They are never journey evidence.
+SCRATCH reuse unlinks the opposite marker (`refusal.json` ↔ `journey-evidence.json`)
+on each path so a reused directory cannot hold both.
 Stages that are not implemented raise `JourneyRefusal` and refuse. The runner
 is a one-shot journey runner: it binds the exact head + review receipt and must
 not be reused across heads without a new receipt.

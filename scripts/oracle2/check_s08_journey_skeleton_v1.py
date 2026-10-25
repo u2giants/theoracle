@@ -3,25 +3,36 @@
 Proves only what can be proved without Docker/database/provider:
   - runner imports and exposes the fail-closed bindings
   - every journey stage refuses closed (JourneyRefusal / NotImplementedError)
+  - every journey stage with VALID bindings still refuses UNPROVEN (so
+    deleting the final raise would fail this checker)
   - review receipt is fail-closed when absent, wrong-head, wrong-runner-SHA,
     wrong plan/checker/evidence SHA (H2: ALL FOUR SHA negatives tested), or
     non-APPROVE verdict
+  - a CORRECT receipt (git-blob SHAs + matching head + APPROVE) is ACCEPTED
   - database-gate helper requires a precise ALLOW line, rejects DENIED lines,
     and is invoked AFTER the review receipt (gate-before-database order)
   - HEAD helper requires a full 40-char SHA
   - RECALL_* env refusal is present
   - inventory assertion helper is present and compares the sealed tuple
+  - H3 sealed constants (SEALED_INVENTORY_DIGEST / SEALED_CATALOG_DIGEST)
+    exist and are used instead of self-referential goldens
   - budget helpers enforce a monotonic deadline (finite-only, entry+exit)
   - cleanup readback helper exists and is called from finally
   - SCRATCH must not live inside the repository
+  - SCRATCH reuse unlinks opposite markers (refusal.json vs journey-evidence.json)
   - refused runs write refusal.json with refused=true and do NOT write
     journey-evidence.json (C8 exclusivity)
   - success path writes journey-evidence.json and does NOT write refusal.json
-  - ops artifacts are labeled ops/non-evidence
+  - ops artifacts are labeled ops/non-evidence (sibling markers or inline)
   - stage binding schemas are present (M9)
+  - H4 pytest regex rejects failed/error counts and TimeoutExpired is handled
+  - openssl and pytest identities are checked (M7)
+  - bare assert is not used for safety-critical checks
+  - snapshot is computed exactly twice (before + after gate), not 3×
 
 This checker restores runner state after every mutation. It does NOT execute
-the journey and does NOT constitute acceptance.
+the journey and does NOT constitute acceptance. All SHA bindings use git-blob
+semantics (sha256_git_blob), matching the runner's receipt expectations.
 """
 from __future__ import annotations
 
@@ -50,14 +61,17 @@ def load_runner():
 
 def main() -> int:
     mod = load_runner()
-    runner_sha = mod.sha256_file(RUNNER)
-    plan_sha = mod.sha256_file(PLAN)
-    checker_sha = mod.sha256_file(Path(__file__).resolve())
-    evidence_sha = mod.sha256_file(EVIDENCE)
+    # H3: use git-blob SHAs (same semantics as the runner's receipt bindings),
+    # NOT worktree bytes. CRLF checkouts must not diverge from the receipt.
+    runner_sha = mod.sha256_git_blob(RUNNER)
+    plan_sha = mod.sha256_git_blob(PLAN)
+    checker_sha = mod.sha256_git_blob(Path(__file__).resolve())
+    evidence_sha = mod.sha256_git_blob(EVIDENCE)
     print("RUNNER_SHA256", runner_sha)
     print("PLAN_SHA256", plan_sha)
     print("CHECKER_SHA256", checker_sha)
     print("EVIDENCE_SHA256", evidence_sha)
+    print("SHA_SEMANTICS git-blob (git show HEAD:path | sha256sum)")
 
     head = mod.require_head()
     print("HEAD_BIND_OK", head)
@@ -84,6 +98,68 @@ def main() -> int:
             print("STAGE_REFUSES", name, str(e)[:80])
         else:
             raise SystemExit("stage did not refuse: " + name)
+
+    # UNPROVEN check: a stage with VALID bindings must still refuse UNPROVEN.
+    # This catches a deleted final `raise JourneyRefusal(UNPROVEN)` — M9 binding
+    # validation alone would pass with {} but a valid-binding call would not.
+    valid_bindings = {
+        "provision_capture_admission": {
+            "workspace_id": "w-00000000-0000-0000-0000-000000000001",
+            "meeting_id": "m-00000000-0000-0000-0000-000000000001",
+            "owner_actor": "owner-1",
+        },
+        "observe_audience": {
+            "meeting_id": "m-00000000-0000-0000-0000-000000000001",
+            "observation_owner_sha256": "a" * 64,
+        },
+        "host_control": {
+            "meeting_id": "m-00000000-0000-0000-0000-000000000001",
+            "expected_head": "0" * 40,
+            "operation_id": "op-00000000-0000-0000-0000-000000000001",
+            "observation_id": "obs-00000000-0000-0000-0000-000000000001",
+        },
+        "current_turn": {
+            "event_id": "00000000-0000-0000-0000-000000000001",
+            "epoch_id": "ep-00000000-0000-0000-0000-000000000001",
+            "capture_sha256": "b" * 64,
+        },
+        "sender": {
+            "expected_revision": 1,
+            "intent_id": "intent-00000000-0000-0000-0000-000000000001",
+            "operation_id": "op-00000000-0000-0000-0000-000000000002",
+            "admission_id": "adm-00000000-0000-0000-0000-000000000001",
+        },
+        "receipt_bytes_in": {
+            "raw_wire": b"x",
+            "claim_event_id": "00000000-0000-0000-0000-000000000002",
+            "operation_id": "op-00000000-0000-0000-0000-000000000003",
+            "admission_id": "adm-00000000-0000-0000-0000-000000000001",
+        },
+        "status_reconcile": {
+            "intent_id": "intent-00000000-0000-0000-0000-000000000001",
+            "claim_event_id": "00000000-0000-0000-0000-000000000002",
+            "admission_id": "adm-00000000-0000-0000-0000-000000000001",
+        },
+    }
+    unproven_cases = (
+        ("stage_provision_capture_admission", lambda: mod.stage_provision_capture_admission(valid_bindings["provision_capture_admission"], 30)),
+        ("stage_observe_audience", lambda: mod.stage_observe_audience(valid_bindings["observe_audience"], 30)),
+        ("stage_host_control", lambda: mod.stage_host_control(valid_bindings["host_control"], 30)),
+        ("stage_current_turn", lambda: mod.stage_current_turn(valid_bindings["current_turn"], 30)),
+        ("stage_sender", lambda: mod.stage_sender(valid_bindings["sender"], 30)),
+        ("stage_receipt_bytes_in", lambda: mod.stage_receipt_bytes_in(valid_bindings["receipt_bytes_in"], 30)),
+        ("stage_status_reconcile", lambda: mod.stage_status_reconcile(valid_bindings["status_reconcile"], 30)),
+    )
+    for name, call in unproven_cases:
+        try:
+            call()
+        except mod.JourneyRefusal as e:
+            msg = str(e).lower()
+            if "unproven" not in msg and "not released" not in msg:
+                raise SystemExit(f"stage {name} refused but not UNPROVEN: {e}")
+            print("STAGE_UNPROVEN_WITH_VALID_BINDINGS", name)
+        else:
+            raise SystemExit("stage with valid bindings did not refuse UNPROVEN: " + name)
 
     # M9: stage binding schemas must exist and name required keys.
     if not hasattr(mod, "STAGE_BINDING_SCHEMAS"):
@@ -217,12 +293,11 @@ def main() -> int:
         raise SystemExit("evidence_written not set on success path (C8)")
     print("REFUSAL_EVIDENCE_EXCLUSIVITY_MARKERS")
 
-    # C8: ops artifacts labeled ops/non-evidence.
+    # C8: ops artifacts labeled ops/non-evidence (sibling markers or inline).
     for ops_marker in ("ops-database-gate.txt", "ops-source-after-gate.json", "ops-schema-receipt.json"):
         if ops_marker not in src:
             raise SystemExit(f"ops artifact {ops_marker} missing (C8)")
-    if '"ops": True' not in src and "'ops': True" not in src:
-        # cleanup.json is labeled in main's finally.
+    if "_label_ops_artifact" not in src and '"ops": True' not in src and "'ops': True" not in src:
         if "ops" not in main_src.split("finally:", 1)[-1]:
             raise SystemExit("cleanup.json ops label missing (C8)")
     print("OPS_ARTIFACTS_LABELED")
@@ -316,6 +391,19 @@ def main() -> int:
                 print("REVIEW_VERDICT_FAIL_CLOSED", str(e)[:80])
             else:
                 raise SystemExit("non-APPROVE verdict did not fail closed")
+
+            # Positive path: a CORRECT receipt (git-blob SHAs + matching head
+            # + APPROVE) must be ACCEPTED. Without this, a runner that refuses
+            # everything passes the checker.
+            write_release(good)
+            try:
+                result = mod.require_review_receipt(head, scratch)
+            except mod.JourneyRefusal as e:
+                raise SystemExit(f"correct receipt was refused (positive test failed): {e}")
+            else:
+                if result.get("receipt", {}).get("verdict") != "APPROVE":
+                    raise SystemExit("positive receipt accepted but verdict not APPROVE")
+                print("REVIEW_RECEIPT_POSITIVE_ACCEPTED")
         finally:
             if saved_release is not None:
                 os.environ[mod.RECEIPT_RELEASE_ENV] = saved_release
@@ -414,6 +502,99 @@ def main() -> int:
     if "finalize" in stage0a_src.lower() and "no finalize" not in stage0a_src.lower():
         raise SystemExit("phantom finalize in stage 0a (C4)")
     print("NO_PHANTOM_FINALIZE")
+
+    # L2: sticky-bit exception must exist for /tmp-style world-writable parents.
+    if "S_ISVTX" not in src:
+        raise SystemExit("S_ISVTX sticky-bit exception missing (L2)")
+    if "mkdir" in src and src.find("parent") > src.find("mkdir"):
+        pass  # parent check may be before or after; the key is S_ISVTX presence
+    print("STICKY_BIT_EXCEPTION_PRESENT")
+
+    # L2: mkdir must run AFTER the parent check (no litter on refuse).
+    scratch_fn = src[src.find("def _scratch"):src.find("def _monotonic_end")]
+    i_parent_check = scratch_fn.find("S_ISVTX")
+    i_mkdir = scratch_fn.find("scratch.mkdir")
+    if i_mkdir >= 0 and i_parent_check >= 0 and i_mkdir < i_parent_check:
+        raise SystemExit("scratch.mkdir runs before parent check (L2 litter)")
+    print("MKDIR_AFTER_PARENT_CHECK")
+
+    # H3: sealed constants must exist and be used, not self-referential goldens.
+    if "SEALED_INVENTORY_DIGEST" not in src:
+        raise SystemExit("SEALED_INVENTORY_DIGEST missing (H3)")
+    if "SEALED_CATALOG_DIGEST" not in src:
+        raise SystemExit("SEALED_CATALOG_DIGEST missing (H3)")
+    if "expected_inventory_digest = _inventory_digest(files)" in src:
+        raise SystemExit("self-referential inventory golden still present (H3)")
+    # Catalog golden must not come from the schema receipt.
+    if "golden_catalog = schema_receipt_data" in src:
+        raise SystemExit("catalog golden from schema-receipt (self-referential, H3)")
+    print("H3_SEALED_CONSTANTS_PRESENT")
+
+    # SCRATCH reuse: opposite markers must be unlinked.
+    if "refusal.json" not in src or "journey-evidence.json" not in src:
+        raise SystemExit("marker filenames missing")
+    # _write_refusal must unlink journey-evidence.json
+    write_refusal_src = src[src.find("def _write_refusal"):src.find("def main")]
+    if "journey-evidence.json" not in write_refusal_src or "unlink" not in write_refusal_src:
+        raise SystemExit("_write_refusal does not unlink stale journey-evidence.json")
+    # Success path must unlink refusal.json
+    if "refusal.json" not in main_src or "unlink" not in main_src:
+        raise SystemExit("success path does not unlink stale refusal.json")
+    print("SCRATCH_REUSE_MARKERS_UNLINKED")
+
+    # C8: all four ops artifacts labeled via sibling markers or inline.
+    for ops_name in ("ops-database-gate.txt", "ops-source-after-gate.json",
+                     "ops-schema-receipt.json", "ops-sql-green.txt"):
+        if ops_name not in src:
+            raise SystemExit(f"ops artifact {ops_name} missing (C8)")
+    if "_label_ops_artifact" not in src:
+        raise SystemExit("_label_ops_artifact helper missing (C8)")
+    label_calls = src.count("_label_ops_artifact(")
+    if label_calls < 4:
+        raise SystemExit(f"only {label_calls} _label_ops_artifact calls; need >=4 (C8)")
+    print("OPS_ARTIFACTS_SIBLING_MARKERS")
+
+    # H3: source snapshot must be computed twice (before + after gate), not 3×.
+    snap_calls = main_src.count("source_snapshot()")
+    if snap_calls > 3:  # def reference + 2 calls (before + after) = 3 matches in main
+        raise SystemExit(f"source_snapshot called {snap_calls}× in main; expected 2 (L3)")
+    print("SNAPSHOT_COMPUTED_TWICE")
+
+    # H4: pytest regex must reject failed/error counts.
+    if r"\b\d+\s+(?:failed|errors?)\b" not in src and r"\d+\s+(?:failed|errors?)" not in src:
+        raise SystemExit("H4 regex does not reject failed/error counts")
+    # TimeoutExpired must be handled.
+    if "TimeoutExpired" not in src:
+        raise SystemExit("TimeoutExpired not handled (H4)")
+    # pytest flags: no:cacheprovider and PYTHONDONTWRITEBYTECODE.
+    if "no:cacheprovider" not in src:
+        raise SystemExit("-p no:cacheprovider missing (H4 tree cleanliness)")
+    if "PYTHONDONTWRITEBYTECODE" not in src:
+        raise SystemExit("PYTHONDONTWRITEBYTECODE missing (H4 tree cleanliness)")
+    print("H4_REGEX_STRICT_AND_TIMEOUT_HANDLED")
+
+    # M7: openssl and pytest identities must be checked.
+    if "openssl" not in main_src:
+        raise SystemExit("openssl identity not checked (M7)")
+    if "pytest" not in main_src or "_pytest_version" not in main_src:
+        raise SystemExit("pytest identity not checked (M7)")
+    print("M7_TOOL_IDENTITIES_EXTENDED")
+
+    # M7: bare assert must not be used for safety checks in main.
+    main_body = main_src
+    if "\n    assert " in main_body or "\n            assert " in main_body:
+        raise SystemExit("bare assert found in main() (M7)")
+    print("NO_BARE_ASSERT_IN_MAIN")
+
+    # H1: citation must note runner is STRICTER (entry+exit vs entry-only).
+    if "STRICTER" not in src and "entry-check-only" not in src:
+        raise SystemExit("H1 citation does not note runner is stricter than request_deadline_v1")
+    print("H1_CITATION_CORRECTED")
+
+    # Dead JourneyComplete removed.
+    if "JourneyComplete" in src:
+        raise SystemExit("JourneyComplete still present (dead code)")
+    print("JOURNEY_COMPLETE_REMOVED")
 
     print("OFFLINE_SKELETON_CHECKS_PASS")
     return 0

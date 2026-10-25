@@ -53,6 +53,10 @@ echoes a note.
 
 Real Teams producer stays UNQUALIFIED. Business acceptance HELD.
 
+Python floor: >=3.11 (Exception.add_note used in cleanup paths, M8).
+edge-dev3 runs 3.14; on 3.10 the finally handler itself would raise and
+mask the original exception.
+
 This is a prepared one-shot skeleton: stages refuse until implemented and
 reviewed. Offline checks only until a reviewed release. Do not invent a
 production effect.
@@ -118,6 +122,15 @@ SEALED_MIGRATION_INVENTORY_NOTE = ",".join(
     name.split("_", 1)[0] for name in SEALED_MIGRATION_INVENTORY
 )
 FULL_SHA40 = re.compile(r"^[0-9a-f]{40}$")
+# H3 sealed goldens — review-time constants, never computed from the same
+# bytes the assertion re-reads. The inventory digest covers the 20-entry
+# migration set (file names + content hashes). The catalog digest covers the
+# post-bootstrap function catalog from a trusted bootstrap run. Both are
+# compared against LIVE observations; an unset or wrong constant refuses.
+SEALED_INVENTORY_DIGEST = (
+    "3c02d45cb7856b4a2e54e82cfe48f484af2b8be109643b5959e0eec21db33d92"
+)
+SEALED_CATALOG_DIGEST = ""  # must be 64-hex from a trusted bootstrap; empty refuses
 # Precise ALLOW token: a whole line that is exactly ALLOW, optionally with a
 # `gate: ` prefix. Substring match is forbidden (H-G/M1). Any DENIED line
 # present causes refusal regardless of ALLOW (M1).
@@ -156,7 +169,9 @@ FORBIDDEN_NETWORK_PATHS = (
 RECALL_ENV_PREFIX = "RECALL_"
 
 # Shared budget fence ContextVar (H1): narrowing, finite-only, entry + exit
-# check — same shape as request_deadline_v1.py:13-35.
+# check. request_deadline_v1._request_fence_v1 is entry-check-only
+# (request_remaining_v1 before yield, none after); this runner is STRICTER
+# with an additional exit remaining check that catches overrunning stages.
 _request_end_v1: ContextVar = ContextVar(
     "s08_journey_original_end_v1", default=None
 )
@@ -164,10 +179,6 @@ _request_end_v1: ContextVar = ContextVar(
 
 class JourneyRefusal(RuntimeError):
     """Fail-closed refusal. Carries the failing stage for the outcome record."""
-
-
-class JourneyComplete(RuntimeError):
-    """Internal signal: journey evidence written; NOT a refusal (C8)."""
 
 
 def sha256_file(path: Path) -> str:
@@ -206,16 +217,25 @@ def _scratch() -> Path:
         raise JourneyRefusal(
             "SCRATCH must not live inside the repository worktree (M-C)"
         )
-    scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
-    scratch.chmod(0o700)
-    # L2: parent directory must not be group/other-writable.
+    # L2: parent must not be group/other-writable UNLESS the sticky bit is
+    # set (standard /tmp semantics: mode 1777). S_ISVTX makes world-writable
+    # safe because only the owner can delete entries.
     parent = scratch.parent
     if parent.exists():
         pst = parent.stat()
-        if pst.st_mode & 0o022:
+        if pst.st_mode & 0o022 and not stat.S_ISVTX(pst.st_mode):
             raise JourneyRefusal(
-                f"SCRATCH parent directory is group/other-writable: {parent}"
+                f"SCRATCH parent is group/other-writable without sticky bit: {parent} (L2)"
             )
+    # mkdir/chmod AFTER the parent check so a refused run leaves no litter.
+    scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
+    scratch.chmod(0o700)
+    # SCRATCH_ENV reuse: unlink the opposite marker so a reused directory
+    # cannot hold stale refusal.json beside fresh journey-evidence.json.
+    for stale in ("refusal.json", "journey-evidence.json"):
+        p = scratch / stale
+        if p.exists():
+            p.unlink()
     return scratch
 
 
@@ -242,11 +262,13 @@ def _budget_remaining(*, required: bool = True) -> float | None:
 
 @contextmanager
 def _request_fence_v1(original_monotonic_end: float):
-    """Shared budget fence — same shape as request_deadline_v1.py:26-35 (H1).
+    """Shared budget fence (H1).
 
     ContextVar narrowing, finite-float requirement, entry remaining check,
     and exit remaining check so an overrunning stage is caught at the fence.
-    Never a wall-clock label.
+    Never a wall-clock label. request_deadline_v1._request_fence_v1
+    (request_deadline_v1.py:26-35) is entry-check-only; this runner adds
+    the exit check and is therefore STRICTER than the cited source.
     """
     if (
         type(original_monotonic_end) is not float
@@ -313,11 +335,12 @@ def require_head() -> str:
     return head
 
 
-def _tool_identity(name: str) -> dict:
+def _tool_identity(name: str, version_args: tuple[str, ...] = ("--version",)) -> dict:
     """Resolve a tool to an absolute path and record its identity (H-G/M7).
 
-    Refuses when --version is unavailable: the tool's identity must be
-    established before its authority is trusted (M7).
+    Refuses when the version command is unavailable: the tool's identity must
+    be established before its authority is trusted (M7). openssl uses
+    `version` rather than `--version`.
     """
     path = shutil.which(name)
     if not path:
@@ -325,11 +348,11 @@ def _tool_identity(name: str) -> dict:
     resolved = str(Path(path).resolve())
     try:
         version = subprocess.check_output(
-            [resolved, "--version"], text=True, stderr=subprocess.STDOUT
+            [resolved, *version_args], text=True, stderr=subprocess.STDOUT
         ).splitlines()[0][:200]
     except (subprocess.CalledProcessError, OSError, IndexError) as exc:
         raise JourneyRefusal(
-            f"tool identity unavailable for {name}: --version failed ({type(exc).__name__}); "
+            f"tool identity unavailable for {name}: {version_args} failed ({type(exc).__name__}); "
             "refusing to trust an unidentified tool (M7)"
         ) from exc
     return {"name": name, "path": resolved, "version": version}
@@ -462,6 +485,22 @@ def require_review_receipt(head: str, scratch: Path) -> dict:
     return {"receipt": receipt, "stat_checks": stat_checks, "bindings": bindings}
 
 
+def _label_ops_artifact(scratch: Path, artifact_name: str) -> None:
+    """C8: label an ops artifact as non-evidence via a sibling JSON marker.
+
+    Text-format artifacts cannot carry JSON keys inline without corrupting
+    their content; a sibling .ops.json marker provides the ops/non_evidence
+    label uniformly for all ops artifacts.
+    """
+    (scratch / f"{artifact_name}.ops.json").write_text(
+        json.dumps(
+            {"ops": True, "non_evidence": True, "artifact": artifact_name},
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
 def require_database_gate(scratch: Path, tools: dict) -> str:
     """ai-task-gates check --before database must print a precise ALLOW line (H-G/M1).
 
@@ -477,12 +516,15 @@ def require_database_gate(scratch: Path, tools: dict) -> str:
     )
     if DENIED_LINE.search(out):
         (scratch / "ops-database-gate.txt").write_text(out[:8192])
+        _label_ops_artifact(scratch, "ops-database-gate.txt")
         raise JourneyRefusal(f"database gate printed a DENIED line:\n{out[:2000]}")
     if not ALLOW_LINE.search(out):
         (scratch / "ops-database-gate.txt").write_text(out[:8192])
+        _label_ops_artifact(scratch, "ops-database-gate.txt")
         raise JourneyRefusal(f"database gate did not print a precise ALLOW line:\n{out[:2000]}")
     # Ops artifact (C8) — never forensic evidence.
     (scratch / "ops-database-gate.txt").write_text(out[:8192])
+    _label_ops_artifact(scratch, "ops-database-gate.txt")
     return out
 
 
@@ -784,6 +826,14 @@ def _owned_absence_readback(project: str, *, prefix_aware: bool = False) -> dict
     resources and filters client-side by project label startswith(base),
     because docker label filters are exact-match and the fixture suffixes the
     base name (C2). An exact-match on the base name alone is vacuous.
+
+    NOTE: the pre-identity path uses a unique per-run random base
+    (project_base = COMPOSE_PROJECT_PREFIX + uuid hex), so it can never match
+    residue from a PRIOR run. The pre-identity readback is therefore vacuous
+    as an absence proof for prior leaks; it is kept for uniformity of the
+    cleanup contract and to name the current run's residue if identity failed
+    mid-setup. Post-identity readback with the real suffixed name is the
+    authoritative absence proof.
     """
     docker = _tool_identity("docker")
     remains: dict[str, object] = {}
@@ -845,7 +895,12 @@ def _write_refusal(scratch: Path, reason: str, stage: str | None, head: str | No
 
     journey-evidence.json is exclusively a success-path artifact.
     cleanup.json and other ops artifacts are labeled ops/non-evidence.
+    SCRATCH reuse: unlink journey-evidence.json so a reused directory cannot
+    hold stale evidence beside a fresh refusal.
     """
+    stale_evidence = scratch / "journey-evidence.json"
+    if stale_evidence.exists():
+        stale_evidence.unlink()
     payload = {
         "refused": True,
         "non_evidence": True,
@@ -866,20 +921,33 @@ def main() -> int:
     evidence_written = False
     try:
         require_recall_env_absent()  # H-E: refuse before any other work
-        tools = {
-            name: _tool_identity(name) for name in ("git", "ai-task-gates", "docker")
+        tools = {name: _tool_identity(name) for name in ("git", "ai-task-gates", "docker")}
+        # M7: also establish identities for openssl (SQL mTLS tests) and the
+        # pytest that will run the 21 SQL, so missing/broken harness tools
+        # surface as preflight refusals, not backend-attributed H4 failures.
+        tools["openssl"] = _tool_identity("openssl", version_args=("version",))
+        _pytest_version = subprocess.check_output(
+            [sys.executable, "-m", "pytest", "--version"],
+            text=True, stderr=subprocess.STDOUT,
+        ).splitlines()[0][:200]
+        tools["pytest"] = {
+            "name": "pytest", "path": sys.executable, "version": _pytest_version,
         }
         head = require_head()
         inventory = assert_sealed_inventory()  # H-I before any DB
-        before = source_snapshot()  # H-F worktree bytes + mode (computed once; L3)
+        # L3: snapshot walked twice total (before and after gate) for mutation
+        # detection; the after-gate result is the one written and compared.
+        before = source_snapshot()
         receipt = require_review_receipt(head, scratch)  # H-J / C3
         require_database_gate(scratch, tools)  # H-G/M1 precise ALLOW, no DENIED
-        if before != source_snapshot():
+        after_gate = source_snapshot()
+        if before != after_gate:
             raise JourneyRefusal("source changed during gate; STOP")
         # Ops artifact (C8) — never forensic evidence.
         (scratch / "ops-source-after-gate.json").write_text(
-            json.dumps(source_snapshot(), sort_keys=True) + "\n"
+            json.dumps(after_gate, sort_keys=True) + "\n"
         )
+        _label_ops_artifact(scratch, "ops-source-after-gate.json")
 
         # One fresh owned synthetic PG via the sealed fixture. The sealed
         # bootstrap inventory is used and asserted — never a custom contiguous
@@ -904,8 +972,17 @@ def main() -> int:
                 raise JourneyRefusal(
                     "worker_env['ORACLE2_TEST_ADMIN_URL'] missing or not a string (C1)"
                 )
-            assert identity["project"].startswith(project_base)
-            assert identity.get("synthetic_only") is True
+            # M7: explicit fail-closed checks — never bare assert (stripped
+            # under python -O; message-less AssertionError is opaque).
+            if not identity["project"].startswith(project_base):
+                raise JourneyRefusal(
+                    f"identity project {identity['project']!r} does not start with "
+                    f"owned base {project_base!r} (C2/M7)"
+                )
+            if identity.get("synthetic_only") is not True:
+                raise JourneyRefusal(
+                    "identity synthetic_only is not True — refusing non-synthetic target (M7)"
+                )
             # C2: after identity, cleanup uses the REAL suffixed project name.
             real_project = identity["project"]
 
@@ -921,57 +998,60 @@ def main() -> int:
             )
             import psycopg
 
-            # H3 golden: compute the expected inventory digest BEFORE bootstrap.
+            # H3: sealed constants, not self-referential goldens. The expected
+            # inventory digest is SEALED_INVENTORY_DIGEST (review-time constant),
+            # never computed from the same files seconds before the observation.
+            # The catalog golden is SEALED_CATALOG_DIGEST (also a review-time
+            # constant), not the schema-receipt the same bootstrap just wrote.
+            if not re.fullmatch(r"[0-9a-f]{64}", SEALED_INVENTORY_DIGEST):
+                raise JourneyRefusal("SEALED_INVENTORY_DIGEST is not a 64-hex constant (H3)")
+            if not re.fullmatch(r"[0-9a-f]{64}", SEALED_CATALOG_DIGEST):
+                raise JourneyRefusal(
+                    "SEALED_CATALOG_DIGEST is not a 64-hex sealed constant (H3); "
+                    "fill it from a trusted bootstrap before release"
+                )
             files = canonical_synthetic_migrations()
-            expected_inventory_digest = _inventory_digest(files)
-            if not re.fullmatch(r"[0-9a-f]{64}", expected_inventory_digest):
-                raise JourneyRefusal("sealed inventory digest is not a 64-hex golden (H3)")
-
             schema_receipt = (scratch / "ops-schema-receipt.json").resolve()
             schema_seal = bootstrap_canonical_test_schema(
                 target,
                 container_id=identity["container_id"],
                 receipt_path=schema_receipt,
             )
-            # H3: compare post-bootstrap inventory digest against the golden.
+            _label_ops_artifact(scratch, "ops-schema-receipt.json")
+            # H3: compare observed inventory digest against the SEALED constant.
             observed_inventory_digest = _inventory_digest(files)
-            if observed_inventory_digest != expected_inventory_digest:
+            if observed_inventory_digest != SEALED_INVENTORY_DIGEST:
                 raise JourneyRefusal(
-                    "sealed inventory digest drift after bootstrap: "
-                    f"golden={expected_inventory_digest} observed={observed_inventory_digest} (H3)"
+                    "sealed inventory digest drift: "
+                    f"sealed={SEALED_INVENTORY_DIGEST} observed={observed_inventory_digest} (H3)"
                 )
             with psycopg.connect(target) as connection:
                 catalog = _catalog(connection)
             if tuple(p.name for p in files) != tuple(SEALED_MIGRATION_INVENTORY):
                 raise JourneyRefusal("sealed inventory names drift after bootstrap")
-            # H3: compare catalog against the bootstrap schema receipt golden.
-            try:
-                schema_receipt_data = json.loads(schema_receipt.read_text())
-                golden_catalog = schema_receipt_data.get("catalog")
-            except (OSError, json.JSONDecodeError, AttributeError):
-                golden_catalog = None
-            if golden_catalog is None:
-                raise JourneyRefusal("schema receipt catalog golden missing (H3)")
+            # H3: compare live catalog against the SEALED constant — not the
+            # schema-receipt the bootstrap just wrote (that would be self-referential).
             live_catalog_digest = (
                 hashlib.sha256(json.dumps(catalog, sort_keys=True).encode()).hexdigest()
                 if isinstance(catalog, (list, tuple))
                 else str(catalog)
             )
-            # _catalog already returns a hex digest; compare directly.
             catalog_digest = catalog if isinstance(catalog, str) else live_catalog_digest
-            if catalog_digest != golden_catalog:
+            if catalog_digest != SEALED_CATALOG_DIGEST:
                 raise JourneyRefusal(
-                    "live catalog digest differs from schema-receipt golden (H3): "
-                    f"golden={golden_catalog} live={catalog_digest}"
+                    "live catalog digest differs from sealed constant (H3): "
+                    f"sealed={SEALED_CATALOG_DIGEST} live={catalog_digest}"
                 )
 
             # H4: enforce "21 SQL green first". Run the 21 SQL module against
             # the bootstrapped DB before any journey stage. The SQL module
-            # reads ORACLE2_TEST_ADMIN_URL directly (C7).
+            # reads ORACLE2_TEST_ADMIN_URL directly (C7). Timeout bound is
+            # SHARED_BUDGET_S + 60 = 180s. Flags keep the tree clean post-bind
+            # (-p no:cacheprovider, PYTHONDONTWRITEBYTECODE).
             sql_green_cmd = [
                 sys.executable, "-m", "pytest",
                 str(ROOT / "services/oracle-brain/tests/test_meeting_participation_sql.py"),
-                "-v", "--tb=short", "-x",
+                "-v", "--tb=short", "-x", "-p", "no:cacheprovider",
             ]
             sql_env = {
                 **os.environ,
@@ -980,7 +1060,9 @@ def main() -> int:
                 "ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT": str(schema_receipt),
                 "ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256": schema_seal,
                 "PYTHONPATH": str(ROOT / "services/oracle-brain") + os.pathsep + str(ROOT),
+                "PYTHONDONTWRITEBYTECODE": "1",
             }
+            sql_timeout_s = SHARED_BUDGET_S + 60  # 180s bound (H4)
             try:
                 sql_out = subprocess.check_output(
                     sql_green_cmd,
@@ -988,23 +1070,37 @@ def main() -> int:
                     text=True,
                     stderr=subprocess.STDOUT,
                     env=sql_env,
-                    timeout=SHARED_BUDGET_S + 60,
+                    timeout=sql_timeout_s,
                 )
             except subprocess.CalledProcessError as exc:
                 sql_out = exc.output or ""
                 (scratch / "ops-sql-green.txt").write_text(sql_out[:16384])
+                _label_ops_artifact(scratch, "ops-sql-green.txt")
                 raise JourneyRefusal(
                     "21 SQL must go green before the journey (H4); "
                     f"pytest exit={exc.returncode}"
                 ) from exc
+            except subprocess.TimeoutExpired as exc:
+                sql_out = exc.output if isinstance(exc.output, str) else ""
+                (scratch / "ops-sql-green.txt").write_text(sql_out[:16384])
+                _label_ops_artifact(scratch, "ops-sql-green.txt")
+                raise JourneyRefusal(
+                    f"21 SQL pytest timed out after {sql_timeout_s}s (H4)"
+                ) from exc
             (scratch / "ops-sql-green.txt").write_text(sql_out[:16384])
-            if "21 passed" not in sql_out and "21 passed" not in sql_out.replace("=", " "):
-                # Accept common pytest summary forms: "21 passed", "21 passed in".
-                if not re.search(r"\b21\s+passed\b", sql_out):
-                    raise JourneyRefusal(
-                        "21 SQL green receipt not observed in pytest output (H4); "
-                        f"tail: {sql_out[-500:]}"
-                    )
+            _label_ops_artifact(scratch, "ops-sql-green.txt")
+            # H4: require "21 passed" AND reject any failed/error count in the
+            # output. A bare "21 passed" regex accepts "21 passed, 1 error".
+            if not re.search(r"\b21\s+passed\b", sql_out):
+                raise JourneyRefusal(
+                    "21 SQL green receipt not observed in pytest output (H4); "
+                    f"tail: {sql_out[-500:]}"
+                )
+            if re.search(r"\b\d+\s+(?:failed|errors?)\b", sql_out):
+                raise JourneyRefusal(
+                    "21 SQL pytest output reports failed/error cases (H4); "
+                    f"tail: {sql_out[-500:]}"
+                )
 
             # C9: budget armed AFTER worker_postgres + bootstrap_canonical_test_schema
             # + 21 SQL green, matching verify_workflow_integrity.py:384-386,407.
@@ -1037,6 +1133,10 @@ def main() -> int:
                     failing_stage = None
 
             # Success-path evidence only (C8). Never written on refusal.
+            # SCRATCH reuse: unlink stale refusal.json so markers stay exclusive.
+            stale_refusal = scratch / "refusal.json"
+            if stale_refusal.exists():
+                stale_refusal.unlink()
             evidence = {
                 "refused": False,
                 "non_evidence": False,
@@ -1049,10 +1149,10 @@ def main() -> int:
                 "sha_binding_semantics": "git-blob (git show HEAD:path | sha256sum) (H6)",
                 "sealed_migration_inventory": list(SEALED_MIGRATION_INVENTORY),
                 "inventory_assertion": inventory,
-                "inventory_digest_golden": expected_inventory_digest,
+                "inventory_digest_golden": SEALED_INVENTORY_DIGEST,
                 "inventory_digest_observed": observed_inventory_digest,
                 "catalog_digest": catalog_digest,
-                "catalog_golden": golden_catalog,
+                "catalog_golden": SEALED_CATALOG_DIGEST,
                 "sql_green": True,
                 "stages": stages,
                 "tools": tools,
@@ -1109,8 +1209,6 @@ def main() -> int:
             )
             evidence_written = True  # C8: suppress refusal.json on success path
             return 0
-    except JourneyComplete:
-        return 0
     except JourneyRefusal as exc:
         if not evidence_written:  # C8: refusal.json ONLY on refusal paths
             _write_refusal(scratch, str(exc), failing_stage, head)

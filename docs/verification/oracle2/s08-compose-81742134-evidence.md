@@ -15,24 +15,25 @@ never working-tree bytes (CRLF hosts diverge).
 
 | File | Action | Byte-identical to parked `81742134…` | Git-blob SHA-256 at current HEAD |
 |---|---|---|---|
-| hosting/meeting_participation_service_v1.py | added | yes | *(pin at release)* |
-| meetings/participation_authority_v1.py | updated (inherited authority repair) | **no** | *(pin at release)* |
-| meetings/participation_control_contracts_v1.py | added | yes | *(pin at release)* |
+| hosting/meeting_participation_service_v1.py | added | yes | `b3d8ae221fcfeb9b80c79c8b012f04f85341da3d8e6f154d0bd13377d242866b` |
+| meetings/participation_authority_v1.py | updated (inherited authority repair) | **no** | `61d43aa171f91ab84fbf3f4518f7c77b52d591f07c1e3a673b2d73c1de1d62fa` |
+| meetings/participation_control_contracts_v1.py | added | yes | `77c134400a6ee4192cfa58a81ef1b5cfa2d1f18c3feb8294022e4c764bfa440c` |
 | sql/021_meeting_participation.sql | added | yes | `959a77553849616eee1d7b4eba4ed8a3bc146aaa432b7e0e2ca8d83ff17b2f7c` |
-| tests/test_meeting_participation_control_v1.py | added | yes | *(pin at release)* |
-| tests/test_meeting_participation_sql.py | **updated (C-B docstring correction on this branch)** | **no** | *(pin at release)* |
-| tests/test_meeting_participation_v1.py | added | yes | *(pin at release)* |
-| tests/test_meeting_participation_wire_v1.py | added | yes | *(pin at release)* |
+| tests/test_meeting_participation_control_v1.py | added | yes | `4444447c9618d51e983fac655d8e546dea16879982f301a4f1273aea9e4ec8fd` |
+| tests/test_meeting_participation_sql.py | **updated (C-B docstring correction on this branch)** | **no** | `990a9aabf31b7a2e5ffeaa792c3b4d49fe11980ae9e0dcf1cc741d2ed04b0fad` |
+| tests/test_meeting_participation_v1.py | added | yes | `bff51a304e07462d528c4b1df3669e109a67166bead635954802b50c213303dc` |
+| tests/test_meeting_participation_wire_v1.py | added | yes | `27fd04a6238652aff6da82ca95913885c8040bf084647f6700f62184eb19bebd` |
 
 Current-main owners retained unchanged (byte-identical to both main and parked):
 hosting/meeting_participation_v1.py, meetings/participation.py,
 meetings/participation_runtime_v1.py, meetings/participation_wire_v1.py,
 tests/test_meeting_participation.py.
 
-Per-file git-blob SHA-256 pins are computed at release time via
-`git show HEAD:<path> | sha256sum` and recorded in the review receipt. The
-byte-identity column above states which files match the parked blob; it does
-not claim byte-identity for files updated on this branch.
+Per-file git-blob SHA-256 pins are computed via
+`git show HEAD:<path> | sha256sum` and recorded in **this evidence document**
+(not in the review receipt — the receipt binds only the four artifact SHAs
+and the head). The byte-identity column above states which files match the
+parked blob; it does not claim byte-identity for files updated on this branch.
 
 Authority repair preserves: explicit password/port in the fixed URL guard, numeric pin and
 PG* deny in `protected_sql_connection_v1._connection_v1`, original deadline and prearmed
