@@ -104,3 +104,94 @@ def test_value_allowed_rejects_pathy_ident():
     assert not _value_allowed('localhost')
     assert _value_allowed('install-wraps')
     assert _value_allowed('-')
+
+def test_postgres_timestamptz_text_survives():
+    for ts in ('2026-10-25 14:09:52.123456+00',
+               '2026-10-25 14:09:52+00',
+               '2026-10-25 19:39:52.123456+05:30',
+               '2026-10-25T14:09:52.123456Z',
+               '2026-10-25T14:09:52+00:00'):
+        out=redact_record(dict(original_deadline=ts,created_at=ts,capture_until=ts))
+        assert out['original_deadline']==ts,(ts,out)
+        assert 'original_deadline_kind' not in out
+
+def test_postgres_timestamptz_exact_example_survives():
+    out=redact_record(dict(created_at='2026-10-25 14:09:52.123456+00'))
+    assert out['created_at']=='2026-10-25 14:09:52.123456+00'
+
+def test_tuple_rows_become_lists_and_survive():
+    out=redact_record(dict(head=('capture_status_unknown',False,'terminal_observed')))
+    assert out['head']==['capture_status_unknown',False,'terminal_observed'],out
+    assert isinstance(out['head'],list)
+    assert 'head_kind' not in out
+
+def test_tuple_row_list_survives():
+    row=( { 'claim_id':'123e4567-e89b-12d3-a456-426614174000','effect':'capture-create' }, )
+    out=redact_record(dict(rows=[row]))
+    assert out['rows'][0][0]['effect']=='capture-create',out
+    assert 'rows_kind' not in out
+
+def test_tuple_with_pathy_member_marks_list():
+    out=redact_record(dict(rows=[('ok','/tmp/nope')]))
+    assert out['rows'][0][0]=='ok'
+    assert out['rows'][0][1]=='REDACTED'
+    assert out['rows_kind']=='unlisted'
+
+def test_supervisor_purpose_strings_survive():
+    for purpose in ('meeting-scheduler-process-v1','meeting-stop-worker-process-v1','meeting-scheduler-runtime-v1','meeting-stop-process-runtime-v1','meeting-supervision-queue-consumer-v1','meeting-supervision-current-queue-v1','meeting-supervision-service-peer-v1','meeting-supervision-service-binding-v1','meeting-process-currentness-v2','meeting-supervisor-currentness-v2','meeting-supervisor-observer-owner-v2','meeting-supervisor-peer-v2','meeting-supervisor-client-installation-v1','meeting-supervisor-replay-installation-v1','meeting-create-operation-stop-relation-v1','replacement-meeting-worker-binding-v1','replacement-meeting-capture-worker-peer-v1','meeting-worker-receipt-root-v1','meeting-capture-worker-consumer-v1'):
+        out=redact_record(dict(purpose=purpose))
+        assert out['purpose']==purpose,(purpose,out)
+
+def test_provider_route_strings_survive():
+    routes=['POST /api/v1/bot/ HTTP/1.1',
+            'GET /api/v1/bot/123e4567-e89b-12d3-a456-426614174000/ HTTP/1.1',
+            'POST /api/v1/bot/123e4567-e89b-12d3-a456-426614174000/leave_call/ HTTP/1.1']
+    out=redact_record(dict(provider_routes=routes))
+    assert out['provider_routes']==routes,out
+    assert 'provider_routes_kind' not in out
+
+def test_non_api_route_still_redacts():
+    out=redact_record(dict(route='POST /home/alice/secret HTTP/1.1'))
+    assert out['route']=='REDACTED'
+    assert out['route_kind']=='unlisted'
+
+def test_marker_propagates_through_dict_members():
+    out=redact_record(dict(members=[dict(step='install-wraps'),dict(path='/tmp/nope'),dict(step='selected-state')]))
+    assert out['members'][0]['step']=='install-wraps'
+    assert out['members'][1]['path']=='REDACTED'
+    assert out['members'][1]['path_kind']=='unlisted'
+    assert out['members_kind']=='unlisted',out
+
+def test_dict_with_redacted_leaf_sets_field_kind():
+    out=redact_record(dict(diag=dict(step='install-wraps',path='/tmp/x')))
+    assert out['diag']['step']=='install-wraps'
+    assert out['diag']['path']=='REDACTED'
+    assert out['diag']['path_kind']=='unlisted'
+    assert out['diag_kind']=='unlisted',out
+
+def test_raise_site_with_lambda_code_name_survives():
+    out=redact_record(dict(raise_site='PermissionError:<lambda>',error_type='PermissionError'))
+    assert out['raise_site']=='PermissionError:<lambda>',out
+    assert out['error_type']=='PermissionError'
+
+def test_raise_site_listcomp_survives():
+    out=redact_record(dict(raise_site='KeyError:<listcomp>'))
+    assert out['raise_site']=='KeyError:<listcomp>',out
+
+def test_raise_site_with_path_code_name_still_redacts():
+    out=redact_record(dict(raise_site='PermissionError:/tmp/x'))
+    assert out['raise_site']=='REDACTED'
+
+def test_replay_spool_member_names_and_note_survive():
+    out=redact_record(dict(
+        members=['meeting-create-init.json','meeting-create-state.json','meeting-create-lock'],
+        note='nonce-sequence state and appointment hashes only; no secrets'))
+    assert out['members']==['meeting-create-init.json','meeting-create-state.json','meeting-create-lock'],out
+    assert out['note']=='nonce-sequence state and appointment hashes only; no secrets',out
+
+def test_redact_text_replaces_path_tokens():
+    from meeting_unattended_redact import redact_text
+    text='FAILED tests/test_x.py::test_y - assert\n'+'cwd=/tmp/pytest-abc123\n'
+    out=redact_text(text)
+    assert '/tmp/pytest-abc123' not in out
+    assert 'test_y' in out

@@ -264,8 +264,13 @@ def unattended(meeting_sql,certs,tmp_path):
         def _provider_routes():
             _write_json_artifact(tmp_path/'actual-provider-routes.json',list(provider_seen))
         def _observer_files():
-            if (short/'observer-port-errors.json').exists():(tmp_path/'actual-observer-refusals.json').write_bytes((short/'observer-port-errors.json').read_bytes())
-            if (short/'observer-port-observations.json').exists():(tmp_path/'actual-observer-process-observations.json').write_bytes((short/'observer-port-observations.json').read_bytes())
+            for src_name,dst_name in (('observer-port-errors.json','actual-observer-refusals.json'),
+                                      ('observer-port-observations.json','actual-observer-process-observations.json')):
+                src=short/src_name
+                if not src.exists():continue
+                try:record=json.loads(src.read_text())
+                except Exception:record=dict(error_type='UnparsedObserverFile')
+                _write_json_artifact(tmp_path/dst_name,record)
         def _close_stack():
             stack.close()
         def _copy_jsonl():
@@ -325,31 +330,8 @@ def start_unattended(u):
             # §8: locked append; §5: redact_record on every jsonl write.
             global _diag_jsonl_path
             _diag_jsonl_path=str(short/'create-server-responses.jsonl')
-            _orig_send_response=server.RequestHandlerClass.send_response
-            _orig_send_header=server.RequestHandlerClass.send_header
-            _orig_end_headers=server.RequestHandlerClass.end_headers
-            def _logged_send_response(self,code,message=None):
-                self._diag_status=code;self._diag_headers=[]
-                return _orig_send_response(self,code,message)
-            def _logged_send_header(self,keyword,value):
-                self._diag_headers.append([keyword,value])
-                return _orig_send_header(self,keyword,value)
-            def _logged_end_headers(self):
-                try:
-                    # Inline do_POST raises never reach execute_v1; flush any
-                    # pending request context here so wrap_trace is not lost.
-                    # Non-200 is the exact refused path (e.g. 503), not 'response'.
-                    _status=getattr(self,'_diag_status',None)
-                    _WRAP.flush('response' if _status==200 else 'refused')
-                    _jsonl_append(redact_record(dict(kind='response',seq=_next_seq(),
-                        status=_status,
-                        headers=getattr(self,'_diag_headers',[]),
-                        mono=time.monotonic())))
-                except Exception:pass
-                return _orig_end_headers(self)
-            server.RequestHandlerClass.send_response=_logged_send_response
-            server.RequestHandlerClass.send_header=_logged_send_header
-            server.RequestHandlerClass.end_headers=_logged_end_headers
+            # Response-logging monkeypatch lives in install_wraps so its
+            # restore covers it and a partial install cannot leak the patch.
         return s
     for name in ('pre','stop','post'):worker(name)
     stop=owners['stop'];qs=u['supervisions']['stop'];qp=MeetingSupervisionPeerProfileV1(**peer_fields(stop,certs,'queue',x['until'],purpose='meeting-supervision-service-peer-v1'),process_purpose='meeting-stop-worker-process-v1',supervision_config_sha256=qs.sha256,scope_sha256=digest(u['scope'].model_dump(mode='json')))
@@ -387,11 +369,12 @@ def start_unattended(u):
     u.update(env=env,scheduler=scheduler,stop_process=stop_process,producer=producer,process_profiles=profiles,supervisor_admission=ar)
     return u
 
-def install_wraps():
+def install_wraps(server):
     """§1 fixture-only raise-site capture. Install AFTER start_unattended()
     returns and BEFORE the first worker_request (covers refused-prepare warmup).
     Every wrap re-raises / returns-through unchanged. Restores originals on
-    uninstall so the second test node is not double-wrapped."""
+    uninstall so the second test node is not double-wrapped, and restores on
+    partial install failure so a half-wrapped module cannot leak."""
     from oracle_brain.hosting import meeting_worker_service_v1 as mws
     from oracle_brain.hosting import _protected_control_listener_v1 as listener_mod
     saved=[]
@@ -401,93 +384,128 @@ def install_wraps():
         while saved:
             module,name,orig=saved.pop()
             setattr(module,name,orig)
-    # Class-level: factory.execute_v1 (PRIMARY) and settings.current.
-    _save(mws._CaptureWorkerAdapter,'execute_v1')
-    _save(mws._CaptureWorkerSettings,'current')
-    orig_execute=mws._CaptureWorkerAdapter.execute_v1
-    orig_current=mws._CaptureWorkerSettings.current
-    def execute_v1(self,raw):
-        seq=_WRAP.begin('execute_v1')
-        operation='UNKNOWN';deadline=None
-        try:
+    try:
+        # Response-logging monkeypatch on the create server handler class.
+        # Saved through the same _restore chain so uninstall returns the
+        # class methods to their originals (no double-wrap on a second node).
+        _save(server.RequestHandlerClass,'send_response')
+        _save(server.RequestHandlerClass,'send_header')
+        _save(server.RequestHandlerClass,'end_headers')
+        _orig_send_response=server.RequestHandlerClass.send_response
+        _orig_send_header=server.RequestHandlerClass.send_header
+        _orig_end_headers=server.RequestHandlerClass.end_headers
+        def _logged_send_response(self,code,message=None):
+            self._diag_status=code;self._diag_headers=[]
+            return _orig_send_response(self,code,message)
+        def _logged_send_header(self,keyword,value):
+            self._diag_headers.append([keyword,value])
+            return _orig_send_header(self,keyword,value)
+        def _logged_end_headers(self):
             try:
-                body=json.loads(raw) if isinstance(raw,(bytes,bytearray)) else {}
-                operation=str(body.get('operation') or 'UNKNOWN')
-                deadline=body.get('caller_deadline')
+                # Inline do_POST raises never reach execute_v1; flush any
+                # pending request context here so wrap_trace is not lost.
+                # Non-200 is the exact refused path (e.g. 503), not 'response'.
+                _status=getattr(self,'_diag_status',None)
+                _WRAP.flush('response' if _status==200 else 'refused')
+                _jsonl_append(redact_record(dict(kind='response',seq=_next_seq(),
+                    status=_status,
+                    headers=getattr(self,'_diag_headers',[]),
+                    mono=time.monotonic())))
             except Exception:pass
-            _WRAP.attach(operation,deadline)
-            _WRAP.ok('execute_v1',seq)
-            value=orig_execute(self,raw)
-            _WRAP.flush('ok')
-            return value
-        except BaseException as error:
-            _WRAP.fail('execute_v1',error,_frame_code_name(error))
-            _WRAP.flush('error')
-            raise
-    def current(self):
-        seq=_WRAP.begin('settings.current')
-        try:
-            value=orig_current(self)
-            _WRAP.ok('settings.current',seq)
-            return value
-        except BaseException as error:
-            _WRAP.fail('settings.current',error,_frame_code_name(error))
-            raise
-    mws._CaptureWorkerAdapter.execute_v1=execute_v1
-    mws._CaptureWorkerSettings.current=current
-    # Module-global wraps of names imported into the listener / worker module.
-    # _parse is looked up at call time in meeting_worker_service_v1 globals
-    # (parse_request lambda and execute_v1), so wrap that binding.
-    _save(mws,'_parse')
-    orig_parse=mws._parse
-    def wrapped_parse(*args,**kwargs):
-        seq=_WRAP.begin('_parse')
-        try:
-            value=orig_parse(*args,**kwargs)
-            _WRAP.ok('_parse',seq)
-            return value
-        except BaseException as error:
-            _WRAP.fail('_parse',error,_frame_code_name(error))
-            raise
-    mws._parse=wrapped_parse
-    for target in ('peer_der_v1','fixed_request_length_v1','read_request_body_v1'):
-        _save(listener_mod,target)
-        orig=getattr(listener_mod,target)
-        def _make(name,fn):
-            def wrapped(*args,**kwargs):
-                seq=_WRAP.begin(name)
+            return _orig_end_headers(self)
+        server.RequestHandlerClass.send_response=_logged_send_response
+        server.RequestHandlerClass.send_header=_logged_send_header
+        server.RequestHandlerClass.end_headers=_logged_end_headers
+        # Class-level: factory.execute_v1 (PRIMARY) and settings.current.
+        _save(mws._CaptureWorkerAdapter,'execute_v1')
+        _save(mws._CaptureWorkerSettings,'current')
+        orig_execute=mws._CaptureWorkerAdapter.execute_v1
+        orig_current=mws._CaptureWorkerSettings.current
+        def execute_v1(self,raw):
+            seq=_WRAP.begin('execute_v1')
+            operation='UNKNOWN';deadline=None
+            try:
                 try:
-                    value=fn(*args,**kwargs)
-                    _WRAP.ok(name,seq)
-                    return value
-                except BaseException as error:
-                    _WRAP.fail(name,error,_frame_code_name(error))
-                    raise
-            return wrapped
-        setattr(listener_mod,target,_make(target,orig))
-    # §1/_request_fence_v1 wrap MUST preserve context-manager protocol
-    # (re-yield, re-raise). Fence import pin: listener module line 12.
-    _save(listener_mod,'_request_fence_v1')
-    orig_fence=listener_mod._request_fence_v1
-    from contextlib import contextmanager as _contextmanager
-    @_contextmanager
-    def wrapped_fence(original_monotonic_end):
-        seq=_WRAP.begin('_request_fence_v1')
-        entered=False
-        try:
-            with orig_fence(original_monotonic_end):
-                entered=True
-                _WRAP.ok('_request_fence_v1',seq)
-                try:
-                    yield
-                except BaseException as error:
+                    body=json.loads(raw) if isinstance(raw,(bytes,bytearray)) else {}
+                    operation=str(body.get('operation') or 'UNKNOWN')
+                    deadline=body.get('caller_deadline')
+                except Exception:pass
+                _WRAP.attach(operation,deadline)
+                value=orig_execute(self,raw)
+                _WRAP.ok('execute_v1',seq)
+                _WRAP.flush('ok')
+                return value
+            except BaseException as error:
+                _WRAP.fail('execute_v1',error,_frame_code_name(error))
+                _WRAP.flush('error')
+                raise
+        def current(self):
+            seq=_WRAP.begin('settings.current')
+            try:
+                value=orig_current(self)
+                _WRAP.ok('settings.current',seq)
+                return value
+            except BaseException as error:
+                _WRAP.fail('settings.current',error,_frame_code_name(error))
+                raise
+        mws._CaptureWorkerAdapter.execute_v1=execute_v1
+        mws._CaptureWorkerSettings.current=current
+        # Module-global wraps of names imported into the listener / worker module.
+        # _parse is looked up at call time in meeting_worker_service_v1 globals
+        # (parse_request lambda and execute_v1), so wrap that binding.
+        _save(mws,'_parse')
+        orig_parse=mws._parse
+        def wrapped_parse(*args,**kwargs):
+            seq=_WRAP.begin('_parse')
+            try:
+                value=orig_parse(*args,**kwargs)
+                _WRAP.ok('_parse',seq)
+                return value
+            except BaseException as error:
+                _WRAP.fail('_parse',error,_frame_code_name(error))
+                raise
+        mws._parse=wrapped_parse
+        for target in ('peer_der_v1','fixed_request_length_v1','read_request_body_v1'):
+            _save(listener_mod,target)
+            orig=getattr(listener_mod,target)
+            def _make(name,fn):
+                def wrapped(*args,**kwargs):
+                    seq=_WRAP.begin(name)
+                    try:
+                        value=fn(*args,**kwargs)
+                        _WRAP.ok(name,seq)
+                        return value
+                    except BaseException as error:
+                        _WRAP.fail(name,error,_frame_code_name(error))
+                        raise
+                return wrapped
+            setattr(listener_mod,target,_make(target,orig))
+        # §1/_request_fence_v1 wrap MUST preserve context-manager protocol
+        # (re-yield, re-raise). Fence import pin: listener module line 12.
+        _save(listener_mod,'_request_fence_v1')
+        orig_fence=listener_mod._request_fence_v1
+        from contextlib import contextmanager as _contextmanager
+        @_contextmanager
+        def wrapped_fence(original_monotonic_end):
+            seq=_WRAP.begin('_request_fence_v1')
+            entered=False
+            try:
+                with orig_fence(original_monotonic_end):
+                    entered=True
+                    _WRAP.ok('_request_fence_v1',seq)
+                    try:
+                        yield
+                    except BaseException as error:
+                        _WRAP.fail('_request_fence_v1',error,_frame_code_name(error))
+                        raise
+            except BaseException as error:
+                if not entered:
                     _WRAP.fail('_request_fence_v1',error,_frame_code_name(error))
-                    raise
-        except BaseException as error:
-            if not entered:
-                _WRAP.fail('_request_fence_v1',error,_frame_code_name(error))
-            raise
-    listener_mod._request_fence_v1=wrapped_fence
+                raise
+        listener_mod._request_fence_v1=wrapped_fence
+    except BaseException:
+        _restore()
+        raise
     return _restore
 
 def worker_request(u,body,identity='create'):
@@ -524,7 +542,7 @@ def test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_rece
         # §1 wrap installation: after start_unattended() returns, before the
         # first worker_request (covers refused-prepare warmup).
         step='install-wraps'
-        restore_wraps=install_wraps()
+        restore_wraps=install_wraps(u['create_server'])
         step='queue-diagnostic'
         queue_diagnostic=subprocess.run(['/usr/bin/node','--import','tsx',str(driver)],cwd=ROOT,env={**u['env'],'ORACLE2_INVENTED_QUEUE_DIAGNOSTIC':'1'},capture_output=True,timeout=12)
         (tmp_path/'queue-diagnostic.stdout').write_bytes(queue_diagnostic.stdout);(tmp_path/'queue-diagnostic.stderr').write_bytes(queue_diagnostic.stderr)
@@ -578,9 +596,11 @@ def test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_rece
                 if time.monotonic()>=end:raise
                 time.sleep(.02)
         step='child-wait'
-        pre_child=False
         hung=False
         actual.stdin.write(b'go\n');actual.stdin.flush();actual.stdin.close()
+        # pre_child stays True through the go write so a child that dies
+        # before go still gets pre-child-failure.json.
+        pre_child=False
         waited=True
         try:
             actual.wait(timeout=12)
@@ -638,34 +658,46 @@ def test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_rece
                 # effect, stage. Do NOT select state — it does not exist.
                 # Per-query-group try/except so one bad expression cannot wipe
                 # all five groups together.
+                def _group_rollback():
+                    try:c.rollback()
+                    except Exception:pass
                 try:
                     claims=c.execute('SELECT claim_id::text,original_deadline::text,created_at::text,effect,stage,operation_id::text,request_sha256,bot_id::text,worker_id::text FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchall()
                     diag['claim_time']=[dict(claim_id=r[0],original_deadline=r[1],created_at=r[2],effect=r[3],stage=r[4],operation_id=r[5],request_sha256=r[6],bot_id=r[7],worker_id=r[8]) for r in claims]
                 except Exception as error:
                     diag['claim_time_error']=type(error).__name__
+                    _group_rollback()
                 try:
                     receipt_count=c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchone()[0]
                     receipt_rows=c.execute('SELECT q.effect,q.stage,r.wire_object_key,r.wire_sha256,r.wire_byte_count,r.receipt_id::text,r.observation FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchall()
                     diag['receipts']=dict(count=receipt_count,rows=[dict(effect=r[0],stage=r[1],wire_object_key=r[2],wire_sha256=r[3],wire_byte_count=r[4],receipt_id=r[5],observation=r[6]) for r in receipt_rows])
                 except Exception as error:
                     diag['receipts_error']=type(error).__name__
+                    _group_rollback()
                 try:
                     latest=c.execute('SELECT action,payload,created_at::text FROM oracle2.meeting_capture_events_v1 WHERE workspace_id=%s ORDER BY created_at DESC LIMIT 1',(x['workspace'],)).fetchone()
                     diag['latest_event']=dict(action=latest[0],payload=latest[1],created_at=latest[2]) if latest else None
                 except Exception as error:
                     diag['latest_event_error']=type(error).__name__
+                    _group_rollback()
                 try:
                     head=c.execute('SELECT state,capture_open,stop_state FROM oracle2.meeting_capture_heads_v1 WHERE workspace_id=%s AND meeting_id=%s',(x['workspace'],x['meeting'])).fetchone()
                     diag['head_state']=dict(state=head[0],capture_open=head[1],stop_state=head[2]) if head else None
                 except Exception as error:
                     diag['head_state_error']=type(error).__name__
+                    _group_rollback()
                 try:
                     adm=c.execute('SELECT admission_id::text,admission_sha256,role_name,actions,capture_until::text,stop_until::text,original_horizon::text,expires_at::text FROM oracle2.meeting_capture_admissions_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchall()
                     diag['admission_state']=[dict(admission_id=r[0],admission_sha256=r[1],role_name=r[2],actions=list(r[3]),capture_until=r[4],stop_until=r[5],original_horizon=r[6],expires_at=r[7]) for r in adm]
                 except Exception as error:
                     diag['admission_state_error']=type(error).__name__
+                    _group_rollback()
         except Exception as error:
-            diag['claim_time_error']=type(error).__name__
+            # admin() itself failed (or the with-block aborted): record ALL
+            # five groups as failed rather than silently leaving them absent.
+            name=type(error).__name__
+            for group in ('claim_time','receipts','latest_event','head_state','admission_state'):
+                diag.setdefault(group+'_error',name)
         _write_json_artifact(tmp_path/'create-child-diagnostics.json',diag)
         step='returncode-assert'
         if hung:

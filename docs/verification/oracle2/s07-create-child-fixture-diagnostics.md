@@ -66,10 +66,16 @@ bytes are unchanged (still `503` / empty body / `Cache-Control: no-store`).
 
 **Wrap installation timing (Muse):** after `start_unattended()` returns, before
 the first `worker_request` — this covers the refused-`prepare` warmup requests
-and does **not** record config-load `_parse` calls.
+and does **not** record config-load `_parse` calls. `install_wraps(server)`
+also owns the create-server `RequestHandlerClass` response-logging monkeypatch
+and restores it (plus every module wrap) on uninstall and on partial install
+failure, so a full-file two-node run cannot double-wrap. `execute_v1` records
+`ok`/`exit` **after** the wrapped call (same as its siblings).
 
-Per-request record (locked jsonl, §8): `kind`, `request_id`, `seq`,
-`operation`, `caller_deadline`, `raise_site`, `outcome`, `wrap_trace`.
+Per-request record (locked jsonl, §8): `kind`, `request_id` (the request
+sequence), `operation`, `caller_deadline`, `raise_site`, `outcome`,
+`wrap_trace`. There is **no** top-level `seq` on the request record; `seq`
+appears on each `wrap_trace` entry and on `response` records.
 Each `wrap_trace` entry has `wrap`, `event` (`enter`/`exit`/`error`), `seq`,
 `mono` (`time.monotonic()`), and on error `error_type` + `raise_site`.
 `raise_site` = `type(error).__name__` + the raise-site frame code name when
@@ -124,10 +130,12 @@ Also recorded: latest event (`action`, `payload`, `created_at`), head state
 (`admission_id`, `admission_sha256`, `role_name`, `actions`, `capture_until`,
 `stop_until`, `original_horizon`, `expires_at`).
 
-Each of the five query groups has its own try/except
+Each of the five query groups has its own try/except + `rollback()`
 (`claim_time`, `receipts`, `latest_event`, `head_state`, `admission_state`),
-so one bad expression cannot wipe the other four; per-group failures land as
-`<group>_error`.
+so one bad expression cannot leave the shared connection in a failed
+transaction or wipe the other four; per-group failures land as
+`<group>_error`. If `admin()` itself fails, all five groups are recorded as
+failed (`<group>_error`), never silently absent.
 
 Supervision scope: `scope.model_dump(mode='json')` pinned to
 `tmp_path/supervision-scope.json` before teardown deletes scratch.
@@ -142,8 +150,18 @@ One function `redact_record(record) -> dict` in
 test module). Walks every value; anything not matched by the allow-list
 becomes `"REDACTED"` and the parallel key `"<field>_kind": "unlisted"` is
 set. A list field sets `"<field>_kind": "unlisted"` when **any** member is
-redacted. Applied to **every** jsonl append and **every** JSON artifact write
-(via `_write_json_artifact`).
+redacted. Tuples (fetchall/fetchone rows) are walked like lists and become
+lists so `actual-selected-state.json` and the outcome `head` survive. A dict
+returns flagged=True when any leaf under it was redacted, so a list of dicts
+gets its parent marker too. Applied to **every** jsonl append and **every**
+JSON artifact write (via `_write_json_artifact`).
+Postgres `timestamptz::text` values (space separator, short zone — e.g.
+`2026-10-25 14:09:52.123456+00`) are accepted alongside the ISO-T form so
+`claim_original_deadline` / `created_at` / `capture_until` evidence is kept.
+Supervisor purpose strings (`meeting-scheduler-process-v1`,
+`meeting-stop-worker-process-v1` and siblings) and provider request lines
+(`POST /api/v1/bot/ HTTP/1.1`) are allow-listed. Raise sites with non-ident
+code names (`PermissionError:<lambda>`) keep the error type.
 
 Allow-list keeps the packet's fixed hyphenated tokens (Muse M1 fix), mirrored
 on the `_EFFECT_NAMES` pattern:
@@ -177,8 +195,11 @@ Exhaustive writer list for this packet: `create-child-diagnostics.json`,
 fields inside `create-child-diagnostics.json`, `warmup-refusals*.json` message
 fields, `post-create-current-queue-refusal.json`, `pre-child-failure.json`,
 `actual-create-child.stdout`, `teardown-steps.json`,
-`*-actual-queue.json`, `post-create-current-queue.json`, and every
-`create-server-responses.jsonl` append (kind `request` / `response`).
+`*-actual-queue.json`, `post-create-current-queue.json`,
+`actual-selected-state.json`, `actual-provider-routes.json`,
+`owned-process-cleanup.json`, `actual-unattended-outcome.json`,
+`actual-observer-refusals.json`, `actual-observer-process-observations.json`,
+and every `create-server-responses.jsonl` append (kind `request` / `response`).
 Raw streams `actual-create-child.stderr`, `queue-diagnostic.*`,
 `cycle-diagnostic.*` are captured as-is and are **not** re-parsed or
 redacted; they sit outside the JSON allow-list contract (the previous
@@ -257,7 +278,12 @@ in `runner-environment.json`.
 The pytest subprocess is bounded by `PYTEST_TIMEOUT_SECONDS=600` and its
 stdout/stderr are captured into `pytest-output.stdout` /
 `pytest-output.stderr` (index members) with the returncode recorded in
-`pytest-returncode.json`. The runner pins HEAD first: it refuses a dirty
+`pytest-returncode.json`. Path tokens in that captured output are redacted
+(`redact_text`) before the files are written. The recorded
+`pytest_invocation` is the full command including the selector and the
+`--basetemp` / `-p no:cacheprovider` pins. `PYTHONHOME` is explicitly
+popped from the child env (never inherited) so `pythonhome_exported: False`
+is guaranteed. The runner pins HEAD first: it refuses a dirty
 worktree and an `EXPECTED_HEAD` mismatch (optional 4th argument) before the
 one-fresh budget is consumed. `infra-failed.json` error strings go through
 `redact_record`.
@@ -267,8 +293,8 @@ one-fresh budget is consumed. `infra-failed.json` error strings go through
 One module-level `threading.Lock` (`_JSONL_LOCK`) guards every jsonl append
 **and** the per-request sequence counter. Handler threads share it. The reader
 is close-then-copy in fixture teardown (after `stack.close()`), not an interim
-read while the server still serves. Any interim in-test read takes the same
-lock and drops a trailing partial line (`partial_tail_lines`).
+read while the server still serves. There is no `partial_tail_lines`
+mechanism; the only reader is close-then-copy.
 
 ## What was deliberately NOT changed
 
@@ -293,7 +319,7 @@ lock and drops a trailing partial line (`partial_tail_lines`).
 | `python -m py_compile` of `meeting_unattended_redact.py` | pass |
 | `python -m py_compile` of `test_meeting_unattended_redact.py` | pass |
 | `python -m py_compile` of `scripts/oracle2/s07_create_child_fresh_runner.py` | pass |
-| `python -m pytest services/oracle-brain/tests/test_meeting_unattended_redact.py` (16 offline unit tests: hyphenated tokens survive; paths/hosts redact; list kind markers) | pass |
+| `python -m pytest services/oracle-brain/tests/test_meeting_unattended_redact.py` (31 offline unit tests: hyphenated tokens, Postgres timestamptz text, tuples/rows, purpose strings, provider routes, dict-member markers, lambda raise sites, spool manifest, path-text redaction) | pass |
 | Full SQL/actual tests | **Not run** (require Linux, PostgreSQL, OpenSSL, Docker — `edge-dev3` is the run host) |
 
 ## Remaining gate / UNKNOWN

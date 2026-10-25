@@ -109,6 +109,16 @@ def _write_index(runner_dir:Path)->None:
     members.sort(key=lambda m:m['path'])
     _write(runner_dir/'artifact-index.json',dict(root=str(runner_dir.resolve()),members=members))
 
+def _redact_stream(data:bytes,worktree:Path)->str:
+    '''Redact path tokens in captured free-form streams (pytest output).'''
+    try:
+        tests=worktree/'services/oracle-brain/tests'
+        if str(tests) not in sys.path:sys.path.insert(0,str(tests))
+        from meeting_unattended_redact import redact_text
+        return redact_text(data.decode('utf-8','replace'))
+    except Exception:
+        return 'REDACTED'
+
 def _redact_infra_message(message:str,worktree:Path|None=None)->str:
     """Keep infra-failed.json free of paths/hosts; reuse the fixture allow-list."""
     try:
@@ -146,6 +156,7 @@ def main(argv)->int:
         # stdlib/site resolution for the pytest child.
         pythonpath=os.pathsep.join([str(worktree),str(worktree/'services/oracle-brain')])
         env={**os.environ,'PYTHONPATH':pythonpath,'PYTHONDONTWRITEBYTECODE':'1'}
+        env.pop('PYTHONHOME',None)  # never inherit; pin is pythonhome_exported: False
         # Owned Compose project. UUID lowercase (test_worker_postgres_fixture regex).
         project='oracle2-synthetic-p24s07fresh-'+uuid4().hex
         env['COMPOSE_PROJECT_NAME']=project
@@ -174,10 +185,17 @@ def main(argv)->int:
         env['ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT']=str(runner_dir/'s07fresh-schema.json')
         if (runner_dir/'s07fresh-schema.json').is_file():
             env['ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256']=_sha256(runner_dir/'s07fresh-schema.json')
+        # Build the exact pytest invocation BEFORE recording it so the pin is complete.
+        pytest_tmp=runner_dir/'pytest-tmp'
+        pytest_cmd=[sys.executable,'-m','pytest',
+             'services/oracle-brain/tests/test_meeting_unattended_sql.py::test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_receipt',
+             '-q','--tb=short',
+             '--basetemp='+str(pytest_tmp),
+             '-p','no:cacheprovider']
         _write(runner_dir/'runner-environment.json',dict(
             cwd=str(worktree),PYTHONPATH=pythonpath,
             python_executable=sys.executable,
-            pytest_invocation=sys.executable+' -m pytest',
+            pytest_invocation=' '.join(pytest_cmd),
             python_version=sys.version,
             compose_project=project,container=container,
             basetemp=str(runner_dir/'pytest-tmp'),
@@ -188,18 +206,11 @@ def main(argv)->int:
             pythonhome_exported=False,
         ))
         step='pytest'
-        pytest_tmp=runner_dir/'pytest-tmp'
         pytest_tmp.mkdir(parents=True,exist_ok=True)
-        # Bold selector pin (Muse Low): never bare pytest; include --basetemp
-        # and -p no:cacheprovider in the same invocation.
-        cmd=[sys.executable,'-m','pytest',
-             'services/oracle-brain/tests/test_meeting_unattended_sql.py::test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_receipt',
-             '-q','--tb=short',
-             '--basetemp='+str(pytest_tmp),
-             '-p','no:cacheprovider']
-        proc=subprocess.run(cmd,cwd=str(worktree),env=env,capture_output=True,timeout=PYTEST_TIMEOUT_SECONDS)
-        (runner_dir/'pytest-output.stdout').write_bytes(proc.stdout or b'')
-        (runner_dir/'pytest-output.stderr').write_bytes(proc.stderr or b'')
+        proc=subprocess.run(pytest_cmd,cwd=str(worktree),env=env,capture_output=True,timeout=PYTEST_TIMEOUT_SECONDS)
+        # Minor 19: path tokens in captured pytest output must not enter the packet raw.
+        (runner_dir/'pytest-output.stdout').write_text(_redact_stream(proc.stdout or b'',worktree),encoding='utf-8')
+        (runner_dir/'pytest-output.stderr').write_text(_redact_stream(proc.stderr or b'',worktree),encoding='utf-8')
         _write(runner_dir/'pytest-returncode.json',dict(returncode=proc.returncode))
         step='source-after'
         _write(runner_dir/'source-after.json',snapshot(worktree))
