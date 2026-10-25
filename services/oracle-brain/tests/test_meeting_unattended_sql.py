@@ -58,6 +58,8 @@ def _jsonl_append(record):
 
 # §5 allow-list + redact_record live in meeting_unattended_redact so offline
 # unit tests can import them without the heavy meeting-test dependencies.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0,str(Path(__file__).resolve().parent))
 from meeting_unattended_redact import redact_record,_write_json_artifact
 
 # §1 wrap recorder: monotonic time, sequence index under the §8 lock, wrap_trace.
