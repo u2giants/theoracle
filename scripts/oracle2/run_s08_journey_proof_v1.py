@@ -124,13 +124,20 @@ SEALED_MIGRATION_INVENTORY_NOTE = ",".join(
 FULL_SHA40 = re.compile(r"^[0-9a-f]{40}$")
 # H3 sealed goldens — review-time constants, never computed from the same
 # bytes the assertion re-reads. The inventory digest covers the 20-entry
-# migration set (file names + content hashes). The catalog digest covers the
-# post-bootstrap function catalog from a trusted bootstrap run. Both are
-# compared against LIVE observations; an unset or wrong constant refuses.
+# migration set (file names + content hashes) over GIT-BLOB bytes (C2/M2):
+# `git show HEAD:services/oracle-brain/sql/<name>` so the constant is
+# host-independent (LF). Mint command:
+#   python -c "import hashlib,subprocess; names=(...); \
+#   print(hashlib.sha256(b''.join(n.encode()+b'\\0'+hashlib.sha256(subprocess.check_output(['git','show',f'HEAD:services/oracle-brain/sql/{n}'])).digest() for n in names)).hexdigest())"
+# Constant below is the git-blob digest of the 20-entry SYNTHETIC_MIGRATIONS set.
+# The catalog digest is RECORDED, NOT GOLDEN (C3 option-a): it is written to
+# evidence but never compared against a sealed constant (no refuse-on-empty).
 SEALED_INVENTORY_DIGEST = (
-    "3c02d45cb7856b4a2e54e82cfe48f484af2b8be109643b5959e0eec21db33d92"
+    "7eb6085c3535175ac304b8ccd1db283aa64087042af52b2934a9065fd371be99"
 )
-SEALED_CATALOG_DIGEST = ""  # must be 64-hex from a trusted bootstrap; empty refuses
+# Catalog digest is recorded in evidence, not compared against a golden (C3).
+# An empty value is acceptable; there is no refuse-on-empty.
+SEALED_CATALOG_DIGEST = ""  # recorded, not golden (C3 option-a)
 # Precise ALLOW token: a whole line that is exactly ALLOW, optionally with a
 # `gate: ` prefix. Substring match is forbidden (H-G/M1). Any DENIED line
 # present causes refusal regardless of ALLOW (M1).
@@ -181,6 +188,19 @@ class JourneyRefusal(RuntimeError):
     """Fail-closed refusal. Carries the failing stage for the outcome record."""
 
 
+class JourneyUnknown(JourneyRefusal):
+    """Routable UNKNOWN — not a fatal refusal (M1).
+
+    A stage raises JourneyUnknown when the outcome is genuinely UNKNOWN
+    (e.g. claim commit ACK loss) and the journey should route to the
+    next phase per the H5 policy: UNKNOWN from claim commit/readback-loss
+    proceeds to stage 5 (read-only reconcile); UNKNOWN from earlier stages
+    ends the journey at that stage. The main loop catches JourneyUnknown
+    separately from JourneyRefusal to implement that routing. A plain
+    JourneyRefusal is always fatal (STOP).
+    """
+
+
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -199,6 +219,25 @@ def sha256_git_blob(path: Path) -> str:
         cwd=ROOT,
     )
     return hashlib.sha256(raw).hexdigest()
+
+
+def _inventory_digest_git_blob(names: tuple[str, ...]) -> str:
+    """Inventory digest over git-blob bytes (C2/M2 — host-independent LF).
+
+    Same shape as test_canonical_schema._inventory_digest (name + NUL +
+    sha256(content) per entry, concatenated then hashed) but reads content
+    via `git show HEAD:services/oracle-brain/sql/<name>` so the digest is
+    identical on every host regardless of checkout line endings.
+    """
+    git = _tool_identity("git")
+    parts: list[bytes] = []
+    for name in names:
+        raw = subprocess.check_output(
+            [git["path"], "show", f"HEAD:services/oracle-brain/sql/{name}"],
+            cwd=ROOT,
+        )
+        parts.append(name.encode() + b"\0" + hashlib.sha256(raw).digest())
+    return hashlib.sha256(b"".join(parts)).hexdigest()
 
 
 def _scratch() -> Path:
@@ -220,16 +259,32 @@ def _scratch() -> Path:
     # L2: parent must not be group/other-writable UNLESS the sticky bit is
     # set (standard /tmp semantics: mode 1777). S_ISVTX makes world-writable
     # safe because only the owner can delete entries.
+    # L9: if the parent does not exist, check the nearest existing ancestor;
+    # after mkdir, re-verify to close the stat-then-mkdir TOCTOU.
     parent = scratch.parent
-    if parent.exists():
-        pst = parent.stat()
+
+    def _check_parent_mode(p: Path) -> None:
+        if not p.exists():
+            return
+        pst = p.stat()
         if pst.st_mode & 0o022 and not stat.S_ISVTX(pst.st_mode):
             raise JourneyRefusal(
-                f"SCRATCH parent is group/other-writable without sticky bit: {parent} (L2)"
+                f"SCRATCH parent is group/other-writable without sticky bit: {p} (L2)"
             )
+
+    if parent.exists():
+        _check_parent_mode(parent)
+    else:
+        # L9: walk up to the nearest existing ancestor and check it.
+        ancestor = parent
+        while not ancestor.exists() and ancestor != ancestor.parent:
+            ancestor = ancestor.parent
+        _check_parent_mode(ancestor)
     # mkdir/chmod AFTER the parent check so a refused run leaves no litter.
     scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
     scratch.chmod(0o700)
+    # L9: re-check parent after mkdir to close the TOCTOU window.
+    _check_parent_mode(parent)
     # SCRATCH_ENV reuse: unlink the opposite marker so a reused directory
     # cannot hold stale refusal.json beside fresh journey-evidence.json.
     for stale in ("refusal.json", "journey-evidence.json"):
@@ -335,13 +390,27 @@ def require_head() -> str:
     return head
 
 
-def _tool_identity(name: str, version_args: tuple[str, ...] = ("--version",)) -> dict:
+# Per-tool identity commands (C1). ai-task-gates has no --version flag; its
+# identity is the `version` subcommand. openssl uses `version` not `--version`.
+# git and docker accept --version.
+TOOL_VERSION_ARGS: dict[str, tuple[str, ...]] = {
+    "git": ("--version",),
+    "docker": ("--version",),
+    "ai-task-gates": ("version",),
+    "openssl": ("version",),
+}
+
+
+def _tool_identity(name: str, version_args: tuple[str, ...] | None = None) -> dict:
     """Resolve a tool to an absolute path and record its identity (H-G/M7).
 
     Refuses when the version command is unavailable: the tool's identity must
-    be established before its authority is trusted (M7). openssl uses
-    `version` rather than `--version`.
+    be established before its authority is trusted (M7). Each tool uses its
+    own working identity command (C1): ai-task-gates -> `version` subcommand,
+    openssl -> `version`, git/docker -> `--version`.
     """
+    if version_args is None:
+        version_args = TOOL_VERSION_ARGS.get(name, ("--version",))
     path = shutil.which(name)
     if not path:
         raise JourneyRefusal(f"required tool not on PATH: {name}")
@@ -365,15 +434,32 @@ def _receipt_stat_ok(path: Path) -> tuple[dict, bytes]:
     before/after, lstat cross-check, stable identity, and the payload is read
     from the SAME fd (never a fresh read_text that could follow a symlink
     swap). os.getuid is absent on Windows; there the uid check is skipped and
-    the limit is recorded explicitly (H-J).
+    the limit is recorded explicitly (H-J). On Windows, POSIX mode bits and
+    nlink==1 cannot be enforced (chmod(0o600) still reports group/other-
+    readable); those checks degrade honestly with mode_check:
+    "unavailable-on-windows" and do NOT fail the positive path (H1).
+    o_nofollow records the actual flag availability (H6).
     """
-    checks: dict[str, object] = {"o_nofollow": True, "uid_checked": False}
+    o_nofollow_available = getattr(os, "O_NOFOLLOW", 0) != 0
+    checks: dict[str, object] = {
+        "o_nofollow": o_nofollow_available,  # H6: honest, not hardcoded True
+        "uid_checked": False,
+    }
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     try:
         before = os.fstat(fd)
         checks["is_regular"] = stat.S_ISREG(before.st_mode)
-        checks["nlink_is_1"] = before.st_nlink == 1
-        checks["mode_no_group_other"] = (before.st_mode & 0o077) == 0
+        # H1: on Windows, POSIX mode bits and nlink are not meaningfully
+        # enforceable. Degrade honestly — skip and record, do not fail.
+        is_windows = not hasattr(os, "getuid")
+        if is_windows:
+            checks["mode_check"] = "unavailable-on-windows"
+            checks["nlink_check"] = "unavailable-on-windows"
+            checks["nlink_is_1"] = None
+            checks["mode_no_group_other"] = None
+        else:
+            checks["nlink_is_1"] = before.st_nlink == 1
+            checks["mode_no_group_other"] = (before.st_mode & 0o077) == 0
         checks["size_le_4096"] = before.st_size <= 4096
         if hasattr(os, "getuid"):
             checks["uid_checked"] = True
@@ -400,10 +486,11 @@ def _receipt_stat_ok(path: Path) -> tuple[dict, bytes]:
             checks["lstat_matches"] = False
     finally:
         os.close(fd)
+    # H1: mode/nlink are None (skipped) on Windows — do not fail the positive path.
     checks["passed"] = bool(
         checks.get("is_regular")
-        and checks.get("nlink_is_1")
-        and checks.get("mode_no_group_other")
+        and checks.get("nlink_is_1") in (True, None)
+        and checks.get("mode_no_group_other") in (True, None)
         and checks.get("size_le_4096")
         and checks.get("stat_stable")
         and checks.get("lstat_matches")
@@ -912,6 +999,12 @@ def _write_refusal(scratch: Path, reason: str, stage: str | None, head: str | No
 
 
 def main() -> int:
+    # M3: enforce Python >=3.11 floor (Exception.add_note used in cleanup).
+    if sys.version_info < (3, 11):
+        raise JourneyRefusal(
+            f"Python >=3.11 required (got {sys.version_info.major}.{sys.version_info.minor}); "
+            "Exception.add_note is used in cleanup paths (M3)"
+        )
     os.umask(0o077)
     scratch = _scratch()
     project_base = f"{COMPOSE_PROJECT_PREFIX}-{uuid4().hex[:8]}"  # unique per run (M-C)
@@ -921,11 +1014,27 @@ def main() -> int:
     evidence_written = False
     try:
         require_recall_env_absent()  # H-E: refuse before any other work
+        # C1: each tool uses its own working identity command (TOOL_VERSION_ARGS).
         tools = {name: _tool_identity(name) for name in ("git", "ai-task-gates", "docker")}
         # M7: also establish identities for openssl (SQL mTLS tests) and the
         # pytest that will run the 21 SQL, so missing/broken harness tools
         # surface as preflight refusals, not backend-attributed H4 failures.
-        tools["openssl"] = _tool_identity("openssl", version_args=("version",))
+        tools["openssl"] = _tool_identity("openssl")
+        # M8: preflight the docker compose plugin (not just the docker CLI).
+        try:
+            compose_ver = subprocess.check_output(
+                [tools["docker"]["path"], "compose", "version"],
+                text=True, stderr=subprocess.STDOUT, timeout=DOCKER_PROBE_TIMEOUT_S,
+            ).splitlines()[0][:200]
+            tools["docker-compose"] = {
+                "name": "docker-compose", "path": tools["docker"]["path"],
+                "version": compose_ver,
+            }
+        except (subprocess.CalledProcessError, OSError, IndexError, subprocess.TimeoutExpired) as exc:
+            raise JourneyRefusal(
+                f"docker compose plugin unavailable: {type(exc).__name__}: {exc}; "
+                "the fixture requires docker compose (M8)"
+            ) from exc
         _pytest_version = subprocess.check_output(
             [sys.executable, "-m", "pytest", "--version"],
             text=True, stderr=subprocess.STDOUT,
@@ -992,7 +1101,6 @@ def main() -> int:
             # H-I: real bootstrap + inventory/catalog assertion on the live DB.
             from dev.oracle2.test_canonical_schema import (
                 _catalog,
-                _inventory_digest,
                 bootstrap_canonical_test_schema,
                 canonical_synthetic_migrations,
             )
@@ -1001,15 +1109,10 @@ def main() -> int:
             # H3: sealed constants, not self-referential goldens. The expected
             # inventory digest is SEALED_INVENTORY_DIGEST (review-time constant),
             # never computed from the same files seconds before the observation.
-            # The catalog golden is SEALED_CATALOG_DIGEST (also a review-time
-            # constant), not the schema-receipt the same bootstrap just wrote.
+            # C2/M2: inventory digest uses GIT-BLOB bytes (host-independent LF).
             if not re.fullmatch(r"[0-9a-f]{64}", SEALED_INVENTORY_DIGEST):
                 raise JourneyRefusal("SEALED_INVENTORY_DIGEST is not a 64-hex constant (H3)")
-            if not re.fullmatch(r"[0-9a-f]{64}", SEALED_CATALOG_DIGEST):
-                raise JourneyRefusal(
-                    "SEALED_CATALOG_DIGEST is not a 64-hex sealed constant (H3); "
-                    "fill it from a trusted bootstrap before release"
-                )
+            # C3 option-a: catalog is RECORDED, NOT GOLDEN. No refuse-on-empty.
             files = canonical_synthetic_migrations()
             schema_receipt = (scratch / "ops-schema-receipt.json").resolve()
             schema_seal = bootstrap_canonical_test_schema(
@@ -1018,30 +1121,29 @@ def main() -> int:
                 receipt_path=schema_receipt,
             )
             _label_ops_artifact(scratch, "ops-schema-receipt.json")
-            # H3: compare observed inventory digest against the SEALED constant.
-            observed_inventory_digest = _inventory_digest(files)
+            # H3/C2: compare observed inventory digest against the SEALED
+            # constant using git-blob bytes (host-independent).
+            observed_inventory_digest = _inventory_digest_git_blob(
+                tuple(p.name for p in files)
+            )
             if observed_inventory_digest != SEALED_INVENTORY_DIGEST:
                 raise JourneyRefusal(
                     "sealed inventory digest drift: "
-                    f"sealed={SEALED_INVENTORY_DIGEST} observed={observed_inventory_digest} (H3)"
+                    f"sealed={SEALED_INVENTORY_DIGEST} observed={observed_inventory_digest} (H3/C2)"
                 )
             with psycopg.connect(target) as connection:
                 catalog = _catalog(connection)
             if tuple(p.name for p in files) != tuple(SEALED_MIGRATION_INVENTORY):
                 raise JourneyRefusal("sealed inventory names drift after bootstrap")
-            # H3: compare live catalog against the SEALED constant — not the
-            # schema-receipt the bootstrap just wrote (that would be self-referential).
+            # C3 option-a: catalog digest is RECORDED in evidence, not compared
+            # against a golden. No refuse-on-empty. A future fill of
+            # SEALED_CATALOG_DIGEST requires re-review (C5).
             live_catalog_digest = (
                 hashlib.sha256(json.dumps(catalog, sort_keys=True).encode()).hexdigest()
                 if isinstance(catalog, (list, tuple))
                 else str(catalog)
             )
             catalog_digest = catalog if isinstance(catalog, str) else live_catalog_digest
-            if catalog_digest != SEALED_CATALOG_DIGEST:
-                raise JourneyRefusal(
-                    "live catalog digest differs from sealed constant (H3): "
-                    f"sealed={SEALED_CATALOG_DIGEST} live={catalog_digest}"
-                )
 
             # H4: enforce "21 SQL green first". Run the 21 SQL module against
             # the bootstrapped DB before any journey stage. The SQL module
@@ -1151,8 +1253,10 @@ def main() -> int:
                 "inventory_assertion": inventory,
                 "inventory_digest_golden": SEALED_INVENTORY_DIGEST,
                 "inventory_digest_observed": observed_inventory_digest,
+                "inventory_digest_semantics": "git-blob (git show HEAD:path) (C2/M2)",
                 "catalog_digest": catalog_digest,
-                "catalog_golden": SEALED_CATALOG_DIGEST,
+                "catalog_golden": SEALED_CATALOG_DIGEST or None,
+                "catalog_semantics": "recorded, not golden (C3 option-a)",
                 "sql_green": True,
                 "stages": stages,
                 "tools": tools,
@@ -1173,7 +1277,8 @@ def main() -> int:
                     "unknown_routing": (
                         "UNKNOWN from claim commit/readback-loss -> stage 5 "
                         "read-only reconcile; UNKNOWN from earlier stages -> end "
-                        "at failing stage (H5)"
+                        "at failing stage (H5). Mechanism: JourneyUnknown(JourneyRefusal) "
+                        "subclass — routable UNKNOWN vs fatal JourneyRefusal (M1)."
                     ),
                     "no_re_read_scope": (
                         "journey layer never re-reads failing stage inputs; "
@@ -1244,10 +1349,10 @@ def main() -> int:
                     original_exc.add_note(f"cleanup also failed: {cleanup_err}")
                 else:
                     raise cleanup_err
-        except JourneyRefusal:
+        except JourneyRefusal as cleanup_jr:
             if original_exc is not None:
-                # M8: do not mask the original with the cleanup refusal.
-                pass
+                # M7: do not mask the original, but DO record the cleanup refusal.
+                original_exc.add_note(f"cleanup refusal: {cleanup_jr}")
             else:
                 raise
         except Exception as cleanup_probe_exc:  # noqa: BLE001

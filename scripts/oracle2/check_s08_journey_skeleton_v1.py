@@ -338,56 +338,68 @@ def main() -> int:
                 "verdict": "APPROVE",
             }
 
-            # wrong runner SHA (H2/M-B)
+            # wrong runner SHA (H2/M-B) — assert message names the mutated key.
             write_release({**good, "runner_sha256": "0" * 64})
             try:
                 mod.require_review_receipt(head, scratch)
             except mod.JourneyRefusal as e:
+                if "runner_sha256" not in str(e):
+                    raise SystemExit(f"runner-SHA refusal does not name the key: {e}")
                 print("RUNNER_SHA_MISMATCH_FAIL_CLOSED", str(e)[:80])
             else:
                 raise SystemExit("runner_sha256 mismatch did not fail closed")
 
-            # wrong plan SHA
+            # wrong plan SHA — assert message names the mutated key.
             write_release({**good, "plan_sha256": "0" * 64})
             try:
                 mod.require_review_receipt(head, scratch)
             except mod.JourneyRefusal as e:
+                if "plan_sha256" not in str(e):
+                    raise SystemExit(f"plan-SHA refusal does not name the key: {e}")
                 print("PLAN_SHA_MISMATCH_FAIL_CLOSED", str(e)[:80])
             else:
                 raise SystemExit("plan_sha256 mismatch did not fail closed")
 
-            # H2: wrong checker SHA — previously untested.
+            # H2: wrong checker SHA — assert message names the mutated key.
             write_release({**good, "checker_sha256": "0" * 64})
             try:
                 mod.require_review_receipt(head, scratch)
             except mod.JourneyRefusal as e:
+                if "checker_sha256" not in str(e):
+                    raise SystemExit(f"checker-SHA refusal does not name the key: {e}")
                 print("CHECKER_SHA_MISMATCH_FAIL_CLOSED", str(e)[:80])
             else:
                 raise SystemExit("checker_sha256 mismatch did not fail closed")
 
-            # H2: wrong evidence SHA — previously untested.
+            # H2: wrong evidence SHA — assert message names the mutated key.
             write_release({**good, "evidence_sha256": "0" * 64})
             try:
                 mod.require_review_receipt(head, scratch)
             except mod.JourneyRefusal as e:
+                if "evidence_sha256" not in str(e):
+                    raise SystemExit(f"evidence-SHA refusal does not name the key: {e}")
                 print("EVIDENCE_SHA_MISMATCH_FAIL_CLOSED", str(e)[:80])
             else:
                 raise SystemExit("evidence_sha256 mismatch did not fail closed")
 
-            # wrong head
+            # wrong head — assert message names head.
             write_release({**good, "head": "0" * 40})
             try:
                 mod.require_review_receipt(head, scratch)
             except mod.JourneyRefusal as e:
+                if "head" not in str(e).lower():
+                    raise SystemExit(f"head refusal does not name head: {e}")
                 print("REVIEW_HEAD_FAIL_CLOSED", str(e)[:80])
             else:
                 raise SystemExit("wrong head did not fail closed")
 
-            # non-APPROVE verdict
+            # non-APPROVE verdict — assert message names verdict.
             write_release({**good, "verdict": "REJECT"})
             try:
                 mod.require_review_receipt(head, scratch)
             except mod.JourneyRefusal as e:
+                if "verdict" not in str(e).lower() and "APPROVE" not in str(e):
+                    raise SystemExit(f"verdict refusal does not name verdict: {e}")
                 print("REVIEW_VERDICT_FAIL_CLOSED", str(e)[:80])
             else:
                 raise SystemExit("non-APPROVE verdict did not fail closed")
@@ -478,10 +490,27 @@ def main() -> int:
         raise SystemExit("identity project not used for absence readback (C2)")
     print("ABSENCE_READBACK_IDENTITY_AWARE")
 
-    # Tool identity recording (H-G/M7).
+    # Tool identity recording (H-G/M7) — and C1: execute _tool_identity
+    # against real tools to prove the identity commands work.
     if not callable(getattr(mod, "_tool_identity", None)):
         raise SystemExit("_tool_identity missing")
-    print("TOOL_IDENTITY_HELPER_PRESENT")
+    # C1: execute against real tools. ai-task-gates uses `version` subcommand.
+    for tool_name in ("git", "ai-task-gates"):
+        try:
+            ident = mod._tool_identity(tool_name)
+        except mod.JourneyRefusal as e:
+            raise SystemExit(f"_tool_identity({tool_name!r}) refused: {e}")
+        if not ident.get("version"):
+            raise SystemExit(f"_tool_identity({tool_name!r}) returned no version")
+        print(f"TOOL_IDENTITY_EXECUTED {tool_name} {ident['version'][:60]}")
+    # C1: verify TOOL_VERSION_ARGS maps ai-task-gates to ("version",) not ("--version",).
+    if not hasattr(mod, "TOOL_VERSION_ARGS"):
+        raise SystemExit("TOOL_VERSION_ARGS missing (C1)")
+    if mod.TOOL_VERSION_ARGS.get("ai-task-gates") != ("version",):
+        raise SystemExit(f"ai-task-gates version args wrong: {mod.TOOL_VERSION_ARGS.get('ai-task-gates')!r} (C1)")
+    if mod.TOOL_VERSION_ARGS.get("openssl") != ("version",):
+        raise SystemExit(f"openssl version args wrong: {mod.TOOL_VERSION_ARGS.get('openssl')!r} (C1)")
+    print("TOOL_VERSION_ARGS_OK")
 
     # Forbidden network path constant (H-E).
     if not getattr(mod, "FORBIDDEN_NETWORK_PATHS", None):
@@ -528,6 +557,26 @@ def main() -> int:
     # Catalog golden must not come from the schema receipt.
     if "golden_catalog = schema_receipt_data" in src:
         raise SystemExit("catalog golden from schema-receipt (self-referential, H3)")
+    # C2: recompute the inventory digest over git-blob bytes and verify the
+    # constant matches. Not just a presence check.
+    if not callable(getattr(mod, "_inventory_digest_git_blob", None)):
+        raise SystemExit("_inventory_digest_git_blob missing (C2)")
+    sealed_inv = mod.SEALED_INVENTORY_DIGEST
+    if not isinstance(sealed_inv, str) or not __import__("re").fullmatch(r"[0-9a-f]{64}", sealed_inv):
+        raise SystemExit(f"SEALED_INVENTORY_DIGEST is not 64-hex: {sealed_inv!r}")
+    observed_inv = mod._inventory_digest_git_blob(mod.SEALED_MIGRATION_INVENTORY)
+    if observed_inv != sealed_inv:
+        raise SystemExit(
+            f"SEALED_INVENTORY_DIGEST wrong: sealed={sealed_inv} observed={observed_inv} (C2)"
+        )
+    print("C2_INVENTORY_DIGEST_RECOMPUTED", observed_inv[:16])
+    # C3: catalog check must be "recorded, not golden" — no refuse-on-empty.
+    # Verify the runner does NOT refuse when SEALED_CATALOG_DIGEST is empty.
+    if 'raise JourneyRefusal(\n                    "SEALED_CATALOG_DIGEST is not a 64-hex' in src:
+        raise SystemExit("refuse-on-empty for SEALED_CATALOG_DIGEST still present (C3)")
+    if "fill it from a trusted bootstrap before release" in src:
+        raise SystemExit("circular catalog fill instruction still present (C3)")
+    print("C3_CATALOG_RECORDED_NOT_GOLDEN")
     print("H3_SEALED_CONSTANTS_PRESENT")
 
     # SCRATCH reuse: opposite markers must be unlinked.
@@ -549,15 +598,21 @@ def main() -> int:
             raise SystemExit(f"ops artifact {ops_name} missing (C8)")
     if "_label_ops_artifact" not in src:
         raise SystemExit("_label_ops_artifact helper missing (C8)")
-    label_calls = src.count("_label_ops_artifact(")
-    if label_calls < 4:
-        raise SystemExit(f"only {label_calls} _label_ops_artifact calls; need >=4 (C8)")
+    # M5: verify each ops artifact is actually labeled — not just that the
+    # helper is called N times (which counts the def line).
+    for ops_name in ("ops-database-gate.txt", "ops-source-after-gate.json",
+                     "ops-schema-receipt.json", "ops-sql-green.txt"):
+        label_for = f'_label_ops_artifact(scratch, "{ops_name}")'
+        label_for_sq = f"_label_ops_artifact(scratch, '{ops_name}')"
+        if label_for not in src and label_for_sq not in src:
+            raise SystemExit(f"ops artifact {ops_name} not labeled via _label_ops_artifact (M5)")
     print("OPS_ARTIFACTS_SIBLING_MARKERS")
 
-    # H3: source snapshot must be computed twice (before + after gate), not 3×.
+    # H3: source snapshot must be computed exactly twice in main (before + after gate).
+    # The def is outside main_src; count only calls inside main.
     snap_calls = main_src.count("source_snapshot()")
-    if snap_calls > 3:  # def reference + 2 calls (before + after) = 3 matches in main
-        raise SystemExit(f"source_snapshot called {snap_calls}× in main; expected 2 (L3)")
+    if snap_calls != 2:  # exactly 2 calls in main: before gate + after gate
+        raise SystemExit(f"source_snapshot called {snap_calls}× in main; expected exactly 2 (M4)")
     print("SNAPSHOT_COMPUTED_TWICE")
 
     # H4: pytest regex must reject failed/error counts.
@@ -573,6 +628,141 @@ def main() -> int:
         raise SystemExit("PYTHONDONTWRITEBYTECODE missing (H4 tree cleanliness)")
     print("H4_REGEX_STRICT_AND_TIMEOUT_HANDLED")
 
+    # H3: "21 passed" positive requirement must be enforced in the runner.
+    if r"\b21\s+passed\b" not in src:
+        raise SystemExit("21 passed positive assertion missing from runner (H3)")
+    # Meta-check: deleting the positive assertion must fail this checker.
+    # We verify the regex is present AND used in a refusal path.
+    if "21 SQL green receipt not observed" not in src:
+        raise SystemExit("21-passed refusal message missing (H3)")
+    print("H3_21_PASSED_POSITIVE_ENFORCED")
+
+    # H4: file-check negatives — _receipt_stat_ok must reject symlink,
+    # oversized file, and (on Linux) group-readable mode / nlink!=1.
+    import os as _os
+    import stat as _stat
+
+    with tempfile.TemporaryDirectory() as td:
+        ftd = Path(td)
+        # Oversized file
+        big = ftd / "big.json"
+        big.write_bytes(b"x" * 5000)
+        try:
+            mod._receipt_stat_ok(big)
+        except (mod.JourneyRefusal, OSError):
+            pass
+        else:
+            checks_big, _ = mod._receipt_stat_ok(big)
+            if checks_big.get("passed"):
+                raise SystemExit("oversized receipt passed stat checks (H4)")
+        print("H4_SIZE_NEGATIVE_OK")
+        # Symlink to a regular file
+        target = ftd / "target.json"
+        target.write_text("{}\n")
+        link = ftd / "link.json"
+        try:
+            link.symlink_to(target)
+        except OSError:
+            print("H4_SYMLINK_SKIP unavailable-on-windows")
+        else:
+            try:
+                mod._receipt_stat_ok(link)
+            except (mod.JourneyRefusal, OSError):
+                pass
+            else:
+                checks_link, _ = mod._receipt_stat_ok(link)
+                # On hosts without O_NOFOLLOW, symlink may be followed;
+                # the lstat cross-check should still catch it.
+                if checks_link.get("passed") and checks_link.get("lstat_matches"):
+                    raise SystemExit("symlink receipt passed stat checks (H4)")
+            print("H4_SYMLINK_NEGATIVE_OK")
+        # Group-readable mode (Linux only — Windows cannot express POSIX bits)
+        if hasattr(_os, "getuid"):
+            gr = ftd / "group-readable.json"
+            gr.write_text("{}\n")
+            gr.chmod(0o644)
+            checks_gr, _ = mod._receipt_stat_ok(gr)
+            if checks_gr.get("passed"):
+                raise SystemExit("group-readable receipt passed stat checks (H4)")
+            print("H4_MODE_NEGATIVE_OK")
+        else:
+            print("H4_MODE_SKIP unavailable-on-windows")
+        # nlink!=1 via hardlink (Linux only)
+        if hasattr(_os, "getuid"):
+            nlink_src = ftd / "nlink-src.json"
+            nlink_src.write_text("{}\n")
+            nlink_hard = ftd / "nlink-hard.json"
+            try:
+                _os.link(nlink_src, nlink_hard)
+            except OSError:
+                print("H4_NLINK_SKIP hardlink-unavailable")
+            else:
+                checks_nl, _ = mod._receipt_stat_ok(nlink_src)
+                if checks_nl.get("passed"):
+                    raise SystemExit("nlink!=1 receipt passed stat checks (H4)")
+                print("H4_NLINK_NEGATIVE_OK")
+        else:
+            print("H4_NLINK_SKIP unavailable-on-windows")
+
+    # H5: deadline negatives — stages must reject 0, 31, "30", None.
+    deadline_negatives = (0, 31, "30", None)
+    for bad_dl in deadline_negatives:
+        for stage_name, stage_fn in (
+            ("provision_capture_admission", mod.stage_provision_capture_admission),
+            ("observe_audience", mod.stage_observe_audience),
+            ("host_control", mod.stage_host_control),
+            ("current_turn", mod.stage_current_turn),
+            ("sender", mod.stage_sender),
+            ("receipt_bytes_in", mod.stage_receipt_bytes_in),
+            ("status_reconcile", mod.stage_status_reconcile),
+        ):
+            try:
+                if stage_name == "receipt_bytes_in":
+                    stage_fn({"raw_wire": b"x"}, bad_dl)
+                else:
+                    stage_fn({}, bad_dl)
+            except mod.JourneyRefusal:
+                pass
+            else:
+                raise SystemExit(
+                    f"stage {stage_name} accepted bad deadline {bad_dl!r} (H5)"
+                )
+    print("H5_DEADLINE_NEGATIVES_OK")
+
+    # H6: o_nofollow must be honest (not hardcoded True).
+    if '"o_nofollow": True' in src or "'o_nofollow': True" in src:
+        raise SystemExit("o_nofollow hardcoded True (H6)")
+    if "getattr(os, \"O_NOFOLLOW\", 0) != 0" not in src and "getattr(os, 'O_NOFOLLOW', 0) != 0" not in src:
+        # Check for the variable form
+        if "o_nofollow_available" not in src:
+            raise SystemExit("o_nofollow honest check missing (H6)")
+    print("H6_O_NOFOLLOW_HONEST")
+
+    # H1: Windows mode/nlink degradation must be present.
+    if "unavailable-on-windows" not in src:
+        raise SystemExit("Windows mode/nlink degradation missing (H1)")
+    if "mode_check" not in src:
+        raise SystemExit("mode_check degradation key missing (H1)")
+    print("H1_WINDOWS_DEGRADATION_PRESENT")
+
+    # M1: JourneyUnknown subclass must exist for routable UNKNOWN.
+    if not hasattr(mod, "JourneyUnknown"):
+        raise SystemExit("JourneyUnknown missing (M1)")
+    if not issubclass(mod.JourneyUnknown, mod.JourneyRefusal):
+        raise SystemExit("JourneyUnknown must subclass JourneyRefusal (M1)")
+    print("M1_JOURNEY_UNKNOWN_SUBCLASS")
+
+    # M3: Python floor must be checked in main().
+    if "sys.version_info" not in main_src:
+        raise SystemExit("Python version floor not enforced (M3)")
+    print("M3_PYTHON_FLOOR_ENFORCED")
+
+    # M8: docker compose plugin must be preflighted.
+    if "compose" not in main_src or "docker compose" not in src.lower() and "compose version" not in src:
+        if "docker compose plugin" not in src and "compose_ver" not in src:
+            raise SystemExit("docker compose preflight missing (M8)")
+    print("M8_COMPOSE_PREFLIGHT_PRESENT")
+
     # M7: openssl and pytest identities must be checked.
     if "openssl" not in main_src:
         raise SystemExit("openssl identity not checked (M7)")
@@ -580,10 +770,11 @@ def main() -> int:
         raise SystemExit("pytest identity not checked (M7)")
     print("M7_TOOL_IDENTITIES_EXTENDED")
 
-    # M7: bare assert must not be used for safety checks in main.
+    # M6: bare assert must not be used for safety checks in main (any indent).
     main_body = main_src
-    if "\n    assert " in main_body or "\n            assert " in main_body:
-        raise SystemExit("bare assert found in main() (M7)")
+    for indent in ("    ", "        ", "            "):
+        if f"\n{indent}assert " in main_body:
+            raise SystemExit(f"bare assert found in main() at indent {len(indent)} (M6)")
     print("NO_BARE_ASSERT_IN_MAIN")
 
     # H1: citation must note runner is STRICTER (entry+exit vs entry-only).

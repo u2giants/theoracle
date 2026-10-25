@@ -125,7 +125,7 @@ gates), not a stage of this one-shot.
 re-sign, `certificates`/`WORKER` fixtures
 (`test_hosting_boundary.py:18,28`), closed-denial matrix (bad identity/path/
 body/headers → 404/503), and peer-tamper → 503 case
-(`test_meeting_participation_sql.py:371-439`) are **not carried** by this
+(`test_meeting_participation_sql.py:428,436`) are **not carried** by this
 runner. They are an explicit named remaining gate. Stage 1 cannot execute
 until that gate is discharged. See Remaining gates #9.
 
@@ -196,6 +196,11 @@ present, so the worker entrypoint cannot be reached by accident.
   / worker restart / readback-loss proceeds to **stage 5** (read-only
   reconcile of the OUTCOME). UNKNOWN from any earlier stage (provision,
   observe, host-control, current-turn) **ends the journey at that stage**.
+  **Mechanism (M1):** a stage raises `JourneyUnknown(JourneyRefusal)` for
+  routable UNKNOWN; the main loop catches `JourneyUnknown` separately from
+  plain `JourneyRefusal` (which is always fatal STOP) and applies the routing
+  above. This is how an implementer distinguishes routable UNKNOWN from
+  fatal refusal.
 - **"No re-read" scope (H5):** the journey layer never re-reads a failing
   stage's inputs to retry. Factory-internal fresh readbacks
   (`meeting_participation_v1.py:201-210,231-240,256-269`) are the tested
@@ -243,10 +248,41 @@ There is **no contiguous `001..014` chain**. The sealed inventory is
 canonical inventory is derived from that tuple
 (`dev/oracle2/test_canonical_schema.py:27-43`) and the sealed bootstrap executes
 all of it (`dev/oracle2/test_canonical_schema.py:157-160`). **The journey uses the
-sealed bootstrap** and the runner **asserts** inventory and catalog equality
-against **sealed review-time constants** (H3) — `SEALED_INVENTORY_DIGEST` and
-`SEALED_CATALOG_DIGEST` — never against values computed from the same bytes
-the assertion re-reads. It does not claim a
+sealed bootstrap** and the runner **asserts** inventory digest against a
+**sealed review-time constant** (H3/C2) — `SEALED_INVENTORY_DIGEST` — using
+**git-blob bytes** (`git show HEAD:services/oracle-brain/sql/<name>`) so the
+constant is host-independent (LF, not CRLF-fragile worktree bytes). The exact
+constant is `7eb6085c3535175ac304b8ccd1db283aa64087042af52b2934a9065fd371be99`.
+Mint command (run on any host with git):
+
+```bash
+python -c "
+import hashlib, subprocess
+names = (
+    '001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
+    '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
+    '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
+    '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
+    '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
+    '014_replacement_source_custody.sql','017_processing_model_history.sql',
+    '018_original_review_reading_input.sql','019_employee_conversations.sql',
+    '020_meeting_capture.sql','021_meeting_participation.sql',
+    '022_consolidated_answer_delivery.sql','023_maintained_research.sql',
+    '027_legacy_migration.sql',
+)
+parts = []
+for n in names:
+    raw = subprocess.check_output(['git','show',f'HEAD:services/oracle-brain/sql/{n}'])
+    parts.append(n.encode()+b'\\0'+hashlib.sha256(raw).digest())
+print(hashlib.sha256(b''.join(parts)).hexdigest())
+"
+```
+
+The catalog digest is **recorded, not golden** (C3 option-a): `SEALED_CATALOG_DIGEST`
+is written to evidence but never compared against a sealed constant and there
+is no refuse-on-empty. Filling it later would churn the receipt-bound runner
+SHA and demand re-review (C5); the plan therefore does not require a fill.
+It does not claim a
 custom `001..014+020+021` chain, and it does not claim "no 17/18/19 union" —
 those files are in the sealed inventory.
 
@@ -260,6 +296,8 @@ those files are in the sealed inventory.
   never live inside the repository worktree (it would dirty the tree the
   source snapshot cannot see). SCRATCH parent must not be group/other-writable
   unless the sticky bit is set (standard `/tmp` mode 1777 is allowed — L2).
+  If the parent does not exist, the nearest existing ancestor is checked;
+  after mkdir the parent is re-checked to close the stat-then-mkdir TOCTOU (L9).
 - Owned cleanup: after `finally`, **always** read back
   `docker ps|network ls|volume ls`. Once identity is established, the filter
   uses the **real suffixed project name** (`identity['project']`, e.g.
@@ -274,7 +312,9 @@ those files are in the sealed inventory.
   (labeled `ops: true` / `non_evidence: true`) — never forensic evidence (C8).
 - Budgets: shared **120s** monotonic ceiling for journey stages (bootstrap +
   21 SQL green outside; budget armed only after both — C9); **per-request
-  ≤30s** validated per stage (M5); 0 F/E/S/timeout/launch/cleanup. No case
+  ≤30s** validated per stage (M5); 0 F/E/S/timeout/launch/cleanup. Skips are
+  recorded in a skip-disposition note but do **not** count as F/E/S failures
+  (L8): a `test_outbound_replay` skip is a skip, not a failure. No case
   cuts, no budget raises. **W10 SAME worker-fit for the participation suites
   is asserted, not measured** — they are appended to DOCUMENTARY/EVENT without
   the `_place_suites` measurement other families receive
@@ -283,21 +323,29 @@ those files are in the sealed inventory.
 - `ai-task-gates check --before database` must print a **precise ALLOW line**
   (`^ALLOW$` or `^gate: ALLOW$` per line — never a substring match) and must
   **not** print any `^DENIED$` / `^gate: DENIED$` line (M1). The sealed runner
-  invokes it and refuses on non-ALLOW or on any DENIED. `git`,
-  `ai-task-gates`, `docker`, `openssl` (via `version`, not `--version`), and
+  invokes it and refuses on non-ALLOW or on any DENIED. Each tool uses its
+  own working identity command (C1): `git --version`, `docker --version`,
+  `ai-task-gates version` (subcommand — `--version` does not exist and
+  would refuse every run), `openssl version` (not `--version`), and
   `pytest` (via `sys.executable -m pytest --version`) are resolved to absolute
   paths and their version identity is recorded in evidence; a missing version
-  is a **refusal**, not a recorded gap (M7).
+  is a **refusal**, not a recorded gap (M7). The `docker compose` plugin is
+  also preflighted (`docker compose version`) — a missing plugin is a
+  preflight refusal, not a late fixture failure (M8).
 - Review receipt required before release: exact full 40-char HEAD + runner
   SHA-256 + plan SHA-256 + checker SHA-256 + evidence SHA-256 + verdict
   `APPROVE`. All four SHA bindings use **git-blob semantics**
   (`git show HEAD:path | sha256sum`) so CRLF checkouts cannot diverge (H6).
   The sealed runner refuses without the receipt and never manufactures one.
   File checks follow `test_canonical_schema.py:96-114`
-  (`O_NOFOLLOW`, regular file, nlink=1, mode 0600, size ≤4096, stable stat,
+  (`O_NOFOLLOW`, regular file, nlink=1, mode bits & 0o077 == 0 — i.e. no
+  group/other permission bits, not a literal 0600 — size ≤4096, stable stat,
   lstat cross-check) where the host supports them; the payload is read via
   the **same O_NOFOLLOW fd** (H7 — no TOCTOU). On Windows `os.getuid` is
-  absent and that limit is recorded. Stop, do not bypass.
+  absent, POSIX mode bits and nlink==1 cannot be enforced, and those checks
+  degrade honestly (`mode_check: unavailable-on-windows`) without failing the
+  positive path (H1). `o_nofollow` records actual `O_NOFOLLOW` availability (H6).
+  Stop, do not bypass.
 - Synthetic/invented only. No company originals, production, paid providers,
   real Teams. **Real Teams producer stays UNQUALIFIED.** ACK ≠ visible message.
   Business acceptance held.
@@ -389,6 +437,13 @@ below) and does **not** bootstrap via conftest. The journey runner provides the
 externally bootstrapped admin URL. A standalone fresh-DB run of the SQL module
 needs the runner's bootstrap first.
 
+**Import-mode note (L10):** the 21 SQL module imports `certificates` from
+`test_hosting_boundary` via pytest's default prepend import mode
+(`test_meeting_participation_sql.py:34`). This works under the default
+`--import-mode=prepend` but breaks under `--import-mode=importlib`. The runner
+does not pass `--import-mode`; if collection fails after such a change, the
+failure is fail-closed (H4 attribution), not silent.
+
 ## Privilege-typing note (M1)
 
 The head commit's semantic change (typed write-time privilege refusals;
@@ -471,7 +526,7 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
    re-sign, `certificates`/`WORKER` fixtures
    (`test_hosting_boundary.py:18,28`), closed-denial matrix (bad identity/path/
    body/headers → 404/503), and peer-tamper → 503
-   (`test_meeting_participation_sql.py:371-439`). Named remaining gate; stage 1
+   (`test_meeting_participation_sql.py:428,436`). Named remaining gate; stage 1
    cannot execute until discharged.
 
 ## Fail-closed bindings enforced in the sealed runner
@@ -494,10 +549,13 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
 6. Source snapshot (worktree bytes + mode, including Dockerfile/.dockerignore/
    pyproject.toml/shell/compose/lockfiles, lstat not follow — M2) before the
    gate equals source snapshot after the gate.
-7. After bootstrap the live inventory digest and catalog digest match their
-   **sealed review-time constants** (H3): `SEALED_INVENTORY_DIGEST` and
-   `SEALED_CATALOG_DIGEST`. These are hardcoded at review time and are never
-   computed from the same on-disk files or DB state the assertion re-reads.
+7. After bootstrap the live inventory digest matches the **sealed review-time
+   constant** (H3/C2): `SEALED_INVENTORY_DIGEST` over **git-blob bytes**
+   (`git show HEAD:services/oracle-brain/sql/<name>` — host-independent LF).
+   The catalog digest is **recorded, not golden** (C3 option-a): it is written
+   to evidence but never compared against a sealed constant and there is no
+   refuse-on-empty. Filling `SEALED_CATALOG_DIGEST` later would churn the
+   receipt-bound runner SHA and demand re-review (C5).
 8. The 21 SQL module runs green against the bootstrapped DB before any journey
    stage (H4).
 9. After the run, exact owned synthetic containers/networks/volumes for the
@@ -506,8 +564,10 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
    else STOP when identity was established.
 10. Each stage's `deadline_s` is validated as an int in `(0, 30]` (M5).
 11. Stage binding dicts include all required keys per `STAGE_BINDING_SCHEMAS` (M9).
-12. `--version` identity is established for every required tool; a missing
-    `--version` is a refusal (M7).
+12. Per-tool identity is established via each tool's working command (C1):
+    `git --version`, `docker --version`, `ai-task-gates version` (subcommand,
+    NOT `--version` which does not exist), `openssl version` (not `--version`).
+    A missing identity command is a refusal (M7).
 
 **C8 — refusal/evidence exclusivity:** refused runs write only `refusal.json`
 with `refused: true` / `non_evidence: true` and **never** `journey-evidence.json`.
