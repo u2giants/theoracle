@@ -77,7 +77,18 @@ def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,g
             setup_deadline=datetime.now(timezone.utc)+timedelta(seconds=29)
             with _request_fence_v1(float(setup_end)):
                 h,own=own_history(admin_url,f)
-                own=ConsolidationAuthorityV1(h['url'],binding=replace(own.binding,retained_semantic_admissions=state['q']['trusted_admission_hashes']),delivery_capability_body_hashes=own.delivery_capability_body_hashes)
+                # This browser journey runs far longer than the default fixture
+                # admission window. Extend only this test-owned history admission
+                # (and the authority horizon derived from it) so the post-restore
+                # read is still inside the original window. Expiry-negatives in
+                # other modules keep their short windows.
+                horizon=datetime.now(timezone.utc)+timedelta(minutes=10)
+                with psycopg.connect(admin_url) as extend:
+                    extend.execute(
+                        'UPDATE oracle2.processing_model_admissions_v1 SET expires_at=%s WHERE admission_id=%s',
+                        (horizon,h['aid']),
+                    )
+                own=ConsolidationAuthorityV1(h['url'],binding=replace(own.binding,original_horizon=horizon,retained_semantic_admissions=state['q']['trusted_admission_hashes']),delivery_capability_body_hashes=own.delivery_capability_body_hashes)
                 before=own.projection_delivery_v1(state['manifest'].artifact_id,state['manifest'].version,deadline=setup_deadline)
                 assert before.model_content_hash==state['manifest'].content_hash
                 histories.append(h)
@@ -147,6 +158,22 @@ def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,g
                 time.sleep(.05)
             protected('process-cleanup.json',canonical_bytes(dict(process_group=child.pid,remaining_active=remaining)))
             assert not remaining
+        if child.returncode!=0:
+            dump={}
+            try:
+                with psycopg.connect(admin_url) as c:
+                    dump['admissions']=[dict(row) for row in c.execute(
+                        'SELECT admission_id,role_name,operation,runtime_hash,registry_hash,config_hash,issued_at,expires_at FROM oracle2.processing_model_admissions_v1 WHERE admission_id=ANY(%s)',
+                        ([h['aid'] for h in histories],),
+                    )]
+                    dump['revocations']=[dict(row) for row in c.execute(
+                        'SELECT * FROM oracle2.processing_model_admission_revocations_v1 WHERE admission_id=ANY(%s)',
+                        ([h['aid'] for h in histories],),
+                    )]
+                dump['now']=datetime.now(timezone.utc).isoformat()
+            except BaseException as e:
+                dump['error']=repr(e)
+            protected('admission-failure-dump.json',(json.dumps(dump,default=str)+'\n').encode())
         assert child.returncode==0,output[-6000:]
         receipt=json.loads((directory/'receipt.json').read_bytes())
         assert receipt['actual_next'] is True and receipt['all_requests_original_window'] is True
