@@ -106,6 +106,17 @@ def main() -> int:
     head = mod.require_head()
     print("HEAD_BIND_OK", head)
 
+    # Temp base must resolve outside the repository so a broken TMPDIR cannot
+    # create repo litter or turn residue checks into M-C refusals (L3/C3).
+    import tempfile
+    temp_base = Path(tempfile.gettempdir()).resolve()
+    root = Path(__file__).resolve().parents[2]
+    if temp_base == root or root in temp_base.parents:
+        raise SystemExit(
+            f"temp base {temp_base} is inside repository root {root}"
+        )
+    print("TEMP_BASE_OUTSIDE_ROOT", temp_base)
+
     # Stages must refuse closed under the extended binding signatures (H-D).
     stage_cases = (
         ("stage_provision_capture_admission", lambda: mod.stage_provision_capture_admission({}, 30)),
@@ -1458,6 +1469,17 @@ def main() -> int:
             f"functions: got {sorted(found_pins)} (L5)"
         )
     print("L5_EXACTLY_21_PARAMETRIZE_PINS")
+    test_func_count = sum(
+        1
+        for node in sql_tree.body
+        if isinstance(node, _ast_l5.FunctionDef) and node.name.startswith("test_")
+    )
+    if test_func_count != 21:
+        raise SystemExit(
+            f"L5 expected 21 test_ functions in participation SQL module, "
+            f"found {test_func_count}"
+        )
+    print("L5_EXACTLY_21_TEST_FUNCTIONS")
 
     # L2: source snapshot must exclude build/vendored trees.
     if "_snapshot_excluded" not in src and ".venv/" not in src:

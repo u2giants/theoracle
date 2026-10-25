@@ -257,9 +257,10 @@ def sha256_file(path: Path) -> str:
 def sha256_git_blob(path: Path) -> str:
     """Git-blob SHA-256 for receipt bindings (H6).
 
-    Uses `git show HEAD:<relpath> | sha256sum` semantics so CRLF checkouts
-    cannot diverge from the pinned bytes. All four receipt SHA bindings
-    (runner/plan/checker/evidence) use this helper.
+    Uses `git show HEAD:<relpath>` semantics so CRLF checkouts cannot diverge
+    from the pinned bytes. HEAD here is symbolic; a mid-run checkout changes
+    these hashes and the receipt comparison refuses (fail-closed). The
+    inventory digest helper uses the bound 40-char head explicitly.
     """
     rel = path.resolve().relative_to(ROOT.resolve()).as_posix()
     git = _tool_identity("git")
@@ -364,7 +365,8 @@ def _scratch() -> Path:
             "SCRATCH_ENV reuse requires an empty scratch directory after "
             f"marker cleanup (L3); residue present: {', '.join(residue)}"
         )
-    # SCRATCH_ENV reuse: unlink the opposite marker so a reused directory
+    # SCRATCH_ENV reuse: unlink leftover refusal/evidence markers so a reused
+    # directory cannot carry a prior run's markers into a new run.
     # cannot hold stale refusal.json beside fresh journey-evidence.json.
     # Only after the residue check (L6) so a refused run never mutates scratch.
     for stale in markers:

@@ -232,7 +232,12 @@ present, so the worker entrypoint cannot be reached by accident.
   Fixture/bootstrap setup sits **outside** that budget, matching
   `verify_workflow_integrity.py:384-386`; the budget is armed only **after**
   `worker_postgres` + `bootstrap_canonical_test_schema` + 21 SQL green,
-  matching `:407` (C9). The runner enforces the budget with a ContextVar
+  matching `:407` (C9). The runner calls `bootstrap_canonical_test_schema`
+  on the fixture `oracle2` database that compose init already populated with
+  migrations 001/002/004. That path is valid only because 001/002/004 are
+  replay-idempotent (`IF NOT EXISTS` / `OR REPLACE` / trigger guards). Any
+  future non-idempotent edit to those migrations must switch this runner to
+  a fresh `CREATE DATABASE` first (as `owned_phase_database` does). The runner enforces the budget with a ContextVar
   monotonic fence that requires finite floats and performs entry + exit
   remaining checks (H1). Note: `request_deadline_v1._request_fence_v1`
   (request_deadline_v1.py:26-35) is entry-check-only; the runner adds an

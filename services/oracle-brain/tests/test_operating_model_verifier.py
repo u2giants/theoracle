@@ -332,6 +332,24 @@ def test_original_browser_upload_is_required_with_browser_install_before_w10():
     assert workflow.index('name: Install browser for synthetic connected-document proof') < workflow.index('name: New operating-model documentary and event contracts')
 
 
+def test_s08_participation_suites_are_registered_once_in_w10_and_phase():
+    from scripts.oracle2.verify_phase import S08_TESTS
+    from scripts.oracle2.verify_workflow_integrity import (
+        MEETING_PARTICIPATION_CORE_SUITES,
+        MEETING_PARTICIPATION_EVENT_SUITES,
+    )
+    for name in MEETING_PARTICIPATION_CORE_SUITES:
+        assert verifier.required_suites('W10').count(name) == 1
+        assert name in verifier.DOCUMENTARY or name in verifier.EVENT
+        assert S08_TESTS.count('test_' + name + '.py') == 1
+    for name in MEETING_PARTICIPATION_EVENT_SUITES:
+        assert verifier.required_suites('W10').count(name) == 1
+        assert name in verifier.EVENT
+        assert S08_TESTS.count('test_' + name + '.py') == 1
+    assert len(S08_TESTS) == 6
+    assert S08_TESTS.count('test_meeting_participation.py') == 1
+
+
 
 def test_recorded_source_inventory_binds_shared_evidence_and_phase_frontdoor_bytes(tmp_path,monkeypatch):
     import subprocess
