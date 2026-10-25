@@ -159,15 +159,17 @@ def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,g
             dump={}
             try:
                 with psycopg.connect(admin_url) as c:
-                    dump['admissions']=[dict(row) for row in c.execute(
+                    cols=('admission_id','role_name','operation','runtime_hash','registry_hash','config_hash','issued_at','expires_at')
+                    dump['admissions']=[dict(zip(cols,row)) for row in c.execute(
                         'SELECT admission_id,role_name,operation,runtime_hash,registry_hash,config_hash,issued_at,expires_at FROM oracle2.processing_model_admissions_v1 WHERE admission_id=ANY(%s)',
                         ([h['aid'] for h in histories],),
                     )]
-                    dump['revocations']=[dict(row) for row in c.execute(
-                        'SELECT * FROM oracle2.processing_model_admission_revocations_v1 WHERE admission_id=ANY(%s)',
+                    dump['revocations']=[str(row[0]) for row in c.execute(
+                        'SELECT admission_id FROM oracle2.processing_model_admission_revocations_v1 WHERE admission_id=ANY(%s)',
                         ([h['aid'] for h in histories],),
                     )]
                 dump['now']=datetime.now(timezone.utc).isoformat()
+                dump['history_aids']=[str(h['aid']) for h in histories]
             except BaseException as e:
                 dump['error']=repr(e)
             protected('admission-failure-dump.json',(json.dumps(dump,default=str)+'\n').encode())
