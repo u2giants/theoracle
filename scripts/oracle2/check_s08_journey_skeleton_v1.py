@@ -352,6 +352,8 @@ def main() -> int:
         reuse = Path(td) / "reused-scratch"
         reuse.mkdir()
         (reuse / "ops-schema-receipt.json").write_text("{}\n")
+        # L6: a stale marker must survive a residue refusal (no unlink-before-refuse).
+        (reuse / "refusal.json").write_text('{"refused": true}\n')
         _os_m3.environ[mod.SCRATCH_ENV] = str(reuse)
         try:
             mod._scratch()
@@ -362,6 +364,15 @@ def main() -> int:
                     f"SCRATCH reuse residue refusal not tagged (L3): {e}"
                 )
             print("SCRATCH_REUSE_RESIDUE_REFUSED", msg[:80])
+            if not (reuse / "refusal.json").exists():
+                raise SystemExit(
+                    "SCRATCH residue refusal unlinked a stale marker (L6)"
+                )
+            if not (reuse / "ops-schema-receipt.json").exists():
+                raise SystemExit(
+                    "SCRATCH residue refusal removed residue before naming it (L6)"
+                )
+            print("L6_MARKERS_SURVIVE_RESIDUE_REFUSAL")
         except OSError as e:
             raise SystemExit(
                 f"SCRATCH reuse raised raw OSError/FileExistsError (L3): "
@@ -626,6 +637,15 @@ def main() -> int:
         raise SystemExit("ALLOW_LINE matches a denial substring")
     if mod.ALLOW_LINE.search("  ALLOW  ") is not None:
         raise SystemExit("ALLOW_LINE accepts surrounding whitespace (M1)")
+    # H1: never-substring — an unanchored may-start phrase must NOT match.
+    if mod.ALLOW_LINE.search('note: may start for effective class "shared-db"') is not None:
+        raise SystemExit("ALLOW_LINE matches unanchored may-start substring (H1)")
+    if mod.ALLOW_LINE.search('prefix ai-task-gates: "database" may start for effective class') is not None:
+        raise SystemExit("ALLOW_LINE matches mid-line may-start substring (H1)")
+    if mod.ALLOW_LINE.search(
+        '\n\tai-task-gates: "database" may start for effective class "code"'
+    ) is not None:
+        raise SystemExit("ALLOW_LINE matches indented may-start line (H1)")
     if mod.DENIED_LINE.search("DENIED") is None:
         raise SystemExit("DENIED_LINE does not match 'DENIED'")
     if mod.DENIED_LINE.search("gate: DENIED") is None:
@@ -1009,6 +1029,8 @@ def main() -> int:
         ("collected 21 items\n\n21 passed in 3.0s", True),
         ("collected 22 items\n\n21 passed in 3.0s", False),  # L1: collected pin
         ("collected 20 items\n\n21 passed in 3.0s", False),  # L1: collected pin
+        ("21 passed-foo", False),  # L8: hyphen suffix is not green
+        ("21 passedfoo", False),  # L8: glued word suffix is not green
     )
     for tail, expected_ok in green_cases:
         ok, reason = mod.sql_green_receipt_ok(tail)
@@ -1021,8 +1043,9 @@ def main() -> int:
     print("H3_H4_SQL_GREEN_HELPER_BEHAVIORAL_OK")
 
     # H3: "21 passed" positive requirement must be enforced in the runner.
-    if r"\b21\s+passed\b" not in src:
-        raise SystemExit("21 passed positive assertion missing from runner (H3)")
+    # L8: the pattern carries a trailing (?![\w-]) boundary.
+    if r"\b21\s+passed(?![\w-])" not in src:
+        raise SystemExit("21 passed positive assertion missing from runner (H3/L8)")
     # Meta-check: deleting the positive assertion must fail this checker.
     # We verify the regex is present AND used in a refusal path.
     if "21 SQL green receipt not observed" not in src:
@@ -1389,6 +1412,92 @@ def main() -> int:
     if "JourneyComplete" in src:
         raise SystemExit("JourneyComplete still present (dead code)")
     print("JOURNEY_COMPLETE_REMOVED")
+
+    # L5: pin exactly-21 via the two single-element parametrize lists in
+    # test_meeting_participation_sql.py — each list must stay length==1.
+    sql_tests_path = ROOT / "services/oracle-brain/tests/test_meeting_participation_sql.py"
+    if not sql_tests_path.is_file():
+        raise SystemExit("test_meeting_participation_sql.py missing (L5)")
+    sql_tests_src = sql_tests_path.read_text(encoding="utf-8")
+    import ast as _ast_l5
+
+    sql_tree = _ast_l5.parse(sql_tests_src)
+    pinned_funcs = {
+        "test_actual_proactive_off_cooldown_and_lifetime_count_survives_toggle",
+        "test_actual_source_window_expired_own_forensic_receipt_still_no_send",
+    }
+    found_pins: dict[str, int] = {}
+    for node in sql_tree.body:
+        if not isinstance(node, _ast_l5.FunctionDef) or node.name not in pinned_funcs:
+            continue
+        for dec in node.decorator_list:
+            if not (
+                isinstance(dec, _ast_l5.Call)
+                and isinstance(dec.func, _ast_l5.Attribute)
+                and dec.func.attr == "parametrize"
+                and dec.args
+                and isinstance(dec.args[0], _ast_l5.Constant)
+                and dec.args[0].value == "participation_sql"
+                and len(dec.args) >= 2
+            ):
+                continue
+            list_node = dec.args[1]
+            if not isinstance(list_node, (_ast_l5.List, _ast_l5.Tuple)):
+                raise SystemExit(
+                    f"L5 parametrize args for {node.name} is not a list/tuple"
+                )
+            n = len(list_node.elts)
+            if n != 1:
+                raise SystemExit(
+                    f"L5 parametrize list for {node.name} has length {n}, expected 1"
+                )
+            found_pins[node.name] = n
+    if set(found_pins) != pinned_funcs:
+        raise SystemExit(
+            f"L5 exactly-21 pin parametrize lists not found for all pinned "
+            f"functions: got {sorted(found_pins)} (L5)"
+        )
+    print("L5_EXACTLY_21_PARAMETRIZE_PINS")
+
+    # L2: source snapshot must exclude build/vendored trees.
+    if "_snapshot_excluded" not in src and ".venv/" not in src:
+        raise SystemExit("snapshot .venv/out/dist/.turbo excludes missing (L2)")
+    for excl in (".venv/", "out/", "dist/", ".turbo/"):
+        if excl not in src:
+            raise SystemExit(f"snapshot exclude {excl!r} missing (L2)")
+    print("L2_SNAPSHOT_EXCLUDES_PRESENT")
+
+    # L6: _scratch must check residue BEFORE unlinking markers.
+    scratch_fn = src[src.find("def _scratch"):src.find("def _monotonic_end")]
+    i_residue = scratch_fn.find("residue = sorted")
+    i_unlink = scratch_fn.find(".unlink()")
+    if i_residue < 0 or i_unlink < 0:
+        raise SystemExit("_scratch missing residue check or unlink (L6)")
+    if i_unlink < i_residue:
+        raise SystemExit("_scratch unlinks markers before residue check (L6)")
+    print("L6_RESIDUE_BEFORE_UNLINK")
+
+    # L3: success-path cleanup failure must mark refused / write a tagged marker.
+    if "_mark_cleanup_failure" not in src:
+        raise SystemExit("cleanup-failure marker helper missing (L3)")
+    if "cleanup-failure.json" not in src:
+        raise SystemExit("cleanup-failure.json marker missing (L3)")
+    if "_mark_cleanup_failure" not in finally_src:
+        raise SystemExit("cleanup-failure helper not called from finally (L3)")
+    print("L3_CLEANUP_FAILURE_MARKER_PRESENT")
+
+    # L1: pre-DB inventory parse must require exactly one Assign and reject
+    # AugAssign/AnnAssign (mirrors test_canonical_schema.py:28-34).
+    if "AugAssign" not in src or "AnnAssign" not in src:
+        raise SystemExit("assert_sealed_inventory missing AugAssign/AnnAssign guard (L1)")
+    if "len(assignments) != 1" not in src:
+        raise SystemExit("assert_sealed_inventory missing exactly-one-Assign check (L1)")
+    print("L1_INVENTORY_CANONICAL_MIRROR")
+
+    # L7: release-path receipt copy must refuse a symlink (non-following).
+    if "is_symlink" not in src or "must not be a symlink" not in src:
+        raise SystemExit("release-path symlink refusal missing (L7)")
+    print("L7_RECEIPT_COPY_NONFOLLOWING")
 
     print("OFFLINE_SKELETON_CHECKS_PASS")
     return 0

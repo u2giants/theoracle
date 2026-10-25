@@ -43,11 +43,17 @@ Backend source of truth this journey binds (already sealed on the head):
 - `services/oracle-brain/tests/test_hosting_boundary.py`
 - `dev/oracle2/test_worker_postgres_fixture.py`
 - `dev/oracle2/test_canonical_schema.py`
+- `dev/oracle2/test_tls_bootstrap.py` (TLS issuer / CN mechanism)
 - `scripts/oracle2/verify_workflow_integrity.py`
 - `scripts/oracle2/verify_phase.py`
 - `apps/workers/src/lib/recall.ts`
 - `apps/workers/src/lib/meeting-participation.ts`
 - `packages/shared/src/protected-meeting-worker.ts` (owner of `exchange_provider_v1`)
+- `services/oracle-brain/tests/test_replacement_requester_sql.py` (`configured_settings` used by 21-SQL)
+- `services/oracle-brain/oracle_brain/hosting/_protected_control_listener_v1.py` (`_request_fence_v1`)
+
+This list names load-bearing bindings for the cited stages. It is **not** an
+exhaustive completeness claim over every backend file the journey touches.
 
 Harness deps: `openssl` (mTLS peer-file re-sign), `docker compose`
 (`dev/oracle2/compose.yaml`), `pytest` (21 SQL runner). (H9: the prior list
@@ -57,7 +63,9 @@ omitted `021_meeting_participation.sql`, `participant_epoch.py`,
 `participation_runtime_v1`, `participation_wire_v1`, `meeting_capture_v1`,
 the `@oracle/shared/protected-meeting-worker` owner, `conftest.py`,
 `test_hosting_boundary`, and `openssl` — all load-bearing for the cited
-stages.)
+stages. M1: a later pass also omitted `test_tls_bootstrap.py`,
+`test_replacement_requester_sql.py`, and
+`_protected_control_listener_v1.py`, now listed above.)
 
 ## Exact journey stages the eventual one-shot must prove (invented data only)
 
@@ -344,9 +352,18 @@ those files are in the sealed inventory.
   (`verify_workflow_integrity.py:104-122` vs `:201-242`). This one-shot does
   **not** prove W10 SAME.
 - `ai-task-gates check --before database` must print a **precise ALLOW line**
-  (`^ALLOW$` or `^gate: ALLOW$` per line — never a substring match) and must
-  **not** print any `^DENIED$` / `^gate: DENIED$` line (M1). The sealed runner
-  invokes it and refuses on non-ALLOW or on any DENIED. **Exit-code contract
+  — exactly one of three accepted forms, each anchored at `^` per line and
+  **never a substring match** (M1):
+  1. `^ALLOW$`
+  2. `^gate: ALLOW$`
+  3. `^ai-task-gates: "database" may start for effective class` — the full
+     real ai-task-gates line (prefix through `effective class`; the class and
+     repo tail vary and are not pinned).
+  It must **not** print any `^DENIED$` / `^gate: DENIED$` line (M1). The sealed
+  runner invokes it and refuses on non-ALLOW or on any DENIED. **DENIED STOP
+  form (documented):** the real `ai-task-gates: STOP before "…"` line is
+  matched as a line-anchored prefix `^ai-task-gates: STOP` (the third DENIED
+  form alongside `^DENIED$` and `^gate: DENIED$`). **Exit-code contract
   (M4, pinned):** a zero exit with a precise ALLOW line and no DENIED line is
   the only pass. A nonzero exit or timeout is **always** a refusal — the
   runner captures stdout/stderr, writes `ops-database-gate.txt` **even on
@@ -595,11 +612,15 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
    (C3), whose `head` equals that exact 40-char HEAD, whose `runner_sha256` /
    `plan_sha256` / `checker_sha256` / `evidence_sha256` match the git-blob
    hashes of the files on disk (H6), and whose `verdict` is `APPROVE`. The
-   runner never manufactures a receipt. File checks follow
+   runner never manufactures a receipt. The release path must be a regular
+   file — a symlink is refused (L7), so the copy is non-following; file
+   checks then apply to the scratch copy of that regular source. File checks follow
    `test_canonical_schema.py:96-114` (same-fd payload read, H7) where the host
    supports them.
 5. `ai-task-gates check --before database` prints a precise ALLOW line
-   (`^ALLOW$` or `^gate: ALLOW$`) and **no** DENIED line (M1).
+   (`^ALLOW$`, `^gate: ALLOW$`, or `^ai-task-gates: "database" may start for
+   effective class` — three accepted forms, all line-anchored, never
+   substring) and **no** DENIED line (M1).
 6. Source snapshot (worktree bytes + mode, including Dockerfile/.dockerignore/
    pyproject.toml/shell/compose/lockfiles, lstat not follow — M2) before the
    gate equals source snapshot after the gate.

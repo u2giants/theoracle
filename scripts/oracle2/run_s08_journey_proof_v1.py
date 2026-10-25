@@ -144,14 +144,20 @@ SEALED_INVENTORY_DIGEST = (
 # An empty value is acceptable; there is no refuse-on-empty.
 SEALED_CATALOG_DIGEST = ""  # recorded, not golden (C3 option-a)
 # Precise ALLOW token: a whole line that is exactly ALLOW, optionally with a
-# `gate: ` prefix. Substring match is forbidden (H-G/M1). Any DENIED line
-# present causes refusal regardless of ALLOW (M1).
+# `gate: ` prefix, OR a line that STARTS with the real ai-task-gates may-start
+# phrasing. Substring match is forbidden (H-G/M1) — both alternatives are
+# anchored at ^ (MULTILINE). Any DENIED line present causes refusal regardless
+# of ALLOW (M1). Third accepted form (documented in the plan gate contract):
+# the real `ai-task-gates: "database" may start for effective class ...` line.
 ALLOW_LINE = re.compile(
-    r"^(?:gate: )?ALLOW$|may start for effective class",
+    r"^(?:gate: )?ALLOW$|^ai-task-gates: \"database\" may start for effective class",
     re.MULTILINE,
 )
+# DENIED: whole-line DENIED forms, plus the real ai-task-gates STOP line.
+# The STOP alternative is a line-anchored prefix of the real
+# `ai-task-gates: STOP before "..."` form (documented in the plan).
 DENIED_LINE = re.compile(
-    r"^(?:gate: )?DENIED$|ai-task-gates: STOP",
+    r"^(?:gate: )?DENIED$|^ai-task-gates: STOP",
     re.MULTILINE,
 )
 # H3/H4/L1: pytest green-receipt patterns. Factored into a helper so the checker
@@ -161,7 +167,8 @@ DENIED_LINE = re.compile(
 # L1: skipped/xfailed/xpassed/deselected counts are non-green too — "21 passed,
 # 1 skipped" (22 collected) must NOT count as green. SQL_GREEN_COLLECTED pins
 # the collected count when the pytest "collected N items" line is present.
-SQL_GREEN_PASSED = re.compile(r"\b21\s+passed\b")
+# L8: trailing (?![\w-]) so "21 passed-foo" is not green.
+SQL_GREEN_PASSED = re.compile(r"\b21\s+passed(?![\w-])")
 SQL_GREEN_FAILED = re.compile(
     r"\b\d+\s+(?:failed|errors?|skipped|xfailed|xpassed|deselected)\b"
 )
@@ -343,23 +350,27 @@ def _scratch() -> Path:
     scratch.chmod(0o700)
     # L9: re-check parent after mkdir to close the TOCTOU window.
     _check_parent_mode(parent)
-    # SCRATCH_ENV reuse: unlink the opposite marker so a reused directory
-    # cannot hold stale refusal.json beside fresh journey-evidence.json.
-    for stale in ("refusal.json", "journey-evidence.json"):
-        p = scratch / stale
-        if p.exists():
-            p.unlink()
-    # L3: a reused SCRATCH_ENV directory must be empty of any other residue
-    # (e.g. a leftover ops-schema-receipt.json). Otherwise the schema-receipt
-    # O_EXCL write later would crash with a raw FileExistsError. Fail closed
-    # with a tagged JourneyRefusal naming the residue instead — never a raw
-    # OSError from a downstream writer.
-    residue = sorted(p.name for p in scratch.iterdir())
+    # L6: check residue FIRST (markers excluded) and refuse before unlinking
+    # anything — a refused SCRATCH_ENV reuse must be side-effect-free and leave
+    # any prior markers intact. L3: a reused SCRATCH_ENV directory must be empty
+    # of any other residue (e.g. a leftover ops-schema-receipt.json). Otherwise
+    # the schema-receipt O_EXCL write later would crash with a raw
+    # FileExistsError. Fail closed with a tagged JourneyRefusal naming the
+    # residue instead — never a raw OSError from a downstream writer.
+    markers = ("refusal.json", "journey-evidence.json")
+    residue = sorted(p.name for p in scratch.iterdir() if p.name not in markers)
     if residue:
         raise JourneyRefusal(
             "SCRATCH_ENV reuse requires an empty scratch directory after "
             f"marker cleanup (L3); residue present: {', '.join(residue)}"
         )
+    # SCRATCH_ENV reuse: unlink the opposite marker so a reused directory
+    # cannot hold stale refusal.json beside fresh journey-evidence.json.
+    # Only after the residue check (L6) so a refused run never mutates scratch.
+    for stale in markers:
+        p = scratch / stale
+        if p.exists():
+            p.unlink()
     return scratch
 
 
@@ -648,6 +659,13 @@ def require_review_receipt(head: str, scratch: Path) -> dict:
         raise JourneyRefusal(
             f"review receipt release path absent: {release_path} (C3)"
         )
+    # L7: never follow a symlink at the release path — copyfile would follow
+    # it. Fail closed instead of trusting a redirected source; the file checks
+    # below then apply to a regular-file scratch copy of that regular source.
+    if release_path.is_symlink():
+        raise JourneyRefusal(
+            f"review receipt release path must not be a symlink (L7/C3): {release_path}"
+        )
     receipt_path = scratch / "review-receipt.json"
     if receipt_path.exists():
         receipt_path.unlink()
@@ -807,6 +825,29 @@ def require_database_gate(scratch: Path, tools: dict) -> str:
     return out
 
 
+# L2: build/vendored trees are not worktree source for mutation detection.
+# .venv/, out/, dist/, .turbo/ would otherwise churn the snapshot on every
+# tooling run and are not DB-image inputs.
+SNAPSHOT_EXCLUDE_PREFIXES = (
+    ".git/",
+    "node_modules/",
+    ".ai/reviews/packets/",
+    ".venv/",
+    "out/",
+    "dist/",
+    ".turbo/",
+)
+_SNAPSHOT_EXCLUDE_DIRS = frozenset(
+    {".git", "node_modules", ".venv", "out", "dist", ".turbo"}
+)
+
+
+def _snapshot_excluded(rel: str) -> bool:
+    if rel.startswith(SNAPSHOT_EXCLUDE_PREFIXES):
+        return True
+    return any(part in _SNAPSHOT_EXCLUDE_DIRS for part in rel.split("/"))
+
+
 def source_snapshot() -> dict[str, str]:
     """Hash worktree file CONTENTS (sha256 of bytes) + mode (H-F/M2).
 
@@ -825,7 +866,7 @@ def source_snapshot() -> dict[str, str]:
         if stat.S_ISLNK(st.st_mode):
             # Record symlinks as present-with-target-hash so a swap is visible.
             rel = path.relative_to(ROOT).as_posix()
-            if rel.startswith((".git/", "node_modules/", ".ai/reviews/packets/")):
+            if _snapshot_excluded(rel):
                 continue
             try:
                 target_hash = hashlib.sha256(os.readlink(path).encode()).hexdigest()
@@ -836,7 +877,7 @@ def source_snapshot() -> dict[str, str]:
         if not stat.S_ISREG(st.st_mode):
             continue
         rel = path.relative_to(ROOT).as_posix()
-        if rel.startswith((".git/", "node_modules/", ".ai/reviews/packets/")):
+        if _snapshot_excluded(rel):
             continue
         name = path.name
         if not _is_snapshotted_source(path, name):
@@ -852,24 +893,51 @@ def source_snapshot() -> dict[str, str]:
 def assert_sealed_inventory() -> dict:
     """Assert the sealed SYNTHETIC_MIGRATIONS inventory without importing psycopg (H-I).
 
-    Parses the tuple from verify_workflow_integrity.py the same way
-    canonical_synthetic_migrations does. The live bootstrap assertion happens
-    later inside main() via bootstrap_canonical_test_schema / _inventory_digest /
-    _catalog with golden comparison (H3). This helper never merely echoes
-    SEALED_MIGRATION_INVENTORY_NOTE.
+    L1: pre-DB inventory parse mirrors test_canonical_schema.py:28-34 exactly —
+    one explicit Assign, no AugAssign/AnnAssign, closed tuple shape, and
+    actual regular (non-symlink) migration files. The live bootstrap assertion
+    happens later inside main() via bootstrap_canonical_test_schema /
+    _inventory_digest / _catalog with golden comparison (H3). This helper never
+    merely echoes SEALED_MIGRATION_INVENTORY_NOTE.
     """
     import ast
 
     tree = ast.parse((ROOT / "scripts/oracle2/verify_workflow_integrity.py").read_text())
-    observed: tuple[str, ...] | None = None
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
+    assignments = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
             isinstance(t, ast.Name) and t.id == "SYNTHETIC_MIGRATIONS" for t in node.targets
-        ):
-            observed = tuple(ast.literal_eval(node.value))
-            break
-    if observed is None:
-        raise JourneyRefusal("SYNTHETIC_MIGRATIONS tuple not found in verifier")
+        )
+    ]
+    augmented = any(
+        isinstance(node, (ast.AugAssign, ast.AnnAssign))
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "SYNTHETIC_MIGRATIONS"
+        for node in tree.body
+    )
+    if len(assignments) != 1 or augmented:
+        raise JourneyRefusal(
+            "one explicit canonical synthetic migration inventory required (L1)"
+        )
+    names = ast.literal_eval(assignments[0].value)
+    if (
+        type(names) is not tuple
+        or not names
+        or len(set(names)) != len(names)
+        or any(type(n) is not str or not re.fullmatch(r"[0-9]{3}_[a-z0-9_]+\.sql", n) for n in names)
+        or any(n in names for n in ("015_native_trigger_proof.sql", "016_native_trigger_proof_v2.sql"))
+    ):
+        raise JourneyRefusal(
+            "closed canonical synthetic migration inventory required (L1)"
+        )
+    files = tuple(ROOT / "services/oracle-brain/sql" / n for n in names)
+    if any(not p.is_file() or p.is_symlink() for p in files):
+        raise JourneyRefusal(
+            "actual regular canonical synthetic migrations required (L1)"
+        )
+    observed: tuple[str, ...] = tuple(names)
     expected = tuple(SEALED_MIGRATION_INVENTORY)
     if observed != expected:
         raise JourneyRefusal(
@@ -1320,6 +1388,40 @@ def _owned_absence_readback(project: str, *, prefix_aware: bool = False) -> dict
     }
 
 
+def _mark_cleanup_failure(
+    scratch: Path, reason: str, head: str | None
+) -> None:
+    """L3: success-path cleanup failure must not leave refused:false evidence.
+
+    Rewrites journey-evidence.json with refused:true (when present) and writes
+    a tagged cleanup-failure marker so the nonzero exit is visible in scratch.
+    Never writes refusal.json after evidence (C8 exclusivity).
+    """
+    evidence_path = scratch / "journey-evidence.json"
+    if evidence_path.exists():
+        try:
+            data = json.loads(evidence_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            data = None
+        if isinstance(data, dict):
+            data["refused"] = True
+            data["cleanup_failure"] = str(reason)[:2000]
+            evidence_path.write_text(json.dumps(data, sort_keys=True) + "\n")
+    (scratch / "cleanup-failure.json").write_text(
+        json.dumps(
+            {
+                "refused": True,
+                "non_evidence": True,
+                "tag": "L3",
+                "reason": str(reason)[:2000],
+                "head": head,
+            },
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
 def _write_refusal(scratch: Path, reason: str, stage: str | None, head: str | None) -> None:
     """Refused runs write ONLY a refusal marker — never forensic evidence (C8/M-D).
 
@@ -1767,6 +1869,10 @@ def main() -> int:
                     # M8: preserve the original exception; add cleanup as note.
                     original_exc.add_note(f"cleanup also failed: {cleanup_err}")
                 else:
+                    # L3: success-path cleanup failure — journey-evidence.json
+                    # must not claim refused:false while we exit nonzero.
+                    if marker_dir is not None:
+                        _mark_cleanup_failure(marker_dir, str(cleanup_err), head)
                     raise cleanup_err
         except JourneyRefusal as cleanup_jr:
             if original_exc is not None:

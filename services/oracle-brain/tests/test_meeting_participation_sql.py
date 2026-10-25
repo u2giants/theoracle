@@ -439,6 +439,8 @@ def test_actual_host_mtls_real_sql_enable_privatebytes_and_closed_denials(partic
             assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(UUID(prepared['intent_id']),)).fetchone()==(1,)
 
 
+# L5: single-element parametrize list pins exactly-21 — do not expand this
+# list; the SQL-green receipt requires exactly 21 collected/passed.
 @pytest.mark.parametrize('participation_sql',[('Please','clarify')],indirect=True)
 def test_actual_proactive_off_cooldown_and_lifetime_count_survives_toggle(participation_sql):
     from oracle_brain.meetings.participation_runtime_v1 import ParticipationDeclined
@@ -528,6 +530,8 @@ def test_actual_immutable_receipt_bot_identity_after_host_off_no_send_authority(
     with admin(x) as c:assert c.execute('SELECT count(*) FROM oracle2.meeting_participation_delivery_events_v1 WHERE intent_id=%s',(intent,)).fetchone()==(1,)
 
 
+# L5: single-element parametrize list pins exactly-21 — do not expand this
+# list; the SQL-green receipt requires exactly 21 collected/passed.
 @pytest.mark.parametrize('participation_sql',[{'capture_seconds':10}],indirect=True)
 def test_actual_source_window_expired_own_forensic_receipt_still_no_send(participation_sql):
     x=participation_sql;f,intent,claim=prepared_claim(x);claim_id=UUID(claim.metadata['claim_event_id'])
