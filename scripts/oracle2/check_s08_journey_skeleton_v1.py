@@ -1166,7 +1166,9 @@ def main() -> int:
     # _run_stage_order when the loop was extracted for the flow test.
     if "_run_stage_order(" not in main_src:
         raise SystemExit("main does not call _run_stage_order (M1 wiring)")
-    run_order_src = src[src.find("def _run_stage_order") : src.find("SKELETON_STAGE_BINDINGS")]
+    run_order_src = src[
+        src.find("def _run_stage_order") : src.find("SKELETON_STAGE_BINDINGS: dict")
+    ]
     if "except JourneyUnknown" not in run_order_src:
         raise SystemExit("stage-order helper does not catch JourneyUnknown (M1)")
     # M1 (round-7): main-loop flow — a routable UNKNOWN must route to its
