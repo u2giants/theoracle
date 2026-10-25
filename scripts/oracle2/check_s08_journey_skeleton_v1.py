@@ -1415,7 +1415,7 @@ def main() -> int:
 
     # L5: pin exactly-21 via the two single-element parametrize lists in
     # test_meeting_participation_sql.py — each list must stay length==1.
-    sql_tests_path = ROOT / "services/oracle-brain/tests/test_meeting_participation_sql.py"
+    sql_tests_path = Path(mod.ROOT) / "services/oracle-brain/tests/test_meeting_participation_sql.py"
     if not sql_tests_path.is_file():
         raise SystemExit("test_meeting_participation_sql.py missing (L5)")
     sql_tests_src = sql_tests_path.read_text(encoding="utf-8")
