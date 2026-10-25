@@ -114,7 +114,7 @@ journey stage = journey-adapter failure. The 021 blob pin above remains a
 1. Fresh-current complete composition review on a Linux host. **Per-suite
    collect-only counts for the six S08 gate modules are to be measured on that
    rerun** (four measured above + `test_meeting_participation.py` +
-   `test_outbound_replay.py` unreported). No "full 256 pure" figure is demanded
+   `test_outbound_replay.py` unreported). No historical pure total is demanded
    or claimed.
 2. Actual 21 SQL against an owned synthetic database under the **sealed
    20-entry `SYNTHETIC_MIGRATIONS` inventory** (omits 003/005; includes

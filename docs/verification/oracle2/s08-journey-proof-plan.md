@@ -312,7 +312,7 @@ do **not** prove the real-DB path. Do not overclaim pure coverage of it.
 2. Fresh-current complete composition review on a Linux host. **Per-suite
    collect-only counts for the six S08 gate modules are to be measured on that
    rerun** (four measured on Windows + `test_meeting_participation.py` +
-   `test_outbound_replay.py` unreported). No "full 256 pure" figure is demanded
+   `test_outbound_replay.py` unreported). No historical pure total is demanded
    or claimed.
 3. Actual 21 SQL against an owned synthetic database under the **sealed bootstrap**
    inventory (not a contiguous 001..014 claim). **The 21 SQL must go green
