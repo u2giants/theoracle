@@ -7,18 +7,21 @@ no real Teams, no production, no company data, no paid providers.
 ## Composition inventory
 
 Parked head `81742134d6cb753d5bef4d0372eeea2117192e8b` composed additively. Eight effective
-files, all staged blobs byte-identical to that commit:
+files. Byte-identity to the parked commit holds for the seven **added** files only;
+`participation_authority_v1.py` is **updated** (inherited authority repair) and is
+therefore NOT byte-identical to the parked blob. Byte-identity pins are git blob
+bytes (`git show HEAD:path | sha256sum`), never working-tree bytes (CRLF hosts diverge):
 
-| File | Action |
-|---|---|
-| hosting/meeting_participation_service_v1.py | added |
-| meetings/participation_authority_v1.py | updated (inherited authority repair) |
-| meetings/participation_control_contracts_v1.py | added |
-| sql/021_meeting_participation.sql | added |
-| tests/test_meeting_participation_control_v1.py | added |
-| tests/test_meeting_participation_sql.py | added |
-| tests/test_meeting_participation_v1.py | added |
-| tests/test_meeting_participation_wire_v1.py | added |
+| File | Action | Byte-identical to parked `81742134…` |
+|---|---|---|
+| hosting/meeting_participation_service_v1.py | added | yes |
+| meetings/participation_authority_v1.py | updated (inherited authority repair) | **no** |
+| meetings/participation_control_contracts_v1.py | added | yes |
+| sql/021_meeting_participation.sql | added | yes |
+| tests/test_meeting_participation_control_v1.py | added | yes |
+| tests/test_meeting_participation_sql.py | added | yes |
+| tests/test_meeting_participation_v1.py | added | yes |
+| tests/test_meeting_participation_wire_v1.py | added | yes |
 
 Current-main owners retained unchanged (byte-identical to both main and parked):
 hosting/meeting_participation_v1.py, meetings/participation.py,
@@ -37,6 +40,8 @@ Connector/common-password ownership audit: `_connection_v1` is the single connec
 (no raw `connection.execute` in the authority). Explicit password is required by the
 authority URL guard before connect; port is required by both. Canonical 021 SHA-256 is
 `959a77553849616eee1d7b4eba4ed8a3bc146aaa432b7e0e2ca8d83ff17b2f7c` (63753 bytes, LF).
+This pin is **git blob bytes** (`git show HEAD:services/oracle-brain/sql/021_meeting_participation.sql | sha256sum`),
+not working-tree bytes; a CRLF checkout measures differently and must not be quoted as the pin.
 
 ## Registration
 
