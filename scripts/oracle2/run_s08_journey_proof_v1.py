@@ -146,12 +146,18 @@ SEALED_CATALOG_DIGEST = ""  # recorded, not golden (C3 option-a)
 # present causes refusal regardless of ALLOW (M1).
 ALLOW_LINE = re.compile(r"^(?:gate: )?ALLOW$", re.MULTILINE)
 DENIED_LINE = re.compile(r"^(?:gate: )?DENIED$", re.MULTILINE)
-# H3/H4: pytest green-receipt patterns. Factored into a helper so the checker
+# H3/H4/L1: pytest green-receipt patterns. Factored into a helper so the checker
 # can exercise ordering, singular/plural, and boundary behavior offline
 # ("21 passed", "21 passed, 1 failed", "1 failed, 20 passed", "121 passed",
-# "2 errors") — a static string scan cannot (Muse H3/H4).
+# "2 errors", "21 passed, 1 skipped") — a static string scan cannot (Muse H3/H4).
+# L1: skipped/xfailed/xpassed/deselected counts are non-green too — "21 passed,
+# 1 skipped" (22 collected) must NOT count as green. SQL_GREEN_COLLECTED pins
+# the collected count when the pytest "collected N items" line is present.
 SQL_GREEN_PASSED = re.compile(r"\b21\s+passed\b")
-SQL_GREEN_FAILED = re.compile(r"\b\d+\s+(?:failed|errors?)\b")
+SQL_GREEN_FAILED = re.compile(
+    r"\b\d+\s+(?:failed|errors?|skipped|xfailed|xpassed|deselected)\b"
+)
+SQL_GREEN_COLLECTED = re.compile(r"\bcollected\s+(\d+)\s+items?\b")
 # Worktree-content suffixes and lock/compose/docker names the DB image
 # depends on (H-F/M2). Shell scripts and build config included (M2).
 # L10: JS module extensions included — dev/oracle2 ships .mjs/.mts files.
@@ -327,6 +333,17 @@ def _scratch() -> Path:
         p = scratch / stale
         if p.exists():
             p.unlink()
+    # L3: a reused SCRATCH_ENV directory must be empty of any other residue
+    # (e.g. a leftover ops-schema-receipt.json). Otherwise the schema-receipt
+    # O_EXCL write later would crash with a raw FileExistsError. Fail closed
+    # with a tagged JourneyRefusal naming the residue instead — never a raw
+    # OSError from a downstream writer.
+    residue = sorted(p.name for p in scratch.iterdir())
+    if residue:
+        raise JourneyRefusal(
+            "SCRATCH_ENV reuse requires an empty scratch directory after "
+            f"marker cleanup (L3); residue present: {', '.join(residue)}"
+        )
     return scratch
 
 
@@ -398,6 +415,20 @@ def require_recall_env_absent() -> None:
             "RECALL_* environment present — forbidden network path "
             f"({', '.join(FORBIDDEN_NETWORK_PATHS)}) must stay unreachable; "
             f"unset: {', '.join(present)}"
+        )
+
+
+def require_python_floor() -> None:
+    """M3: enforce Python >=3.11 floor (Exception.add_note used in cleanup).
+
+    Extracted so the offline checker can drive it behaviorally with a fake
+    old version_info (a static "sys.version_info" string scan cannot prove
+    the comparison fires). Called first in main(), before any other work.
+    """
+    if sys.version_info < (3, 11):
+        raise JourneyRefusal(
+            f"Python >=3.11 required (got {sys.version_info.major}.{sys.version_info.minor}); "
+            "Exception.add_note is used in cleanup paths (M3)"
         )
 
 
@@ -645,7 +676,13 @@ def _label_ops_artifact(scratch: Path, artifact_name: str) -> None:
 
 
 def sql_green_receipt_ok(sql_out: str) -> tuple[bool, str]:
-    """H3/H4: require `21 passed` and reject any failed/error count.
+    """H3/H4/L1: require `21 passed` and reject any failed/error/skipped count.
+
+    L1: the green state is exactly 21 collected / 21 passed / 0 skipped.
+    When pytest prints a `collected N items` line, N must be exactly 21;
+    a nonzero skipped/xfailed/xpassed/deselected count is non-green even
+    when `21 passed` is also present ("21 passed, 1 skipped" is 22 collected
+    and is NOT green).
 
     Returns (ok, reason). reason names which check failed so the caller can
     raise a tagged JourneyRefusal with the output tail. Testable offline with
@@ -655,7 +692,15 @@ def sql_green_receipt_ok(sql_out: str) -> tuple[bool, str]:
     if not SQL_GREEN_PASSED.search(sql_out):
         return False, "21 SQL green receipt not observed in pytest output (H4)"
     if SQL_GREEN_FAILED.search(sql_out):
-        return False, "21 SQL pytest output reports failed/error cases (H4)"
+        return False, (
+            "21 SQL pytest output reports failed/error/skipped cases (H4/L1)"
+        )
+    collected = SQL_GREEN_COLLECTED.search(sql_out)
+    if collected and int(collected.group(1)) != 21:
+        return False, (
+            f"21 SQL pytest collected {collected.group(1)} items, "
+            "expected exactly 21 (L1)"
+        )
     return True, ""
 
 
@@ -702,14 +747,26 @@ def require_database_gate(scratch: Path, tools: dict) -> str:
             f"database gate timed out after {TOOL_CALL_TIMEOUT_S}s (M4/M5/M7); "
             f"tail: {out[-500:]}"
         ) from exc
+    except OSError as exc:
+        # L6: tag OSError (missing/unexecutable gate binary) so the refusal
+        # carries the M4/M7 tag rather than escaping untagged to main's
+        # generic handler (which would lack the gate attribution).
+        raise JourneyRefusal(
+            f"database gate could not be executed (M4/M7): "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
     if DENIED_LINE.search(out):
         (scratch / "ops-database-gate.txt").write_text(out[:8192])
         _label_ops_artifact(scratch, "ops-database-gate.txt")
-        raise JourneyRefusal(f"database gate printed a DENIED line:\n{out[:2000]}")
+        raise JourneyRefusal(
+            f"database gate printed a DENIED line (M4/M7):\n{out[:2000]}"
+        )
     if not ALLOW_LINE.search(out):
         (scratch / "ops-database-gate.txt").write_text(out[:8192])
         _label_ops_artifact(scratch, "ops-database-gate.txt")
-        raise JourneyRefusal(f"database gate did not print a precise ALLOW line:\n{out[:2000]}")
+        raise JourneyRefusal(
+            f"database gate did not print a precise ALLOW line (M4/M7):\n{out[:2000]}"
+        )
     # Ops artifact (C8) — never forensic evidence.
     (scratch / "ops-database-gate.txt").write_text(out[:8192])
     _label_ops_artifact(scratch, "ops-database-gate.txt")
@@ -851,6 +908,56 @@ def _route_unknown(stage: str) -> tuple[str, ...]:
     if stage in UNKNOWN_ROUTES_TO_STAGE5 and stage != STAGE5_NAME:
         return (STAGE5_NAME,)
     return ()
+
+
+def _run_stage_order(
+    stage_fns: dict,
+    stages: dict,
+    budget_end: float,
+    failing_cell: list,
+) -> None:
+    """Execute STAGE_ORDER under H5/M1 UNKNOWN routing (fail-closed).
+
+    ``failing_cell`` is a one-element mutable list used as a cell so main's
+    refusal path can name the stage in progress when an exception fires.
+
+    M1 (round-7): after a routable UNKNOWN is routed to its onward stage(s),
+    the sequence ENDS — the linear STAGE_ORDER loop is never resumed.
+    Resuming would inject wire bytes after an UNKNOWN claim (in tension with
+    the sealed ACK-loss / no-resend rule) and would double-run later stages
+    (e.g. status_reconcile). Extracted so the offline checker can drive the
+    real main-loop flow with fake stages (not just `_route_unknown` isolation).
+    """
+    for name in STAGE_ORDER:
+        failing_cell[0] = name
+        _budget_check(budget_end, name)
+        call = stage_fns[name]
+        try:
+            call(dict(SKELETON_STAGE_BINDINGS[name]), PER_REQUEST_S)
+        except JourneyUnknown as exc:
+            stages[name] = "UNKNOWN"
+            failing_cell[0] = None
+            onward = _route_unknown(name)
+            if not onward:
+                raise JourneyRefusal(
+                    f"routable UNKNOWN at {name} ends the journey at "
+                    "this stage (H5/M1); no onward route"
+                ) from exc
+            for routed in onward:
+                failing_cell[0] = routed
+                _budget_check(budget_end, routed)
+                stage_fns[routed](
+                    dict(SKELETON_STAGE_BINDINGS[routed]), PER_REQUEST_S
+                )
+                stages[routed] = "PROVEN"
+                failing_cell[0] = None
+            stages[name] = f"UNKNOWN->{'/'.join(onward)}"
+            # M1: end the sequence after routing. Never resume STAGE_ORDER —
+            # that would inject wire bytes after an UNKNOWN claim and
+            # double-run later stages.
+            return
+        stages[name] = "PROVEN"
+        failing_cell[0] = None
 
 
 # Skeleton stage bindings (L14). Valid-shaped placeholders so the main loop
@@ -1177,16 +1284,14 @@ def _write_refusal(scratch: Path, reason: str, stage: str | None, head: str | No
 
 def main() -> int:
     # M3: enforce Python >=3.11 floor (Exception.add_note used in cleanup).
-    if sys.version_info < (3, 11):
-        raise JourneyRefusal(
-            f"Python >=3.11 required (got {sys.version_info.major}.{sys.version_info.minor}); "
-            "Exception.add_note is used in cleanup paths (M3)"
-        )
+    # L5: extracted helper, called before any other work so the checker can
+    # drive the floor behaviorally with a fake version_info.
+    require_python_floor()
     os.umask(0o077)
     scratch = _scratch()
     project_base = f"{COMPOSE_PROJECT_PREFIX}-{uuid4().hex[:8]}"  # unique per run (M-C)
     head: str | None = None
-    failing_stage: str | None = None
+    failing_cell: list[str | None] = [None]
     identity: dict | None = None
     evidence_written = False
     try:
@@ -1372,14 +1477,15 @@ def main() -> int:
                 _label_ops_artifact(scratch, "ops-sql-green.txt")
                 raise JourneyRefusal(
                     "21 SQL must go green before the journey (H4); "
-                    f"pytest exit={exc.returncode}"
+                    f"pytest exit={exc.returncode}; tail: {sql_out[-500:]}"
                 ) from exc
             except subprocess.TimeoutExpired as exc:
                 sql_out = exc.output if isinstance(exc.output, str) else ""
                 (scratch / "ops-sql-green.txt").write_text(sql_out[:16384])
                 _label_ops_artifact(scratch, "ops-sql-green.txt")
                 raise JourneyRefusal(
-                    f"21 SQL pytest timed out after {sql_timeout_s}s (H4)"
+                    f"21 SQL pytest timed out after {sql_timeout_s}s (H4); "
+                    f"tail: {sql_out[-500:]}"
                 ) from exc
             (scratch / "ops-sql-green.txt").write_text(sql_out[:16384])
             _label_ops_artifact(scratch, "ops-sql-green.txt")
@@ -1420,38 +1526,12 @@ def main() -> int:
             # run reaches the UNPROVEN refusal (never M9 missing-keys). An
             # implementer replaces them with real journey bindings at these
             # call sites when stages are released (C5 SHA churn applies).
+            # M1: _run_stage_order owns the STAGE_ORDER loop and the
+            # JourneyUnknown routing policy (route to stage 5 then STOP —
+            # never resume the linear loop). Extracted so the offline checker
+            # can drive the real main-loop flow with fake stages.
             with _request_fence_v1(budget_end):
-                for name in STAGE_ORDER:
-                    failing_stage = name
-                    _budget_check(budget_end, name)
-                    call = stage_fns[name]
-                    try:
-                        call(dict(SKELETON_STAGE_BINDINGS[name]), PER_REQUEST_S)
-                    except JourneyUnknown as exc:
-                        # M1/H5: routable UNKNOWN — not a fatal refusal. Apply
-                        # the H5 policy via _route_unknown: claim/readback-loss
-                        # stages route to stage 5 (read-only reconcile of the
-                        # OUTCOME); earlier stages end the journey there.
-                        stages[name] = "UNKNOWN"
-                        failing_stage = None
-                        onward = _route_unknown(name)
-                        if not onward:
-                            raise JourneyRefusal(
-                                f"routable UNKNOWN at {name} ends the journey at "
-                                "this stage (H5/M1); no onward route"
-                            ) from exc
-                        for routed in onward:
-                            failing_stage = routed
-                            _budget_check(budget_end, routed)
-                            stage_fns[routed](
-                                dict(SKELETON_STAGE_BINDINGS[routed]), PER_REQUEST_S
-                            )
-                            stages[routed] = "PROVEN"
-                            failing_stage = None
-                        stages[name] = f"UNKNOWN->{'/'.join(onward)}"
-                        continue
-                    stages[name] = "PROVEN"
-                    failing_stage = None
+                _run_stage_order(stage_fns, stages, budget_end, failing_cell)
 
             # Success-path evidence only (C8). Never written on refusal.
             # SCRATCH reuse: unlink stale refusal.json so markers stay exclusive.
@@ -1495,8 +1575,11 @@ def main() -> int:
                     "on_conflict": "STOP; record failing stage; leave UNKNOWN; no transparent retry",
                     "unknown_routing": (
                         "UNKNOWN from claim commit/readback-loss -> stage 5 "
-                        "read-only reconcile; UNKNOWN from earlier stages -> end "
-                        "at failing stage (H5). Mechanism: JourneyUnknown(JourneyRefusal) "
+                        "read-only reconcile, then END the stage sequence (the "
+                        "linear STAGE_ORDER loop is never resumed — no wire-byte "
+                        "injection after an UNKNOWN claim, no double-run of later "
+                        "stages); UNKNOWN from earlier stages -> end at failing "
+                        "stage (H5). Mechanism: JourneyUnknown(JourneyRefusal) "
                         "subclass — routable UNKNOWN vs fatal JourneyRefusal (M1)."
                     ),
                     "no_re_read_scope": (
@@ -1535,11 +1618,18 @@ def main() -> int:
             return 0
     except JourneyRefusal as exc:
         if not evidence_written:  # C8: refusal.json ONLY on refusal paths
-            _write_refusal(scratch, str(exc), failing_stage, head)
+            _write_refusal(scratch, str(exc), failing_cell[0], head)
         raise
-    except Exception as exc:  # noqa: BLE001 — any failure is a refusal
+    except BaseException as exc:  # noqa: BLE001 — any failure is a refusal
+        # L4: catch BaseException (KeyboardInterrupt, SystemExit, and every
+        # other Exception subclass) so an interrupted run still leaves a
+        # tagged refusal.json — never cleanup.json with neither refusal nor
+        # evidence markers. The exception is re-raised after the marker is
+        # written; the finally block still runs for cleanup readback.
         if not evidence_written:  # C8: never write refusal after evidence
-            _write_refusal(scratch, f"{type(exc).__name__}: {exc}", failing_stage, head)
+            _write_refusal(
+                scratch, f"{type(exc).__name__}: {exc}", failing_cell[0], head
+            )
         raise
     finally:
         # Cleanup readback ALWAYS, even pre-identity (M-C). Project name is

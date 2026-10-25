@@ -195,16 +195,26 @@ present, so the worker entrypoint cannot be reached by accident.
 - **UNKNOWN routing (H5/M1):** UNKNOWN from claim commit ACK loss / response
   drop / worker restart / readback-loss (`sender`, `receipt_bytes_in`)
   proceeds to **stage 5** `status_reconcile` (read-only reconcile of the
-  OUTCOME). UNKNOWN from any earlier stage (provision, observe, host-control,
+  OUTCOME) and then **ends the stage sequence** — the linear `STAGE_ORDER`
+  loop is never resumed. Concretely: a `sender` UNKNOWN does **not** inject
+  wire bytes afterwards (`receipt_bytes_in` is skipped — consistent with the
+  sealed ACK-loss / no-resend rule) and does **not** double-run any stage
+  (`status_reconcile` runs exactly once, as the routing target). A
+  `receipt_bytes_in` UNKNOWN likewise runs `status_reconcile` exactly once
+  and stops. UNKNOWN from any earlier stage (provision, observe, host-control,
   current-turn) **ends the journey at that stage**. **Mechanism (M1):** a
   stage raises `JourneyUnknown(JourneyRefusal)` for routable UNKNOWN; the
   main stage loop catches `JourneyUnknown` separately from plain
   `JourneyRefusal` (which is always fatal STOP) and applies
   `_route_unknown(stage)` — `("status_reconcile",)` for the claim/readback
-  stages, `()` (STOP) for every other stage. This is how an implementer
-  distinguishes routable UNKNOWN from fatal refusal. The checker exercises
-  `_route_unknown` offline and asserts `except JourneyUnknown` is present in
-  the main loop.
+  stages, `()` (STOP) for every other stage — then returns from
+  `_run_stage_order` so the linear loop is never resumed. This is how an
+  implementer distinguishes routable UNKNOWN from fatal refusal. The checker
+  exercises `_route_unknown` offline, asserts `except JourneyUnknown` is
+  present in the main loop, and runs a **main-loop flow test** against
+  `_run_stage_order` (fake stages) proving that a `sender` UNKNOWN runs
+  `status_reconcile` exactly once and never `receipt_bytes_in`, and that a
+  `receipt_bytes_in` UNKNOWN does not double-run `status_reconcile`.
 - **"No re-read" scope (H5):** the journey layer never re-reads a failing
   stage's inputs to retry. Factory-internal fresh readbacks
   (`meeting_participation_v1.py:201-210,231-240,256-269`) are the tested
@@ -298,10 +308,19 @@ those files are in the sealed inventory.
   (required regex `(?:documentary-[0-9]{2}|event)`).
 - **Unique project name per run** and **unique SCRATCH per run**. SCRATCH must
   never live inside the repository worktree (it would dirty the tree the
-  source snapshot cannot see). SCRATCH parent must not be group/other-writable
+  source snapshot cannot see) — this is behavioral: setting
+  `ORACLE2_S08_JOURNEY_SCRATCH` to an in-repo path raises a tagged
+  `JourneyRefusal` and creates no directory (M3). SCRATCH parent must not be
+  group/other-writable
   unless the sticky bit is set (standard `/tmp` mode 1777 is allowed — L2).
   If the parent does not exist, the nearest existing ancestor is checked;
   after mkdir the parent is re-checked to close the stat-then-mkdir TOCTOU (L9).
+  **SCRATCH reuse (L3):** a reused `ORACLE2_S08_JOURNEY_SCRATCH` directory
+  must be **empty after marker cleanup** (`refusal.json` / `journey-evidence.json`
+  are unlinked first). Any other residue — e.g. a leftover
+  `ops-schema-receipt.json` — raises a tagged `JourneyRefusal` naming the
+  residue, never a raw `FileExistsError` from the schema-receipt `O_EXCL`
+  write further downstream.
 - Owned cleanup: after `finally`, **always** read back
   `docker ps|network ls|volume ls`. Once identity is established, the filter
   uses the **real suffixed project name** (`identity['project']`, e.g.
@@ -334,10 +353,16 @@ those files are in the sealed inventory.
   nonzero exit**, searches the captured output for DENIED lines so the
   refusal names the gate's own denial when present, and raises a tagged
   **M4/M7** refusal with the output tail. A raw `CalledProcessError` must
-  never escape `require_database_gate`. The pytest identity preflight
-  (`sys.executable -m pytest --version`) follows the same contract: nonzero
-  exit or timeout is a tagged **M4/M7** preflight refusal, never a raw
-  `CalledProcessError`. Each tool uses its own working identity command (C1):
+  never escape `require_database_gate`. The **zero-exit** refusal branches
+  are tagged **M4/M7** too (H1): zero-exit-with-DENIED refuses naming DENIED,
+  zero-exit-without-ALLOW refuses naming ALLOW — a mutation deleting those
+  branches must fail the checker's zero-exit mock cases. An `OSError`
+  (missing/unexecutable gate binary) is caught and raised as a tagged
+  **M4/M7** `JourneyRefusal`, never an untagged escape (L6). The pytest
+  identity preflight (`sys.executable -m pytest --version`) follows the same
+  contract: nonzero exit or timeout is a tagged **M4/M7** preflight refusal,
+  never a raw `CalledProcessError`. Each tool uses its own working identity
+  command (C1):
   `git --version`, `docker --version`, `ai-task-gates version` (subcommand —
   `--version` does not exist and would refuse every run), `openssl version`
   (not `--version`), and `pytest` (via `sys.executable -m pytest --version`)
@@ -440,15 +465,19 @@ journey stage fails while the 21 SQL are red, the failure is attributed to the
 backend, not the journey. If the 21 SQL are green and a journey stage fails,
 the failure is attributed to the journey adapter. This order is mandatory.
 
-**Runner enforcement (H4):** the runner **invokes** the 21 SQL module via
+**Runner enforcement (H4/L1):** the runner **invokes** the 21 SQL module via
 pytest against the bootstrapped database after `bootstrap_canonical_test_schema`
-and refuses unless `21 passed` is observed in the output **with no
-`failed`/`error` count**. The pytest timeout bound is **180s**
-(`SHARED_BUDGET_S + 60`). `TimeoutExpired` is handled — `ops-sql-green.txt`
-is still written and the run refuses with an H4 attribution. The runner
-passes `-p no:cacheprovider` and sets `PYTHONDONTWRITEBYTECODE=1` so the
-tree stays clean post-bind. This is not merely procedural — it is a hard
-gate inside the runner.
+and refuses unless **exactly `21 passed`** is observed in the output **with
+no `failed`/`error`/`skipped`/`xfailed`/`xpassed`/`deselected` count**. The
+green state is **exactly 21 collected / 21 passed / 0 skipped**: when pytest
+prints a `collected N items` line, `N` must be exactly 21, and a
+`21 passed, 1 skipped` summary (22 collected) is **not** green. The pytest
+timeout bound is **180s** (`SHARED_BUDGET_S + 60`). `TimeoutExpired` is
+handled — `ops-sql-green.txt` is still written and the run refuses with an
+H4 attribution and a bounded output tail (as does the nonzero-exit refusal).
+The runner passes `-p no:cacheprovider` and sets `PYTHONDONTWRITEBYTECODE=1`
+so the tree stays clean post-bind. This is not merely procedural — it is a
+hard gate inside the runner.
 
 The SQL module reads `ORACLE2_TEST_ADMIN_URL` directly (see C7 correction
 below) and does **not** bootstrap via conftest. The journey runner provides the
@@ -606,6 +635,10 @@ or **sibling `.ops.json` markers** (the other four, which are text- or
 externally-written formats). They are never journey evidence.
 SCRATCH reuse unlinks the opposite marker (`refusal.json` ↔ `journey-evidence.json`)
 on each path so a reused directory cannot hold both.
+**L4 — interrupted runs:** the refusal path catches `BaseException` (including
+`KeyboardInterrupt` and `SystemExit`), writes a tagged `refusal.json`, and
+re-raises — an interrupted run must never leave `cleanup.json` with neither a
+refusal nor an evidence marker. The `finally` cleanup readback still runs.
 Stages that are not implemented raise `JourneyRefusal` and refuse. The runner
 is a one-shot journey runner: it binds the exact head + review receipt and must
 not be reused across heads without a new receipt.

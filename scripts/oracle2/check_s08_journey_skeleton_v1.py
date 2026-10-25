@@ -16,17 +16,29 @@ Proves only what can be proved without Docker/database/provider:
     and is invoked AFTER the review receipt (gate-before-database order)
   - gate exit-code contract: nonzero exit / timeout writes ops-database-gate.txt,
     searches DENIED in captured output, raises a tagged M4/M7 refusal (M4)
+  - gate zero-exit contract (H1): DENIED-with-0 refuses naming DENIED,
+    garbage-with-0 refuses (no precise ALLOW), clean ALLOW-with-0 returns
+  - gate OSError is tagged M4/M7 (L6) — never escapes untagged
   - HEAD helper requires a full 40-char SHA
-  - RECALL_* env refusal is present
-  - inventory assertion helper is present and compares the sealed tuple
+  - RECALL_* env refusal is present AND is the first substantive call in main
+    (L5 order assertion)
+  - inventory assertion helper is present and compares the sealed tuple,
+    AND a monkeypatched drifted sealed tuple is refused (M2 drift-negative)
   - H3 sealed constants (SEALED_INVENTORY_DIGEST / SEALED_CATALOG_DIGEST)
     exist and are used instead of self-referential goldens
   - _inventory_digest_git_blob binds the exact 40-char head, not symbolic HEAD (L13)
   - budget helpers enforce a monotonic deadline (finite-only, entry+exit)
   - cleanup readback helper exists and is called from finally
   - cleanup paths use add_note to preserve the original exception (L15)
-  - SCRATCH must not live inside the repository
+  - SCRATCH must not live inside the repository (behavioral: in-repo path
+    refuses and creates no directory — M3)
   - SCRATCH reuse unlinks opposite markers (refusal.json vs journey-evidence.json)
+  - SCRATCH reuse with leftover residue (e.g. ops-schema-receipt.json) raises
+    a tagged JourneyRefusal (L3), never a raw FileExistsError
+  - sticky-bit / parent-mode L2 ordering is behavioral where the host can
+    express POSIX write bits (refuse before mkdir, no litter)
+  - Python floor (M3) is behavioral via require_python_floor (a fake 3.10
+    version_info refuses; 3.11+ passes) — not a static string scan (L5)
   - refused runs write refusal.json with refused=true and do NOT write
     journey-evidence.json (C8 exclusivity)
   - success path writes journey-evidence.json and does NOT write refusal.json
@@ -34,14 +46,17 @@ Proves only what can be proved without Docker/database/provider:
   - stage binding schemas are present (M9) and main passes skeleton-shaped
     bindings (L14)
   - H4 pytest green-receipt logic is factored into sql_green_receipt_ok and
-    behaves correctly on synthetic tails (H3/H4)
+    behaves correctly on synthetic tails (H3/H4), including L1 skipped-count
+    and collected-count pins (exactly 21 collected / 21 passed / 0 skipped)
   - openssl and pytest identities are checked (M7)
   - bare assert is not used for safety-critical checks (any indent / nesting)
   - snapshot is computed exactly twice (before + after gate), not 3×, and
     comment mentions do not count (L11)
   - SOURCE_SUFFIXES covers JS modules and Dockerfile/requirements variants (L10)
   - o_nofollow is honest both statically and behaviorally (L12)
-  - JourneyUnknown routing is implemented, not just documented (M1)
+  - JourneyUnknown routing is implemented, not just documented (M1), and the
+    main-loop flow test proves a routable UNKNOWN routes to stage 5 then STOPS
+    (no wire-byte injection after UNKNOWN, no double-run of stages)
   - docker compose preflight uses the argv literal ["compose","version"] (L8)
 
 This checker restores runner state after every mutation. It does NOT execute
@@ -215,6 +230,23 @@ def main() -> int:
     if inv.get("omits") != ["003", "005"]:
         raise SystemExit("sealed inventory omit list wrong")
     print("INVENTORY_ASSERTION_OK", inv["inventory_count"])
+    # M2: drift-negative — monkeypatch the sealed tuple to a drifted value and
+    # assert refusal (a hardcoded-return mutant would pass the call above).
+    original_sealed = mod.SEALED_MIGRATION_INVENTORY
+    try:
+        mod.SEALED_MIGRATION_INVENTORY = ("001_foundation.sql", "002_pilot.sql")
+        try:
+            mod.assert_sealed_inventory()
+        except mod.JourneyRefusal as e:
+            if "drift" not in str(e).lower():
+                raise SystemExit(f"inventory drift refusal does not name drift (M2): {e}")
+            print("INVENTORY_DRIFT_REFUSED", str(e)[:80])
+        else:
+            raise SystemExit(
+                "assert_sealed_inventory accepted a drifted sealed tuple (M2)"
+            )
+    finally:
+        mod.SEALED_MIGRATION_INVENTORY = original_sealed
 
     # Budget helpers must enforce a monotonic deadline (H-H/H1).
     if not callable(getattr(mod, "_monotonic_end", None)):
@@ -284,6 +316,105 @@ def main() -> int:
     if "SCRATCH must not live inside the repository" not in src:
         raise SystemExit("SCRATCH-inside-repo refusal missing")
     print("SCRATCH_REPO_FORBID_PRESENT")
+    # M3: _scratch must be behavioral, not just a string check. Set
+    # SCRATCH_ENV inside the repo and assert JourneyRefusal; assert no
+    # directory was created on the refused path (no litter).
+    import os as _os_m3
+
+    saved_scratch_env = _os_m3.environ.get(mod.SCRATCH_ENV)
+    in_repo_target = Path(mod.ROOT) / "scratch-inside-repo-forbidden-m3"
+    try:
+        _os_m3.environ[mod.SCRATCH_ENV] = str(in_repo_target)
+        try:
+            mod._scratch()
+        except mod.JourneyRefusal as e:
+            if "SCRATCH must not live inside the repository" not in str(e):
+                raise SystemExit(f"scratch in-repo refusal message wrong (M3): {e}")
+            print("SCRATCH_IN_REPO_REFUSED_BEHAVIORAL", str(e)[:80])
+        else:
+            raise SystemExit(
+                "_scratch accepted a path inside the repository (M3)"
+            )
+        if in_repo_target.exists():
+            raise SystemExit(
+                "_scratch created a directory inside the repository on "
+                "refusal (M3/L2 litter)"
+            )
+    finally:
+        if saved_scratch_env is None:
+            _os_m3.environ.pop(mod.SCRATCH_ENV, None)
+        else:
+            _os_m3.environ[mod.SCRATCH_ENV] = saved_scratch_env
+    # L3: SCRATCH_ENV reuse with leftover ops-schema-receipt.json must raise
+    # a tagged JourneyRefusal (not a raw FileExistsError from the schema
+    # receipt O_EXCL write further downstream).
+    with tempfile.TemporaryDirectory() as td:
+        reuse = Path(td) / "reused-scratch"
+        reuse.mkdir()
+        (reuse / "ops-schema-receipt.json").write_text("{}\n")
+        _os_m3.environ[mod.SCRATCH_ENV] = str(reuse)
+        try:
+            mod._scratch()
+        except mod.JourneyRefusal as e:
+            msg = str(e)
+            if "L3" not in msg and "residue" not in msg.lower() and "empty" not in msg.lower():
+                raise SystemExit(
+                    f"SCRATCH reuse residue refusal not tagged (L3): {e}"
+                )
+            print("SCRATCH_REUSE_RESIDUE_REFUSED", msg[:80])
+        except OSError as e:
+            raise SystemExit(
+                f"SCRATCH reuse raised raw OSError/FileExistsError (L3): "
+                f"{type(e).__name__}: {e}"
+            )
+        else:
+            raise SystemExit(
+                "_scratch accepted reused scratch with leftover "
+                "ops-schema-receipt.json (L3)"
+            )
+        finally:
+            if saved_scratch_env is None:
+                _os_m3.environ.pop(mod.SCRATCH_ENV, None)
+            else:
+                _os_m3.environ[mod.SCRATCH_ENV] = saved_scratch_env
+    # L2: sticky-bit / parent-mode ordering behavioral — a world-writable
+    # non-sticky parent must refuse BEFORE mkdir (no litter). Feasible only
+    # where the host can express POSIX write bits (not Windows).
+    import stat as _stat_m3
+
+    with tempfile.TemporaryDirectory() as td:
+        parent = Path(td) / "ww-parent"
+        parent.mkdir()
+        try:
+            parent.chmod(0o777)
+        except OSError:
+            print("L2_STICKY_BIT_SKIP chmod-unavailable")
+        else:
+            pst = parent.stat()
+            if pst.st_mode & 0o022 and not _stat_m3.S_ISVTX(pst.st_mode):
+                child = parent / "scratch-child"
+                _os_m3.environ[mod.SCRATCH_ENV] = str(child)
+                try:
+                    mod._scratch()
+                except mod.JourneyRefusal as e:
+                    if "sticky" not in str(e).lower() and "L2" not in str(e):
+                        raise SystemExit(f"L2 parent-mode refusal not tagged: {e}")
+                    if child.exists():
+                        raise SystemExit(
+                            "scratch created despite L2 parent refusal (litter)"
+                        )
+                    print("L2_PARENT_MODE_REFUSED_BEFORE_MKDIR", str(e)[:80])
+                else:
+                    raise SystemExit(
+                        "_scratch accepted a world-writable non-sticky parent (L2)"
+                    )
+                finally:
+                    if saved_scratch_env is None:
+                        _os_m3.environ.pop(mod.SCRATCH_ENV, None)
+                    else:
+                        _os_m3.environ[mod.SCRATCH_ENV] = saved_scratch_env
+            else:
+                print("L2_STICKY_BIT_SKIP host-cannot-express-mode-bits")
 
     # C3: receipt release path env must exist.
     if not hasattr(mod, "RECEIPT_RELEASE_ENV"):
@@ -540,6 +671,62 @@ def main() -> int:
             else:
                 raise SystemExit("gate timeout was not refused (M4)")
     print("M4_GATE_EXIT_CODE_CONTRACT")
+    # H1 (round-7): zero-exit contract was vacuous — the runner's zero-exit
+    # DENIED and zero-exit no-ALLOW branches had no behavioral coverage, so a
+    # mutation deleting them would pass all three nonzero/timeout mock cases.
+    # DENIED-with-0 must refuse naming DENIED; garbage-with-0 must refuse
+    # (no precise ALLOW); clean ALLOW-with-0 must return the output.
+    fake_denied0 = "gate: DENIED\nreason: not authorized\n"
+    with _mock.patch.object(_sp, "check_output", return_value=fake_denied0):
+        try:
+            mod.require_database_gate(gscratch, gate_tools)
+        except mod.JourneyRefusal as e:
+            if "DENIED" not in str(e):
+                raise SystemExit(
+                    f"zero-exit DENIED refusal does not name DENIED (H1): {e}"
+                )
+        except _sp.CalledProcessError:
+            raise SystemExit("raw CalledProcessError escaped on zero-exit DENIED (H1)")
+        else:
+            raise SystemExit("zero-exit DENIED was accepted as gate success (H1)")
+    fake_garbage0 = "something else entirely\nnot a gate line\n"
+    with _mock.patch.object(_sp, "check_output", return_value=fake_garbage0):
+        try:
+            mod.require_database_gate(gscratch, gate_tools)
+        except mod.JourneyRefusal as e:
+            if "ALLOW" not in str(e):
+                raise SystemExit(
+                    f"zero-exit garbage refusal does not name ALLOW (H1): {e}"
+                )
+        else:
+            raise SystemExit("zero-exit garbage was accepted as gate success (H1)")
+    fake_allow0 = "gate: ALLOW\n"
+    with _mock.patch.object(_sp, "check_output", return_value=fake_allow0):
+        try:
+            out0 = mod.require_database_gate(gscratch, gate_tools)
+        except mod.JourneyRefusal as e:
+            raise SystemExit(f"clean ALLOW-with-0 was refused (H1): {e}")
+        else:
+            if "ALLOW" not in out0:
+                raise SystemExit(
+                    f"clean ALLOW-with-0 did not return the gate output (H1): {out0!r}"
+                )
+    print("M4_ZERO_EXIT_DENIED_GARBAGE_ALLOW")
+    # L6: OSError (missing/unexecutable gate binary) must raise a tagged
+    # M4/M7 JourneyRefusal — never escape untagged to main's generic handler.
+    with _mock.patch.object(
+        _sp, "check_output", side_effect=FileNotFoundError(2, "no such file", "fake-gate")
+    ):
+        try:
+            mod.require_database_gate(gscratch, gate_tools)
+        except mod.JourneyRefusal as e:
+            if "M4" not in str(e) and "M7" not in str(e):
+                raise SystemExit(f"gate OSError refusal not tagged M4/M7 (L6): {e}")
+        except OSError:
+            raise SystemExit("raw OSError escaped require_database_gate (L6)")
+        else:
+            raise SystemExit("gate OSError was not refused (L6)")
+    print("L6_GATE_OSError_TAGGED")
     # M4: the pytest identity preflight must be wrapped (tagged M4/M7), not a
     # bare check_output that surfaces a raw CalledProcessError.
     if "pytest identity unavailable" not in src:
@@ -746,9 +933,14 @@ def main() -> int:
         raise SystemExit("ordinary .txt wrongly snapshotted (L10)")
     print("L10_SOURCE_SUFFIXES_EXTENDED")
 
-    # H4: pytest regex must reject failed/error counts.
-    if r"\b\d+\s+(?:failed|errors?)\b" not in src and r"\d+\s+(?:failed|errors?)" not in src:
-        raise SystemExit("H4 regex does not reject failed/error counts")
+    # H4: pytest regex must reject failed/error counts (and L1: skipped too).
+    if (
+        r"\b\d+\s+(?:failed|errors?|skipped|xfailed|xpassed|deselected)\b" not in src
+        and r"\d+\s+(?:failed|errors?|skipped)" not in src
+    ):
+        raise SystemExit("H4/L1 regex does not reject failed/error/skipped counts")
+    if "skipped" not in src:
+        raise SystemExit("H4/L1 regex does not cover skipped counts")
     # TimeoutExpired must be handled.
     if "TimeoutExpired" not in src:
         raise SystemExit("TimeoutExpired not handled (H4)")
@@ -775,6 +967,15 @@ def main() -> int:
         ("= 21 passed, 1 error in 1.0s =", False),
         ("21  passed", True),  # whitespace-flexible inside the count
         ("22 passed", False),
+        # L1: skipped/xfailed/xpassed/deselected are non-green. "21 passed,
+        # 1 skipped" (22 collected) must NOT count as green.
+        ("21 passed, 1 skipped in 2.0s", False),
+        ("collected 22 items\n\n21 passed, 1 skipped in 2.0s", False),
+        ("21 passed, 1 xfailed", False),
+        ("21 passed, 2 deselected in 1.0s", False),
+        ("collected 21 items\n\n21 passed in 3.0s", True),
+        ("collected 22 items\n\n21 passed in 3.0s", False),  # L1: collected pin
+        ("collected 20 items\n\n21 passed in 3.0s", False),  # L1: collected pin
     )
     for tail, expected_ok in green_cases:
         ok, reason = mod.sql_green_receipt_ok(tail)
@@ -957,12 +1158,154 @@ def main() -> int:
             )
     if "except JourneyUnknown" not in main_src:
         raise SystemExit("main loop does not catch JourneyUnknown (M1)")
+    # M1 (round-7): main-loop flow — a routable UNKNOWN must route to its
+    # onward stage then END the sequence. It must NOT resume STAGE_ORDER
+    # (no receipt_bytes_in wire-byte injection after an UNKNOWN sender claim,
+    # no double-run of status_reconcile). This is a flow test of the real
+    # stage-loop helper, not `_route_unknown` isolation.
+    if not callable(getattr(mod, "_run_stage_order", None)):
+        raise SystemExit("_run_stage_order missing (M1 main-loop flow stub)")
+
+    def _fake_named(unknown_name: str):
+        calls: list[str] = []
+
+        def _make(name: str):
+            def _call(bindings, deadline):
+                calls.append(name)
+                if name == unknown_name:
+                    raise mod.JourneyUnknown(f"simulated ACK loss at {name}")
+                return {"status": "OK"}
+
+            return _call
+
+        return calls, {n: _make(n) for n in mod.STAGE_ORDER}
+
+    # sender UNKNOWN -> status_reconcile once, then STOP (no receipt_bytes_in).
+    calls, fns = _fake_named("sender")
+    stages = {n: "UNPROVEN" for n in mod.STAGE_ORDER}
+    failing_cell: list = [None]
+    budget_end = mod._monotonic_end(30.0)
+    mod._run_stage_order(fns, stages, budget_end, failing_cell)
+    expected_after_sender = [
+        "provision_capture_admission",
+        "observe_audience",
+        "host_control",
+        "current_turn",
+        "sender",
+        "status_reconcile",
+    ]
+    if calls != expected_after_sender:
+        raise SystemExit(
+            f"M1 main-loop flow wrong after sender UNKNOWN: {calls!r} "
+            f"expected {expected_after_sender!r}"
+        )
+    if "receipt_bytes_in" in calls:
+        raise SystemExit(
+            "M1 receipt_bytes_in ran after sender UNKNOWN (wire-byte injection)"
+        )
+    if calls.count("status_reconcile") != 1:
+        raise SystemExit("M1 status_reconcile double-ran after sender UNKNOWN")
+    if stages["sender"] != "UNKNOWN->status_reconcile":
+        raise SystemExit(f"M1 stages map wrong for sender: {stages['sender']!r}")
+    if stages["receipt_bytes_in"] != "UNPROVEN":
+        raise SystemExit("M1 receipt_bytes_in marked after sender UNKNOWN")
+    print("M1_MAIN_LOOP_FLOW_SENDER_STOPS_AFTER_ROUTE")
+    # receipt_bytes_in UNKNOWN -> status_reconcile once (no double-run).
+    calls, fns = _fake_named("receipt_bytes_in")
+    stages = {n: "UNPROVEN" for n in mod.STAGE_ORDER}
+    failing_cell = [None]
+    budget_end = mod._monotonic_end(30.0)
+    mod._run_stage_order(fns, stages, budget_end, failing_cell)
+    if calls.count("status_reconcile") != 1:
+        raise SystemExit(
+            f"M1 status_reconcile double-ran after receipt_bytes_in UNKNOWN: {calls!r}"
+        )
+    if calls[-1] != "status_reconcile":
+        raise SystemExit(
+            f"M1 sequence did not end at stage 5 after receipt_bytes_in UNKNOWN: {calls!r}"
+        )
+    if stages["receipt_bytes_in"] != "UNKNOWN->status_reconcile":
+        raise SystemExit(
+            f"M1 stages map wrong for receipt_bytes_in: {stages['receipt_bytes_in']!r}"
+        )
+    print("M1_MAIN_LOOP_FLOW_RECEIPT_STOPS_AFTER_ROUTE")
+    # Earlier-stage UNKNOWN must end at that stage (no onward route).
+    calls, fns = _fake_named("current_turn")
+    stages = {n: "UNPROVEN" for n in mod.STAGE_ORDER}
+    failing_cell = [None]
+    budget_end = mod._monotonic_end(30.0)
+    try:
+        mod._run_stage_order(fns, stages, budget_end, failing_cell)
+    except mod.JourneyRefusal as e:
+        if "UNKNOWN" not in str(e) and "no onward" not in str(e):
+            raise SystemExit(f"M1 earlier-UNKNOWN refusal message wrong: {e}")
+    else:
+        raise SystemExit("M1 earlier-stage UNKNOWN did not end the journey")
+    if "sender" in calls or "receipt_bytes_in" in calls or "status_reconcile" in calls:
+        raise SystemExit(
+            f"M1 earlier-UNKNOWN continued the loop after STOP: {calls!r}"
+        )
+    print("M1_MAIN_LOOP_FLOW_EARLIER_UNKNOWN_STOPS")
+    # main must actually call the extracted stage-order helper (a mutation
+    # that reintroduces an inline loop with `continue` would bypass it).
+    if "_run_stage_order(" not in main_src:
+        raise SystemExit("main does not call _run_stage_order (M1 wiring)")
     print("M1_JOURNEY_UNKNOWN_ROUTING")
 
-    # M3: Python floor must be checked in main().
-    if "sys.version_info" not in main_src:
-        raise SystemExit("Python version floor not enforced (M3)")
+    # M3/L5: Python floor must be enforced — behaviorally, not just a static
+    # "sys.version_info" string scan. require_python_floor is extracted so a
+    # fake old version_info drives the real comparison.
+    if not callable(getattr(mod, "require_python_floor", None)):
+        raise SystemExit("require_python_floor missing (M3/L5)")
+    import collections as _collections
+    from unittest import mock as _mock_ver
+
+    _Ver = _collections.namedtuple("_Ver", "major minor micro")
+    with _mock_ver.patch.object(sys, "version_info", _Ver(3, 10, 0)):
+        try:
+            mod.require_python_floor()
+        except mod.JourneyRefusal as e:
+            if "3.11" not in str(e) and "Python" not in str(e):
+                raise SystemExit(f"M3 floor refusal does not name the floor: {e}")
+            print("M3_PYTHON_FLOOR_BEHAVIORAL", str(e)[:80])
+        else:
+            raise SystemExit("require_python_floor accepted Python 3.10 (M3)")
+    with _mock_ver.patch.object(sys, "version_info", _Ver(3, 11, 0)):
+        mod.require_python_floor()  # must not raise
+    with _mock_ver.patch.object(sys, "version_info", _Ver(3, 14, 0)):
+        mod.require_python_floor()  # must not raise
     print("M3_PYTHON_FLOOR_ENFORCED")
+    # L5: RECALL-first-order — require_recall_env_absent must be the first
+    # substantive call in main() (before identity, head, inventory, gate, DB).
+    i_recall = main_src.find("require_recall_env_absent(")
+    if i_recall < 0:
+        raise SystemExit("require_recall_env_absent not called in main (L5)")
+    i_python_floor = main_src.find("require_python_floor(")
+    if i_python_floor < 0:
+        raise SystemExit("require_python_floor not called in main (L5)")
+    for later_name, needle in (
+        ("_tool_identity", "_tool_identity("),
+        ("require_head", "require_head("),
+        ("assert_sealed_inventory", "assert_sealed_inventory("),
+        ("require_database_gate", "require_database_gate("),
+        ("worker_postgres", "worker_postgres("),
+    ):
+        later_pos = main_src.find(needle)
+        if later_pos >= 0 and i_recall > later_pos:
+            raise SystemExit(
+                f"require_recall_env_absent must run before {later_name} (L5 order)"
+            )
+    # The Python floor must also precede other work (M3 is a pre-flight).
+    for later_name, needle in (
+        ("_scratch", "scratch = _scratch("),
+        ("_tool_identity", "_tool_identity("),
+    ):
+        later_pos = main_src.find(needle)
+        if later_pos >= 0 and i_python_floor > later_pos:
+            raise SystemExit(
+                f"require_python_floor must run before {later_name} (L5 order)"
+            )
+    print("RECALL_ENV_FIRST_ORDER_OK")
 
     # M8/L8: docker compose plugin must be preflighted via the argv literal
     # ["compose", "version"] — not comment substrings. Deleting the try/except
