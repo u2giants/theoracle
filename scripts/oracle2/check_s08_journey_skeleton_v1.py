@@ -618,6 +618,10 @@ def main() -> int:
         raise SystemExit("ALLOW_LINE does not match 'gate: ALLOW'")
     if mod.ALLOW_LINE.search("ALLOW") is None:
         raise SystemExit("ALLOW_LINE does not match bare 'ALLOW'")
+    if mod.ALLOW_LINE.search(
+        'ai-task-gates: "database" may start for effective class "shared-db" in u2giants/theoracle.'
+    ) is None:
+        raise SystemExit("ALLOW_LINE does not match real ai-task-gates may-start phrasing")
     if mod.ALLOW_LINE.search("DENIED but ALLOW later") is not None:
         raise SystemExit("ALLOW_LINE matches a denial substring")
     if mod.ALLOW_LINE.search("  ALLOW  ") is not None:
@@ -626,8 +630,14 @@ def main() -> int:
         raise SystemExit("DENIED_LINE does not match 'DENIED'")
     if mod.DENIED_LINE.search("gate: DENIED") is None:
         raise SystemExit("DENIED_LINE does not match 'gate: DENIED'")
+    if mod.DENIED_LINE.search('ai-task-gates: STOP before "code-only-review".') is None:
+        raise SystemExit("DENIED_LINE does not match ai-task-gates STOP")
     if mod.DENIED_LINE.search("ALLOW") is not None:
         raise SystemExit("DENIED_LINE matches ALLOW")
+    if mod.DENIED_LINE.search(
+        'ai-task-gates: "database" may start for effective class "shared-db" in u2giants/theoracle.'
+    ) is not None:
+        raise SystemExit("DENIED_LINE matches real may-start allow phrasing")
     print("ALLOW_DENIED_LINE_PRECISE")
 
     # M4: gate exit-code contract — nonzero exit must write ops-database-gate.txt,

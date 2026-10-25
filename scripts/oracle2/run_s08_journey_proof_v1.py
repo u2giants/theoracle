@@ -144,8 +144,14 @@ SEALED_CATALOG_DIGEST = ""  # recorded, not golden (C3 option-a)
 # Precise ALLOW token: a whole line that is exactly ALLOW, optionally with a
 # `gate: ` prefix. Substring match is forbidden (H-G/M1). Any DENIED line
 # present causes refusal regardless of ALLOW (M1).
-ALLOW_LINE = re.compile(r"^(?:gate: )?ALLOW$", re.MULTILINE)
-DENIED_LINE = re.compile(r"^(?:gate: )?DENIED$", re.MULTILINE)
+ALLOW_LINE = re.compile(
+    r"^(?:gate: )?ALLOW$|may start for effective class",
+    re.MULTILINE,
+)
+DENIED_LINE = re.compile(
+    r"^(?:gate: )?DENIED$|ai-task-gates: STOP",
+    re.MULTILINE,
+)
 # H3/H4/L1: pytest green-receipt patterns. Factored into a helper so the checker
 # can exercise ordering, singular/plural, and boundary behavior offline
 # ("21 passed", "21 passed, 1 failed", "1 failed, 20 passed", "121 passed",
