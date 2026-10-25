@@ -550,6 +550,12 @@ def _receipt_stat_ok(path: Path) -> tuple[dict, bytes]:
             checks["nlink_is_1"] = before.st_nlink == 1
             checks["mode_no_group_other"] = (before.st_mode & 0o077) == 0
         checks["size_le_4096"] = before.st_size <= 4096
+        # L3: refuse oversized receipts BEFORE any payload read. A huge file
+        # must not be pulled into memory just to fail the size gate after.
+        if not checks["size_le_4096"]:
+            raise JourneyRefusal(
+                f"review receipt exceeds 4096 bytes (L3): size={before.st_size}"
+            )
         if hasattr(os, "getuid"):
             checks["uid_checked"] = True
             checks["uid_is_self"] = before.st_uid == os.getuid()
@@ -618,6 +624,18 @@ def require_review_receipt(head: str, scratch: Path) -> dict:
             "STOP. Do not invent a production effect."
         )
     release_path = Path(release_raw).resolve()
+    # L1/C3: the operator-minted receipt must live OUTSIDE SCRATCH. The runner
+    # copies it in after SCRATCH is minted; a release path inside SCRATCH would
+    # make that contract vacuous and could collide with the per-run copy.
+    try:
+        release_path.relative_to(scratch.resolve())
+    except ValueError:
+        pass
+    else:
+        raise JourneyRefusal(
+            "review receipt release path must be outside SCRATCH (L1/C3): "
+            f"release={release_path} scratch={scratch}"
+        )
     if not release_path.is_file():
         raise JourneyRefusal(
             f"review receipt release path absent: {release_path} (C3)"
@@ -1217,29 +1235,54 @@ def _owned_absence_readback(project: str, *, prefix_aware: bool = False) -> dict
     docker = _tool_identity("docker")
     remains: dict[str, object] = {}
     if prefix_aware:
-        # Client-side prefix filter: list all compose-labeled resources and
-        # keep only those whose project label starts with `project` (base).
-        for kind, cmd in (
-            ("containers", ["ps", "-aq", "--filter", "label=com.docker.compose.project",
-                            "--format", '{{.Label "com.docker.compose.project"}}']),
-            ("networks", ["network", "ls", "-q", "--filter", "label=com.docker.compose.project",
-                          "--format", '{{.Label "com.docker.compose.project"}}']),
-            ("volumes", ["volume", "ls", "-q", "--filter", "label=com.docker.compose.project",
-                         "--format", '{{.Label "com.docker.compose.project"}}']),
+        # Client-side prefix filter: list all compose-labeled resources, then
+        # read each resource's project label via inspect (L4). `{{.Label …}}`
+        # is not a reliable `network ls`/`volume ls` format on Linux docker
+        # and records probe-failed instead of a real result. Fail-safe: any
+        # probe/inspect failure is recorded as probe-failed and never raises.
+        for kind, list_cmd, inspect_cmd in (
+            (
+                "containers",
+                ["ps", "-aq", "--filter", "label=com.docker.compose.project"],
+                ["inspect", "-f", '{{index .Config.Labels "com.docker.compose.project"}}'],
+            ),
+            (
+                "networks",
+                ["network", "ls", "-q", "--filter", "label=com.docker.compose.project"],
+                ["network", "inspect", "-f", '{{index .Labels "com.docker.compose.project"}}'],
+            ),
+            (
+                "volumes",
+                ["volume", "ls", "-q", "--filter", "label=com.docker.compose.project"],
+                ["volume", "inspect", "-f", '{{index .Labels "com.docker.compose.project"}}'],
+            ),
         ):
             try:
                 out = subprocess.check_output(
-                    [docker["path"], *cmd],
+                    [docker["path"], *list_cmd],
                     text=True,
                     stderr=subprocess.STDOUT,
                     timeout=DOCKER_PROBE_TIMEOUT_S,
                 )
-                hits = [
-                    line.strip()
-                    for line in out.splitlines()
-                    if line.strip().startswith(project)
-                ]
-                remains[kind] = bool(hits)
+                hits = False
+                for rid in (line.strip() for line in out.splitlines() if line.strip()):
+                    try:
+                        label = subprocess.check_output(
+                            [docker["path"], *inspect_cmd, rid],
+                            text=True,
+                            stderr=subprocess.STDOUT,
+                            timeout=DOCKER_PROBE_TIMEOUT_S,
+                        ).strip()
+                    except (
+                        subprocess.CalledProcessError,
+                        subprocess.TimeoutExpired,
+                        OSError,
+                    ):
+                        continue
+                    if label.startswith(project):
+                        hits = True
+                        break
+                remains[kind] = hits
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
                 remains[kind] = f"probe-failed:{type(exc).__name__}"
     else:
@@ -1290,19 +1333,58 @@ def _write_refusal(scratch: Path, reason: str, stage: str | None, head: str | No
     (scratch / "refusal.json").write_text(json.dumps(payload, sort_keys=True) + "\n")
 
 
+def _resolve_marker_dir(scratch: Path | None) -> Path | None:
+    """Locate a writable marker directory (L2).
+
+    Prefers the live scratch; falls back to a SCRATCH_ENV directory that
+    _scratch() created before a later pre-try failure. Returns None when
+    nowhere exists (true chicken-and-egg scratch-create failure).
+    """
+    if scratch is not None:
+        return scratch
+    raw = os.environ.get(SCRATCH_ENV)
+    if not raw:
+        return None
+    try:
+        cand = Path(raw).resolve()
+    except OSError:
+        return None
+    return cand if cand.is_dir() else None
+
+
+def _write_pretry_refusal(scratch: Path | None, reason: str) -> None:
+    """L2: never leave a silent pre-try exit.
+
+    Write a tagged refusal.json when a marker directory is available —
+    including a SCRATCH_ENV directory that _scratch() created before a later
+    pre-try failure. When SCRATCH creation itself is the failure there is
+    nowhere to write (chicken-and-egg); print a tagged stderr line and leave
+    no marker rather than pretending one exists.
+    """
+    target = _resolve_marker_dir(scratch)
+    if target is not None:
+        try:
+            _write_refusal(target, f"pre-try: {reason}", "pre-try", None)
+            return
+        except OSError:
+            pass
+    print(f"pre-try-refusal (no SCRATCH; chicken-and-egg): {reason}", file=sys.stderr)
+
+
 def main() -> int:
-    # M3: enforce Python >=3.11 floor (Exception.add_note used in cleanup).
-    # L5: extracted helper, called before any other work so the checker can
-    # drive the floor behaviorally with a fake version_info.
-    require_python_floor()
-    os.umask(0o077)
-    scratch = _scratch()
+    scratch: Path | None = None
     project_base = f"{COMPOSE_PROJECT_PREFIX}-{uuid4().hex[:8]}"  # unique per run (M-C)
     head: str | None = None
     failing_cell: list[str | None] = [None]
     identity: dict | None = None
     evidence_written = False
     try:
+        # L2: pre-try work runs inside the try so refusals write a tagged
+        # marker (via _write_pretry_refusal / _write_refusal) instead of
+        # exiting silently. require_python_floor stays before _scratch (M3/L5).
+        require_python_floor()
+        os.umask(0o077)
+        scratch = _scratch()
         require_recall_env_absent()  # H-E: refuse before any other work
         # C1: each tool uses its own working identity command (TOOL_VERSION_ARGS).
         tools = {name: _tool_identity(name) for name in ("git", "ai-task-gates", "docker")}
@@ -1626,7 +1708,11 @@ def main() -> int:
             return 0
     except JourneyRefusal as exc:
         if not evidence_written:  # C8: refusal.json ONLY on refusal paths
-            _write_refusal(scratch, str(exc), failing_cell[0], head)
+            marker_dir = _resolve_marker_dir(scratch)
+            if marker_dir is not None:
+                _write_refusal(marker_dir, str(exc), failing_cell[0], head)
+            else:
+                _write_pretry_refusal(scratch, str(exc))
         raise
     except BaseException as exc:  # noqa: BLE001 — any failure is a refusal
         # L4: catch BaseException (KeyboardInterrupt, SystemExit, and every
@@ -1634,17 +1720,24 @@ def main() -> int:
         # tagged refusal.json — never cleanup.json with neither refusal nor
         # evidence markers. The exception is re-raised after the marker is
         # written; the finally block still runs for cleanup readback.
+        # L2: pre-try failures use the same marker path — never a silent exit.
         if not evidence_written:  # C8: never write refusal after evidence
-            _write_refusal(
-                scratch, f"{type(exc).__name__}: {exc}", failing_cell[0], head
-            )
+            marker_dir = _resolve_marker_dir(scratch)
+            reason = f"{type(exc).__name__}: {exc}"
+            if marker_dir is not None:
+                _write_refusal(marker_dir, reason, failing_cell[0], head)
+            else:
+                _write_pretry_refusal(scratch, reason)
         raise
     finally:
         # Cleanup readback ALWAYS, even pre-identity (M-C). Project name is
         # generated before the try so residue can be named on every path.
         # M8: record both the original exception and any cleanup error; never
         # mask the original. cleanup.json is an ops artifact (C8).
+        # L2: write cleanup.json whenever a marker directory exists; a true
+        # scratch-create failure has nowhere to write (chicken-and-egg).
         original_exc = sys.exc_info()[1]
+        marker_dir = _resolve_marker_dir(scratch)
         try:
             # C2: use the real suffixed project when identity is established;
             # prefix-aware listing on pre-identity paths.
@@ -1654,9 +1747,10 @@ def main() -> int:
                 readback = _owned_absence_readback(project_base, prefix_aware=True)
             readback["ops"] = True
             readback["non_evidence"] = True
-            (scratch / "cleanup.json").write_text(
-                json.dumps(readback, sort_keys=True) + "\n"
-            )
+            if marker_dir is not None:
+                (marker_dir / "cleanup.json").write_text(
+                    json.dumps(readback, sort_keys=True) + "\n"
+                )
             if not readback["absent"] and identity is not None:
                 cleanup_err = JourneyRefusal(
                     "exact owned synthetic cleanup incomplete; absence not proven; STOP"

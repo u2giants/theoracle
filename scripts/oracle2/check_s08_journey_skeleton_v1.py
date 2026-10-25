@@ -456,10 +456,14 @@ def main() -> int:
     # Receipt fail-closed cases. require_review_receipt takes scratch explicitly;
     # the checker's TemporaryDirectory is isolated and restored by the with-block.
     with tempfile.TemporaryDirectory() as td:
-        scratch = Path(td)
+        base = Path(td)
+        # L1/C3: release path must live OUTSIDE SCRATCH. Keep them in sibling
+        # locations under the tempdir so the positive path is valid.
+        scratch = base / "scratch"
+        scratch.mkdir()
         # C3: require_review_receipt now reads from RECEIPT_RELEASE_ENV.
         # Set it to a temp release path for the tests below.
-        release_path = Path(td) / "release-receipt.json"
+        release_path = base / "release-receipt.json"
         saved_release = os.environ.get(mod.RECEIPT_RELEASE_ENV)
         os.environ[mod.RECEIPT_RELEASE_ENV] = str(release_path)
 
@@ -479,6 +483,20 @@ def main() -> int:
                 print("REVIEW_RECEIPT_FAIL_CLOSED", str(e)[:100])
             else:
                 raise SystemExit("review receipt did not fail closed when release absent")
+
+            # L1: release path inside SCRATCH must refuse (outside-SCRATCH rule).
+            inside = scratch / "inside-scratch-receipt.json"
+            inside.write_text(json.dumps({"head": head}) + "\n")
+            os.environ[mod.RECEIPT_RELEASE_ENV] = str(inside)
+            try:
+                mod.require_review_receipt(head, scratch)
+            except mod.JourneyRefusal as e:
+                if "SCRATCH" not in str(e) and "L1" not in str(e):
+                    raise SystemExit(f"L1 inside-SCRATCH refusal not tagged: {e}")
+                print("L1_RELEASE_INSIDE_SCRATCH_REFUSED", str(e)[:80])
+            else:
+                raise SystemExit("release path inside SCRATCH was accepted (L1)")
+            os.environ[mod.RECEIPT_RELEASE_ENV] = str(release_path)
 
             good = {
                 "head": head,

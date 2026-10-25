@@ -98,15 +98,19 @@ this head:
 | test_meeting_participation_sql.py | 21 collected, NOT executed | must go green before the journey runs |
 | test_meeting_participation_v1.py | 31 passed / 57 failed / 2 errors (Windows `os.getuid()`) | reconcile on Linux |
 | test_meeting_participation_wire_v1.py | all pass / 2 errors (env-var length) | reconcile on Linux |
-| test_outbound_replay.py | **not measured**; module-skips when `oracle_brain.meetings.delivery` is absent (`test_outbound_replay.py:11-20`) | record skip-vs-pass explicitly |
+| test_outbound_replay.py | **not measured**; **expected to RUN** — `oracle_brain.meetings.delivery` exists at this head and base (`delivery.py` exports `DELIVERY_ACTION_PURPOSE` / `SenderCredentialProof`), so `find_spec` succeeds. Real skip condition (delivery absent, `test_outbound_replay.py:11-20`) does not hold. | record collect/run disposition (expected: run), not skip |
 
-**Skip-vs-pass for `test_outbound_replay.py`:** the module performs a
-module-level `pytest.skip` when `oracle_brain.meetings.delivery` is absent (not
-built on main). Under the "skips fail" verifier
-(`verify_workflow_integrity.py:2`) a skip is **not** a green case — it is a
-disposition that must be reported. The Linux rerun records whether the module
-skipped or ran. `test_meeting_participation.py` is likewise unreported on this
-host.
+**Disposition for `test_outbound_replay.py`:** the module performs a
+module-level `pytest.skip` only when `oracle_brain.meetings.delivery` is
+absent. That module **exists at this head and base**
+(`services/oracle-brain/oracle_brain/meetings/delivery.py` exports
+`DELIVERY_ACTION_PURPOSE` and `SenderCredentialProof`), so on Linux
+`importlib.util.find_spec` succeeds and the module is **expected to RUN**
+(collect and execute) — not skip. Under the "skips fail" verifier
+(`verify_workflow_integrity.py:2`) a skip would **not** be a green case — it is
+a disposition that must be reported. The Linux rerun records the actual
+disposition (**expected: run**). `test_meeting_participation.py` is likewise
+unreported on this host.
 
 ## Sequencing — 21 SQL before the journey (M-E/H4)
 

@@ -426,7 +426,7 @@ variants included — `dev/oracle2` ships `.mjs/.mts` files.)
 | Windows v1 suite (`test_meeting_participation_v1.py`) | 31 passed / 57 failed / 2 errors (`os.getuid()` absent on Windows) | sealed evidence note (this host) |
 | SQL module (`test_meeting_participation_sql.py`) | 21 cases collected, **NOT executed** | sealed evidence note (this host) |
 | `test_meeting_participation.py` | **not measured on this host** | collect-only count to be measured on the Linux rerun |
-| `test_outbound_replay.py` | **not measured on this host**; module-skips when `oracle_brain.meetings.delivery` is absent | collect-only / skip disposition to be measured on the Linux rerun |
+| `test_outbound_replay.py` | **not measured on this host**; **expected to RUN** on Linux — `oracle_brain.meetings.delivery` exists at this head and base (`delivery.py` exports `DELIVERY_ACTION_PURPOSE` / `SenderCredentialProof`), so `find_spec` succeeds and the module collects/runs. The real skip condition (delivery absent, `test_outbound_replay.py:11-20`) does **not** hold. | collect/run disposition (not skip) to be measured on the Linux rerun |
 | 21/21 SQL green on edge-dev3 | prior-session Linux run | **prior-session evidence, not current-head proof** |
 | 256 pure / 21 SQL | historical Linux run | **not re-claimed** |
 | 230 pure (4 suites + verifier) | edge-dev3 `/tmp` status note | **not sealed; not re-claimed here** |
@@ -448,13 +448,17 @@ real-DB path is covered only by the 21 SQL when they are actually executed.
 5. `test_meeting_participation_wire_v1.py`
 6. `test_outbound_replay.py`
 
-All six must be reported. `test_outbound_replay.py:11-20` **module-skips** when
-`oracle_brain.meetings.delivery` is absent (not built on main). Under the
-"skips fail" verifier (`verify_workflow_integrity.py:2`) that skip is a
-**disposition to report, not a silent pass**: the Linux rerun must record
-whether the module skipped or ran, and a skip is not a green case. The two
-unreported modules (`test_meeting_participation.py`, `test_outbound_replay.py`)
-are named above so the Linux rerun has a target to reconcile against.
+All six must be reported. `test_outbound_replay.py:11-20` **module-skips** only
+when `oracle_brain.meetings.delivery` is absent. That module **exists at this
+head and base** (`services/oracle-brain/oracle_brain/meetings/delivery.py`
+exports `DELIVERY_ACTION_PURPOSE` and `SenderCredentialProof`), so on Linux
+`importlib.util.find_spec` succeeds and `test_outbound_replay.py` is
+**expected to RUN** (collect and execute) — not skip. Under the "skips fail"
+verifier (`verify_workflow_integrity.py:2`) a skip would be a **disposition to
+report, not a silent pass**, and a skip is not a green case; the Linux rerun
+must record the actual disposition (**expected: run**). The two unreported
+modules (`test_meeting_participation.py`, `test_outbound_replay.py`) are named
+above so the Linux rerun has a target to reconcile against.
 
 ## Sequencing — the 21 SQL must go green first (M-E/H4)
 
