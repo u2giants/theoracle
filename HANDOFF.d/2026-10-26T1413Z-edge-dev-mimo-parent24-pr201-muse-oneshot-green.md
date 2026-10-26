@@ -75,9 +75,9 @@ Branch [`codex/parent24-writercut-tool1988-20261026`](https://github.com/u2giant
 
 Candidate `2634e51f` matcher path proved locally (20 cases, 26-locale parity, shard4 green). CI still fails on **StepFun pacer timing** (`tests/test-ai-stepfun.sh::paces_before_call`) — 1s gap instead of 2s under concurrency; 4 provider calls vs 3. Not the matcher. PR1988 stays parked. No green CI invented.
 
-### 3.7 S13 recovery metadata repair — IN FLIGHT at this handoff
+### 3.7 S13 recovery metadata repair — DONE (metadata path); full recovery still held
 
-Subagent working `codex/parent24-s13-repair-20261026`. Prior state: run 09 FAILED 25/27 after SOURCE+resource-plan APPROVE at `2633`. Known causes: PL record alias collisions, catalog search_path, scope ambiguity, receipt ownership / claim alias. Do not strip catalog/source pins. Do not pronounce metadata recovery complete.
+Branch [`codex/parent24-s13-repair-20261026`](https://github.com/u2giants/theoracle/tree/codex/parent24-s13-repair-20261026) at [`a0a7465f`](https://github.com/u2giants/theoracle/commit/a0a7465f). Recovery09's 25/27 was four stacked defects (receipt ownership, claim-alias SRF, `observed_at` variable conflict, `to_jsonb(oid)` string) — repairs were already on main; this branch adds static source locks and proof artifacts. **27/27 actual SQL + 22/22 static tests pass** on edge-dev3; `absence_proven: true`. Full recovery (native dump/restore, archive child, private roots, vector, license, once/cost, outage/RTO/RPO) remains UNPROVEN. Source/runtime admission beyond metadata SQL held for root release. Do not strip catalog/source pins.
 
 ### 3.8 Prior state that still holds
 
@@ -91,7 +91,7 @@ Subagent working `codex/parent24-s13-repair-20261026`. Prior state: run 09 FAILE
 - PR201 not merged to main (APPROVE + one-shot done; merge path still subject to release policy).
 - PR200 merge (owner timing).
 - S12 live nine-case (Case 1 actual Next/AuthSDK E2E) — named UNPROVEN gates only.
-- S13 recovery full repair (in flight).
+- S13 full recovery beyond metadata SQL (metadata path green 27/27 at `a0a7465f`).
 - S14–S16 company comparison / adoption / retirement — business hold.
 - Remaining S03–S16 product/semantic/host qualifications and W01–W12 / U1–U6 from the closeout ledger.
 - Real Teams producer qualification.
@@ -122,7 +122,7 @@ Subagent working `codex/parent24-s13-repair-20261026`. Prior state: run 09 FAILE
 
 ## 6. Exact next steps
 
-1. **S13 repair (subagent in flight).** Land `codex/parent24-s13-repair-20261026` or report remaining UNPROVEN with gate lines. You'll know it worked when recovery metadata tests pass or every remaining failure is named with verbatim evidence.
+1. **S13 full recovery** (native dump/restore, archive child, private roots, vector, license, once/cost, outage/RTO/RPO). Metadata path is 27/27 at `a0a7465f`. Gate: named UNPROVEN list shrinks with exact JUnit, never a silent skip.
 2. **S12 live nine-case.** Run `run-s12-current-preauth-proof-04.py` under `ai-task-gates check --before database` only after an independent SOURCE+ONE and root one-fresh-release. Gate: JUnit `9/0/0/0` and `absence_proven:true`.
 3. **PR201 merge** through the normal release path when the program is ready. Do not push to protected main.
 4. **PR200 merge** when Albert wants it. Keep branch `parent24-s08-compose-81742134`.
@@ -181,7 +181,7 @@ You'll know step 2 worked when JUnit is 9/0/0/0 with process absence proven. Ste
 
 **general-5 (writer-cut / Tool1988).** Writer census/cut-control/barrier/R1–R20 + Tool1988 disposition on `codex/parent24-writercut-tool1988-20261026` @ `2a1c2ec0`. Company comparison/cutover held. Returned success.
 
-**general-6 (S13 repair).** In flight at handoff write time (`codex/parent24-s13-repair-20261026`). Outcome not claimed here.
+**general-6 (S13 repair).** Four stacked recovery09 defect classes identified (three already fixed on main; two static locks added). Head `a0a7465f` on `codex/parent24-s13-repair-20261026`. 27/27 actual SQL + 22/22 static green; owned cleanup absence_proven. Full recovery still held. Returned success.
 
 ## Mandatory self-audit
 
