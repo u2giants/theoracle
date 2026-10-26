@@ -102,10 +102,12 @@ class ReadOnlyConnection:
                     if w is not None and w.transport is not None:
                         t=w.transport
                         raw_sock=t.get_extra_info('socket')
-                        print('ORACLE-DIAG gei sock=%s'%('yes' if raw_sock is not None else 'None'),file=_s.stderr,flush=True)
                         if raw_sock is not None:
-                            try:raw_sock.shutdown(_so.SHUT_RDWR)
-                            except Exception:pass
+                            try:
+                                raw_sock.shutdown(_so.SHUT_RDWR)
+                                print('ORACLE-DIAG gei shutdown ok',file=_s.stderr,flush=True)
+                            except Exception as e:
+                                print('ORACLE-DIAG gei shutdown err=%s'%e,file=_s.stderr,flush=True)
                             try:raw_sock.close()
                             except Exception:pass
                         t.abort()
