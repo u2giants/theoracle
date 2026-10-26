@@ -150,13 +150,13 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
       if(timer)clearTimeout(timer);timer=setTimeout(stop,remaining());
       remaining();if(!originMatches()||url!==profile.project_url)return proxyDiag('origin-mismatch');
       const currentEmployee=await Promise.race([getUniqueEmployeeForAuthUserV1(result.data.user.id),aborted()]);remaining();
-      if(!currentEmployee||currentEmployee.id!==profile.employee_id||currentEmployee.disabledAt!==null||canonicalJson(rereadInstalledEmployeeBindingV1(installed)?.profile)!==canonicalJson(profile)){console.error('ORACLE-DIAG proxy employee-recheck fail',JSON.stringify({hasCE:!!currentEmployee,idMatch:currentEmployee?.id===profile.employee_id,disabledAt:currentEmployee?.disabledAt??'null',profileEmp:profile.employee_id}));return unavailableControl();}
+      if(!currentEmployee||currentEmployee.id!==profile.employee_id||currentEmployee.disabledAt!==null||canonicalJson(rereadInstalledEmployeeBindingV1(installed)?.profile)!==canonicalJson(profile)){console.error('ORACLE-DIAG proxy employee-recheck fail');return unavailableControl();}
     }else{
       if(result.data.user.id!==profile!.auth_user_id)return unavailableControl();
       if(canonicalJson(readBinding().profile)!==canonicalJson(profile))return unavailableControl();
     }
     remaining();return response;
-  }catch(err){console.error('ORACLE-DIAG proxy catch',err instanceof Error?err.message:String(err));return unavailableControl();}
+  }catch{console.error('ORACLE-DIAG proxy catch');return unavailableControl();}
   finally{active=false;if(timer)clearTimeout(timer);controller.abort();request.signal.removeEventListener('abort',stop);}
 }
 function fail():never{throw new Error('Replacement control unavailable');}

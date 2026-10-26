@@ -156,6 +156,9 @@ class ConnectedAnswerSettingsV1:
                     raise PermissionError('actual fixed graph server identity differs')
         self.current();request_remaining_v1()
         name=f'oracle_processing_v1_{c.workspace_id.hex}_{c.model_id.hex}_{version}_{target.generation.hex}'
+        # pool_timeout bounds pool acquisition (not the 3s socket or 30s
+        # request window): 5s tolerates one slow TLS handshake without
+        # masking fail-closed refusal, which stays on the 30s original window.
         connection=ConnectionConfig.from_url(url,graph_name=name,ssl=True,ssl_check_hostname=True,ssl_cert_reqs='required',ssl_ca_certs=c.graph_ca.path,ssl_certfile=c.graph_certificate.path,ssl_keyfile=c.graph_key.path,query_timeout_ms=3000,retry_count=1,pool_timeout=5)
         authority,blobs=self.consumer()
         result=ConsolidatedMetadataSDKProjectionV1(url,authority=authority,blobs=blobs,model_id=c.model_id,version=version,generation=target.generation,connection_config=connection,deadline=deadline,valid_at=valid_at,known_at=known_at)
