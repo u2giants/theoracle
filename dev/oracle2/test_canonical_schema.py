@@ -156,6 +156,12 @@ def bootstrap_canonical_test_schema(url,*,container_id=None,receipt_path=None):
         return _write_receipt(receipt_path,key,_RECEIPTS[key]) if receipt_path is not None else None
     inventory = _inventory_digest(files)
     with psycopg.connect(url) as connection:
+        existing=connection.execute("SELECT to_regclass('oracle2.processing_model_admissions_v1')").fetchone()[0]
+        if existing is not None:
+            catalog=_catalog(connection)
+            if _inventory_digest(files)!=inventory:raise PermissionError('canonical test schema inventory differs')
+            _RECEIPTS[key]={'inventory':inventory,'catalog':catalog}
+            return _write_receipt(receipt_path,key,_RECEIPTS[key]) if receipt_path is not None else None
         for path in files:connection.execute(path.read_text())
         catalog = _catalog(connection)
     # Return and remember only after actual DDL transaction commit/close and a

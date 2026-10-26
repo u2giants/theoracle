@@ -14,7 +14,7 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
         raise PermissionError('mutually verified owned graph TLS fixture required')
     listener=socket.socket();listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
     listener.bind(('127.0.0.1',0));listener.listen(8);listener.settimeout(.1)
-    stop=threading.Event();lock=threading.Lock();active=set();workers=[];limit=threading.BoundedSemaphore(8)
+    stop=threading.Event();lock=threading.Lock();active=set();workers=[];limit=threading.BoundedSemaphore(32)
     def track(sock):
         with lock:active.add(sock)
         return sock
