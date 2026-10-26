@@ -1,5 +1,5 @@
 """Real pinned SDK ingestion from sealed ledger records; never second extraction."""
-import json,logging,hashlib,copy
+import asyncio,json,logging,hashlib,copy
 from importlib.metadata import version
 from uuid import UUID
 from graphrag_sdk import GraphRAG,ConnectionConfig,FalkorDBConnection,Ontology,Entity,Relation,ChunkingStrategy,ExtractionStrategy,TextChunk,TextChunks
@@ -90,14 +90,20 @@ class ReadOnlyConnection:
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
     async def close(self):
-        # Deferred close: drop pool/driver/graph references without any
-        # TLS teardown. Calling aclose()/disconnect() sends close_notify
-        # or RST on the shared graph TLS tunnel, which resets peer
-        # handshakes (Case 1: B's new connection dies with
-        # ConnectionResetError after A's pool close). Dropping references
-        # defers socket release to GC without touching the tunnel.
+        # Deferred close: drop references immediately (so no TLS teardown
+        # resets the shared graph tunnel for peer handshakes), then release
+        # the pool after a short delay so long-running servers do not leak
+        # FDs. The delay gives the next peer handshake time to complete
+        # before aclose() touches the tunnel.
         conn=self._connection
+        pool=getattr(conn,'_pool',None)
         conn._pool=None;conn._driver=None;conn._graph=None
+        if pool is not None:
+            loop=asyncio.get_running_loop()
+            def _later():
+                try:asyncio.ensure_future(pool.aclose())
+                except Exception:pass
+            loop.call_later(2.0,_later)
 
 class SDKProjection:
     graph_prefix=PREFIX
