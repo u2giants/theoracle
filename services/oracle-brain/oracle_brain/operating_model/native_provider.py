@@ -16,7 +16,7 @@ from .key_coverage import VerifiedKeyCoverage
 ENDPOINT='https://openrouter.ai/api/v1'
 NY=ZoneInfo('America/New_York')
 
-_METADATA_PATHS=frozenset({'/models','/models/openai/gpt-6.1-sol/endpoints',
+_METADATA_PATHS=frozenset({'/embeddings/models','/models/openai/text-embedding-3-small/endpoints','/models','/models/openai/gpt-6.1-sol/endpoints',
     '/models/openai/gpt-6-astra/endpoints'})
 _METADATA_BYTES=16*1024*1024
 
