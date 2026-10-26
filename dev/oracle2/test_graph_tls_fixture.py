@@ -25,30 +25,35 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
         with lock:active.add(sock)
         return sock
     _sem_acquired=0;_sem_released=0;_sem_lock=threading.Lock()
-    def _sem_acquire():
+    _conn_track={}  # conn_id -> (acquire_ts, release_ts|None)
+    def _sem_acquire(conn_id=None):
         nonlocal _sem_acquired
         ok=limit.acquire(blocking=False)
         if ok:
-            with _sem_lock:_sem_acquired+=1
+            with _sem_lock:
+                _sem_acquired+=1
+                if conn_id is not None:_conn_track[conn_id]=(time.monotonic(),None)
             _diag('sem acquire #%d (live=%d)'%(_sem_acquired,_sem_acquired-_sem_released))
         return ok
-    def _sem_release():
+    def _sem_release(conn_id=None):
         nonlocal _sem_released
         limit.release()
         with _sem_lock:
             _sem_released+=1
+            if conn_id is not None and conn_id in _conn_track:
+                _conn_track[conn_id]=(_conn_track[conn_id][0],time.monotonic())
             live=_sem_acquired-_sem_released
             if live==0:
                 _diag('PROOF sem_acquired=%d sem_released=%d live=0'%(_sem_acquired,_sem_released))
             else:
                 _diag('sem release #%d (live=%d)'%(_sem_released,live))
     def serve(raw):
-        remote=None;client=raw;conn_id=threading.get_ident();released=False
+        remote=None;client=raw;conn_id=threading.get_ident();track_id=id(raw);released=False
         def _safe_release():
             nonlocal released
             if not released:
                 released=True
-                _sem_release()
+                _sem_release(track_id)
         try:
             raw.settimeout(1)
             hs_start=time.monotonic()
@@ -92,7 +97,7 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                 _diag('accept OSError=%s:%s stop=%s'%(type(exc).__name__,exc,stop.is_set()))
                 if stop.is_set():return
                 continue
-            if not _sem_acquire():
+            if not _sem_acquire(id(raw)):
                 _diag('accept semaphore full, rejecting');raw.close();continue
             _diag('accept ok port=%s'%listener.getsockname()[1])
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
@@ -103,6 +108,10 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
     finally:
         stop.set();listener.close()
         _diag('fixture stopping accept_thread_alive=%s sem_acquired=%d sem_released=%d live=%d'%(thread.is_alive(),_sem_acquired,_sem_released,_sem_acquired-_sem_released))
+        with _sem_lock:
+            for tid,(ts,rel) in _conn_track.items():
+                if rel is None:
+                    _diag('LEAKER conn=%d acquired=%.3f NEVER released'%(tid,ts))
         with lock:sockets=list(active)
         for sock in sockets:
             try:sock.shutdown(socket.SHUT_RDWR)
