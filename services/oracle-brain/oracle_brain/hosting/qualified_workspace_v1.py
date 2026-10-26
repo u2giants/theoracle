@@ -116,8 +116,12 @@ async def answer_workspace_v1(owner, request, raw):
     metadata=authority._metadata(settings.config.model_id,deadline=deadline)
     projection=None
     try:
+        import sys;print('ORACLE-DIAG-BACKEND-STAGE projection-enter',file=sys.stderr,flush=True)
         projection=settings.projection(metadata['manifest']['version'],deadline=deadline)
+        print('ORACLE-DIAG-BACKEND-STAGE projection-exit',file=sys.stderr,flush=True)
+        print('ORACLE-DIAG-BACKEND-STAGE load-enter',file=sys.stderr,flush=True)
         packet=await projection.load()
+        print('ORACLE-DIAG-BACKEND-STAGE load-exit',file=sys.stderr,flush=True)
         result=_workspace_view_v1(packet,request)
         await projection.verify(packet[2])
         settings.current();request_remaining_v1()

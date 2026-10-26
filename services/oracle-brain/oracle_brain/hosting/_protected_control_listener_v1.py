@@ -89,8 +89,9 @@ def _protected_control_listener_v1(settings,factory,*,path,parse_request,encode_
                 self.end_headers()
                 self.wfile.write(encoded)
             except Exception as exc:
-                import sys
-                print('ORACLE-DIAG listener deny exc=%s: %s'%(type(exc).__name__,exc),file=sys.stderr,flush=True)
+                import sys,traceback
+                print('ORACLE-DIAG-BACKEND-EXC type=%s msg=%s started=%s'%(type(exc).__name__,exc,started),file=sys.stderr,flush=True)
+                traceback.print_exc(file=sys.stderr)
                 if not started:
                     self._deny()
 

@@ -323,9 +323,12 @@ class SDKProjection:
 
     async def _check_graph_snapshot(self,payload):
         # Graph integrity only. This private helper never proves read authority.
+        import sys;print('ORACLE-DIAG-BACKEND-STAGE graph-snapshot-enter',file=sys.stderr,flush=True)
         rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized')).result_set
+        print('ORACLE-DIAG-BACKEND-STAGE graph-snapshot-query-done rows=%d'%len(rows),file=sys.stderr,flush=True)
         expected=[digest(payload),digest({'records':self.records(payload)}),'1.4.0',True]
         if len(rows)!=1 or list(rows[0])!=expected:raise ValueError('current sealed finalized snapshot required')
+        print('ORACLE-DIAG-BACKEND-STAGE graph-snapshot-exit',file=sys.stderr,flush=True)
 
     async def close(self):await self.connection.close()
 
