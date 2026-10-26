@@ -59,6 +59,7 @@ S04_TESTS = [
     "test_document_provenance.py",
     "test_file_limits.py",
     "test_source_lifecycle.py",
+    "test_source_answer_invalidation_v1.py",
 ]
 # S05 — confirmed temporal operating model and corrections.
 S05_TESTS = [
@@ -72,6 +73,7 @@ S05_TESTS = [
     "test_graphiti_isolation.py",
     "test_review_concurrency.py",
     "test_summary_invalidation.py",
+    "test_temporal_badges_source_rights_v1.py",
 ]
 # S06 — interviews and ordinary chat learning.
 S06_TESTS = [
