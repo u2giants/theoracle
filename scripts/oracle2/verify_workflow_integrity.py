@@ -278,16 +278,14 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
     'replacement_documentary_journey',after=True)
 # W10 SAME worker-fit rebalance: meeting_participation_sql (~50s, 21 cases)
 # tipped the single event worker past the shared 120s deadline. Place it on
-# documentary-08's measured light sibling (purpose_worker_startup +
-# question_effects_sql_v1) so the event worker returns to its proven ~97s
-# baseline. Full population, ten workers and unchanged120s deadline retained.
+# documentary-08's measured light sibling so the event worker returns to its
+# proven ~97s baseline. purpose_worker_startup runs LAST in doc-08 so its
+# heavy fixture does not slow the SQL suites. Full population, ten workers
+# and unchanged 120s deadline retained.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('meeting_participation_sql',),
     'purpose_worker_startup',after=True)
-# W10 SAME worker-fit rebalance: purpose_worker_startup has no documentary
-# headroom (all doc workers at 107-117s). Move it to the event worker (96.3s)
-# which has 24s headroom. Full population, ten workers, unchanged 120s.
-DOCUMENTARY=tuple(s for s in DOCUMENTARY if s!='purpose_worker_startup')
-EVENT+=('purpose_worker_startup',)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('purpose_worker_startup',),
+    'question_effects_sql_v1',after=True)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
