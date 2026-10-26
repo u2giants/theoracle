@@ -97,6 +97,10 @@ class ReadOnlyConnection:
         # TCP fd immediately (no TLS alert), freeing the tunnel semaphore
         # without touching the shared server_context for peers. Works
         # regardless of event-loop state (no call_later dependency).
+        # Close the raw fd first so the tunnel serve-thread sees the
+        # disconnect immediately; transport.abort() handles asyncio cleanup
+        # (remove_reader + connection_lost) but defers _sock.close() via
+        # _call_soon which can lag and exhaust the tunnel semaphore.
         conn=self._connection
         pool=getattr(conn,'_pool',None)
         if pool is not None:
@@ -106,7 +110,12 @@ class ReadOnlyConnection:
                 try:
                     w=c._writer
                     if w is not None and w.transport is not None:
-                        w.transport.abort()
+                        t=w.transport
+                        raw_sock=getattr(t,'_sock',None)
+                        if raw_sock is not None:
+                            try:raw_sock.close()
+                            except Exception:pass
+                        t.abort()
                     c._reader=None;c._writer=None
                 except Exception:pass
         conn._pool=None;conn._driver=None;conn._graph=None
