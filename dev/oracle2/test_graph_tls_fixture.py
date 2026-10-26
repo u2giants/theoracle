@@ -49,29 +49,26 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             remote=track(socket.create_connection(('127.0.0.1',target.port),timeout=1))
             client.settimeout(.05);remote.settimeout(.05)
             _diag('serve[%d] pump start'%conn_id)
+            poller=select.poll()
+            poller.register(client.fileno(),select.POLLIN|select.POLLPRI|select.POLLERR|select.POLLHUP)
+            poller.register(remote.fileno(),select.POLLIN|select.POLLPRI|select.POLLERR|select.POLLHUP)
             while not stop.is_set():
-                # recv-with-timeout instead of select: select misses FIN through
-                # OpenSSL's buffer, but recv returns b'' on EOF directly.
-                try:data=client.recv(65536)
-                except socket.timeout:
-                    try:rdata=remote.recv(65536)
-                    except socket.timeout:continue
+                events=poller.poll(50)
+                for fd,revents in events:
+                    if revents&(select.POLLHUP|select.POLLERR):
+                        _diag('serve[%d] poll hangup/err fd=%d'%(conn_id,fd));return
+                    if not (revents&select.POLLIN):continue
+                    sock=client if fd==client.fileno() else remote
+                    dest=remote if sock is client else client
+                    try:data=sock.recv(65536)
+                    except (socket.timeout,ssl.SSLWantReadError,BlockingIOError):continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
-                        _diag('serve[%d] remote dead=%s'%(conn_id,type(exc).__name__));return
-                    if not rdata:_diag('serve[%d] remote closed'%conn_id);return
-                    try:client.sendall(rdata)
+                        _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
+                    if not data:_diag('serve[%d] peer closed'%conn_id);return
+                    try:dest.sendall(data)
                     except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
                         _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
-                    continue
-                except (ssl.SSLWantReadError,BlockingIOError):continue
-                except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
-                    _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
-                if not data:_diag('serve[%d] peer closed'%conn_id);return
-                try:remote.sendall(data)
-                except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
-                except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
-                    _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
         except (OSError,ValueError,PermissionError) as exc:
             _diag('serve[%d] exc=%s:%s'%(conn_id,type(exc).__name__,exc))
         finally:
