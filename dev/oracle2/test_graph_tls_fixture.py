@@ -53,10 +53,14 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                 ready,_,_=select.select([client,remote],[],[],.1)
                 if client.pending() and client not in ready:ready.append(client)
                 # Explicit liveness: SSLSocket may buffer FIN so select misses it.
+                # Only treat b'' as EOF when the fd is readable (FIN actually arrived);
+                # otherwise b'' just means no data in the SSL buffer.
                 if client not in ready:
                     try:
-                        peek=client.recv(1,socket.MSG_PEEK)
-                        if not peek:_diag('serve[%d] liveness EOF'%conn_id);return
+                        r,_,_=select.select([client],[],[],0)
+                        if r:
+                            peek=client.recv(1,socket.MSG_PEEK)
+                            if not peek:_diag('serve[%d] liveness EOF'%conn_id);return
                     except (socket.timeout,ssl.SSLWantReadError,BlockingIOError):pass
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,ssl.SSLError,OSError) as exc:
                         _diag('serve[%d] liveness dead=%s'%(conn_id,type(exc).__name__));return
