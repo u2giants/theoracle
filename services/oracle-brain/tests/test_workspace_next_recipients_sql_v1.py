@@ -87,15 +87,16 @@ def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,g
                 ext=protected(str(index)+'.ext',('subjectAltName=URI:'+uri+'\nextendedKeyUsage=clientAuth\nbasicConstraints=critical,CA:FALSE\n').encode())
                 openssl('x509','-req','-in',csr,'-CA',certificates/'ca.pem','-CAkey',certificates/'ca.key','-CAcreateserial','-out',cert,'-days','1','-extfile',ext)
                 key.chmod(0o600);cert.chmod(0o600)
-                # Unique graph client identity per recipient: separate TLS session
-                # from every other in-process answer server.
-                graph_uri='spiffe://oracle/invented-workspace-graph-'+str(index)
+                # Unique graph client key-pair per recipient (same WORKER URI the
+                # FalkorDB TLS listener accepts): separate TLS sessions so closing
+                # one answer server's pool cannot poison the peer's handshake.
                 gkey,gcsr,gcert=(directory/(str(index)+'-graph'+name) for name in ('.key','.csr','.pem'))
                 openssl('req','-newkey','rsa:2048','-nodes','-keyout',gkey,'-out',gcsr,'-subj','/CN=Invented workspace graph recipient')
-                gext=protected(str(index)+'-graph.ext',('subjectAltName=URI:'+graph_uri+'\nextendedKeyUsage=clientAuth\nbasicConstraints=critical,CA:FALSE\n').encode())
+                from test_hosting_boundary import WORKER as _W
+                gext=protected(str(index)+'-graph.ext',('subjectAltName=URI:'+_W+'\nextendedKeyUsage=clientAuth\nbasicConstraints=critical,CA:FALSE\n').encode())
                 openssl('x509','-req','-in',gcsr,'-CA',certificates/'ca.pem','-CAkey',certificates/'ca.key','-CAcreateserial','-out',gcert,'-days','1','-extfile',gext)
                 gkey.chmod(0o600);gcert.chmod(0o600)
-                installed=install_answer(state,own,h,readonly,generation,certificates,directory/('answer-'+str(index)),peer_certificate=cert,peer_key=key,peer_uri=uri,server_certificate=Path(settings.peer.server_certificate.path),listen_host='::1',graph_certificate=gcert,graph_key=gkey,graph_uri=graph_uri)
+                installed=install_answer(state,own,h,readonly,generation,certificates,directory/('answer-'+str(index)),peer_certificate=cert,peer_key=key,peer_uri=uri,server_certificate=Path(settings.peer.server_certificate.path),listen_host='::1',graph_certificate=gcert,graph_key=gkey)
                 owned=protected_connected_answer_server_v1(installed)
                 thread=threading.Thread(target=owned.serve_forever,kwargs={'poll_interval':.01});thread.start()
                 servers.append(owned);threads.append(thread)
