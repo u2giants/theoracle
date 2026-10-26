@@ -24,7 +24,7 @@ import json
 import sys
 import time
 
-root = Path("/tmp/oracle-parent24-wy02uT/pr201-s11")
+root = Path(__file__).resolve().parents[2]
 sys.path[:0] = [
     str(root),
     str(root / "services/oracle-brain"),
