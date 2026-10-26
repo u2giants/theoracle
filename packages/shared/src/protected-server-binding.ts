@@ -370,8 +370,9 @@ export function admitEmployeeRecipientOriginV1(kind:EmployeeBindingPurposeV1,con
  if(entries.length===0)return unavailable();
  let matched=false,validUntil=Math.min(instant(index.expires_at),instant(index.original_horizon));
  for(const entry of entries){
-  const pin=entry.bindings[kind]!,file=protectedRead(pin.path,pin.sha256),profile=validateEmployeeProfileV1(kind,file.bytes),now=Date.now();
-  if(canonicalJson(profile)!==file.bytes.toString('utf8')||!matchesIdentity(profile as ServerBinding,{configuredProjectUrl,actualProjectUrl:configuredProjectUrl,verifiedUserId:entry.auth_user_id,employeeId:entry.employee_id,disabledAt:null})||[index.issuer_actor,index.reviewer_actor].includes(profile.principal_id)||instant(profile.expires_at)>instant(index.expires_at)||instant(profile.original_horizon)>instant(index.original_horizon)||now<instant(profile.valid_from)||now>=Math.min(instant(profile.expires_at),instant(profile.original_horizon)))return unavailable();
+  const pin=entry.bindings[kind]!,file=protectedRead(pin.path,pin.sha256),now=Date.now();
+  let profile;try{profile=validateEmployeeProfileV1(kind,file.bytes);}catch{continue;}
+  if(canonicalJson(profile)!==file.bytes.toString('utf8')||!matchesIdentity(profile as ServerBinding,{configuredProjectUrl,actualProjectUrl:configuredProjectUrl,verifiedUserId:entry.auth_user_id,employeeId:entry.employee_id,disabledAt:null})||[index.issuer_actor,index.reviewer_actor].includes(profile.principal_id)||instant(profile.expires_at)>instant(index.expires_at)||instant(profile.original_horizon)>instant(index.original_horizon)||now<instant(profile.valid_from)||now>=Math.min(instant(profile.expires_at),instant(profile.original_horizon)))continue;
   if(requestOrigin===profile.web_origin&&new URL(actualRequestURL).origin===profile.web_origin){matched=true;validUntil=Math.min(validUntil,instant(profile.expires_at),instant(profile.original_horizon));}
  }
  if(!matched||currentRecipientIndexV1()!==index)return unavailable();
@@ -443,7 +444,7 @@ function loadInstalledBinding(purpose:'control'|'viewer'|'upload'|'review'|'conv
   if (prior && (prior.identity !== pinned.identity || files.some((f,i) => f.identity !== prior.files[i]!.identity || f.path !== prior.files[i]!.path || f.digest !== prior.files[i]!.digest))) return unavailable();
   const cert = new X509Certificate(files[1]!.bytes);
   if (sha256(cert.raw) !== profile.client_certificate_der_sha256 || !cert.subjectAltName?.split(', ').includes('URI:' + profile.client_uri) || now < Date.parse(cert.validFrom) || now >= Date.parse(cert.validTo)) return unavailable();
-  const others=[installed,viewerInstalled,reviewInstalled,uploadInstalled,conversationInstalled,meetingInstalled,meetingIngressInstalled,meetingWorkerInstalled,answerInstalled,mcpAnswerInstalled,normalizationInstalled,queueInstalled,...supervisionCaches.values(),...fixedWorkerCaches.values(),...recipientBindingCachesV1.values()].filter(other=>other&&other!==prior);
+  const others=[installed,viewerInstalled,reviewInstalled,uploadInstalled,conversationInstalled,meetingInstalled,meetingIngressInstalled,meetingWorkerInstalled,answerInstalled,mcpAnswerInstalled,normalizationInstalled,queueInstalled,...supervisionCaches.values(),...fixedWorkerCaches.values(),...recipientBindingCachesV1.values()].filter(other=>other&&other!==prior&&other.profile.auth_user_id===profile.auth_user_id&&other.profile.employee_id===profile.employee_id);
   if(others.some(other=>other&&(profile.client_certificate_der_sha256===other.profile.client_certificate_der_sha256||profile.client_uri===other.profile.client_uri||cert.publicKey.equals(new X509Certificate(other.files[1]!.bytes).publicKey))))return unavailable();
   const key = createPrivateKey(files[2]!.bytes);
   if (!cert.checkPrivateKey(key) || !createPublicKey(key).equals(cert.publicKey)) return unavailable();
