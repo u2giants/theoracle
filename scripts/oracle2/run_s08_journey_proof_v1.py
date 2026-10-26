@@ -37,7 +37,7 @@ Deadline / CAS / conflict policy (H-C):
   expired observation, or elapsed window: STOP. No transparent retry. Record
   the failing stage and leave UNKNOWN semantics. One shared monotonic budget
   (120s) covers the journey stages only; fixture/bootstrap setup sits OUTSIDE
-  that budget, matching verify_workflow_integrity.py:384-386,407.
+  that budget, matching verify_workflow_integrity.py:422-424,445.
 
   UNKNOWN routing (H5): UNKNOWN from claim commit/readback-loss proceeds to
   stage 5 (read-only reconcile of the OUTCOME). UNKNOWN from any earlier stage
@@ -46,10 +46,10 @@ Deadline / CAS / conflict policy (H-C):
   behaviour and are outside the "no re-read" scope.
 
 Migration inventory is the sealed SYNTHETIC_MIGRATIONS bootstrap
-(001,002,004,006..014,017,018,019,020,021,022,023,027) — NOT a contiguous
-001..014 chain. The runner calls bootstrap_canonical_test_schema and asserts
-the sealed inventory and catalog against golden digests; it never merely
-echoes a note.
+(001,002,004,006..014,017,018,019,020,021,022,023,024,025,026,027) — NOT a
+contiguous 001..014 chain. The runner calls bootstrap_canonical_test_schema and
+asserts the sealed inventory and catalog against golden digests; it never
+merely echoes a note.
 
 Real Teams producer stays UNQUALIFIED. Business acceptance HELD.
 
@@ -121,6 +121,9 @@ SEALED_MIGRATION_INVENTORY = (
     "021_meeting_participation.sql",
     "022_consolidated_answer_delivery.sql",
     "023_maintained_research.sql",
+    "024_question_effects.sql",
+    "025_recommendation_actions.sql",
+    "026_operational_recovery.sql",
     "027_legacy_migration.sql",
 )
 SEALED_MIGRATION_INVENTORY_NOTE = ",".join(
@@ -128,17 +131,17 @@ SEALED_MIGRATION_INVENTORY_NOTE = ",".join(
 )
 FULL_SHA40 = re.compile(r"^[0-9a-f]{40}$")
 # H3 sealed goldens — review-time constants, never computed from the same
-# bytes the assertion re-reads. The inventory digest covers the 20-entry
+# bytes the assertion re-reads. The inventory digest covers the 23-entry
 # migration set (file names + content hashes) over GIT-BLOB bytes (C2/M2):
 # `git show HEAD:services/oracle-brain/sql/<name>` so the constant is
 # host-independent (LF). Mint command:
 #   python -c "import hashlib,subprocess; names=(...); \
 #   print(hashlib.sha256(b''.join(n.encode()+b'\\0'+hashlib.sha256(subprocess.check_output(['git','show',f'HEAD:services/oracle-brain/sql/{n}'])).digest() for n in names)).hexdigest())"
-# Constant below is the git-blob digest of the 20-entry SYNTHETIC_MIGRATIONS set.
+# Constant below is the git-blob digest of the 23-entry SYNTHETIC_MIGRATIONS set.
 # The catalog digest is RECORDED, NOT GOLDEN (C3 option-a): it is written to
 # evidence but never compared against a sealed constant (no refuse-on-empty).
 SEALED_INVENTORY_DIGEST = (
-    "7eb6085c3535175ac304b8ccd1db283aa64087042af52b2934a9065fd371be99"
+    "64f7085ef2e2fad0ce326e17c6cbad196f4fb110b44e948a5ae9e987d7b74ddc"
 )
 # Catalog digest is recorded in evidence, not compared against a golden (C3).
 # An empty value is acceptable; there is no refuse-on-empty.
@@ -540,7 +543,7 @@ def _tool_identity(name: str, version_args: tuple[str, ...] | None = None) -> di
 def _receipt_stat_ok(path: Path) -> tuple[dict, bytes]:
     """uid/mode/nlink/O_NOFOLLOW checks + same-fd payload read (H7).
 
-    Shape follows test_canonical_schema.py:96-114: O_NOFOLLOW open, fstat
+    Shape follows test_canonical_schema.py:112-130: O_NOFOLLOW open, fstat
     before/after, lstat cross-check, stable identity, and the payload is read
     from the SAME fd (never a fresh read_text that could follow a symlink
     swap). os.getuid is absent on Windows; there the uid check is skipped and
@@ -601,7 +604,7 @@ def _receipt_stat_ok(path: Path) -> tuple[dict, bytes]:
             return base
 
         checks["stat_stable"] = _identity(before) == _identity(os.fstat(fd))
-        # H7: lstat cross-check — same identity as the O_NOFOLLOW fd (test_canonical_schema.py:107).
+        # H7: lstat cross-check — same identity as the O_NOFOLLOW fd (test_canonical_schema.py:123).
         try:
             checks["lstat_matches"] = _identity(before) == _identity(path.lstat())
         except OSError:
@@ -633,7 +636,7 @@ def require_review_receipt(head: str, scratch: Path) -> dict:
     It is not a cryptographic authority. It must bind the exact full 40-char
     head plus the git-blob SHA-256 of the runner, plan, checker and evidence
     artifacts (H6), and verdict APPROVE. Any mismatch or absence fails closed.
-    File-mode checks follow test_canonical_schema.py:96-114 where the host
+    File-mode checks follow test_canonical_schema.py:112-130 where the host
     supports them. Payload is read via the same O_NOFOLLOW fd (H7).
     """
     release_raw = os.environ.get(RECEIPT_RELEASE_ENV)
@@ -950,7 +953,7 @@ def assert_sealed_inventory() -> dict:
         "inventory": list(observed),
         "inventory_count": len(observed),
         "omits": ["003", "005"],
-        "includes_extra": ["017", "018", "019", "022", "023", "027"],
+        "includes_extra": ["017", "018", "019", "022", "023", "024", "025", "026", "027"],
     }
 
 
@@ -1572,7 +1575,7 @@ def main() -> int:
         ) as (worker_env, identity):
             # C1: the fixture yields (env_dict, identity), NOT a URL.
             # Use worker_env['ORACLE2_TEST_ADMIN_URL'] exactly as
-            # verify_workflow_integrity.py:390-391. Never pass the dict to
+            # verify_workflow_integrity.py:428-429. Never pass the dict to
             # bootstrap; never fall back to an outer ORACLE2_TEST_ADMIN_URL.
             target = worker_env["ORACLE2_TEST_ADMIN_URL"]
             if not isinstance(target, str) or not target:
@@ -1594,7 +1597,7 @@ def main() -> int:
             real_project = identity["project"]
 
             # C9: budget armed AFTER worker_postgres + bootstrap, matching
-            # verify_workflow_integrity.py:384-386 (setup outside budget) and
+            # verify_workflow_integrity.py:422-424 (setup outside budget) and
             # :407 (deadline armed after setup).
             # H-I: real bootstrap + inventory/catalog assertion on the live DB.
             from dev.oracle2.test_canonical_schema import (
@@ -1702,7 +1705,7 @@ def main() -> int:
                 )
 
             # C9: budget armed AFTER worker_postgres + bootstrap_canonical_test_schema
-            # + 21 SQL green, matching verify_workflow_integrity.py:384-386,407.
+            # + 21 SQL green, matching verify_workflow_integrity.py:422-424,445.
             budget_end = _monotonic_end(SHARED_BUDGET_S)
 
             stages = {

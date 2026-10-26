@@ -230,7 +230,7 @@ present, so the worker entrypoint cannot be reached by accident.
   read-only reconcile of the outcome, not a re-read of stage inputs.
 - The shared **120s** monotonic budget covers journey stages only.
   Fixture/bootstrap setup sits **outside** that budget, matching
-  `verify_workflow_integrity.py:384-386`; the budget is armed only **after**
+  `verify_workflow_integrity.py:422-424`; the budget is armed only **after**
   `worker_postgres` + `bootstrap_canonical_test_schema` + 21 SQL green,
   matching `:407` (C9). The runner calls `bootstrap_canonical_test_schema`
   on the fixture `oracle2` database that compose init already populated with
@@ -269,17 +269,17 @@ avoided by using a unique per-run worker subdirectory name (C3).
 There is **no contiguous `001..014` chain**. The sealed inventory is
 `SYNTHETIC_MIGRATIONS` in `scripts/oracle2/verify_workflow_integrity.py:112-117`:
 
-`001, 002, 004, 006, 007, 008, 009, 010, 011, 012, 013, 014, 017, 018, 019, 020, 021, 022, 023, 027`
+`001, 002, 004, 006, 007, 008, 009, 010, 011, 012, 013, 014, 017, 018, 019, 020, 021, 022, 023, 024, 025, 026, 027`
 
-(20 entries; **omits `003` and `005`; includes `017/018/019/022/023/027`**). The
+(23 entries; **omits `003` and `005`; includes `017/018/019/022/023/024/025/026/027`**). The
 canonical inventory is derived from that tuple
 (`dev/oracle2/test_canonical_schema.py:27-43`) and the sealed bootstrap executes
-all of it (`dev/oracle2/test_canonical_schema.py:157-160`). **The journey uses the
+all of it (`dev/oracle2/test_canonical_schema.py:173-176`). **The journey uses the
 sealed bootstrap** and the runner **asserts** inventory digest against a
 **sealed review-time constant** (H3/C2) — `SEALED_INVENTORY_DIGEST` — using
 **git-blob bytes** (`git show HEAD:services/oracle-brain/sql/<name>`) so the
 constant is host-independent (LF, not CRLF-fragile worktree bytes). The exact
-constant is `7eb6085c3535175ac304b8ccd1db283aa64087042af52b2934a9065fd371be99`.
+constant is `64f7085ef2e2fad0ce326e17c6cbad196f4fb110b44e948a5ae9e987d7b74ddc`.
 Mint command (run on any host with git):
 
 ```bash
@@ -295,7 +295,8 @@ names = (
     '018_original_review_reading_input.sql','019_employee_conversations.sql',
     '020_meeting_capture.sql','021_meeting_participation.sql',
     '022_consolidated_answer_delivery.sql','023_maintained_research.sql',
-    '027_legacy_migration.sql',
+    '024_question_effects.sql','025_recommendation_actions.sql',
+    '026_operational_recovery.sql','027_legacy_migration.sql',
 )
 parts = []
 for n in names:
@@ -354,7 +355,7 @@ those files are in the sealed inventory.
   cuts, no budget raises. **W10 SAME worker-fit for the participation suites
   is asserted, not measured** — they are appended to DOCUMENTARY/EVENT without
   the `_place_suites` measurement other families receive
-  (`verify_workflow_integrity.py:104-122` vs `:201-242`). This one-shot does
+  (`verify_workflow_integrity.py:104-122` vs `:201-278`). This one-shot does
   **not** prove W10 SAME.
 - `ai-task-gates check --before database` must print a **precise ALLOW line**
   — exactly one of three accepted forms, each anchored at `^` per line and
@@ -399,7 +400,7 @@ those files are in the sealed inventory.
   `APPROVE`. All four SHA bindings use **git-blob semantics**
   (`git show HEAD:path | sha256sum`) so CRLF checkouts cannot diverge (H6).
   The sealed runner refuses without the receipt and never manufactures one.
-  File checks follow `test_canonical_schema.py:96-114`
+  File checks follow `test_canonical_schema.py:112-130`
   (`O_NOFOLLOW`, regular file, nlink=1, mode bits & 0o077 == 0 — i.e. no
   group/other permission bits, not a literal 0600 — size ≤4096, stable stat,
   lstat cross-check) where the host supports them; the payload is read via
@@ -612,7 +613,7 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
 1. No `RECALL_*` environment variable is present (forbidden network path guard).
 2. `git rev-parse HEAD` is a full 40-char hex SHA and the worktree is clean.
 3. The sealed migration inventory matches `canonical_synthetic_migrations()`
-   exactly (20 entries).
+   exactly (23 entries).
 4. A review receipt exists at the `ORACLE2_S08_JOURNEY_RECEIPT` release path
    (C3), whose `head` equals that exact 40-char HEAD, whose `runner_sha256` /
    `plan_sha256` / `checker_sha256` / `evidence_sha256` match the git-blob
@@ -620,7 +621,7 @@ denials (`:340-353`); bot-identity immutability (`:515-529`); foreign receipt
    runner never manufactures a receipt. The release path must be a regular
    file — a symlink is refused (L7), so the copy is non-following; file
    checks then apply to the scratch copy of that regular source. File checks follow
-   `test_canonical_schema.py:96-114` (same-fd payload read, H7) where the host
+   `test_canonical_schema.py:112-130` (same-fd payload read, H7) where the host
    supports them.
 5. `ai-task-gates check --before database` prints a precise ALLOW line
    (`^ALLOW$`, `^gate: ALLOW$`, or `^ai-task-gates: "database" may start for

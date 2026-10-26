@@ -2,6 +2,9 @@
 
 Recorded: 2026-10-22 2:35 PM EST. Branch `parent24-s08-compose-81742134` from origin/main bf788080.
 Updated: 2026-10-25 EDT (round-3 review fixes). Task class `code` declared before writes.
+Updated: 2026-10-26 EDT (three-way merge of current `main` `879bc1eb` — merge commit
+`c32872a7`; `SYNTHETIC_MIGRATIONS` composed with main's `024/025/026` → 23 entries;
+`SEALED_MIGRATION_INVENTORY` / `SEALED_INVENTORY_DIGEST` resealed `64f7085e…`).
 No actual 21 SQL execution, no browser journey, no real Teams, no production,
 no company data, no paid providers.
 
@@ -53,22 +56,23 @@ not working-tree bytes; a CRLF checkout measures differently and must not be quo
 ## Registration
 
 - `SYNTHETIC_MIGRATIONS` in `scripts/oracle2/verify_workflow_integrity.py`: `021_meeting_participation.sql`
-  inserted after `020_meeting_capture.sql`, before `022_consolidated_answer_delivery.sql` (20 entries).
+  inserted after `020_meeting_capture.sql`, before `022_consolidated_answer_delivery.sql`
+  (23 entries after the three-way merge composed main's `024/025/026`).
 - Four mandatory suites registered: `meeting_participation_control_v1`, `meeting_participation_v1`,
   `meeting_participation_wire_v1` in DOCUMENTARY; `meeting_participation_sql` in EVENT.
 - `scripts/oracle2/verify_phase.py` S08_TESTS extended with the four new test modules.
 - `dev/oracle2/test_canonical_schema.py` `_catalog` conditional for 021 public function signatures.
 - `services/oracle-brain/tests/test_operating_model_verifier.py` SYNTHETIC_MIGRATIONS assertions updated
-  (`[-8:]` → `[-9:]`); the three registration assertions pass.
+  (`[-8:]` → `[-12:]`, composed with main's `024/025/026`); the registration assertions pass.
 
 ## Migration inventory (actual sealed fact — no contiguous chain)
 
-There is **no contiguous `001–021` chain**. The sealed inventory is
+There is **no contiguous `001–027` chain**. The sealed inventory is
 `SYNTHETIC_MIGRATIONS` in `scripts/oracle2/verify_workflow_integrity.py:112-117`:
 
-`001, 002, 004, 006, 007, 008, 009, 010, 011, 012, 013, 014, 017, 018, 019, 020, 021, 022, 023, 027`
+`001, 002, 004, 006, 007, 008, 009, 010, 011, 012, 013, 014, 017, 018, 019, 020, 021, 022, 023, 024, 025, 026, 027`
 
-(20 entries; **omits `003` and `005`; includes `017/018/019/022/023/027`**). The
+(23 entries; **omits `003` and `005`; includes `017/018/019/022/023/024/025/026/027`**). The
 journey and the 21 SQL use the sealed bootstrap
 (`dev/oracle2/test_canonical_schema.py` `bootstrap_canonical_test_schema`), not a
 custom contiguous chain.
@@ -130,8 +134,8 @@ failure. The 021 blob pin above remains a **git-blob** pin
    `test_outbound_replay.py` unreported). No historical pure total is demanded
    or claimed.
 2. Actual 21 SQL against an owned synthetic database under the **sealed
-   20-entry `SYNTHETIC_MIGRATIONS` inventory** (omits 003/005; includes
-   017/018/019/022/023/027) — **not** a contiguous 001–021 chain. The 21 SQL
+   23-entry `SYNTHETIC_MIGRATIONS` inventory** (omits 003/005; includes
+   017/018/019/022/023/024/025/026/027) — **not** a contiguous 001–027 chain. The 21 SQL
    must go green before the journey runs (enforced in the runner, H4).
 3. Browser → current-turn → sender → provider fixture → receipt path.
 4. Full installed invitation / supervision / audience-currentness proof.

@@ -236,8 +236,8 @@ def main() -> int:
     if not callable(getattr(mod, "assert_sealed_inventory", None)):
         raise SystemExit("assert_sealed_inventory missing")
     inv = mod.assert_sealed_inventory()
-    if inv.get("inventory_count") != 20:
-        raise SystemExit("sealed inventory count is not 20")
+    if inv.get("inventory_count") != 23:
+        raise SystemExit("sealed inventory count is not 23")
     if inv.get("omits") != ["003", "005"]:
         raise SystemExit("sealed inventory omit list wrong")
     print("INVENTORY_ASSERTION_OK", inv["inventory_count"])
