@@ -30,13 +30,13 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
         ok=limit.acquire(blocking=False)
         if ok:
             with _sem_lock:_sem_acquired+=1
-            _diag('sem acquire #%d'%_sem_acquired)
+            _diag('sem acquire #%d (live=%d)'%(_sem_acquired,_sem_acquired-_sem_released))
         return ok
     def _sem_release():
         nonlocal _sem_released
         limit.release()
         with _sem_lock:_sem_released+=1
-        _diag('sem release #%d'%_sem_released)
+        _diag('sem release #%d (live=%d)'%(_sem_released,_sem_acquired-_sem_released))
     def serve(raw):
         remote=None;client=raw;conn_id=threading.get_ident()
         try:
@@ -91,7 +91,7 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
     try:yield listener.getsockname()[1]
     finally:
         stop.set();listener.close()
-        _diag('fixture stopping')
+        _diag('fixture stopping sem_acquired=%d sem_released=%d live=%d'%(_sem_acquired,_sem_released,_sem_acquired-_sem_released))
         with lock:sockets=list(active)
         for sock in sockets:
             try:sock.shutdown(socket.SHUT_RDWR)
