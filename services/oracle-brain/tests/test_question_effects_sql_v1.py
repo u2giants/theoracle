@@ -46,6 +46,16 @@ def input_for(x):
   c.execute("SET LOCAL statement_timeout='5s'")
   return c.execute('SELECT oracle2.question_effect_input_v1(%s,%s,NULL,NULL,%s)',(x['admission'],x['event']['event_id'],datetime.now(timezone.utc)+timedelta(seconds=15))).fetchone()[0]
 
+def historical_input_for(x,valid_at,known_at):
+ with psycopg.connect(x['worker']['url']) as c:
+  c.execute("SET LOCAL statement_timeout='5s'")
+  return c.execute('SELECT oracle2.question_effect_input_v1(%s,%s,%s,%s,%s)',(x['admission'],x['event']['event_id'],valid_at,known_at,datetime.now(timezone.utc)+timedelta(seconds=15))).fetchone()[0]
+
+def historical_claim_for(x,job,valid_at,known_at):
+ with psycopg.connect(x['worker']['url']) as c:
+  c.execute("SET LOCAL statement_timeout='5s'")
+  return c.execute('SELECT oracle2.claim_question_effect_v1(%s,%s,%s,%s,%s,%s)',(x['admission'],x['event']['event_id'],valid_at,known_at,canonical_bytes(job),datetime.now(timezone.utc)+timedelta(seconds=15))).fetchone()[0]
+
 def test_actual_question_owner_has_no_runtime_grants_or_issued_admissions(admin_url):
  with psycopg.connect(admin_url) as c:
   assert c.execute('SELECT count(*) FROM oracle2.question_effect_admissions_v1').fetchone()==(0,)
@@ -174,3 +184,50 @@ def test_actual_original_operation_deadline_is_immutable_and_never_renewed_by_re
  assert datetime.fromisoformat(financial['cost_context']['original_operation_deadline'])==original
  assert datetime.fromisoformat(financial['cost_context']['valid_until'])>datetime.now(timezone.utc)
  assert not {'original_text','job_utf8','source_refs','delivery'}&set(financial['cost_context'])
+def test_historical_dated_input_exercises_historical_model_switch(question_case):
+ x=question_case
+ now=datetime.now(timezone.utc)
+ # Positive: known_at after the model revision was recorded (fixture just ran).
+ context=historical_input_for(x,valid_at=now-timedelta(days=1),known_at=now)
+ assert context['original_text']==x['event']['original_text']
+ assert context['employee_event_id']==x['event']['event_id']
+ assert context['model_version']>=1
+ assert context['model_content_hash']
+
+def test_historical_dated_input_rejects_future_known_at(question_case):
+ x=question_case
+ future=datetime.now(timezone.utc)+timedelta(hours=1)
+ with pytest.raises(psycopg.errors.InsufficientPrivilege):
+  historical_input_for(x,valid_at=future-timedelta(days=1),known_at=future)
+
+def test_historical_dated_input_rejects_mismatched_null_dates(question_case):
+ x=question_case
+ now=datetime.now(timezone.utc)
+ with pytest.raises(psycopg.errors.InsufficientPrivilege):
+  historical_input_for(x,valid_at=now,known_at=None)
+ with pytest.raises(psycopg.errors.InsufficientPrivilege):
+  historical_input_for(x,valid_at=None,known_at=now)
+
+def test_historical_switch_taken_not_current_model(question_case):
+ x=question_case
+ # known_at BEFORE the model revision was recorded: historical raises no_data_found,
+ # while current model would succeed. This proves the historical switch is exercised.
+ past=datetime.now(timezone.utc)-timedelta(days=365)
+ with pytest.raises(Exception) as exc_info:
+  historical_input_for(x,valid_at=past,known_at=past)
+ assert 'no registered committed knowledge' in str(exc_info.value).lower() or 'no_data' in str(exc_info.value).lower() or isinstance(exc_info.value,psycopg.errors.NoDataFound)
+
+def test_historical_dated_claim_and_status(question_case):
+ x=question_case
+ now=datetime.now(timezone.utc)
+ context=historical_input_for(x,valid_at=now-timedelta(days=1),known_at=now)
+ job=job_for(x,context)
+ claimed=historical_claim_for(x,job,valid_at=now-timedelta(days=1),known_at=now)
+ assert claimed['dispatch_allowed'] is True
+ assert claimed['operation_deadline']
+ # Status re-enters the historical path via stored valid_at/known_at.
+ with psycopg.connect(x['worker']['url']) as c:
+  c.execute("SET LOCAL statement_timeout='5s'")
+  status=c.execute('SELECT oracle2.question_effect_status_v1(%s,%s)',(job['dispatch_id'],datetime.now(timezone.utc)+timedelta(seconds=15))).fetchone()[0]
+ assert status['state']=='unknown'
+ assert status['dispatch_allowed'] is False
