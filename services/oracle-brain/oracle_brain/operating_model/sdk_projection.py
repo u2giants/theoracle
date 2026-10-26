@@ -90,20 +90,20 @@ class ReadOnlyConnection:
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
     async def close(self):
-        # Gentle close: release idle pool sockets without the blocking
-        # pool.aclose()/wait_closed() TLS teardown that resets the shared
-        # graph TLS tunnel for peer handshakes. Only idle connections are
-        # touched (never in-use, to avoid racing a concurrent query); each
-        # is closed nowait so close_notify is sent but never awaited on the
-        # tunnel. References are dropped only after disconnect attempts.
+        # Gentle close: release pool sockets without blocking wait_closed()
+        # that resets the shared graph TLS tunnel for peer handshakes.
+        # All connections (idle and in-use) are disconnected with nowait so
+        # close_notify is sent but never awaited on the tunnel. Falls back
+        # to the pool's own aclose if private state shape is unavailable.
         conn=self._connection
         pool=getattr(conn,'_pool',None)
         if pool is not None:
-            try:available=list(pool._available_connections)
-            except Exception:available=[]
-            for c in available:
-                try:await c.disconnect(nowait=True)
-                except Exception:pass
+            try:conns=list(pool._available_connections)+list(pool._in_use_connections)
+            except AttributeError:conns=None
+            if conns is None:
+                await pool.aclose()
+            else:
+                for c in conns:await c.disconnect(nowait=True)
         conn._pool=None;conn._driver=None;conn._graph=None
 
 class SDKProjection:
