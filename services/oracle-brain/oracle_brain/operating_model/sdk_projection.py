@@ -90,20 +90,26 @@ class ReadOnlyConnection:
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
     async def close(self):
-        # Deferred close: drop references immediately (so no TLS teardown
-        # resets the shared graph tunnel for peer handshakes), then release
-        # the pool after a short delay so long-running servers do not leak
-        # FDs. The delay gives the next peer handshake time to complete
-        # before aclose() touches the tunnel.
+        # Option B: free the raw TCP socket without TLS close_notify.
+        # SSLSocket.close() sends close_notify which poisons the shared
+        # graph TLS tunnel for peer handshakes; pool.aclose() also does
+        # blocking wait_closed(). transport.abort() closes the underlying
+        # TCP fd immediately (no TLS alert), freeing the tunnel semaphore
+        # without touching the shared server_context for peers. Works
+        # regardless of event-loop state (no call_later dependency).
         conn=self._connection
         pool=getattr(conn,'_pool',None)
-        conn._pool=None;conn._driver=None;conn._graph=None
         if pool is not None:
-            loop=asyncio.get_running_loop()
-            def _later():
-                try:asyncio.ensure_future(pool.aclose())
+            try:conns=list(pool._available_connections)+list(pool._in_use_connections)
+            except Exception:conns=[]
+            for c in conns:
+                try:
+                    w=c._writer
+                    if w is not None and w.transport is not None:
+                        w.transport.abort()
+                    c._reader=None;c._writer=None
                 except Exception:pass
-            loop.call_later(2.0,_later)
+        conn._pool=None;conn._driver=None;conn._graph=None
 
 class SDKProjection:
     graph_prefix=PREFIX
