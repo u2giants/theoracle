@@ -47,7 +47,9 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
         while not stop.is_set():
             try:raw,_=listener.accept()
             except socket.timeout:continue
-            except OSError:return
+            except OSError:
+                if stop.is_set():return
+                continue
             if not limit.acquire(blocking=False):raw.close();continue
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
             workers.append(worker);worker.start()

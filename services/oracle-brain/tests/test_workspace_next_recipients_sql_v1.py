@@ -52,7 +52,7 @@ def test_actual_next_two_recipients_workspace_and_independent_revocation(admin_u
             (tmp_path/'phase-cleanup.json').write_bytes(canonical_bytes(dict(database=database,absent=True,outer_environment_restored=all(os.environ.get(key)==value for key,value in original.items()))))
 
 
-def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,generation,settings,certificates,tmp_path):
+def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,generation,settings,certificates,tmp_path,tunnel_port):
     """Fixed test-only live seam; baseline server/recipient remain untouched."""
     from oracle_brain.hosting.connected_answer_service_v1 import protected_connected_answer_server_v1
     from dev.oracle2.test_worker_postgres_fixture import owned_worker_database
@@ -105,7 +105,7 @@ def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,g
                 assert after.model_content_hash==state['manifest'].content_hash and time.monotonic()<setup_end
         assert len({h['actor'] for h in histories})==2 and all(h['actor']!=settings.config.principal_id for h in histories)
         proof_end=min(state['ctx'].expires_at,state['q']['admission'].expires_at)
-        metadata=dict(proof_valid_until=proof_end.isoformat(),scratch=str(directory),recipients=recipients,web_database_url=employee.web_database_url,server_key_file=settings.peer.server_key.path,server_certificate_file=settings.peer.server_certificate.path,client_ca_file=settings.peer.client_ca.path,workflow_fixture='workspace-artwork-rework-v1',workflow_quote=__import__('test_workspace_workflow_fixture_v1').QUOTE,processes=[dict(process_id=p['process_id'],label=p['label']) for p in state['q']['payload']['consolidation_core']['model']['processes']])
+        metadata=dict(proof_valid_until=proof_end.isoformat(),scratch=str(directory),recipients=recipients,web_database_url=employee.web_database_url,server_key_file=settings.peer.server_key.path,server_certificate_file=settings.peer.server_certificate.path,client_ca_file=settings.peer.client_ca.path,workflow_fixture='workspace-artwork-rework-v1',workflow_quote=__import__('test_workspace_workflow_fixture_v1').QUOTE,processes=[dict(process_id=p['process_id'],label=p['label']) for p in state['q']['payload']['consolidation_core']['model']['processes']],tunnel_port=tunnel_port)
         metadata_path=protected('metadata.json',canonical_bytes(metadata))
         bundle=protected('synthetic-ca-bundle.pem',(certificates/'ca.pem').read_bytes()+Path(employee.database_root_ca).read_bytes())
         def monitor():

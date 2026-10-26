@@ -84,7 +84,9 @@ try{
  assert.ok(htmlPacket&&html.includes(htmlPacket.checked_at));assert.equal(htmlPacket.company_policy,false);
  const negative=await a.evaluate(async({endpoint,body})=>{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body});return response.status;},{endpoint,body:query({principal_id:recipients[1]!.principal_id})});assert.equal(negative,503);
  const foreignProcess=await a.evaluate(async({endpoint,body})=>{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body});return response.status;},{endpoint,body:query({operation:'process',process_id:'not-in-this-model'})});assert.equal(foreignProcess,503);
- await marker('disable-a');await action(a,'Read current knowledge',0,503);await action(b,'Read current knowledge',1);
+ await marker('disable-a');await action(a,'Read current knowledge',0,503);
+ {const net=await import('node:net');await new Promise<void>((resolve,reject)=>{const probe=net.createConnection({host:'127.0.0.1',port:meta.tunnel_port});probe.on('connect',()=>{probe.destroy();resolve();});probe.on('error',reject);probe.setTimeout(3000,()=>{probe.destroy();reject(new Error('tunnel liveness probe timeout'));});});}
+ await action(b,'Read current knowledge',1);
  // Only this invented disabled_at negative is restored; every original ID,
  // token/profile/admission/expiry remains unchanged. No authority is renewed.
  await marker('restore-a');await action(a,'Read current knowledge',0);await action(a,'Reported process map',0);await a.getByRole('img',{name:'Reported process map',exact:true}).waitFor();
