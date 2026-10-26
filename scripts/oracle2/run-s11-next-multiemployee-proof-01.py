@@ -89,9 +89,10 @@ SEALED_SOURCE_PATHS = (
     "dev/oracle2/compose.yaml",
 )
 
-root = Path("/tmp/oracle-parent24-wy02uT/pr201-s11")
-scratch = Path("/tmp/oracle-parent24-wy02uT/s11-next-multiemployee-proof-01")
-receipt_path = Path("/tmp/oracle-parent24-wy02uT/s11-next-multiemployee-review-receipt.json")
+root = Path(__file__).resolve().parents[2]
+_ops = Path(os.environ.get("ORACLE2_S11_OPS_ROOT", "/tmp/oracle-parent24-wy02uT"))
+scratch = _ops / "s11-next-multiemployee-proof-01"
+receipt_path = _ops / "s11-next-multiemployee-review-receipt.json"
 
 # H4: broader process tokens for the leak-detection backstop scan ONLY.
 # These tokens must NEVER decide live_lock_present: host Playwright MCP,
@@ -618,6 +619,8 @@ if __name__ == "__main__":
     sys.path.insert(0, str(root / "services/oracle-brain/tests"))
     sys.path.insert(0, "/tmp/pglast-venv-20261023/lib/python3.14/site-packages")
     os.umask(0o077)
+    if scratch.exists():
+        stop(f"scratch already exists; move it aside before re-run: {scratch}")
     scratch.mkdir(mode=0o700, exist_ok=False)
 
     from dev.oracle2.test_worker_postgres_fixture import (  # noqa: E402
