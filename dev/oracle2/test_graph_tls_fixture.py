@@ -13,8 +13,8 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
     if not isinstance(server_context,ssl.SSLContext) or server_context.verify_mode!=ssl.CERT_REQUIRED:
         raise PermissionError('mutually verified owned graph TLS fixture required')
     listener=socket.socket();listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-    listener.bind(('127.0.0.1',0));listener.listen(8);listener.settimeout(.1)
-    stop=threading.Event();lock=threading.Lock();active=set();workers=[];limit=threading.BoundedSemaphore(32)
+    listener.bind(('127.0.0.1',0));listener.listen(32);listener.settimeout(.1)
+    stop=threading.Event();lock=threading.Lock();active=set();workers=[];overflow=[];limit=threading.BoundedSemaphore(32)
     def track(sock):
         with lock:active.add(sock)
         return sock
@@ -48,7 +48,8 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             try:raw,_=listener.accept()
             except socket.timeout:continue
             except OSError:return
-            if not limit.acquire(blocking=False):raw.close();continue
+            if not limit.acquire(blocking=False):
+                raw.close();overflow.append(1);continue
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
             workers.append(worker);worker.start()
     thread=threading.Thread(target=accept,daemon=False);thread.start()
