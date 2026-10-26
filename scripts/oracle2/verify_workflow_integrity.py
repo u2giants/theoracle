@@ -119,7 +119,7 @@ DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 EVENT += MEETING_CAPTURE_EVENT_SUITES
-EVENT += MEETING_PARTICIPATION_EVENT_SUITES
+DOCUMENTARY += MEETING_PARTICIPATION_EVENT_SUITES
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2
 
@@ -276,6 +276,13 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('protected_raw_original_factory_v1',),
     'purpose_context_v2',after=True)
 DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
     'replacement_documentary_journey',after=True)
+# W10 SAME worker-fit rebalance: meeting_participation_sql (~50s, 21 cases)
+# tipped the single event worker past the shared 120s deadline. Place it on
+# documentary-08's measured light sibling (purpose_worker_startup +
+# question_effects_sql_v1) so the event worker returns to its proven ~97s
+# baseline. Full population, ten workers and unchanged120s deadline retained.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('meeting_participation_sql',),
+    'purpose_worker_startup',after=True)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',

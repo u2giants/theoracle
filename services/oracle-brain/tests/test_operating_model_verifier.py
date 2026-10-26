@@ -105,7 +105,7 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
             # R7 registration: purpose_coherent_native_journey / native_trigger_v1
             # no longer own singleton groups; original/raw families replaced them.
             for heavy in ('purpose_worker_startup',):
-                assert [values for _,values in groups if heavy in values]==[(heavy,'question_effects_sql_v1')]
+                assert [values for _,values in groups if heavy in values]==[('purpose_worker_startup','meeting_participation_sql','question_effects_sql_v1')]
             for start in ('original_corpus_import','raw_endpoint_inventory_v1'):
                 assert any(values and values[0]==start for _,values in groups)
 
@@ -344,7 +344,7 @@ def test_s08_participation_suites_are_registered_once_in_w10_and_phase():
         assert S08_TESTS.count('test_' + name + '.py') == 1
     for name in MEETING_PARTICIPATION_EVENT_SUITES:
         assert verifier.required_suites('W10').count(name) == 1
-        assert name in verifier.EVENT
+        assert name in verifier.DOCUMENTARY or name in verifier.EVENT
         assert S08_TESTS.count('test_' + name + '.py') == 1
     assert len(S08_TESTS) == 6
     assert S08_TESTS.count('test_meeting_participation.py') == 1
