@@ -104,7 +104,6 @@ def _workspace_view_v1(packet, request):
 
 
 async def answer_workspace_v1(owner, request, raw):
-    import asyncio
     from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
     from .replacement_result_service_v1 import _close_owned_projection_v1
     if type(owner) is not ProtectedConnectedAnswerServiceV1 or type(request) is not WorkspaceRequestV1:
@@ -115,28 +114,10 @@ async def answer_workspace_v1(owner, request, raw):
     request_remaining_v1();deadline=min(request.caller_deadline,settings.current())
     authority,_=settings.consumer()
     metadata=authority._metadata(settings.config.model_id,deadline=deadline)
-    projection=None;packet=None
-    # Bounded reconnect: a prior owned close can leave the TLS handshake
-    # briefly refused (ConnectionResetError). One silent retry is enough for
-    # the next fresh pool; a second failure is the real refusal.
-    last_conn_error=None
-    for attempt in range(2):
-        try:
-            projection=settings.projection(metadata['manifest']['version'],deadline=deadline)
-            packet=await projection.load()
-            last_conn_error=None;break
-        except Exception as exc:
-            # Bounded reconnect for transient TLS/transport refusal only.
-            if attempt==0 and type(exc).__name__ in ('ConnectionError','ConnectionResetError','BlockingConnectionError','DatabaseUnavailableError','TimeoutError','ConnectTimeout'):
-                last_conn_error=exc
-                if projection is not None:
-                    try:await _close_owned_projection_v1(owner,projection,deadline)
-                    except BaseException:pass
-                    projection=None
-                await asyncio.sleep(0.15);continue
-            raise
-    if last_conn_error is not None:raise last_conn_error
+    projection=None
     try:
+        projection=settings.projection(metadata['manifest']['version'],deadline=deadline)
+        packet=await projection.load()
         result=_workspace_view_v1(packet,request)
         await projection.verify(packet[2])
         settings.current();request_remaining_v1()
