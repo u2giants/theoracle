@@ -90,7 +90,7 @@ class ReadOnlyConnection:
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
     async def close(self):
-        import sys as _s
+        import sys as _s,os as _os
         conn=self._connection
         pool=getattr(conn,'_pool',None)
         print('ORACLE-DIAG roc-close pool=%s'%('yes' if pool is not None else 'None'),file=_s.stderr,flush=True)
@@ -104,10 +104,22 @@ class ReadOnlyConnection:
                     if w is not None and w.transport is not None:
                         t=w.transport
                         raw_sock=getattr(t,'_sock',None)
+                        if raw_sock is None:
+                            inner=getattr(t,'_transport',None)
+                            raw_sock=getattr(inner,'_sock',None) if inner is not None else None
                         print('ORACLE-DIAG roc-close sock=%s'%('yes' if raw_sock is not None else 'None'),file=_s.stderr,flush=True)
                         if raw_sock is not None:
                             try:raw_sock.close()
                             except Exception:pass
+                        else:
+                            fd=getattr(t,'_sock_fd',None)
+                            if fd is None:
+                                inner=getattr(t,'_transport',None)
+                                fd=getattr(inner,'_sock_fd',None) if inner is not None else None
+                            if fd is not None:
+                                print('ORACLE-DIAG roc-close os.close fd=%d'%fd,file=_s.stderr,flush=True)
+                                try:_os.close(fd)
+                                except Exception:pass
                         t.abort()
                     c._reader=None;c._writer=None
                 except Exception:pass
