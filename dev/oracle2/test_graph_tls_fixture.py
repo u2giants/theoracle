@@ -51,10 +51,18 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             if not limit.acquire(blocking=False):
                 raw.close();overflow.append(1);continue
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
-            workers.append(worker);worker.start()
+            workers.append(worker)
+            try:worker.start()
+            except BaseException:
+                overflow.append(2)
+                with lock:active.discard(raw)
+                try:raw.close()
+                except OSError:pass
+                limit.release()
     thread=threading.Thread(target=accept,daemon=False);thread.start()
     try:yield listener.getsockname()[1]
     finally:
+        if overflow:print('owned-graph-tls-overflow',len(overflow),file=__import__('sys').stderr,flush=True)
         stop.set();listener.close()
         with lock:sockets=list(active)
         for sock in sockets:
