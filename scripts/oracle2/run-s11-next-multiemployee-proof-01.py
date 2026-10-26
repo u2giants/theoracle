@@ -643,6 +643,7 @@ if __name__ == "__main__":
     compose_env = None
     falkor_port = None
     graph_url = None
+    graph_url_redacted = None
 
     try:
         with worker_postgres(
@@ -704,6 +705,7 @@ if __name__ == "__main__":
                 stop("falkor-candidate has no 127.0.0.1-mapped 6379/tcp port")
             falkor_port = int(falkor_ports[0]["HostPort"])
             graph_url = f"redis://:oracle2_candidate_local_only@127.0.0.1:{falkor_port}"
+            graph_url_redacted = f"redis://:***@127.0.0.1:{falkor_port}"
 
             owned_worker_database(identity["container_id"], base)
             name = "oracle_operating_model_test_" + uuid4().hex
@@ -860,39 +862,40 @@ if __name__ == "__main__":
                     stop(f"{suite}: returncode={returncode} (expected 0)")
 
             # Write result.json with full evidence
-            (scratch / "result.json").write_text(
-                json.dumps(
-                    {
-                        "head": actual,
-                        "authoring_parent": AUTHORING_PARENT,
-                        "receipt_head": receipt["head"],
-                        "receipt_reviewer": receipt["reviewer"],
-                        "receipt_reviewed_at": receipt["reviewed_at"],
-                        "receipt_note": (
-                            "procedural/operator-minted unsigned /tmp JSON; "
-                            "not an integrity-bound signature (M3)"
-                        ),
-                        "natural_unblock": natural_unblock,
-                        "clean_tree": clean_tree,
-                        "sealed_content_digests": sealed_digests_before,
-                        "preflight": preflight,
-                        "database": name,
-                        "project": identity["project"],
-                        "falkor_port": falkor_port,
-                        "graph_url": graph_url,
-                        "invocations": results,
-                        "timeout_any": timed_out,
-                        "w10_same_fit_claimed": False,
-                        "dist_lock_w10_proved": False,
-                        "budget_note": (
-                            "two separate one-shot invocations at "
-                            f"{ONE_SHOT_WALL_S}s each; NOT the W10 120s budget"
-                        ),
-                    },
-                    indent=2,
-                )
-                + "\n"
+            result_payload = json.dumps(
+                {
+                    "head": actual,
+                    "authoring_parent": AUTHORING_PARENT,
+                    "receipt_head": receipt["head"],
+                    "receipt_reviewer": receipt["reviewer"],
+                    "receipt_reviewed_at": receipt["reviewed_at"],
+                    "receipt_note": (
+                        "procedural/operator-minted unsigned /tmp JSON; "
+                        "not an integrity-bound signature (M3)"
+                    ),
+                    "natural_unblock": natural_unblock,
+                    "clean_tree": clean_tree,
+                    "sealed_content_digests": sealed_digests_before,
+                    "preflight": preflight,
+                    "database": name,
+                    "project": identity["project"],
+                    "falkor_port": falkor_port,
+                    "graph_url": graph_url_redacted,
+                    "invocations": results,
+                    "timeout_any": timed_out,
+                    "w10_same_fit_claimed": False,
+                    "dist_lock_w10_proved": False,
+                    "budget_note": (
+                        "two separate one-shot invocations at "
+                        f"{ONE_SHOT_WALL_S}s each; NOT the W10 120s budget"
+                    ),
+                },
+                indent=2,
             )
+            # Guard: synthetic fixture passwords must never land in result artifacts
+            if "oracle2_candidate_local_only" in result_payload:
+                stop("result.json would contain graph password; refusing to write")
+            (scratch / "result.json").write_text(result_payload + "\n")
 
             if timed_out:
                 stop(f"invocation timed out after {ONE_SHOT_WALL_S}s; see result.json")
