@@ -1,0 +1,21 @@
+{
+  "returncode": 0,
+  "static_returncode": 0,
+  "database": "oracle_operating_model_test_eb9fd0b102c34dae81b4dc35f1fa8ed9",
+  "head": "45a6a8b9d31ffc2a772142b87138a2578ed1aef0",
+  "branch": "codex/parent24-s13-repair-20261026",
+  "source_manifest_unchanged": true,
+  "metadata_only": true,
+  "native_dump_restore": false,
+  "archive_child": false,
+  "provider": false,
+  "actual_totals": {"tests": 27, "failures": 0, "errors": 0, "skipped": 0},
+  "static_totals": {"tests": 22, "failures": 0, "errors": 0, "skipped": 0},
+  "identity": {
+    "project": "oracle2-synthetic-p24rec-r26-w08861d6f2b8b",
+    "container_id": "19f8d18dbd21a7f79b0f280b2c71d61d84b6cbfec587f5dcb93018d843f4d695",
+    "port": 32791,
+    "worker": "documentary-01",
+    "synthetic_only": true
+  }
+}

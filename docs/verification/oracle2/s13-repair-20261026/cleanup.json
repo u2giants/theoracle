@@ -1,0 +1,7 @@
+{
+  "project": "oracle2-synthetic-p24rec-r26-w08861d6f2b8b",
+  "retained_startup_owner": true,
+  "remaining": {"containers": false, "networks": false, "volumes": false},
+  "absence_proven": true,
+  "source_manifest_unchanged": true
+}
