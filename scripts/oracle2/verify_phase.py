@@ -95,6 +95,10 @@ S07_TESTS = [
 # S08 — bounded in-meeting participation.
 S08_TESTS = [
     "test_meeting_participation.py",
+    "test_meeting_participation_control_v1.py",
+    "test_meeting_participation_sql.py",
+    "test_meeting_participation_v1.py",
+    "test_meeting_participation_wire_v1.py",
     "test_outbound_replay.py",
 ]
 # S09 — connected, historical and company-wide answers.

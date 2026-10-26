@@ -54,6 +54,13 @@ def _catalog(connection):
         signatures+=('oracle2._purpose_source_v2(uuid,uuid,uuid,text,text,text,boolean)',
             'oracle2.conversation_model_input_v1(uuid)',
             'oracle2.original_native_program_identity_v1(uuid)')
+    if any(p.name=='021_meeting_participation.sql' for p in canonical_synthetic_migrations()):
+        signatures+=('oracle2.meeting_participation_status_v1(uuid,text,uuid,timestamptz)',
+            'oracle2.meeting_participation_control_v1(uuid,text,integer,uuid,text,jsonb,timestamptz)',
+            'oracle2.meeting_participation_claim_v1(uuid,text,uuid,integer,uuid,timestamptz)',
+            'oracle2.meeting_participation_observe_v1(uuid,text,uuid,uuid,uuid,jsonb,timestamptz)',
+            'oracle2.meeting_participation_prepare_v1(uuid,text,integer,uuid,jsonb,jsonb,timestamptz)',
+            'oracle2.meeting_participation_observe_audience_v1(uuid,text,integer,uuid,jsonb,timestamptz)')
     if any(p.name=='022_consolidated_answer_delivery.sql' for p in canonical_synthetic_migrations()):
         signatures+=('oracle2._processing_projection_receipt_v3(uuid,uuid,integer,jsonb)',
             'oracle2._retained_processing_projection_receipt_v1(uuid,uuid,integer,jsonb)',

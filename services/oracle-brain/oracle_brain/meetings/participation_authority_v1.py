@@ -18,6 +18,8 @@ from typing import Callable
 import psycopg
 from psycopg.types.json import Jsonb
 from oracle_brain.operating_model.contracts import canonical_bytes
+from oracle_brain.operating_model.protected_sql_connection_v1 import _connection_v1
+from oracle_brain.operating_model.request_deadline_v1 import sql_execute_v1
 
 _PUBLIC = (
     'meeting_capture_current_turn_v1(uuid,text,uuid,timestamp with time zone)',
@@ -162,7 +164,7 @@ class ParticipationAuthorityV1:
         self.binding, self._url, self._runtime_recheck = binding, url, _runtime_recheck
         params = psycopg.conninfo.conninfo_to_dict(url)
         if (set(params) - {'host','hostaddr', 'port', 'dbname', 'user', 'password', 'sslmode', 'sslrootcert'}
-                or not params.get('host') or not params.get('dbname')
+                or not all(params.get(k) for k in ('host','port','dbname','password'))
                 or params.get('sslmode') != 'verify-full' or params.get('sslrootcert') != binding.ca_path
                 or params.get('user') != binding.session_login):
             raise PermissionError('fixed verify-full own-role URL required')
@@ -181,15 +183,9 @@ class ParticipationAuthorityV1:
     @contextmanager
     def _connection(self,deadline):
         self._guard(deadline)
-        remaining=self._remaining(deadline)
-        # libpq's actual connect timeout floor is two seconds per target.
-        # One pinned address means no DNS/multihost multiplication or fallback.
-        if remaining<2:
-            raise PermissionError('insufficient original window for bounded SQL connection')
-        milliseconds=max(1,min(2000,int(remaining*1000)))
-        with psycopg.connect(self._url,connect_timeout=2,tcp_user_timeout=milliseconds,
-                options=f'-c statement_timeout={milliseconds} -c lock_timeout={milliseconds}') as connection:
+        with _connection_v1(self._url,deadline) as connection:
             yield connection
+        self._guard(deadline)
 
     def _ca(self):
         path = Path(self.binding.ca_path)
@@ -232,11 +228,11 @@ class ParticipationAuthorityV1:
         if (not connection.pgconn.ssl_in_use or actual.host!=t['host'] or actual.dbname!=t['dbname']
                 or actual.user!=t['user'] or actual.port!=int(t.get('port',5432))
                 or t.get('hostaddr') and actual.hostaddr!=t['hostaddr']
-                or connection.execute('SELECT SESSION_USER,CURRENT_USER').fetchone() != (b.session_login, b.session_login)):
+                or sql_execute_v1(connection,deadline,'SELECT SESSION_USER,CURRENT_USER').fetchone() != (b.session_login, b.session_login)):
             raise PermissionError('actual own-role verified TLS session required')
-        connection.execute("SELECT pg_catalog.set_config('statement_timeout',%s,true),pg_catalog.set_config('lock_timeout',%s,true)",
+        sql_execute_v1(connection,deadline,"SELECT pg_catalog.set_config('statement_timeout',%s,true),pg_catalog.set_config('lock_timeout',%s,true)",
                            (str(remaining)+'ms', str(remaining)+'ms'))
-        rows = connection.execute('''SELECT wanted.sig,n.nspname,p.proname,r.rolname,p.prosecdef,p.proconfig,
+        rows = sql_execute_v1(connection,deadline,'''SELECT wanted.sig,n.nspname,p.proname,r.rolname,p.prosecdef,p.proconfig,
           pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc,'UTF8')),'hex'),
           ARRAY(SELECT CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee)::text END||':'||x.privilege_type||':'||x.is_grantable::text
             FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) x ORDER BY 1)
@@ -279,7 +275,7 @@ class ParticipationAuthorityV1:
         b = self.binding
         with self._connection(deadline) as connection:
             self._check(connection, deadline)
-            result = connection.execute('SELECT oracle2.meeting_participation_status_v1(%s,%s,%s,%s)',
+            result = sql_execute_v1(connection,deadline,'SELECT oracle2.meeting_participation_status_v1(%s,%s,%s,%s)',
                                         (b.admission_id,b.admission_sha256,wanted,deadline)).fetchone()[0]
             until = self._context(result, deadline)
             self._check(connection, deadline)
@@ -410,12 +406,17 @@ class ParticipationAuthorityV1:
     def _write(self, statement, arguments, *, wanted, deadline, claim=False, expected_metadata=None):
         """Internal fixed SQL only; no request/transport-selected function name."""
         self._deadline(deadline)
-        returned = False
+        mutation_attempted = False
+        write_returned = False
         try:
             with self._connection(deadline) as connection:
                 self._check(connection, deadline)
-                result = connection.execute(statement, arguments).fetchone()[0]
-                returned = True
+                # The guarded send may finish after the original deadline and
+                # refuse before returning its result. Never present that as
+                # a safe-to-resubmit denial, even if rollback may have occurred.
+                mutation_attempted = True
+                result = sql_execute_v1(connection,deadline,statement, arguments).fetchone()[0]
+                write_returned = True
                 until = self._context(result, deadline)
                 self._check(connection, deadline)
             # Every failure after a possible commit is uncertain, including the
@@ -440,7 +441,12 @@ class ParticipationAuthorityV1:
             metadata=self._public_metadata(fresh)
             return ParticipationClaimV1(metadata,None,min(until,fresh_until)) if claim else metadata
         except Exception as exc:
-            if returned or isinstance(exc,(psycopg.OperationalError,psycopg.InterfaceError,OSError,TimeoutError)):
+            # A complete privilege refusal of the write itself is a typed safe
+            # denial. After a possible commit (including the fresh status
+            # readback) any failure stays UNKNOWN/no-resend.
+            if isinstance(exc, psycopg.errors.InsufficientPrivilege) and not write_returned:
+                raise
+            if mutation_attempted or isinstance(exc,(psycopg.OperationalError,psycopg.InterfaceError,OSError,TimeoutError)):
                 raise ParticipationOutcomeUnknown('participation outcome UNKNOWN; read-only reconciliation only, no resend') from None
             raise
 
