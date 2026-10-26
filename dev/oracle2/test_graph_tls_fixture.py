@@ -64,16 +64,23 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             remote=track(socket.create_connection(('127.0.0.1',target.port),timeout=1))
             client.settimeout(.5);remote.settimeout(.5)
             _diag('serve[%d] pump start'%conn_id)
+            last_data=time.monotonic()
             while not stop.is_set():
                 # select for fast data waiting; recv for EOF detection through OpenSSL
                 ready,_,_=select.select([client,remote],[],[],.5)
-                if not ready:continue
+                if not ready:
+                    # Hard deadline: if no data for 3s, assume peer is gone.
+                    # recv() through OpenSSL may never surface FIN after shutdown.
+                    if time.monotonic()-last_data>3:
+                        _diag('serve[%d] idle timeout'%conn_id);return
+                    continue
                 for source in ready:
                     try:data=source.recv(65536)
                     except (socket.timeout,ssl.SSLWantReadError,BlockingIOError):continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
                         _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
                     if not data:_diag('serve[%d] peer closed'%conn_id);return
+                    last_data=time.monotonic()
                     dest=remote if source is client else client
                     try:dest.sendall(data)
                     except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
