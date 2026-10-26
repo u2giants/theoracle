@@ -90,7 +90,7 @@ class ReadOnlyConnection:
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
     async def close(self):
-        import sys as _s,socket as _so
+        import sys as _s,socket as _so,struct as _st
         conn=self._connection
         pool=getattr(conn,'_pool',None)
         if pool is not None:
@@ -103,11 +103,10 @@ class ReadOnlyConnection:
                         t=w.transport
                         raw_sock=t.get_extra_info('socket')
                         if raw_sock is not None:
-                            try:
-                                raw_sock.shutdown(_so.SHUT_RDWR)
-                                print('ORACLE-DIAG gei shutdown ok',file=_s.stderr,flush=True)
-                            except Exception as e:
-                                print('ORACLE-DIAG gei shutdown err=%s'%e,file=_s.stderr,flush=True)
+                            try:raw_sock.setsockopt(_so.SOL_SOCKET,_so.SO_LINGER,_st.pack('ii',1,0))
+                            except Exception:pass
+                            try:raw_sock.shutdown(_so.SHUT_RDWR)
+                            except Exception:pass
                             try:raw_sock.close()
                             except Exception:pass
                         t.abort()
