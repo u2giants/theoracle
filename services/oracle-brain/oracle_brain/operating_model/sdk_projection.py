@@ -90,28 +90,21 @@ class ReadOnlyConnection:
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
     async def close(self):
-        # Option B: free the raw TCP socket without TLS close_notify.
-        # SSLSocket.close() sends close_notify which poisons the shared
-        # graph TLS tunnel for peer handshakes; pool.aclose() also does
-        # blocking wait_closed(). transport.abort() closes the underlying
-        # TCP fd immediately (no TLS alert), freeing the tunnel semaphore
-        # without touching the shared server_context for peers. Works
-        # regardless of event-loop state (no call_later dependency).
-        # Close the raw fd first so the tunnel serve-thread sees the
-        # disconnect immediately; transport.abort() handles asyncio cleanup
-        # (remove_reader + connection_lost) but defers _sock.close() via
-        # _call_soon which can lag and exhaust the tunnel semaphore.
+        import sys as _s
         conn=self._connection
         pool=getattr(conn,'_pool',None)
+        print('ORACLE-DIAG roc-close pool=%s'%('yes' if pool is not None else 'None'),file=_s.stderr,flush=True)
         if pool is not None:
             try:conns=list(pool._available_connections)+list(pool._in_use_connections)
-            except Exception:conns=[]
+            except Exception as e:conns=[];print('ORACLE-DIAG roc-close pool-enum-err %s'%e,file=_s.stderr,flush=True)
+            print('ORACLE-DIAG roc-close conns=%d'%len(conns),file=_s.stderr,flush=True)
             for c in conns:
                 try:
                     w=c._writer
                     if w is not None and w.transport is not None:
                         t=w.transport
                         raw_sock=getattr(t,'_sock',None)
+                        print('ORACLE-DIAG roc-close sock=%s'%('yes' if raw_sock is not None else 'None'),file=_s.stderr,flush=True)
                         if raw_sock is not None:
                             try:raw_sock.close()
                             except Exception:pass
