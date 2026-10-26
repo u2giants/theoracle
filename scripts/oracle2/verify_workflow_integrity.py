@@ -286,7 +286,7 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('meeting_participation_sql',),
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
-    'purpose_context_v2','purpose_native_census_startup','purpose_worker_startup',
+    'purpose_context_v2','purpose_native_census_startup','meeting_participation_sql',
     'paid_sdk_embeddings_v3')
 
 
