@@ -47,34 +47,31 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             uris=[v for k,v in client.getpeercert().get('subjectAltName',()) if k=='URI']
             if uris!=[expected_client_uri]:raise PermissionError('actual graph tunnel client URI differs')
             remote=track(socket.create_connection(('127.0.0.1',target.port),timeout=1))
-            client.settimeout(.2);remote.settimeout(.2)
+            client.settimeout(.05);remote.settimeout(.05)
             _diag('serve[%d] pump start'%conn_id)
             while not stop.is_set():
-                ready,_,_=select.select([client,remote],[],[],.1)
-                if client.pending() and client not in ready:ready.append(client)
-                # Explicit liveness: SSLSocket may buffer FIN so select misses it.
-                # Only treat b'' as EOF when the fd is readable (FIN actually arrived);
-                # otherwise b'' just means no data in the SSL buffer.
-                if client not in ready:
-                    try:
-                        r,_,_=select.select([client],[],[],0)
-                        if r:
-                            peek=client.recv(1,socket.MSG_PEEK)
-                            if not peek:_diag('serve[%d] liveness EOF'%conn_id);return
-                    except (socket.timeout,ssl.SSLWantReadError,BlockingIOError):pass
-                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,ssl.SSLError,OSError) as exc:
-                        _diag('serve[%d] liveness dead=%s'%(conn_id,type(exc).__name__));return
-                for source in ready:
-                    try:data=source.recv(65536)
-                    except (socket.timeout,ssl.SSLWantReadError):continue
+                # recv-with-timeout instead of select: select misses FIN through
+                # OpenSSL's buffer, but recv returns b'' on EOF directly.
+                try:data=client.recv(65536)
+                except socket.timeout:
+                    try:rdata=remote.recv(65536)
+                    except socket.timeout:continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
-                        _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
-                    if not data:_diag('serve[%d] peer closed'%conn_id);return
-                    dest=remote if source is client else client
-                    try:dest.sendall(data)
+                        _diag('serve[%d] remote dead=%s'%(conn_id,type(exc).__name__));return
+                    if not rdata:_diag('serve[%d] remote closed'%conn_id);return
+                    try:client.sendall(rdata)
                     except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
                         _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
+                    continue
+                except (ssl.SSLWantReadError,BlockingIOError):continue
+                except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
+                    _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
+                if not data:_diag('serve[%d] peer closed'%conn_id);return
+                try:remote.sendall(data)
+                except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
+                except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
+                    _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
         except (OSError,ValueError,PermissionError) as exc:
             _diag('serve[%d] exc=%s:%s'%(conn_id,type(exc).__name__,exc))
         finally:
