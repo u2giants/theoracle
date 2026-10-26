@@ -60,28 +60,20 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             client.settimeout(.5);remote.settimeout(.5)
             _diag('serve[%d] pump start'%conn_id)
             while not stop.is_set():
-                # Recv-driven loop: recv() on the SSLSocket surfaces EOF (b'')
-                # through OpenSSL, unlike select/poll which miss FIN in the buffer.
-                try:data=client.recv(65536)
-                except socket.timeout:
-                    try:rdata=remote.recv(65536)
-                    except socket.timeout:continue
+                # select for fast data waiting; recv for EOF detection through OpenSSL
+                ready,_,_=select.select([client,remote],[],[],.5)
+                if not ready:continue
+                for source in ready:
+                    try:data=source.recv(65536)
+                    except (socket.timeout,ssl.SSLWantReadError,BlockingIOError):continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
-                        _diag('serve[%d] remote dead=%s'%(conn_id,type(exc).__name__));return
-                    if not rdata:_diag('serve[%d] remote closed'%conn_id);return
-                    try:client.sendall(rdata)
+                        _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
+                    if not data:_diag('serve[%d] peer closed'%conn_id);return
+                    dest=remote if source is client else client
+                    try:dest.sendall(data)
                     except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
                         _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
-                    continue
-                except (ssl.SSLWantReadError,BlockingIOError):continue
-                except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
-                    _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
-                if not data:_diag('serve[%d] peer closed'%conn_id);return
-                try:remote.sendall(data)
-                except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
-                except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
-                    _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
         except (OSError,ValueError,PermissionError) as exc:
             _diag('serve[%d] exc=%s:%s'%(conn_id,type(exc).__name__,exc))
         finally:
