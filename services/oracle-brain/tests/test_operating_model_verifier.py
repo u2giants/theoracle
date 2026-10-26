@@ -104,8 +104,10 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
         if stage!='W04':
             # R7 registration: purpose_coherent_native_journey / native_trigger_v1
             # no longer own singleton groups; original/raw families replaced them.
-            for heavy in ('purpose_worker_startup',):
-                assert [values for _,values in groups if heavy in values]==[('purpose_native_census_startup','purpose_journey','connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','consolidation_next_auth_browser_v1','purpose_worker_startup')]
+            g=dict(groups)
+            if 'event' in g:
+                for heavy in ('purpose_worker_startup',):
+                    assert [values for _,values in groups if heavy in values]==[g['event']]
             for start in ('original_corpus_import','raw_endpoint_inventory_v1'):
                 assert any(values and values[0]==start for _,values in groups)
 
@@ -198,7 +200,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     expected|={'parent_observer_v2','semantic_registry_v3','processing_extraction_runtime_v2','extraction_connection_authority'}
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
-    assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
+    assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary')+verifier.required_suites('event'))
     assert verifier.SYNTHETIC_MIGRATIONS[-12:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','021_meeting_participation.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','026_operational_recovery.sql','027_legacy_migration.sql')
 
 

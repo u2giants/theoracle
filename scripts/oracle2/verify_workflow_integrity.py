@@ -283,6 +283,11 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
 # baseline. Full population, ten workers and unchanged120s deadline retained.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('meeting_participation_sql',),
     'purpose_worker_startup',after=True)
+# W10 SAME worker-fit rebalance: purpose_worker_startup has no documentary
+# headroom (all doc workers at 107-117s). Move it to the event worker (96.3s)
+# which has 24s headroom. Full population, ten workers, unchanged 120s.
+DOCUMENTARY=tuple(s for s in DOCUMENTARY if s!='purpose_worker_startup')
+EVENT+=('purpose_worker_startup',)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
