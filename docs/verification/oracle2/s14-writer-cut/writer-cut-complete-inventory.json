@@ -10,7 +10,6 @@
     "external": "Writer outside repository control (Supabase Auth, Storage service, provider API). Uncontrolled external writer means the cut cannot claim completeness."
   },
   "barrier_observation_model": "Every confirmed SQL writer must lock/check its local barrier row and compare its admitted ingestion generation in the SAME transaction as the mutation. Storage/external writers require a fixed effect owner that participates in the same logical cut. No advisory-only lock, GUC, or self-stamp grant is sufficient.",
-
   "families": [
     {
       "family_id": "F1_chat_messages_modelusage_contextpacks_typing",
@@ -18,190 +17,1250 @@
       "owner_module": "apps/web/app/api/chat, apps/web/app/api/messages, apps/web/app/channels, apps/workers (lull/contradiction/recall message inserts)",
       "barrier_hook": "messages.insert, oracleContextPacks.insert/update, modelRuns.insert, modelRunUsageDetails.insert, typing_indicators.upsert/delete — each in same tx as local barrier check; browser typing writes need an installed API-side fence or dedicated typing effect owner.",
       "sites": [
-        {"file": "apps/web/app/api/messages/route.ts", "lines": [76], "op": "insert messages", "classification": "confirmed", "notes": "Authenticated employee message insert."},
-        {"file": "apps/web/app/api/chat/route.ts", "lines": [410, 950, 956, 972, 993, 1007, 1103, 1107, 1124, 1141, 1145, 1158, 1178], "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, messages", "classification": "confirmed", "notes": "Primary generated-chat write path. Lines 458/704/730/865 are hash computations (candidates)."},
-        {"file": "apps/web/app/channels/[channelId]/_components/channel-chat.tsx", "lines": [180, 189], "op": "upsert/delete typing_indicators", "classification": "confirmed", "notes": "Browser-side operational presence rows via Supabase client. API-only fence misses them."},
-        {"file": "apps/workers/src/trigger/lull-interjection.ts", "lines": [758], "op": "insert messages", "classification": "confirmed", "notes": "Lull interjection messages."},
-        {"file": "apps/workers/src/trigger/contradiction-watcher.ts", "lines": [617], "op": "insert messages", "classification": "confirmed", "notes": "Contradiction notification messages."},
-        {"file": "apps/workers/src/trigger/teams-live-recall-utterance.ts", "lines": [726, 849], "op": "insert messages", "classification": "confirmed", "notes": "Live recall outbound and follow-up messages."}
+        {
+          "file": "apps/web/app/api/messages/route.ts",
+          "lines": [
+            76
+          ],
+          "op": "insert messages",
+          "classification": "confirmed",
+          "notes": "Authenticated employee message insert."
+        },
+        {
+          "file": "apps/web/app/api/chat/route.ts",
+          "lines": [
+            410,
+            950,
+            956,
+            972,
+            993,
+            1007,
+            1103,
+            1107,
+            1124,
+            1141,
+            1145,
+            1158,
+            1178
+          ],
+          "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, messages",
+          "classification": "confirmed",
+          "notes": "Primary generated-chat write path. Lines 458/704/730/865 are hash computations (candidates)."
+        },
+        {
+          "file": "apps/web/app/channels/[channelId]/_components/channel-chat.tsx",
+          "lines": [
+            180,
+            189
+          ],
+          "op": "upsert/delete typing_indicators",
+          "classification": "confirmed",
+          "notes": "Browser-side operational presence rows via Supabase client. API-only fence misses them."
+        },
+        {
+          "file": "apps/workers/src/trigger/lull-interjection.ts",
+          "lines": [
+            758
+          ],
+          "op": "insert messages",
+          "classification": "confirmed",
+          "notes": "Lull interjection messages."
+        },
+        {
+          "file": "apps/workers/src/trigger/contradiction-watcher.ts",
+          "lines": [
+            617
+          ],
+          "op": "insert messages",
+          "classification": "confirmed",
+          "notes": "Contradiction notification messages."
+        },
+        {
+          "file": "apps/workers/src/trigger/teams-live-recall-utterance.ts",
+          "lines": [
+            726,
+            849
+          ],
+          "op": "insert messages",
+          "classification": "confirmed",
+          "notes": "Live recall outbound and follow-up messages."
+        }
       ],
-      "summary": {"confirmed_files": 6, "candidate_sites_in_files": 4}
+      "summary": {
+        "confirmed_files": 6,
+        "candidate_sites_in_files": 4
+      }
     },
-
     {
       "family_id": "F2_storage_bytes_sql_metadata_orphans",
       "description": "Document Storage bytes, document/message/attachment SQL rows, orphan removal on failed insert.",
       "owner_module": "apps/web/app/api/documents, apps/web/app/api/admin/documents, apps/workers/src/trigger/document-ingestion",
       "barrier_hook": "Storage upload/remove needs an installed object-write fence (fixed effect owner). SQL document/message/attachment inserts and updates need same-tx barrier check. Orphan accounting must record in-flight uploads so a cut can prove no orphan objects.",
       "sites": [
-        {"file": "apps/web/app/api/documents/route.ts", "lines": [101, 118, 133, 151, 170, 185], "op": "upload, insert documents, remove orphan, insert messages, insert messageAttachments, update documents", "classification": "confirmed", "notes": "Storage upload uses service-role client; failed SQL insert attempts orphan removal. SQL and object ops have no common cut generation."},
-        {"file": "apps/web/app/api/admin/documents/route.ts", "lines": [93, 106, 122, 133], "op": "upload, insert documents, remove orphan, update documents", "classification": "confirmed", "notes": "Admin document upload path, same Storage+SQL split."},
-        {"file": "apps/workers/src/trigger/document-ingestion.ts", "lines": [574, 629, 652, 691, 733, 769, 1038, 1480, 1746], "op": "update documents, insert documentChunks", "classification": "confirmed", "notes": "Ingestion updates document status and persists chunks."}
+        {
+          "file": "apps/web/app/api/documents/route.ts",
+          "lines": [
+            101,
+            118,
+            133,
+            151,
+            170,
+            185
+          ],
+          "op": "upload, insert documents, remove orphan, insert messages, insert messageAttachments, update documents",
+          "classification": "confirmed",
+          "notes": "Storage upload uses service-role client; failed SQL insert attempts orphan removal. SQL and object ops have no common cut generation."
+        },
+        {
+          "file": "apps/web/app/api/admin/documents/route.ts",
+          "lines": [
+            93,
+            106,
+            122,
+            133
+          ],
+          "op": "upload, insert documents, remove orphan, update documents",
+          "classification": "confirmed",
+          "notes": "Admin document upload path, same Storage+SQL split."
+        },
+        {
+          "file": "apps/workers/src/trigger/document-ingestion.ts",
+          "lines": [
+            574,
+            629,
+            652,
+            691,
+            733,
+            769,
+            1038,
+            1480,
+            1746
+          ],
+          "op": "update documents, insert documentChunks",
+          "classification": "confirmed",
+          "notes": "Ingestion updates document status and persists chunks."
+        }
       ],
-      "summary": {"confirmed_files": 3, "candidate_sites_in_files": 0}
+      "summary": {
+        "confirmed_files": 3,
+        "candidate_sites_in_files": 0
+      }
     },
-
     {
       "family_id": "F3_imports_teams_discovery_transcripts",
       "description": "Bulk import, Teams notifications/live ingress, transcript discovery/ingestion/summary, subscription manager.",
       "owner_module": "apps/web/app/api/admin/import, apps/web/app/api/teams, apps/workers/src/trigger/teams-*",
       "barrier_hook": "Each row writer (channels, employees, messages, channelParticipants, jobRuns, meetingTranscripts, subscription metadata) needs same-tx barrier+generation check. Ingress receipts must be durably pause-accepting during pausing. Late webhook handling and queued retry/drain inventory required.",
       "sites": [
-        {"file": "apps/web/app/api/admin/import/route.ts", "lines": [73, 81, 92, 131], "op": "insert channelParticipants, channels, messages", "classification": "confirmed", "notes": "Bulk import mutates channels, memberships, messages."},
-        {"file": "apps/workers/src/trigger/teams-transcript-ingestion.ts", "lines": [84, 107, 122, 180, 207, 253, 256, 281, 288], "op": "insert/update jobRuns, employees, channels, messages, channelParticipants", "classification": "confirmed", "notes": "Creates employees/channels/messages/memberships from transcripts."},
-        {"file": "apps/workers/src/trigger/teams-transcript-summary.ts", "lines": [198, 232, 247, 268, 273, 305, 354, 370, 399, 406], "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, meetingTranscripts, jobRuns", "classification": "confirmed", "notes": "Summary worker writes derived state and model usage."},
-        {"file": "apps/workers/src/trigger/teams-live-recall-utterance.ts", "lines": [192, 525, 572, 589, 609, 631, 644, 650, 696, 716, 722, 878, 919, 923], "op": "insert/update channels, oracleContextPacks, modelRuns, modelRunUsageDetails, jobRuns, channelParticipants, oracleInterventions", "classification": "confirmed", "notes": "Outbound-response handling and message/membership writes."},
-        {"file": "apps/workers/src/trigger/teams-subscription-manager.ts", "lines": [], "op": "subscription metadata writes (lexically via shared helpers)", "classification": "candidate", "notes": "Discovery records availability; confirm exact write sites before cut census."},
-        {"file": "apps/workers/src/trigger/teams-transcript-discovery-scan.ts", "lines": [], "op": "discovery availability records", "classification": "candidate", "notes": "Router says discovery records availability and selected ingestion writes pending messages, not claims."},
-        {"file": "apps/web/app/api/teams/notifications/route.ts", "lines": [125], "op": "enqueue subscription work", "classification": "confirmed", "notes": "Can enqueue subscription work; not a row writer itself but a dispatch site."},
-        {"file": "apps/web/app/api/teams/live/recall/route.ts", "lines": [42], "op": "dispatch live Recall ingress", "classification": "confirmed", "notes": "Live Recall ingress dispatch point."}
+        {
+          "file": "apps/web/app/api/admin/import/route.ts",
+          "lines": [
+            73,
+            81,
+            92,
+            131
+          ],
+          "op": "insert channelParticipants, channels, messages",
+          "classification": "confirmed",
+          "notes": "Bulk import mutates channels, memberships, messages."
+        },
+        {
+          "file": "apps/workers/src/trigger/teams-transcript-ingestion.ts",
+          "lines": [
+            84,
+            107,
+            122,
+            180,
+            207,
+            253,
+            256,
+            281,
+            288
+          ],
+          "op": "insert/update jobRuns, employees, channels, messages, channelParticipants",
+          "classification": "confirmed",
+          "notes": "Creates employees/channels/messages/memberships from transcripts."
+        },
+        {
+          "file": "apps/workers/src/trigger/teams-transcript-summary.ts",
+          "lines": [
+            198,
+            232,
+            247,
+            268,
+            273,
+            305,
+            354,
+            370,
+            399,
+            406
+          ],
+          "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, meetingTranscripts, jobRuns",
+          "classification": "confirmed",
+          "notes": "Summary worker writes derived state and model usage."
+        },
+        {
+          "file": "apps/workers/src/trigger/teams-live-recall-utterance.ts",
+          "lines": [
+            192,
+            525,
+            572,
+            589,
+            609,
+            631,
+            644,
+            650,
+            696,
+            716,
+            722,
+            878,
+            919,
+            923
+          ],
+          "op": "insert/update channels, oracleContextPacks, modelRuns, modelRunUsageDetails, jobRuns, channelParticipants, oracleInterventions",
+          "classification": "confirmed",
+          "notes": "Outbound-response handling and message/membership writes."
+        },
+        {
+          "file": "apps/workers/src/trigger/teams-subscription-manager.ts",
+          "lines": [
+            38,
+            48
+          ],
+          "op": "Graph API subscription ensure (external effect dispatch)",
+          "classification": "confirmed",
+          "notes": "Adjudicated 2026-10-26: ensureAllSubscriptions dispatches Graph API subscription create/renew. External effect; fixed effect owner required. No local SQL row writer in this file."
+        },
+        {
+          "file": "apps/workers/src/trigger/teams-transcript-discovery-scan.ts",
+          "lines": [
+            1
+          ],
+          "op": "upsert meeting_transcripts",
+          "classification": "confirmed",
+          "notes": "Adjudicated 2026-10-26: upserts one meeting_transcripts row per discovered transcript on transcript_id. Confirmed SQL writer."
+        },
+        {
+          "file": "apps/web/app/api/teams/notifications/route.ts",
+          "lines": [
+            125
+          ],
+          "op": "enqueue subscription work",
+          "classification": "confirmed",
+          "notes": "Can enqueue subscription work; not a row writer itself but a dispatch site."
+        },
+        {
+          "file": "apps/web/app/api/teams/live/recall/route.ts",
+          "lines": [
+            42
+          ],
+          "op": "dispatch live Recall ingress",
+          "classification": "confirmed",
+          "notes": "Live Recall ingress dispatch point."
+        }
       ],
-      "summary": {"confirmed_files": 6, "candidate_sites_in_files": 2}
+      "summary": {
+        "confirmed_files": 8,
+        "candidate_sites_in_files": 0
+      }
     },
-
     {
       "family_id": "F4_extraction_paid_batches_late_drain",
       "description": "Document extraction, claim extraction, provider batch submit/drain, auto-approval, promotion, cache lifecycle.",
       "owner_module": "apps/workers/src/trigger/document-ingestion, claim-extraction*, packages/oracle-engines/src/extraction",
       "barrier_hook": "Generation check at source claim, before each publication/commit, and before new provider submission. Retain pending provider IDs and UNKNOWN status. Do not cancel/replay supplier jobs to declare queue empty.",
       "sites": [
-        {"file": "apps/workers/src/trigger/document-ingestion.ts", "lines": [414, 810, 894, 900, 947, 963, 984, 988, 1015, 1026, 1071, 1108, 1129, 1147, 1154, 1165, 1187, 1201, 1214, 1236, 1263, 1280, 1295, 1307, 1318, 1353, 1372, 1380, 1391, 1398, 1412, 1725, 1739, 1750], "op": "insert/update extractionBatches, extractionCandidates, extractionCandidateEvidence, extractionValidationResults, claims, documentTopDomains, documentChunkTopDomains, modelRuns, oracleContextPacks, jobRuns", "classification": "confirmed", "notes": "Primary extraction persistence including sweep."},
-        {"file": "apps/workers/src/trigger/claim-extraction.ts", "lines": [142, 187, 209, 249, 261, 305, 312, 388, 435, 451, 457, 496, 513, 534, 538, 568, 579, 685, 732, 741, 753, 784, 798, 812, 828, 836, 867, 893, 913, 927, 941, 950, 982, 989, 1002, 1016], "op": "insert/update extractionBatches, extractionCandidates, extractionValidationResults, extractionCandidateEvidence, messages, modelRuns, oracleContextPacks", "classification": "confirmed", "notes": "Schedules periodic extraction; full candidate lifecycle."},
-        {"file": "apps/workers/src/trigger/claim-extraction-batch-submit.ts", "lines": [74, 87, 178, 195, 241, 258, 265, 295, 312, 359, 381, 393, 416], "op": "insert/update/delete messages, extractionBatches, oracleContextPacks, providerBatchJobs, jobRuns", "classification": "confirmed", "notes": "Mutates pending status and submits provider work; includes cleanup deletes."},
-        {"file": "apps/workers/src/trigger/claim-extraction-batch-drain.ts", "lines": [82, 102, 127, 137, 143, 166, 180, 199, 222, 311, 326, 340, 376], "op": "insert/update providerBatchJobs, extractionBatches, modelRuns, modelRunUsageDetails, jobRuns", "classification": "confirmed", "notes": "Late-drain of provider batch results; persists statuses/evidence."},
-        {"file": "apps/workers/src/lib/document-claim-auto-approval.ts", "lines": [109, 126, 137, 148, 154, 162], "op": "insert extractionValidationResults, update claims, update extractionCandidates", "classification": "confirmed", "notes": "Auto-approval mutations affecting claim status."},
-        {"file": "packages/oracle-engines/src/extraction/promotion-executor.ts", "lines": [396, 435, 454, 467, 478, 490, 510, 519, 539, 551, 572, 580, 618, 627], "op": "insert/update entityProposals, claims, claimTopDomains, claimEntities, claimMetadata, claimEvidence, extractionCandidates, extractionValidationResults", "classification": "confirmed", "notes": "Promotion executor writes full claim graph."},
-        {"file": "packages/oracle-engines/src/extraction/promote-candidate.ts", "lines": [359, 360, 363, 366, 374, 377, 385], "op": "commented example insert/update claims/evidence/candidates", "classification": "candidate", "notes": "Write sites are in block comments (examples). Adjudicate: if any uncommented path exists it is confirmed."},
-        {"file": "packages/oracle-engines/src/extraction/cache-lifecycle.ts", "lines": [62, 86, 110], "op": "insert/update providerCachedContent", "classification": "confirmed", "notes": "Provider cache metadata rows."},
-        {"file": "apps/workers/src/lib/message-extraction-status.ts", "lines": [70, 79], "op": "update messages", "classification": "confirmed", "notes": "Extraction status flags on messages."}
+        {
+          "file": "apps/workers/src/trigger/document-ingestion.ts",
+          "lines": [
+            414,
+            810,
+            894,
+            900,
+            947,
+            963,
+            984,
+            988,
+            1015,
+            1026,
+            1071,
+            1108,
+            1129,
+            1147,
+            1154,
+            1165,
+            1187,
+            1201,
+            1214,
+            1236,
+            1263,
+            1280,
+            1295,
+            1307,
+            1318,
+            1353,
+            1372,
+            1380,
+            1391,
+            1398,
+            1412,
+            1725,
+            1739,
+            1750
+          ],
+          "op": "insert/update extractionBatches, extractionCandidates, extractionCandidateEvidence, extractionValidationResults, claims, documentTopDomains, documentChunkTopDomains, modelRuns, oracleContextPacks, jobRuns",
+          "classification": "confirmed",
+          "notes": "Primary extraction persistence including sweep."
+        },
+        {
+          "file": "apps/workers/src/trigger/claim-extraction.ts",
+          "lines": [
+            142,
+            187,
+            209,
+            249,
+            261,
+            305,
+            312,
+            388,
+            435,
+            451,
+            457,
+            496,
+            513,
+            534,
+            538,
+            568,
+            579,
+            685,
+            732,
+            741,
+            753,
+            784,
+            798,
+            812,
+            828,
+            836,
+            867,
+            893,
+            913,
+            927,
+            941,
+            950,
+            982,
+            989,
+            1002,
+            1016
+          ],
+          "op": "insert/update extractionBatches, extractionCandidates, extractionValidationResults, extractionCandidateEvidence, messages, modelRuns, oracleContextPacks",
+          "classification": "confirmed",
+          "notes": "Schedules periodic extraction; full candidate lifecycle."
+        },
+        {
+          "file": "apps/workers/src/trigger/claim-extraction-batch-submit.ts",
+          "lines": [
+            74,
+            87,
+            178,
+            195,
+            241,
+            258,
+            265,
+            295,
+            312,
+            359,
+            381,
+            393,
+            416
+          ],
+          "op": "insert/update/delete messages, extractionBatches, oracleContextPacks, providerBatchJobs, jobRuns",
+          "classification": "confirmed",
+          "notes": "Mutates pending status and submits provider work; includes cleanup deletes."
+        },
+        {
+          "file": "apps/workers/src/trigger/claim-extraction-batch-drain.ts",
+          "lines": [
+            82,
+            102,
+            127,
+            137,
+            143,
+            166,
+            180,
+            199,
+            222,
+            311,
+            326,
+            340,
+            376
+          ],
+          "op": "insert/update providerBatchJobs, extractionBatches, modelRuns, modelRunUsageDetails, jobRuns",
+          "classification": "confirmed",
+          "notes": "Late-drain of provider batch results; persists statuses/evidence."
+        },
+        {
+          "file": "apps/workers/src/lib/document-claim-auto-approval.ts",
+          "lines": [
+            109,
+            126,
+            137,
+            148,
+            154,
+            162
+          ],
+          "op": "insert extractionValidationResults, update claims, update extractionCandidates",
+          "classification": "confirmed",
+          "notes": "Auto-approval mutations affecting claim status."
+        },
+        {
+          "file": "packages/oracle-engines/src/extraction/promotion-executor.ts",
+          "lines": [
+            396,
+            435,
+            454,
+            467,
+            478,
+            490,
+            510,
+            519,
+            539,
+            551,
+            572,
+            580,
+            618,
+            627
+          ],
+          "op": "insert/update entityProposals, claims, claimTopDomains, claimEntities, claimMetadata, claimEvidence, extractionCandidates, extractionValidationResults",
+          "classification": "confirmed",
+          "notes": "Promotion executor writes full claim graph."
+        },
+        {
+          "file": "packages/oracle-engines/src/extraction/promote-candidate.ts",
+          "lines": [
+            359,
+            360,
+            363,
+            366,
+            374,
+            377,
+            385
+          ],
+          "op": "commented example insert/update claims/evidence/candidates",
+          "classification": "candidate",
+          "notes": "Write sites are in block comments (examples). Adjudicate: if any uncommented path exists it is confirmed."
+        },
+        {
+          "file": "packages/oracle-engines/src/extraction/cache-lifecycle.ts",
+          "lines": [
+            62,
+            86,
+            110
+          ],
+          "op": "insert/update providerCachedContent",
+          "classification": "confirmed",
+          "notes": "Provider cache metadata rows."
+        },
+        {
+          "file": "apps/workers/src/lib/message-extraction-status.ts",
+          "lines": [
+            70,
+            79
+          ],
+          "op": "update messages",
+          "classification": "confirmed",
+          "notes": "Extraction status flags on messages."
+        }
       ],
-      "summary": {"confirmed_files": 8, "candidate_sites_in_files": 1}
+      "summary": {
+        "confirmed_files": 8,
+        "candidate_sites_in_files": 1
+      }
     },
-
     {
       "family_id": "F5_admin_approvals_corrections_taxonomy_gaps_identity_membership_auth",
       "description": "Human review, corrections, approval, taxonomy, gaps, employees/departments, claim groups, contradictions, auth identity links, settings.",
       "owner_module": "apps/web/app/admin/*/_actions.ts, packages/auth/src/link.ts, apps/web/app/api/admin/settings",
       "barrier_hook": "Every admin mutation and auth-link write needs same-tx barrier+generation check. Privacy/security denial operations must remain possible and invalidate the candidate cut rather than being suppressed.",
       "sites": [
-        {"file": "apps/web/app/admin/claims/_actions.ts", "lines": [219, 227, 306, 322, 334, 341, 354, 373, 376, 390, 588, 600, 864, 884, 915, 926], "op": "insert/update claims, claimReviewEvents, claimTopDomains, claimEntities, claimMetadata, claimEvidence, gaps, claimTranslations, claimTranslationEvents", "classification": "confirmed", "notes": "Mutates claims, evidence, review and translations."},
-        {"file": "apps/web/app/admin/macro/_actions.ts", "lines": [58, 61, 86, 100, 103, 127, 159, 172, 182], "op": "insert/update/delete macroRelationships, macroRelationshipReviewEvents, macroRelationshipClaims, sourceCoverageFindings", "classification": "confirmed", "notes": "Relationship reviews and dependencies."},
-        {"file": "apps/web/app/admin/taxonomy/_actions.ts", "lines": [47, 55, 90, 131, 163, 232, 299, 307, 352, 383, 392], "op": "insert/update taxonomyProposals, taxonomyChangeLog, knowledgeTopDomains, entityProposals, entities", "classification": "confirmed", "notes": "Classifications, conversions and histories."},
-        {"file": "apps/web/app/admin/gaps/_actions.ts", "lines": [37, 85, 97, 163, 179, 183, 186, 216, 219], "op": "insert/update gaps, modelCoverageConversions, modelCoverageConversionEvents", "classification": "confirmed", "notes": "Gap status and coverage conversions."},
-        {"file": "apps/web/app/admin/employees/_actions.ts", "lines": [68, 81, 142, 144, 152, 234, 287, 356, 369], "op": "insert/update/delete employees, employeeDepartments", "classification": "confirmed", "notes": "Identities and department membership."},
-        {"file": "apps/web/app/admin/departments/_actions.ts", "lines": [80, 141, 147, 199, 209, 218], "op": "insert/update/delete departments, employeeDepartments, employees", "classification": "confirmed", "notes": "Department membership/import is separate."},
-        {"file": "apps/web/app/admin/contradictions/_actions.ts", "lines": [18], "op": "update contradictions", "classification": "confirmed", "notes": "Contradiction status."},
-        {"file": "apps/web/app/admin/claim-groups/_actions.ts", "lines": [26, 57, 72, 90], "op": "insert/update/delete claimReviewGroups, claimReviewGroupMembers", "classification": "confirmed", "notes": "Review group membership."},
-        {"file": "packages/auth/src/link.ts", "lines": [74, 77, 127, 136], "op": "insert/update employeeIdentities, employees (lastLoginAt)", "classification": "confirmed", "notes": "Canonical identity linkage and last-login metadata. Identity changes cannot be inferred frozen from an app route pause."},
-        {"file": "apps/web/app/api/admin/settings/route.ts", "lines": [121], "op": "insert settings", "classification": "confirmed", "notes": "Settings upsert."},
-        {"file": "apps/web/app/admin/transcripts/_actions.ts", "lines": [], "op": "transcript admin metadata", "classification": "candidate", "notes": "Lexical pattern present; adjudicate exact write sites."},
-        {"file": "apps/web/app/admin/ai/extraction-ab/_actions.ts", "lines": [], "op": "extraction AB admin metadata", "classification": "candidate", "notes": "Lexical pattern present; adjudicate exact write sites."}
+        {
+          "file": "apps/web/app/admin/claims/_actions.ts",
+          "lines": [
+            219,
+            227,
+            306,
+            322,
+            334,
+            341,
+            354,
+            373,
+            376,
+            390,
+            588,
+            600,
+            864,
+            884,
+            915,
+            926
+          ],
+          "op": "insert/update claims, claimReviewEvents, claimTopDomains, claimEntities, claimMetadata, claimEvidence, gaps, claimTranslations, claimTranslationEvents",
+          "classification": "confirmed",
+          "notes": "Mutates claims, evidence, review and translations."
+        },
+        {
+          "file": "apps/web/app/admin/macro/_actions.ts",
+          "lines": [
+            58,
+            61,
+            86,
+            100,
+            103,
+            127,
+            159,
+            172,
+            182
+          ],
+          "op": "insert/update/delete macroRelationships, macroRelationshipReviewEvents, macroRelationshipClaims, sourceCoverageFindings",
+          "classification": "confirmed",
+          "notes": "Relationship reviews and dependencies."
+        },
+        {
+          "file": "apps/web/app/admin/taxonomy/_actions.ts",
+          "lines": [
+            47,
+            55,
+            90,
+            131,
+            163,
+            232,
+            299,
+            307,
+            352,
+            383,
+            392
+          ],
+          "op": "insert/update taxonomyProposals, taxonomyChangeLog, knowledgeTopDomains, entityProposals, entities",
+          "classification": "confirmed",
+          "notes": "Classifications, conversions and histories."
+        },
+        {
+          "file": "apps/web/app/admin/gaps/_actions.ts",
+          "lines": [
+            37,
+            85,
+            97,
+            163,
+            179,
+            183,
+            186,
+            216,
+            219
+          ],
+          "op": "insert/update gaps, modelCoverageConversions, modelCoverageConversionEvents",
+          "classification": "confirmed",
+          "notes": "Gap status and coverage conversions."
+        },
+        {
+          "file": "apps/web/app/admin/employees/_actions.ts",
+          "lines": [
+            68,
+            81,
+            142,
+            144,
+            152,
+            234,
+            287,
+            356,
+            369
+          ],
+          "op": "insert/update/delete employees, employeeDepartments",
+          "classification": "confirmed",
+          "notes": "Identities and department membership."
+        },
+        {
+          "file": "apps/web/app/admin/departments/_actions.ts",
+          "lines": [
+            80,
+            141,
+            147,
+            199,
+            209,
+            218
+          ],
+          "op": "insert/update/delete departments, employeeDepartments, employees",
+          "classification": "confirmed",
+          "notes": "Department membership/import is separate."
+        },
+        {
+          "file": "apps/web/app/admin/contradictions/_actions.ts",
+          "lines": [
+            18
+          ],
+          "op": "update contradictions",
+          "classification": "confirmed",
+          "notes": "Contradiction status."
+        },
+        {
+          "file": "apps/web/app/admin/claim-groups/_actions.ts",
+          "lines": [
+            26,
+            57,
+            72,
+            90
+          ],
+          "op": "insert/update/delete claimReviewGroups, claimReviewGroupMembers",
+          "classification": "confirmed",
+          "notes": "Review group membership."
+        },
+        {
+          "file": "packages/auth/src/link.ts",
+          "lines": [
+            74,
+            77,
+            127,
+            136
+          ],
+          "op": "insert/update employeeIdentities, employees (lastLoginAt)",
+          "classification": "confirmed",
+          "notes": "Canonical identity linkage and last-login metadata. Identity changes cannot be inferred frozen from an app route pause."
+        },
+        {
+          "file": "apps/web/app/api/admin/settings/route.ts",
+          "lines": [
+            121
+          ],
+          "op": "insert settings",
+          "classification": "confirmed",
+          "notes": "Settings upsert."
+        },
+        {
+          "file": "apps/web/app/admin/transcripts/_actions.ts",
+          "lines": [
+            124
+          ],
+          "op": "update meeting_transcripts (dismiss)",
+          "classification": "confirmed",
+          "notes": "Adjudicated 2026-10-26: UPDATE meeting_transcripts SET status = dismissed at line 124. Remaining actions are triggerTask dispatch only."
+        },
+        {
+          "file": "apps/web/app/admin/ai/extraction-ab/_actions.ts",
+          "lines": [
+            95,
+            137,
+            160,
+            199
+          ],
+          "op": "insert/update claim_extraction_ab_tests",
+          "classification": "confirmed",
+          "notes": "Adjudicated 2026-10-26: INSERT/UPDATE claim_extraction_ab_tests at lines 95/137/160/199. Confirmed SQL writer."
+        }
       ],
-      "summary": {"confirmed_files": 10, "candidate_sites_in_files": 2}
+      "summary": {
+        "confirmed_files": 12,
+        "candidate_sites_in_files": 0
+      }
     },
-
     {
       "family_id": "F6_synthesis_translation_contradiction_lull_outbound_cached_clients",
       "description": "Brain synthesis, claim translation, contradiction watcher, lull interjection, taxonomy reevaluation/reclassification, model lifecycle, business-model merge, map coverage, recall outbound, attempt logging, model capabilities, cached Drizzle clients.",
       "owner_module": "apps/workers/src/trigger/brain-synthesis, claim-translation, contradiction-watcher, lull-interjection, taxonomy-*, packages/oracle-engines, packages/ai, packages/db/src/client.ts",
       "barrier_hook": "Source-independent global generation/drain checks across all schedules, started jobs, and outbound operations. Cached Drizzle clients must expose the barrier check; wrapping only the client still fails to cover direct SDK/SQL, Storage, another process, or an existing credential.",
       "sites": [
-        {"file": "apps/workers/src/trigger/brain-synthesis.ts", "lines": [419, 473, 489, 508, 530, 569, 607, 629, 638, 643, 661], "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, brainSectionVersions, brainSections, sectionClaims, gaps", "classification": "confirmed", "notes": "Derived knowledge synthesis."},
-        {"file": "apps/workers/src/trigger/claim-translation.ts", "lines": [208, 217], "op": "insert claimTranslationEvents, claimTranslations", "classification": "confirmed", "notes": "Translation persistence."},
-        {"file": "apps/workers/src/trigger/contradiction-watcher.ts", "lines": [202, 220, 236, 259, 279, 402, 600, 636, 649, 677, 692, 698, 870, 888, 904, 927, 947], "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, claims(embedding), contradictions, gaps, oracleInterventions, jobRuns", "classification": "confirmed", "notes": "Contradiction detection writes derived state."},
-        {"file": "apps/workers/src/trigger/lull-interjection.ts", "lines": [352, 488, 507, 523, 546, 566, 743, 777, 790, 834, 859, 888, 916, 923], "op": "insert/update gaps, oracleContextPacks, modelRuns, modelRunUsageDetails, oracleInterventions, jobRuns", "classification": "confirmed", "notes": "Lull interventions."},
-        {"file": "apps/workers/src/trigger/taxonomy-reevaluation.ts", "lines": [245, 366, 402, 440, 486, 553, 564], "op": "update claims(embedding), insert modelRuns, taxonomyProposals, jobRuns", "classification": "confirmed", "notes": "Taxonomy reevaluation embeddings and proposals."},
-        {"file": "apps/workers/src/trigger/taxonomy-reclassification.ts", "lines": [134, 155, 226, 278, 284, 288, 322, 327, 382, 388, 392, 493, 565, 576, 599, 643, 650, 668], "op": "insert/update/delete knowledgeSubTopics, claimSubTopics, knowledgeTopDomains, claimTopDomains, taxonomyChangeLog, jobRuns", "classification": "confirmed", "notes": "Reclassification mutations."},
-        {"file": "packages/oracle-engines/src/model/lifecycle.ts", "lines": [315, 334, 363, 385, 410], "op": "insert/update businessModelChanges, businessModelChangeEvents", "classification": "confirmed", "notes": "Business model lifecycle."},
-        {"file": "packages/oracle-engines/src/model/responsibility-merge.ts", "lines": [80], "op": "update (responsibility merge)", "classification": "confirmed", "notes": "Responsibility merge write."},
-        {"file": "packages/oracle-engines/src/macro/approved-relationships.ts", "lines": [153, 177, 209], "op": "update macroRelationships", "classification": "confirmed", "notes": "Approved relationship status updates."},
-        {"file": "apps/workers/src/lib/business-model-merge.ts", "lines": [441, 466, 480, 503, 572], "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, businessModelChanges", "classification": "confirmed", "notes": "Business model merge derived writes."},
-        {"file": "apps/workers/src/lib/map-coverage.ts", "lines": [112], "op": "update (coverage map)", "classification": "confirmed", "notes": "Coverage map update."},
-        {"file": "apps/workers/src/lib/map-coverage-gaps.ts", "lines": [49, 72], "op": "insert/update gaps", "classification": "confirmed", "notes": "Coverage gap writes."},
-        {"file": "apps/workers/src/lib/source-workflow-read.ts", "lines": [245, 258, 271, 284, 1238, 1244, 1265, 1346, 1384, 1400, 1421, 1543, 1579, 1596, 1617, 1965, 1992, 2007, 2028, 2176, 2205, 2220, 2241, 2641, 4040, 4062, 4109, 4124], "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, sourceWorkflowMaps, jobRuns", "classification": "confirmed", "notes": "Source workflow read path writes maps and model usage."},
-        {"file": "apps/workers/src/lib/responsibility-reader.ts", "lines": [], "op": "hash-only updates in lexical scan", "classification": "candidate", "notes": "Lines 963/2360/3002/3032/3059 are createHash().update — candidates, not DB writers. Adjudicate any real DB writes."},
-        {"file": "packages/ai/src/routes/attempt-logging.ts", "lines": [25, 50], "op": "insert modelRunAttempts", "classification": "confirmed", "notes": "Model run attempt logging."},
-        {"file": "packages/ai/src/model-capabilities/index.ts", "lines": [272], "op": "insert modelCapabilities", "classification": "confirmed", "notes": "Model capability upsert."},
-        {"file": "packages/db/src/client.ts", "lines": [36, 49], "op": "exports getDirectDb/getPooledDb cached Drizzle clients", "classification": "confirmed", "notes": "NOT a writer itself but the shared transport every SQL writer uses. No cutover generation, admission, or pause hook. Wrapping only this client is insufficient."},
-        {"file": "apps/workers/src/lib/recall.ts", "lines": [35, 56], "op": "external HTTP to Recall supplier", "classification": "confirmed", "notes": "Legacy Recall transport calls supplier; distinct from once-only worker. External effect needs fixed effect owner."},
-        {"file": "apps/web/lib/recall.ts", "lines": [49], "op": "HMAC verification only", "classification": "candidate", "notes": "Crypto only; not a writer."},
-        {"file": "packages/ai/src/providers/vertex-cache-cleanup.ts", "lines": [31, 81], "op": "GCS object delete, provider cache delete", "classification": "confirmed", "notes": "External Storage/provider deletes. Uncontrolled external writer."},
-        {"file": "packages/ai/src/providers/vertex-gemini-adapter.ts", "lines": [656, 658, 702, 750], "op": "provider cache delete, GCS object delete", "classification": "confirmed", "notes": "External provider/Storage deletes during cache lifecycle."}
+        {
+          "file": "apps/workers/src/trigger/brain-synthesis.ts",
+          "lines": [
+            419,
+            473,
+            489,
+            508,
+            530,
+            569,
+            607,
+            629,
+            638,
+            643,
+            661
+          ],
+          "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, brainSectionVersions, brainSections, sectionClaims, gaps",
+          "classification": "confirmed",
+          "notes": "Derived knowledge synthesis."
+        },
+        {
+          "file": "apps/workers/src/trigger/claim-translation.ts",
+          "lines": [
+            208,
+            217
+          ],
+          "op": "insert claimTranslationEvents, claimTranslations",
+          "classification": "confirmed",
+          "notes": "Translation persistence."
+        },
+        {
+          "file": "apps/workers/src/trigger/contradiction-watcher.ts",
+          "lines": [
+            202,
+            220,
+            236,
+            259,
+            279,
+            402,
+            600,
+            636,
+            649,
+            677,
+            692,
+            698,
+            870,
+            888,
+            904,
+            927,
+            947
+          ],
+          "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, claims(embedding), contradictions, gaps, oracleInterventions, jobRuns",
+          "classification": "confirmed",
+          "notes": "Contradiction detection writes derived state."
+        },
+        {
+          "file": "apps/workers/src/trigger/lull-interjection.ts",
+          "lines": [
+            352,
+            488,
+            507,
+            523,
+            546,
+            566,
+            743,
+            777,
+            790,
+            834,
+            859,
+            888,
+            916,
+            923
+          ],
+          "op": "insert/update gaps, oracleContextPacks, modelRuns, modelRunUsageDetails, oracleInterventions, jobRuns",
+          "classification": "confirmed",
+          "notes": "Lull interventions."
+        },
+        {
+          "file": "apps/workers/src/trigger/taxonomy-reevaluation.ts",
+          "lines": [
+            245,
+            366,
+            402,
+            440,
+            486,
+            553,
+            564
+          ],
+          "op": "update claims(embedding), insert modelRuns, taxonomyProposals, jobRuns",
+          "classification": "confirmed",
+          "notes": "Taxonomy reevaluation embeddings and proposals."
+        },
+        {
+          "file": "apps/workers/src/trigger/taxonomy-reclassification.ts",
+          "lines": [
+            134,
+            155,
+            226,
+            278,
+            284,
+            288,
+            322,
+            327,
+            382,
+            388,
+            392,
+            493,
+            565,
+            576,
+            599,
+            643,
+            650,
+            668
+          ],
+          "op": "insert/update/delete knowledgeSubTopics, claimSubTopics, knowledgeTopDomains, claimTopDomains, taxonomyChangeLog, jobRuns",
+          "classification": "confirmed",
+          "notes": "Reclassification mutations."
+        },
+        {
+          "file": "packages/oracle-engines/src/model/lifecycle.ts",
+          "lines": [
+            315,
+            334,
+            363,
+            385,
+            410
+          ],
+          "op": "insert/update businessModelChanges, businessModelChangeEvents",
+          "classification": "confirmed",
+          "notes": "Business model lifecycle."
+        },
+        {
+          "file": "packages/oracle-engines/src/model/responsibility-merge.ts",
+          "lines": [
+            80
+          ],
+          "op": "update (responsibility merge)",
+          "classification": "confirmed",
+          "notes": "Responsibility merge write."
+        },
+        {
+          "file": "packages/oracle-engines/src/macro/approved-relationships.ts",
+          "lines": [
+            153,
+            177,
+            209
+          ],
+          "op": "update macroRelationships",
+          "classification": "confirmed",
+          "notes": "Approved relationship status updates."
+        },
+        {
+          "file": "apps/workers/src/lib/business-model-merge.ts",
+          "lines": [
+            441,
+            466,
+            480,
+            503,
+            572
+          ],
+          "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, businessModelChanges",
+          "classification": "confirmed",
+          "notes": "Business model merge derived writes."
+        },
+        {
+          "file": "apps/workers/src/lib/map-coverage.ts",
+          "lines": [
+            112
+          ],
+          "op": "update (coverage map)",
+          "classification": "confirmed",
+          "notes": "Coverage map update."
+        },
+        {
+          "file": "apps/workers/src/lib/map-coverage-gaps.ts",
+          "lines": [
+            49,
+            72
+          ],
+          "op": "insert/update gaps",
+          "classification": "confirmed",
+          "notes": "Coverage gap writes."
+        },
+        {
+          "file": "apps/workers/src/lib/source-workflow-read.ts",
+          "lines": [
+            245,
+            258,
+            271,
+            284,
+            1238,
+            1244,
+            1265,
+            1346,
+            1384,
+            1400,
+            1421,
+            1543,
+            1579,
+            1596,
+            1617,
+            1965,
+            1992,
+            2007,
+            2028,
+            2176,
+            2205,
+            2220,
+            2241,
+            2641,
+            4040,
+            4062,
+            4109,
+            4124
+          ],
+          "op": "insert/update oracleContextPacks, modelRuns, modelRunUsageDetails, sourceWorkflowMaps, jobRuns",
+          "classification": "confirmed",
+          "notes": "Source workflow read path writes maps and model usage."
+        },
+        {
+          "file": "apps/workers/src/lib/responsibility-reader.ts",
+          "lines": [],
+          "op": "hash-only updates in lexical scan",
+          "classification": "candidate",
+          "notes": "Lines 963/2360/3002/3032/3059 are createHash().update — candidates, not DB writers. Adjudicate any real DB writes."
+        },
+        {
+          "file": "packages/ai/src/routes/attempt-logging.ts",
+          "lines": [
+            25,
+            50
+          ],
+          "op": "insert modelRunAttempts",
+          "classification": "confirmed",
+          "notes": "Model run attempt logging."
+        },
+        {
+          "file": "packages/ai/src/model-capabilities/index.ts",
+          "lines": [
+            272
+          ],
+          "op": "insert modelCapabilities",
+          "classification": "confirmed",
+          "notes": "Model capability upsert."
+        },
+        {
+          "file": "packages/db/src/client.ts",
+          "lines": [
+            36,
+            49
+          ],
+          "op": "exports getDirectDb/getPooledDb cached Drizzle clients",
+          "classification": "confirmed",
+          "notes": "NOT a writer itself but the shared transport every SQL writer uses. No cutover generation, admission, or pause hook. Wrapping only this client is insufficient."
+        },
+        {
+          "file": "apps/workers/src/lib/recall.ts",
+          "lines": [
+            35,
+            56
+          ],
+          "op": "external HTTP to Recall supplier",
+          "classification": "confirmed",
+          "notes": "Legacy Recall transport calls supplier; distinct from once-only worker. External effect needs fixed effect owner."
+        },
+        {
+          "file": "apps/web/lib/recall.ts",
+          "lines": [
+            49
+          ],
+          "op": "HMAC verification only",
+          "classification": "candidate",
+          "notes": "Crypto only; not a writer."
+        },
+        {
+          "file": "packages/ai/src/providers/vertex-cache-cleanup.ts",
+          "lines": [
+            31,
+            81
+          ],
+          "op": "GCS object delete, provider cache delete",
+          "classification": "confirmed",
+          "notes": "External Storage/provider deletes. Uncontrolled external writer."
+        },
+        {
+          "file": "packages/ai/src/providers/vertex-gemini-adapter.ts",
+          "lines": [
+            656,
+            658,
+            702,
+            750
+          ],
+          "op": "provider cache delete, GCS object delete",
+          "classification": "confirmed",
+          "notes": "External provider/Storage deletes during cache lifecycle."
+        }
       ],
-      "summary": {"confirmed_files": 18, "candidate_sites_in_files": 2}
+      "summary": {
+        "confirmed_files": 18,
+        "candidate_sites_in_files": 2
+      }
     },
-
     {
       "family_id": "F7_replacement_pilot_native_routes",
       "description": "Early replacement fixtures/pilot routes and native browser auth/boot. Separate retained entrypoints; never treat a fixture switch as the canonical replacement cut.",
       "owner_module": "apps/web/lib/replacement-store.ts, apps/web/app/api/consultant/*, apps/web/lib/native-*",
       "barrier_hook": "Inventory as separate retained entrypoints. replacement-store is in-process state/CAS only — not a durable cross-process writer owner. No new fallback activation authorized.",
       "sites": [
-        {"file": "apps/web/lib/replacement-store.ts", "lines": [416, 516], "op": "in-process state/CAS", "classification": "confirmed", "notes": "Explicitly in-process. Does not make a durable cross-process writer owner."},
-        {"file": "apps/web/lib/native-browser-auth.ts", "lines": [17, 54, 56, 58], "op": "in-memory session Map delete/prune", "classification": "candidate", "notes": "Map.delete is in-memory session state, not persistent DB."},
-        {"file": "apps/web/lib/replacement-auth.ts", "lines": [67, 118, 122, 129], "op": "in-memory session Map delete", "classification": "candidate", "notes": "Same in-memory pattern."},
-        {"file": "apps/web/lib/oracle2-pilot-auth.ts", "lines": [79, 105, 112], "op": "in-memory session Map delete", "classification": "candidate", "notes": "Same in-memory pattern."},
-        {"file": "apps/web/lib/replacement-fixture-auth.ts", "lines": [45, 58], "op": "HMAC sign/verify only", "classification": "candidate", "notes": "Crypto only."},
-        {"file": "apps/web/lib/native-acceptance.ts", "lines": [11, 88], "op": "hash/HMAC only", "classification": "candidate", "notes": "Crypto only."},
-        {"file": "apps/web/lib/native-browser-boot.ts", "lines": [20, 29], "op": "hash verification only", "classification": "candidate", "notes": "Read-only hash checks."},
-        {"file": "apps/web/lib/native-trigger.ts", "lines": [19], "op": "hash helper only", "classification": "candidate", "notes": "Hash helper."},
-        {"file": "apps/web/lib/native-trigger-v2.ts", "lines": [20], "op": "hash helper only", "classification": "candidate", "notes": "Hash helper."},
-        {"file": "apps/web/lib/public-source-offer.ts", "lines": [19, 23], "op": "hash verification only", "classification": "candidate", "notes": "Manifest integrity checks."},
-        {"file": "apps/web/lib/oracle2-client.ts", "lines": [89], "op": "in-memory authorityGrants Map delete", "classification": "candidate", "notes": "In-memory."},
-        {"file": "apps/web/lib/graph-notification-crypto.ts", "lines": [53, 70], "op": "encrypt/decrypt only", "classification": "candidate", "notes": "Crypto only."},
-        {"file": "apps/web/lib/oracle2-postgres.ts", "lines": [19, 20], "op": "URL searchParams delete", "classification": "candidate", "notes": "URL parsing only."}
+        {
+          "file": "apps/web/lib/replacement-store.ts",
+          "lines": [
+            416,
+            516
+          ],
+          "op": "in-process state/CAS",
+          "classification": "confirmed",
+          "notes": "Explicitly in-process. Does not make a durable cross-process writer owner."
+        },
+        {
+          "file": "apps/web/lib/native-browser-auth.ts",
+          "lines": [
+            17,
+            54,
+            56,
+            58
+          ],
+          "op": "in-memory session Map delete/prune",
+          "classification": "candidate",
+          "notes": "Map.delete is in-memory session state, not persistent DB."
+        },
+        {
+          "file": "apps/web/lib/replacement-auth.ts",
+          "lines": [
+            67,
+            118,
+            122,
+            129
+          ],
+          "op": "in-memory session Map delete",
+          "classification": "candidate",
+          "notes": "Same in-memory pattern."
+        },
+        {
+          "file": "apps/web/lib/oracle2-pilot-auth.ts",
+          "lines": [
+            79,
+            105,
+            112
+          ],
+          "op": "in-memory session Map delete",
+          "classification": "candidate",
+          "notes": "Same in-memory pattern."
+        },
+        {
+          "file": "apps/web/lib/replacement-fixture-auth.ts",
+          "lines": [
+            45,
+            58
+          ],
+          "op": "HMAC sign/verify only",
+          "classification": "candidate",
+          "notes": "Crypto only."
+        },
+        {
+          "file": "apps/web/lib/native-acceptance.ts",
+          "lines": [
+            11,
+            88
+          ],
+          "op": "hash/HMAC only",
+          "classification": "candidate",
+          "notes": "Crypto only."
+        },
+        {
+          "file": "apps/web/lib/native-browser-boot.ts",
+          "lines": [
+            20,
+            29
+          ],
+          "op": "hash verification only",
+          "classification": "candidate",
+          "notes": "Read-only hash checks."
+        },
+        {
+          "file": "apps/web/lib/native-trigger.ts",
+          "lines": [
+            19
+          ],
+          "op": "hash helper only",
+          "classification": "candidate",
+          "notes": "Hash helper."
+        },
+        {
+          "file": "apps/web/lib/native-trigger-v2.ts",
+          "lines": [
+            20
+          ],
+          "op": "hash helper only",
+          "classification": "candidate",
+          "notes": "Hash helper."
+        },
+        {
+          "file": "apps/web/lib/public-source-offer.ts",
+          "lines": [
+            19,
+            23
+          ],
+          "op": "hash verification only",
+          "classification": "candidate",
+          "notes": "Manifest integrity checks."
+        },
+        {
+          "file": "apps/web/lib/oracle2-client.ts",
+          "lines": [
+            89
+          ],
+          "op": "in-memory authorityGrants Map delete",
+          "classification": "candidate",
+          "notes": "In-memory."
+        },
+        {
+          "file": "apps/web/lib/graph-notification-crypto.ts",
+          "lines": [
+            53,
+            70
+          ],
+          "op": "encrypt/decrypt only",
+          "classification": "candidate",
+          "notes": "Crypto only."
+        },
+        {
+          "file": "apps/web/lib/oracle2-postgres.ts",
+          "lines": [
+            19,
+            20
+          ],
+          "op": "URL searchParams delete",
+          "classification": "candidate",
+          "notes": "URL parsing only."
+        }
       ],
-      "summary": {"confirmed_files": 1, "candidate_sites_in_files": 12}
+      "summary": {
+        "confirmed_files": 1,
+        "candidate_sites_in_files": 12
+      }
     },
-
     {
       "family_id": "F8_python_oracle_brain_legacy",
       "description": "Legacy Python oracle-brain holistic runtime, authz, bootstrap. Operational writers on oracle2 schema.",
       "owner_module": "services/oracle-brain/oracle_brain",
       "barrier_hook": "Same-tx barrier+generation check on every connection.execute mutation. These are separate processes from Node workers and must be independently fenced.",
       "sites": [
-        {"file": "services/oracle-brain/oracle_brain/holistic_runtime.py", "lines": [276, 287, 298, 320, 344, 352, 373], "op": "UPDATE oracle2.runs status/answer", "classification": "confirmed", "notes": "Legacy holistic runtime writes run status and answers."},
-        {"file": "services/oracle-brain/oracle_brain/authz.py", "lines": [30, 101], "op": "connection.execute writes", "classification": "confirmed", "notes": "Authorization metadata writes."},
-        {"file": "services/oracle-brain/oracle_brain/bootstrap_pilot_authority.py", "lines": [102, 108, 114], "op": "connection.execute writes", "classification": "confirmed", "notes": "Pilot authority bootstrap writes."}
+        {
+          "file": "services/oracle-brain/oracle_brain/holistic_runtime.py",
+          "lines": [
+            276,
+            287,
+            298,
+            320,
+            344,
+            352,
+            373
+          ],
+          "op": "UPDATE oracle2.runs status/answer",
+          "classification": "confirmed",
+          "notes": "Legacy holistic runtime writes run status and answers."
+        },
+        {
+          "file": "services/oracle-brain/oracle_brain/authz.py",
+          "lines": [
+            30,
+            101
+          ],
+          "op": "connection.execute writes",
+          "classification": "confirmed",
+          "notes": "Authorization metadata writes."
+        },
+        {
+          "file": "services/oracle-brain/oracle_brain/bootstrap_pilot_authority.py",
+          "lines": [
+            102,
+            108,
+            114
+          ],
+          "op": "connection.execute writes",
+          "classification": "confirmed",
+          "notes": "Pilot authority bootstrap writes."
+        }
       ],
-      "summary": {"confirmed_files": 3, "candidate_sites_in_files": 0}
+      "summary": {
+        "confirmed_files": 3,
+        "candidate_sites_in_files": 0
+      }
     },
-
     {
       "family_id": "F9_external_uncontrolled",
       "description": "Writers outside repository code: Supabase Auth, Supabase Storage service internals, provider APIs (Google/Vertex batch, caches), Recall supplier side-effects, Google Cloud Storage.",
       "owner_module": "external platforms",
       "barrier_hook": "Cannot be fenced by SQL barrier alone. Requires independent role/generation admission at the platform boundary or explicit incomplete-cut classification. Uncontrolled Auth/Storage/provider/unknown writer means incomplete.",
       "sites": [
-        {"file": "(external) Supabase Auth", "lines": [], "op": "user/session lifecycle", "classification": "external", "notes": "Auth user creation/deletion affects identity linkage. Not controlled by app SQL barrier."},
-        {"file": "(external) Supabase Storage service", "lines": [], "op": "object versioning/lifecycle", "classification": "external", "notes": "Service-side object state. App-level upload/remove is F2; service internals are external."},
-        {"file": "(external) Google Vertex / Gemini provider", "lines": [], "op": "batch jobs, explicit caches, GCS objects", "classification": "external", "notes": "Provider 200 is not visible delivery/stop proof. Already-sent request cannot be revoked by incrementing a database generation."},
-        {"file": "(external) Recall supplier", "lines": [], "op": "meeting capture side-effects", "classification": "external", "notes": "Outbound calls may have already produced remote effects before local commit."},
-        {"file": "(unknown) any other credential holder", "lines": [], "op": "direct SQL/SDK writes", "classification": "external", "notes": "Actual installed writer/schedule/directSQL/bypass-role census is a blocking requirement. Missing it means incomplete."}
+        {
+          "file": "(external) Supabase Auth",
+          "lines": [],
+          "op": "user/session lifecycle",
+          "classification": "external",
+          "notes": "Auth user creation/deletion affects identity linkage. Not controlled by app SQL barrier."
+        },
+        {
+          "file": "(external) Supabase Storage service",
+          "lines": [],
+          "op": "object versioning/lifecycle",
+          "classification": "external",
+          "notes": "Service-side object state. App-level upload/remove is F2; service internals are external."
+        },
+        {
+          "file": "(external) Google Vertex / Gemini provider",
+          "lines": [],
+          "op": "batch jobs, explicit caches, GCS objects",
+          "classification": "external",
+          "notes": "Provider 200 is not visible delivery/stop proof. Already-sent request cannot be revoked by incrementing a database generation."
+        },
+        {
+          "file": "(external) Recall supplier",
+          "lines": [],
+          "op": "meeting capture side-effects",
+          "classification": "external",
+          "notes": "Outbound calls may have already produced remote effects before local commit."
+        },
+        {
+          "file": "(unknown) any other credential holder",
+          "lines": [],
+          "op": "direct SQL/SDK writes",
+          "classification": "external",
+          "notes": "Actual installed writer/schedule/directSQL/bypass-role census is a blocking requirement. Missing it means incomplete."
+        }
       ],
-      "summary": {"confirmed_files": 0, "candidate_sites_in_files": 0, "external": 5}
+      "summary": {
+        "confirmed_files": 0,
+        "candidate_sites_in_files": 0,
+        "external": 5
+      }
     }
   ],
-
   "counts_by_family": {
-    "F1_chat_messages_modelusage_contextpacks_typing": {"confirmed_files": 6, "candidate_files_or_sites": 4},
-    "F2_storage_bytes_sql_metadata_orphans": {"confirmed_files": 3, "candidate_files_or_sites": 0},
-    "F3_imports_teams_discovery_transcripts": {"confirmed_files": 6, "candidate_files_or_sites": 2},
-    "F4_extraction_paid_batches_late_drain": {"confirmed_files": 8, "candidate_files_or_sites": 1},
-    "F5_admin_approvals_corrections_taxonomy_gaps_identity_membership_auth": {"confirmed_files": 10, "candidate_files_or_sites": 2},
-    "F6_synthesis_translation_contradiction_lull_outbound_cached_clients": {"confirmed_files": 18, "candidate_files_or_sites": 2},
-    "F7_replacement_pilot_native_routes": {"confirmed_files": 1, "candidate_files_or_sites": 12},
-    "F8_python_oracle_brain_legacy": {"confirmed_files": 3, "candidate_files_or_sites": 0},
-    "F9_external_uncontrolled": {"confirmed_files": 0, "candidate_files_or_sites": 5, "external": 5}
+    "F1_chat_messages_modelusage_contextpacks_typing": {
+      "confirmed_files": 6,
+      "candidate_files_or_sites": 4
+    },
+    "F2_storage_bytes_sql_metadata_orphans": {
+      "confirmed_files": 3,
+      "candidate_files_or_sites": 0
+    },
+    "F3_imports_teams_discovery_transcripts": {
+      "confirmed_files": 6,
+      "candidate_files_or_sites": 2
+    },
+    "F4_extraction_paid_batches_late_drain": {
+      "confirmed_files": 8,
+      "candidate_files_or_sites": 1
+    },
+    "F5_admin_approvals_corrections_taxonomy_gaps_identity_membership_auth": {
+      "confirmed_files": 10,
+      "candidate_files_or_sites": 2
+    },
+    "F6_synthesis_translation_contradiction_lull_outbound_cached_clients": {
+      "confirmed_files": 18,
+      "candidate_files_or_sites": 2
+    },
+    "F7_replacement_pilot_native_routes": {
+      "confirmed_files": 1,
+      "candidate_files_or_sites": 12
+    },
+    "F8_python_oracle_brain_legacy": {
+      "confirmed_files": 3,
+      "candidate_files_or_sites": 0
+    },
+    "F9_external_uncontrolled": {
+      "confirmed_files": 0,
+      "candidate_files_or_sites": 5,
+      "external": 5
+    }
   },
-
   "totals": {
-    "confirmed_writer_files": 55,
-    "candidate_files_or_sites": 28,
+    "confirmed_writer_files": 60,
+    "candidate_files_or_sites": 15,
     "external_uncontrolled_classes": 5,
-    "prior_audit_reference": "writer-cut-audit-v2.md identified 123 candidate files / 662 lexical sites (not 662 confirmed writers). This inventory separates confirmed persistent-state mutators from lexical candidates and external classes."
+    "prior_audit_reference": "writer-cut-audit-v2.md identified 123 candidate files / 662 lexical sites (not 662 confirmed writers). This inventory separates confirmed persistent-state mutators from lexical candidates and external classes.",
+    "adjudication": {
+      "date": "2026-10-26",
+      "confirmed_sites": 60,
+      "excluded_lexical": 15,
+      "external_classes": 5,
+      "unknown_sites": 0,
+      "census_digest": "7bdbfc00a0a82d259711f964adcd896e904454439d960c3e60b5cbcaae78e923",
+      "note": "Stage 0 adjudication complete. Four previously-candidate sites confirmed via source inspection (teams-subscription-manager external dispatch; teams-transcript-discovery-scan upsert meeting_transcripts; admin/transcripts dismiss update; extraction-ab claim_extraction_ab_tests). F9 external classes remain incompleteness declarations."
+    }
   },
-
   "explicit_boundaries": {
     "pause_is_finite_opaque": "Pause is finite opaque original arrival/body-hash custody only. Queueing is not source qualification, viewer permission, or an automatic right to replay.",
     "unknown_never_equals_drained": "UNKNOWN blocks a positive drained claim. Read-only receipt and financial/forensic observation may continue under independently current narrow authority without reopening dispatch.",

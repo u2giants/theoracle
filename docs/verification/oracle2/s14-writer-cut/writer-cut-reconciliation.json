@@ -1,0 +1,88 @@
+{
+  "adjudicated": true,
+  "artifact": "S14 writer-cut inventory reconciliation",
+  "blocking_reasons": [],
+  "boundaries": {
+    "business_acceptance_held": true,
+    "company_comparison_held": true,
+    "consistent_boundary_proven": null,
+    "live_cutover_held": true,
+    "no_pop_shared_db_claim": true
+  },
+  "by_family": {
+    "F1_chat_messages_modelusage_contextpacks_typing": {
+      "confirmed": 6,
+      "excluded": 0,
+      "external": 0,
+      "pending": 0,
+      "unknown": 0
+    },
+    "F2_storage_bytes_sql_metadata_orphans": {
+      "confirmed": 3,
+      "excluded": 0,
+      "external": 0,
+      "pending": 0,
+      "unknown": 0
+    },
+    "F3_imports_teams_discovery_transcripts": {
+      "confirmed": 8,
+      "excluded": 0,
+      "external": 0,
+      "pending": 0,
+      "unknown": 0
+    },
+    "F4_extraction_paid_batches_late_drain": {
+      "confirmed": 8,
+      "excluded": 1,
+      "external": 0,
+      "pending": 0,
+      "unknown": 0
+    },
+    "F5_admin_approvals_corrections_taxonomy_gaps_identity_membership_auth": {
+      "confirmed": 12,
+      "excluded": 0,
+      "external": 0,
+      "pending": 0,
+      "unknown": 0
+    },
+    "F6_synthesis_translation_contradiction_lull_outbound_cached_clients": {
+      "confirmed": 19,
+      "excluded": 2,
+      "external": 0,
+      "pending": 0,
+      "unknown": 0
+    },
+    "F7_replacement_pilot_native_routes": {
+      "confirmed": 1,
+      "excluded": 12,
+      "external": 0,
+      "pending": 0,
+      "unknown": 0
+    },
+    "F8_python_oracle_brain_legacy": {
+      "confirmed": 3,
+      "excluded": 0,
+      "external": 0,
+      "pending": 0,
+      "unknown": 0
+    },
+    "F9_external_uncontrolled": {
+      "confirmed": 0,
+      "excluded": 0,
+      "external": 5,
+      "pending": 0,
+      "unknown": 0
+    }
+  },
+  "census_digest": "7bdbfc00a0a82d259711f964adcd896e904454439d960c3e60b5cbcaae78e923",
+  "counts": {
+    "candidate_pending": 0,
+    "confirmed": 60,
+    "excluded": 15,
+    "external": 5,
+    "unknown": 0
+  },
+  "inventory": "C:\\tmp\\oracle-writercut-tool1988-20261026\\docs\\verification\\oracle2\\s14-writer-cut\\writer-cut-complete-inventory.json",
+  "total_sites": 80,
+  "unknown_sites": []
+}
