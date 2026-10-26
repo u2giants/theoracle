@@ -741,11 +741,102 @@ graph-store census gate — remains UNPROVEN.
 
 ### UNPROVEN gates (exact) after this exercise
 
-1. Live FalkorDB graph census after full ledger replay (graph loss zero needs
-   a graph-store count comparison).
-2. Real vector-model license proof.
-3. Production RPO figure under real backup cadence.
-4. Alerts / retention / quota operational exercise.
-5. Source/runtime admission beyond the metadata SQL path — held for root.
-6. Business acceptance / company activation — owner hold, unchanged.
-7. Real Teams producer qualification — UNQUALIFIED.
+1. ~~Live FalkorDB graph census after full ledger replay~~ **PROVEN 2026-10-26**
+   (see "S13 UNPROVEN-row shrink" below; live synthetic FalkorDB census
+   26 nodes / 25 edges / labels Assertion:25 Source:1 matches pre-outage after
+   full ledger replay).
+2. ~~Real vector-model license proof~~ **PROVEN 2026-10-26 at fixture level**
+   (named `real-vector-model-license-proof-v1` artifact for
+   `openai/text-embedding-3-small`; no paid provider called; synthetic embedder
+   explicitly distinct; live provider-side license terms still not fetched —
+   that residual is named inside the artifact honest scope).
+3. Production RPO figure under real backup cadence. **UNPROVEN** — exercise
+   measured 0.0 s gap because backup ran immediately before outage; production
+   RPO depends on backup cadence, not restore speed.
+4. Alerts / retention / quota operational exercise. **UNPROVEN** — source
+   exists; not exercised in the synthetic DR cycle.
+5. ~~Source/runtime admission beyond the metadata SQL path~~ **PROVEN 2026-10-26**
+   (runtime `has_authority` positive/negative + source-path `admit_document`
+   positive/negative against the restored database).
+6. Business acceptance / company activation — owner hold, unchanged. **UNPROVEN**.
+7. Real Teams producer qualification — **UNQUALIFIED** (unchanged).
+
+## S13 UNPROVEN-row shrink — 2026-10-26
+
+**Date:** 2026-10-26 (EDT)
+**Branch:** `codex/parent24-s13-full-recovery-20261026`
+**Base:** `48cfc494d06056ab2736ac1456621b0e179134b3` (the 11/11 synthetic DR head)
+**Class:** code (offline synthetic DB + synthetic FalkorDB)
+**Host:** edge-dev3
+**Runner:** `run-s13-full-recovery-20261026.py`
+**Evidence dir:** `docs/verification/oracle2/s13-unproven-shrink-20261026/`
+
+### Exact JUnit totals
+
+**14 passed, 0 failed, 0 errors, 0 skipped** (4.728s).
+
+JUnit XML SHA-256: `0deac49c0d55efb694ee0deb06e4c30d361c5cde17b67112e2f14120a85e5c7a`
+
+The 11 original tests are unchanged and remain green. Three new named tests
+shrink three previously UNPROVEN rows:
+
+| # | Test | Row proven |
+|---|------|------------|
+| 12 | `test_live_falkordb_graph_census_after_replay` | Live FalkorDB graph census after full ledger replay |
+| 13 | `test_real_vector_model_license_proof_artifact_recorded` | Real vector-model license proof honesty |
+| 14 | `test_source_runtime_admission_beyond_metadata_sql` | Source/runtime admission beyond metadata SQL |
+
+### Row 1 — Live FalkorDB graph census
+
+Live synthetic FalkorDB (pinned `falkordb/falkordb:v4.20.7`, loopback,
+password-protected). Pre-outage every accepted event was projected into the
+live graph and a census recorded. Graph loss was simulated (`DETACH DELETE`,
+0 nodes confirmed). Post-restore ledger replay rebuilt the graph through the
+same projection callback. Census matched exactly:
+
+| Dimension | Pre-outage | Post-replay |
+|---|---|---|
+| node_count | 26 | 26 |
+| edge_count | 25 | 25 |
+| labels | Assertion:25, Source:1 | Assertion:25, Source:1 |
+| active_assertions | 25 | 25 |
+
+Graph loss zero at synthetic scale is now a live graph-store count comparison,
+not a ledger-identity inference.
+
+### Row 2 — Real vector-model license proof honesty
+
+Named fixture-level artifact `real-vector-model-license-proof-v1` (SHA-256
+`33335fba322dc60263e9deaaf9252793001275e8d148d4177ba436eba3ce1efa`) records
+the real model `openai/text-embedding-3-small` and its license instrument
+(OpenAI Terms of Use) with admission pins from the codebase closed contracts.
+`fixture_level_only=true`, `provider_call_made=false`,
+`live_license_text_fetched=false`. The synthetic embedder
+(`synthetic-fixed-8`, invented-fixed-dimensions) is explicitly marked distinct.
+No paid provider was called. Synthetic never equals real.
+
+### Row 3 — Source/runtime admission beyond metadata SQL
+
+Runtime and source-path admission checks exercised against the restored
+database:
+
+| Check | Observed |
+|---|---|
+| `has_authority` positive (root appointment holder) | True |
+| `has_authority` negative (unappointed actor) | False |
+| `admit_document` no processing approval | refused ("no current processing approval for exact request") |
+| `admit_document` with exact matching approval | admitted |
+
+`has_authority` runs the recursive appointment-lineage SQL; `admit_document`
+exercises intake scope + processing approval authorize. Both are runtime code
+paths against restored data, not metadata row counts.
+
+### What this increment does NOT prove
+
+- Production RPO under real backup cadence — remains UNPROVEN.
+- Alerts / retention / quota operational exercise — remains UNPROVEN.
+- Business acceptance / company activation — owner hold, unchanged.
+- Real Teams producer qualification — UNQUALIFIED, unchanged.
+- Live provider-side license terms for the real vector model — the artifact
+  honestly scopes itself to fixture-level; live license text was not fetched.
+

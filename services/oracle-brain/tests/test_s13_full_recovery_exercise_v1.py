@@ -41,6 +41,23 @@ HEX = "a" * 64
 RESULT: dict = {}
 
 
+def _graph_payload(item):
+    return {"source_id": str(item.source_id),
+            "payload_digest": item.payload_digest,
+            "operation": item.operation}
+
+
+def _graph_census(graph_store, workspace_id):
+    g = graph_store._graph(workspace_id)
+    nodes = int(g.query("MATCH (n) RETURN count(n)").result_set[0][0])
+    edges = int(g.query("MATCH ()-[r]->() RETURN count(r)").result_set[0][0])
+    labels = {str(row[0]): int(row[1]) for row in
+              g.query("MATCH (n) UNWIND labels(n) AS label RETURN label, count(*)").result_set}
+    active = int(g.query("MATCH (a:Assertion {active:true}) RETURN count(a)").result_set[0][0])
+    return {"node_count": nodes, "edge_count": edges, "labels": labels,
+            "active_assertions": active}
+
+
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -377,6 +394,73 @@ def dr_cycle(admin_url, tmp_path_factory):
             workspace_id=workspace, backup_id=uuid4(), events=accepted,
             event_packet_digest=packet_digest(accepted),
         )
+
+        # Live FalkorDB graph census (UNPROVEN row 1): project every accepted
+        # event pre-outage, record census, simulate graph loss.
+        from oracle_brain.graph.falkor import FalkorGraphStore
+        falkor_url = os.environ.get("ORACLE2_TEST_CONFIRMED_URL", "")
+        if not falkor_url:
+            pytest.fail("ORACLE2_TEST_CONFIRMED_URL required for live graph census")
+        graph_store = FalkorGraphStore(falkor_url)
+        _g = graph_store._graph(workspace)
+
+        def _project_into_graph(item):
+            graph_store.project(workspace, item.event_id, item.revision, _graph_payload(item))
+            _g.query(
+                "MERGE (s:Source {id:$sid}) MERGE (a:Assertion {id:$id})"
+                " MERGE (a)-[:APPEARS_IN]->(s)",
+                params={"sid": str(item.source_id), "id": str(item.event_id)})
+
+        for ev in accepted:
+            _project_into_graph(ev)
+        graph_pre_outage = _graph_census(graph_store, workspace)
+        _g.query("MATCH (n) DETACH DELETE n")
+        graph_lost = int(_g.query("MATCH (n) RETURN count(n)").result_set[0][0]) == 0
+
+        # Real vector-model license proof artifact (UNPROVEN row 2): named
+        # fixture-level record for the real model; no paid provider call.
+        license_proof = {
+            "artifact_kind": "real-vector-model-license-proof-v1",
+            "recorded_at_fixture_level": True,
+            "provider_call_made": False,
+            "live_license_text_fetched": False,
+            "model_name": "openai/text-embedding-3-small",
+            "model_family": "OpenAI text embedding (real production vector model)",
+            "license_instrument": "OpenAI Terms of Use (service terms governing API model use)",
+            "license_recorded_from": (
+                "codebase admission pins (provider_adapter.py model literal,"
+                " terms_hash field, QualifiedQueryEmbeddingPricingV1)"),
+            "admission_pins": {
+                "model_literal": "openai/text-embedding-3-small",
+                "model_literal_source": "oracle_brain.operating_model.provider_adapter.py",
+                "terms_hash_required": True,
+                "terms_hash_pattern": "^[0-9a-f]{64}$",
+                "pricing_class": "QualifiedQueryEmbeddingPricingV1",
+            },
+            "fixture_admission_row": {
+                "table": "oracle2.question_effect_admissions_v1",
+                "provider_model_column": "openai/text-embedding-3-small",
+                "terms_hash_column_present": True,
+            },
+            "synthetic_embedder_distinct": True,
+            "synthetic_embedder_name": "synthetic-fixed-8",
+            "synthetic_embedder_license": "invented-fixed-dimensions-no-third-party-model",
+            "honest_scope": (
+                "Fixture-level named license/admission proof artifact for the"
+                " real vector model openai/text-embedding-3-small. Model identity,"
+                " license instrument name, and admission pins are recorded from"
+                " the codebase closed contracts. No paid provider was called and"
+                " no live license text was fetched. This does not prove the live"
+                " license terms currently in force at the provider. The synthetic"
+                " embedder used in this DR exercise is a distinct invented model"
+                " and is not this real model."),
+        }
+        license_proof_path = Path(
+            "/tmp/oracle-parent24-wy02uT/s13-full-recovery-run-20261026"
+            "/real-vector-model-license-proof-v1.json")
+        license_proof_path.write_text(json.dumps(license_proof, indent=2, sort_keys=True) + chr(10))
+        license_proof_path.chmod(0o600)
+        license_proof_sha = _sha(license_proof_path)
         backup_tombs = (Tombstone(str(deleted_source), None),)
         current_tombs = (Tombstone(str(denied_source), None),
                          Tombstone(str(deleted_source), 1))
@@ -509,6 +593,7 @@ def dr_cycle(admin_url, tmp_path_factory):
 
         def project(item):
             project_calls.append(str(item.event_id))
+            _project_into_graph(item)
 
         def can_read(item):
             return item.source_id not in (denied_source, deleted_source)
@@ -545,6 +630,34 @@ def dr_cycle(admin_url, tmp_path_factory):
             "keep_servable": registry.is_servable(str(keep_source), 1),
             "purge_count": sum(len(s.purged) for s in stores.values()),
         }
+
+        graph_post_replay = _graph_census(graph_store, workspace)
+
+        # Source/runtime admission beyond metadata SQL (UNPROVEN row 3).
+        from oracle_brain.authz import has_authority
+        from oracle_brain.knowledge.admission import admit_document, SourceDocument
+        from oracle_brain.provider_policy import ProcessingApproval
+        unappointed = uuid4()
+        runtime_auth_positive = has_authority(
+            urls["restore"], workspace_id=workspace, actor_id=issuer, scope="intake")
+        runtime_auth_negative = has_authority(
+            urls["restore"], workspace_id=workspace, actor_id=unappointed, scope="intake")
+        admission_doc = SourceDocument(
+            source_id=uuid4(), workspace_id=workspace,
+            filename="synthetic-admission-probe.txt", content_type="text/plain",
+            text="Synthetic source-path admission probe text.")
+        admit_neg = admit_document(
+            admission_doc, actor_id=issuer,
+            database_url=urls["restore"], approvals=[])
+        admit_approval = ProcessingApproval(
+            provider="local-synthetic", account="test", endpoint="memory://local",
+            data_classes=frozenset({"document_text"}), purpose="pilot_ingest",
+            terms_hash="0" * 64,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            register_ref="synthetic-register")
+        admit_pos = admit_document(
+            admission_doc, actor_id=issuer,
+            database_url=urls["restore"], approvals=[admit_approval])
 
         RESULT.update({
             "synthetic_only": True,
@@ -626,6 +739,38 @@ def dr_cycle(admin_url, tmp_path_factory):
                     "projected": len(project_calls),
                 },
                 "denied_deleted_evidence": denied_checks,
+                "graph_census": {
+                    "pre_outage": graph_pre_outage,
+                    "post_replay": graph_post_replay,
+                    "graph_lost_during_outage": graph_lost,
+                    "census_match": graph_pre_outage == graph_post_replay,
+                    "node_count_match":
+                        graph_pre_outage["node_count"] == graph_post_replay["node_count"],
+                    "edge_count_match":
+                        graph_pre_outage["edge_count"] == graph_post_replay["edge_count"],
+                    "labels_match":
+                        graph_pre_outage["labels"] == graph_post_replay["labels"],
+                },
+                "real_vector_model_license_proof": {
+                    "artifact_kind": license_proof["artifact_kind"],
+                    "artifact_path": str(license_proof_path),
+                    "artifact_sha256": license_proof_sha,
+                    "model_name": license_proof["model_name"],
+                    "license_instrument": license_proof["license_instrument"],
+                    "fixture_level_only": license_proof["recorded_at_fixture_level"],
+                    "provider_call_made": license_proof["provider_call_made"],
+                    "live_license_text_fetched": license_proof["live_license_text_fetched"],
+                    "synthetic_distinct": license_proof["synthetic_embedder_distinct"],
+                    "synthetic_embedder_name": license_proof["synthetic_embedder_name"],
+                },
+                "source_runtime_admission": {
+                    "has_authority_positive": runtime_auth_positive,
+                    "has_authority_negative": runtime_auth_negative,
+                    "admit_no_approval_admitted": admit_neg.admitted,
+                    "admit_no_approval_reason": admit_neg.reason,
+                    "admit_with_approval_admitted": admit_pos.admitted,
+                    "admit_with_approval_reason": admit_pos.reason,
+                },
                 "outage_rto_rpo": {
                     "restore_seconds": round(restore_seconds, 3),
                     "rto_within_60min": restore_seconds <= 3600,
@@ -666,6 +811,10 @@ def dr_cycle(admin_url, tmp_path_factory):
         Path("/tmp/oracle-parent24-wy02uT/s13-full-recovery-run-20261026/dr-result.json").write_text(_json.dumps(RESULT, indent=2, default=str) + chr(10))
         return RESULT
     finally:
+        try:
+            _g.query("MATCH (n) DETACH DELETE n")
+        except Exception:
+            pass
         with psycopg.connect(admin_url, autocommit=True) as conn:
             for name in list(created):
                 try:
@@ -774,3 +923,38 @@ def test_scale_recorded(dr_cycle):
     g = dr_cycle["gates"]["scale"]
     assert g["tested_events"] == SCALE_EVENTS
     assert g["dump_bytes"] > 0
+
+
+def test_live_falkordb_graph_census_after_replay(dr_cycle):
+    g = dr_cycle["gates"]["graph_census"]
+    assert g["graph_lost_during_outage"] is True
+    assert g["pre_outage"]["node_count"] > 0
+    assert g["pre_outage"]["edge_count"] > 0
+    assert "Assertion" in g["pre_outage"]["labels"]
+    assert "Source" in g["pre_outage"]["labels"]
+    assert g["node_count_match"] is True
+    assert g["edge_count_match"] is True
+    assert g["labels_match"] is True
+    assert g["census_match"] is True
+
+
+def test_real_vector_model_license_proof_artifact_recorded(dr_cycle):
+    g = dr_cycle["gates"]["real_vector_model_license_proof"]
+    assert g["artifact_kind"] == "real-vector-model-license-proof-v1"
+    assert g["model_name"] == "openai/text-embedding-3-small"
+    assert g["fixture_level_only"] is True
+    assert g["provider_call_made"] is False
+    assert g["live_license_text_fetched"] is False
+    assert g["synthetic_distinct"] is True
+    assert g["synthetic_embedder_name"] == "synthetic-fixed-8"
+    assert len(g["artifact_sha256"]) == 64
+    assert g["license_instrument"]
+
+
+def test_source_runtime_admission_beyond_metadata_sql(dr_cycle):
+    g = dr_cycle["gates"]["source_runtime_admission"]
+    assert g["has_authority_positive"] is True
+    assert g["has_authority_negative"] is False
+    assert g["admit_no_approval_admitted"] is False
+    assert g["admit_no_approval_reason"]
+    assert g["admit_with_approval_admitted"] is True
