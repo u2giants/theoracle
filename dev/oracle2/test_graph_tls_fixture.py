@@ -35,10 +35,20 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
     def _sem_release():
         nonlocal _sem_released
         limit.release()
-        with _sem_lock:_sem_released+=1
-        _diag('sem release #%d (live=%d)'%(_sem_released,_sem_acquired-_sem_released))
+        with _sem_lock:
+            _sem_released+=1
+            live=_sem_acquired-_sem_released
+            if live==0:
+                _diag('PROOF sem_acquired=%d sem_released=%d live=0'%(_sem_acquired,_sem_released))
+            else:
+                _diag('sem release #%d (live=%d)'%(_sem_released,live))
     def serve(raw):
-        remote=None;client=raw;conn_id=threading.get_ident()
+        remote=None;client=raw;conn_id=threading.get_ident();released=False
+        def _safe_release():
+            nonlocal released
+            if not released:
+                released=True
+                _sem_release()
         try:
             raw.settimeout(1)
             hs_start=time.monotonic()
@@ -47,28 +57,31 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             uris=[v for k,v in client.getpeercert().get('subjectAltName',()) if k=='URI']
             if uris!=[expected_client_uri]:raise PermissionError('actual graph tunnel client URI differs')
             remote=track(socket.create_connection(('127.0.0.1',target.port),timeout=1))
-            client.settimeout(.05);remote.settimeout(.05)
+            client.settimeout(.5);remote.settimeout(.5)
             _diag('serve[%d] pump start'%conn_id)
-            poller=select.poll()
-            poller.register(client.fileno(),select.POLLIN|select.POLLPRI|select.POLLERR|select.POLLHUP)
-            poller.register(remote.fileno(),select.POLLIN|select.POLLPRI|select.POLLERR|select.POLLHUP)
             while not stop.is_set():
-                events=poller.poll(50)
-                for fd,revents in events:
-                    if revents&(select.POLLHUP|select.POLLERR):
-                        _diag('serve[%d] poll hangup/err fd=%d'%(conn_id,fd));return
-                    if not (revents&select.POLLIN):continue
-                    sock=client if fd==client.fileno() else remote
-                    dest=remote if sock is client else client
-                    try:data=sock.recv(65536)
-                    except (socket.timeout,ssl.SSLWantReadError,BlockingIOError):continue
+                # Recv-driven loop: recv() on the SSLSocket surfaces EOF (b'')
+                # through OpenSSL, unlike select/poll which miss FIN in the buffer.
+                try:data=client.recv(65536)
+                except socket.timeout:
+                    try:rdata=remote.recv(65536)
+                    except socket.timeout:continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
-                        _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
-                    if not data:_diag('serve[%d] peer closed'%conn_id);return
-                    try:dest.sendall(data)
+                        _diag('serve[%d] remote dead=%s'%(conn_id,type(exc).__name__));return
+                    if not rdata:_diag('serve[%d] remote closed'%conn_id);return
+                    try:client.sendall(rdata)
                     except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
                     except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
                         _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
+                    continue
+                except (ssl.SSLWantReadError,BlockingIOError):continue
+                except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
+                    _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
+                if not data:_diag('serve[%d] peer closed'%conn_id);return
+                try:remote.sendall(data)
+                except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
+                except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
+                    _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
         except (OSError,ValueError,PermissionError) as exc:
             _diag('serve[%d] exc=%s:%s'%(conn_id,type(exc).__name__,exc))
         finally:
@@ -77,7 +90,7 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                     with lock:active.discard(sock)
                     try:sock.close()
                     except OSError:pass
-            _sem_release()
+            _safe_release()
             _diag('serve[%d] done active=%d'%(conn_id,len(active)))
     def accept():
         while not stop.is_set():
