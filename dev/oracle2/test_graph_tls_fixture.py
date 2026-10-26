@@ -24,6 +24,19 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
     def track(sock):
         with lock:active.add(sock)
         return sock
+    _sem_acquired=0;_sem_released=0;_sem_lock=threading.Lock()
+    def _sem_acquire():
+        nonlocal _sem_acquired
+        ok=limit.acquire(blocking=False)
+        if ok:
+            with _sem_lock:_sem_acquired+=1
+            _diag('sem acquire #%d'%_sem_acquired)
+        return ok
+    def _sem_release():
+        nonlocal _sem_released
+        limit.release()
+        with _sem_lock:_sem_released+=1
+        _diag('sem release #%d'%_sem_released)
     def serve(raw):
         remote=None;client=raw;conn_id=threading.get_ident()
         try:
@@ -42,8 +55,14 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                 for source in ready:
                     try:data=source.recv(65536)
                     except (socket.timeout,ssl.SSLWantReadError):continue
+                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
+                        _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
                     if not data:_diag('serve[%d] peer closed'%conn_id);return
-                    (remote if source is client else client).sendall(data)
+                    dest=remote if source is client else client
+                    try:dest.sendall(data)
+                    except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
+                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
+                        _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
         except (OSError,ValueError,PermissionError) as exc:
             _diag('serve[%d] exc=%s:%s'%(conn_id,type(exc).__name__,exc))
         finally:
@@ -52,7 +71,7 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                     with lock:active.discard(sock)
                     try:sock.close()
                     except OSError:pass
-            limit.release()
+            _sem_release()
             _diag('serve[%d] done active=%d'%(conn_id,len(active)))
     def accept():
         while not stop.is_set():
@@ -62,7 +81,7 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                 _diag('accept OSError=%s:%s stop=%s'%(type(exc).__name__,exc,stop.is_set()))
                 if stop.is_set():return
                 continue
-            if not limit.acquire(blocking=False):
+            if not _sem_acquire():
                 _diag('accept semaphore full, rejecting');raw.close();continue
             _diag('accept ok port=%s'%listener.getsockname()[1])
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
