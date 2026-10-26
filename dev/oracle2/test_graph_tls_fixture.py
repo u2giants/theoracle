@@ -93,11 +93,11 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
             workers.append(worker);worker.start()
     thread=threading.Thread(target=accept,daemon=False);thread.start()
-    _diag('fixture started port=%d'%listener.getsockname()[1])
+    _diag('fixture started port=%d accept_thread_alive=%s'%(listener.getsockname()[1],thread.is_alive()))
     try:yield listener.getsockname()[1]
     finally:
         stop.set();listener.close()
-        _diag('fixture stopping sem_acquired=%d sem_released=%d live=%d'%(_sem_acquired,_sem_released,_sem_acquired-_sem_released))
+        _diag('fixture stopping accept_thread_alive=%s sem_acquired=%d sem_released=%d live=%d'%(thread.is_alive(),_sem_acquired,_sem_released,_sem_acquired-_sem_released))
         with lock:sockets=list(active)
         for sock in sockets:
             try:sock.shutdown(socket.SHUT_RDWR)
