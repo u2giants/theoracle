@@ -7,6 +7,12 @@ from contextlib import contextmanager
 import select,socket,ssl,threading,time
 from dev.oracle2.test_readonly_graph_fixture import owned_target
 
+_DIAG='/tmp/fixture-diag.log'
+def _diag(msg):
+    try:
+        with open(_DIAG,'a') as f:f.write('[%.3f] %s\n'%(time.monotonic(),msg))
+    except Exception:pass
+
 @contextmanager
 def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
     _,target=owned_target(container,admin_url)
@@ -19,23 +25,27 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
         with lock:active.add(sock)
         return sock
     def serve(raw):
-        remote=None;client=raw
+        remote=None;client=raw;conn_id=threading.get_ident()
         try:
             raw.settimeout(1)
+            hs_start=time.monotonic()
             client=track(server_context.wrap_socket(raw,server_side=True))
+            _diag('serve[%d] handshake ok in %.3fs'%(conn_id,time.monotonic()-hs_start))
             uris=[v for k,v in client.getpeercert().get('subjectAltName',()) if k=='URI']
             if uris!=[expected_client_uri]:raise PermissionError('actual graph tunnel client URI differs')
             remote=track(socket.create_connection(('127.0.0.1',target.port),timeout=1))
             client.settimeout(.2);remote.settimeout(.2)
+            _diag('serve[%d] pump start'%conn_id)
             while not stop.is_set():
                 ready,_,_=select.select([client,remote],[],[],.1)
                 if client.pending() and client not in ready:ready.append(client)
                 for source in ready:
                     try:data=source.recv(65536)
                     except (socket.timeout,ssl.SSLWantReadError):continue
-                    if not data:return
+                    if not data:_diag('serve[%d] peer closed'%conn_id);return
                     (remote if source is client else client).sendall(data)
-        except (OSError,ValueError,PermissionError):pass
+        except (OSError,ValueError,PermissionError) as exc:
+            _diag('serve[%d] exc=%s:%s'%(conn_id,type(exc).__name__,exc))
         finally:
             for sock in (client,remote,raw):
                 if sock is not None:
@@ -43,20 +53,26 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                     try:sock.close()
                     except OSError:pass
             limit.release()
+            _diag('serve[%d] done active=%d'%(conn_id,len(active)))
     def accept():
         while not stop.is_set():
             try:raw,_=listener.accept()
             except socket.timeout:continue
-            except OSError:
+            except OSError as exc:
+                _diag('accept OSError=%s:%s stop=%s'%(type(exc).__name__,exc,stop.is_set()))
                 if stop.is_set():return
                 continue
-            if not limit.acquire(blocking=False):raw.close();continue
+            if not limit.acquire(blocking=False):
+                _diag('accept semaphore full, rejecting');raw.close();continue
+            _diag('accept ok port=%s'%listener.getsockname()[1])
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
             workers.append(worker);worker.start()
     thread=threading.Thread(target=accept,daemon=False);thread.start()
+    _diag('fixture started port=%d'%listener.getsockname()[1])
     try:yield listener.getsockname()[1]
     finally:
         stop.set();listener.close()
+        _diag('fixture stopping')
         with lock:sockets=list(active)
         for sock in sockets:
             try:sock.shutdown(socket.SHUT_RDWR)

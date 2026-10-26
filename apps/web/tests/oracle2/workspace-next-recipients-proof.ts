@@ -85,7 +85,7 @@ try{
  const negative=await a.evaluate(async({endpoint,body})=>{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body});return response.status;},{endpoint,body:query({principal_id:recipients[1]!.principal_id})});assert.equal(negative,503);
  const foreignProcess=await a.evaluate(async({endpoint,body})=>{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body});return response.status;},{endpoint,body:query({operation:'process',process_id:'not-in-this-model'})});assert.equal(foreignProcess,503);
  await marker('disable-a');await action(a,'Read current knowledge',0,503);
- {const net=await import('node:net');await new Promise<void>((resolve,reject)=>{const probe=net.createConnection({host:'127.0.0.1',port:meta.tunnel_port});probe.on('connect',()=>{probe.destroy();resolve();});probe.on('error',reject);probe.setTimeout(3000,()=>{probe.destroy();reject(new Error('tunnel liveness probe timeout'));});});}
+ {const net=await import('node:net');const t0=Date.now();await new Promise<void>((resolve,reject)=>{const probe=net.createConnection({host:'127.0.0.1',port:meta.tunnel_port},()=>{console.error('TUNNEL-PROBE TCP ok in '+(Date.now()-t0)+'ms');probe.destroy();resolve();});probe.on('error',(e)=>{console.error('TUNNEL-PROBE TCP fail in '+(Date.now()-t0)+'ms: '+e.message);reject(e);});probe.setTimeout(3000,()=>{probe.destroy();reject(new Error('tunnel TCP probe timeout'));});});}
  await action(b,'Read current knowledge',1);
  // Only this invented disabled_at negative is restored; every original ID,
  // token/profile/admission/expiry remains unchanged. No authority is renewed.
