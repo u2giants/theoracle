@@ -178,75 +178,84 @@ def count_path(batch: bool):
     )
 
 
-out = {}
-for label, batch in [
-    ("sequential_install_plus_repin", False),
-    ("one_admin_batch", True),
-]:
-    walls = []
-    counts = None
-    for _ in range(20):
-        t0 = time.perf_counter()
-        counts = count_path(batch)
-        walls.append(time.perf_counter() - t0)
-    walls.sort()
-    out[label] = dict(
-        counts=counts,
-        wall_n=20,
-        wall_median_s=round(walls[10], 6),
-        wall_min_s=round(walls[0], 6),
-        wall_max_s=round(walls[-1], 6),
-    )
+def main():
+ out = {}
+ for label, batch in [
+     ("sequential_install_plus_repin", False),
+     ("one_admin_batch", True),
+ ]:
+     walls = []
+     counts = None
+     for _ in range(20):
+         t0 = time.perf_counter()
+         counts = count_path(batch)
+         walls.append(time.perf_counter() - t0)
+     walls.sort()
+     out[label] = dict(
+         counts=counts,
+         wall_n=20,
+         wall_median_s=round(walls[10], 6),
+         wall_min_s=round(walls[0], 6),
+         wall_max_s=round(walls[-1], 6),
+     )
 
-seq = out["sequential_install_plus_repin"]["counts"]
-bat = out["one_admin_batch"]["counts"]
-assert seq["admin_contexts"] == 5 and bat["admin_contexts"] == 1
-assert seq["pins_calls"] == 5 and bat["pins_calls"] == 1
-assert seq["admissions"] == 4 and bat["admissions"] == 4
-assert seq["authorities_constructed"] == 4 and bat["authorities_constructed"] == 4
-out["delta"] = dict(
-    admin_contexts=seq["admin_contexts"] - bat["admin_contexts"],
-    pins_calls=seq["pins_calls"] - bat["pins_calls"],
-    wall_median_s=round(
-        out["sequential_install_plus_repin"]["wall_median_s"]
-        - out["one_admin_batch"]["wall_median_s"],
-        6,
-    ),
-)
-out["label"] = (
-    "TEST SETUP measurement only — UNPROVED for business/realized savings; "
-    "recording harness wall time is not production install cost"
-)
-out["static_reduction"] = (
-    "admin contexts 5->1; pins 5->1; admissions 4->4 unchanged; "
-    "authorities 4->4 unchanged"
-)
+ seq = out["sequential_install_plus_repin"]["counts"]
+ bat = out["one_admin_batch"]["counts"]
+  if seq["admin_contexts"] != 5 or bat["admin_contexts"] != 1:
+  raise SystemExit(f'STOP: admin_contexts expected 5/1 got {seq["admin_contexts"]}/{bat["admin_contexts"]}')
+  if seq["pins_calls"] != 5 or bat["pins_calls"] != 1:
+  raise SystemExit(f'STOP: pins_calls expected 5/1 got {seq["pins_calls"]}/{bat["pins_calls"]}')
+  if seq["admissions"] != 4 or bat["admissions"] != 4:
+  raise SystemExit(f'STOP: admissions expected 4/4 got {seq["admissions"]}/{bat["admissions"]}')
+  if seq["authorities_constructed"] != 4 or bat["authorities_constructed"] != 4:
+  raise SystemExit(f'STOP: authorities_constructed expected 4/4 got {seq["authorities_constructed"]}/{bat["authorities_constructed"]}')
+ out["delta"] = dict(
+     admin_contexts=seq["admin_contexts"] - bat["admin_contexts"],
+     pins_calls=seq["pins_calls"] - bat["pins_calls"],
+     wall_median_s=round(
+         out["sequential_install_plus_repin"]["wall_median_s"]
+         - out["one_admin_batch"]["wall_median_s"],
+         6,
+     ),
+ )
+ out["label"] = (
+     "TEST SETUP measurement only — UNPROVED for business/realized savings; "
+     "recording harness wall time is not production install cost"
+ )
+ out["static_reduction"] = (
+     "admin contexts 5->1; pins 5->1; admissions 4->4 unchanged; "
+     "authorities 4->4 unchanged"
+ )
 
-# L2: default output is the in-repo sealed JSON; --output overrides.
-parser = argparse.ArgumentParser(description="S11 setup-batch measurement (TEST SETUP only)")
-parser.add_argument(
-    "--output",
-    type=Path,
-    default=root / "docs/verification/oracle2/s11-setup-batch-measurement-01.json",
-    help="output JSON path (default: in-repo sealed JSON)",
-)
-args = parser.parse_args()
+ # L2: default output is the in-repo sealed JSON; --output overrides.
+ parser = argparse.ArgumentParser(description="S11 setup-batch measurement (TEST SETUP only)")
+ parser.add_argument(
+     "--output",
+     type=Path,
+     default=root / "docs/verification/oracle2/s11-setup-batch-measurement-01.json",
+     help="output JSON path (default: in-repo sealed JSON)",
+ )
+ args = parser.parse_args()
 
-# L2: clean up the scratch CA file created by make_stage
-ca_scratch = Path("/tmp/oracle-parent24-wy02uT/measure-ca.pem")
-try:
-    ca_scratch.unlink(missing_ok=True)
-except OSError:
-    pass
+ # L2: clean up the scratch CA file created by make_stage
+ ca_scratch = Path("/tmp/oracle-parent24-wy02uT/measure-ca.pem")
+ try:
+     ca_scratch.unlink(missing_ok=True)
+ except OSError:
+     pass
 
-output_json = json.dumps(out, indent=2) + "\n"
-args.output.parent.mkdir(parents=True, exist_ok=True)
-args.output.write_text(output_json)
+ output_json = json.dumps(out, indent=2) + "\n"
+ args.output.parent.mkdir(parents=True, exist_ok=True)
+ args.output.write_text(output_json)
 
-# L2: bind script output hash (sha256 of the written file) as a sidecar
-output_hash = hashlib.sha256(output_json.encode("utf-8")).hexdigest()
-hash_sidecar = args.output.with_suffix(args.output.suffix + ".sha256")
-hash_sidecar.write_text(output_hash + "\n")
+ # L2: bind script output hash (sha256 of the written file) as a sidecar
+ output_hash = hashlib.sha256(output_json.encode("utf-8")).hexdigest()
+ hash_sidecar = args.output.with_suffix(args.output.suffix + ".sha256")
+ hash_sidecar.write_text(output_hash + "\n")
 
-print(json.dumps(out, indent=2))
-print(f"output_sha256={output_hash}", file=sys.stderr)
+ print(json.dumps(out, indent=2))
+ print(f"output_sha256={output_hash}", file=sys.stderr)
+
+
+if __name__ == '__main__':
+ main()

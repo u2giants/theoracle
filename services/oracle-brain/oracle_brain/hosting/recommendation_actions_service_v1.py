@@ -43,7 +43,8 @@ class _RecommendationWebEnvelopeV1:
             if not 0<len(encoded)<=MAX_RESPONSE:raise PermissionError('bounded advice web reply required')
             return encoded
         except Exception as error:
-            if possible_write and not isinstance(error,RecommendationOutcomeUnknown):
+            from ..operating_model.consultant.recommendation_authority_v1 import RecommendationActionRefused
+            if possible_write and not isinstance(error,(RecommendationOutcomeUnknown,RecommendationActionRefused)):
                 raise RecommendationOutcomeUnknown('possible action write; exact receipt reconciliation only, never resend') from error
             raise
 

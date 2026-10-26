@@ -36,7 +36,7 @@ try{
  const factoryCount=()=>{const file=join(meta.scratch,'factory-count');return existsSync(file)?Number(readFileSync(file,'utf8')):0;};
  const beforeApi=auth.state.requests;
  const api=await post({schema_version:1,operation:'list',caller_deadline:deadline()});statuses.api=api.status;const afterApi=auth.state.requests;
- if(api.status===503){assert.equal(api.body,'{"error":"Replacement control unavailable"}');outcome='actual-framework-refused';}
+ if(api.status===503){assert.equal(api.body,'{"error":"Replacement control unavailable"}');outcome='actual-framework-refused';console.error('FATAL: API returned 503 - backend unavailable; positive-path assertions skipped');process.exitCode=2;}
  else{
   assert.equal(api.status,200,api.body);outcome='actual-framework-positive';progress('actual-list-positive');const index=JSON.parse(api.body);assert.equal(index.list_complete,true);assert.equal(index.entries.length,1);const selected=index.entries[0].selector;
   const reload=page.getByRole('button',{name:'Reload current recommendations',exact:true});await reload.click();await page.getByRole('button',{name:index.entries[0].label,exact:true}).click();await page.getByRole('heading',{name:'Alternatives, including no change',exact:true}).waitFor({timeout:15000});

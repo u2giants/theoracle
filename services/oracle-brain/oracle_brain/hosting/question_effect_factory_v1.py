@@ -16,7 +16,10 @@ from oracle_brain.workflows.qualified_synthesis_v1 import synthesis_groups_v1,sy
 from .connected_answer_settings_v1 import ConnectedAnswerSettingsV1
 from .replacement_result_service_v1 import _close_owned_projection_v1
 
-class QuestionEffectUnknown(PermissionError):pass
+class QuestionEffectUnknown(PermissionError):'''Payment-burned claim outcome genuinely uncertain; no automatic dispatch.'''
+
+class QuestionEffectPostDispatchFailure(PermissionError):
+ '''Paid dispatch already completed; deterministic cause is preserved, never masked as UNKNOWN. No automatic resend.'''
 
 class ProtectedQuestionEffectFactoryV1:
     def __init__(self,settings,owner,broker):
@@ -51,7 +54,7 @@ class ProtectedQuestionEffectFactoryV1:
         projection=self.settings.projection(context['model_version'],deadline=deadline,**dates)
         if projection.authority.binding!=self.owner.authority.binding:raise PermissionError('actual own SDK history differs')
         operation_owner=ProtectedQuestionEffectsV1(projection.authority,self.owner.pin,expected_issuer_actor=self.owner.expected_issuer_actor,expected_reviewer_actor=self.owner.expected_reviewer_actor)
-        possible_claim=False;job=None;receipt=None;result=None
+        possible_claim=False;dispatched=False;job=None;receipt=None;result=None
         try:
             context,answer,clarification,mode,packet=await operation_owner.prepare_grounding_v1(projection,UUID(event['event_id']),deadline=deadline)
             if answer is None:
@@ -61,7 +64,7 @@ class ProtectedQuestionEffectFactoryV1:
             try:claimed=operation_owner.claim_v1(UUID(event['event_id']),job,deadline=deadline,**dates)
             except BaseException:raise QuestionEffectUnknown('question claim outcome UNKNOWN; no automatic dispatch') from None
             if claimed.get('dispatch_allowed') is not True:raise QuestionEffectUnknown('existing question effect UNKNOWN; no automatic redispatch')
-            raw=self.broker.dispatch(canonical_bytes({'dispatch_id':str(job.dispatch_id),'request_hash':job.request_hash,'request':job.request}),_question_control=operation_owner,_question_job=job)
+            raw=self.broker.dispatch(canonical_bytes({'dispatch_id':str(job.dispatch_id),'request_hash':job.request_hash,'request':job.request}),_question_control=operation_owner,_question_job=job);dispatched=True
             # Actual native receipt+wire+settlement must be verified before any
             # vector or synthesis is consumed. A SQL observation is descriptive.
             receipt=operation_owner.read_effect_receipt_v1(job,self.broker)
@@ -77,8 +80,9 @@ class ProtectedQuestionEffectFactoryV1:
             from oracle_brain.operating_model.qualified_answer_v1 import QualifiedSynthesisAnswerV1
             synthesis_answer=QualifiedSynthesisAnswerV1.model_validate_json(canonical_bytes(answer.model_dump(mode='json')|{'selection':'qualified-retained-facts-synthesis-v1','provider_generation_used':True,'caveats':tuple(c for c in answer.caveats if 'no semantic generation' not in c)+('Structured synthesis orders exact retained factual groups; interpretation remains explicitly unverified and semantic entailment is not verified.',)}))
             result={'state':'observed','synthesis':synthesis_references_v1(parsed,answer,interview=context['thread_mode']=='interview'),'answer':synthesis_answer.model_dump(mode='json')};return result
-        except BaseException:
-            if possible_claim:raise QuestionEffectUnknown('question effect outcome UNKNOWN; no fallback or automatic resend') from None
+        except Exception as error:
+            if dispatched:raise QuestionEffectPostDispatchFailure(f'paid dispatch completed; deterministic cause: {error}') from error
+            if possible_claim:raise QuestionEffectUnknown('question claim outcome UNKNOWN; no automatic dispatch') from None
             raise
         finally:
             try:
@@ -104,7 +108,8 @@ class ProtectedQuestionEffectFactoryV1:
                         values=header|dict(state='observed',purpose=job.purpose,operation_id=str(job.dispatch_id),model_id=str(job.qualified_model_id),model_version=job.model_version,model_content_hash=job.model_content_hash,accepted_projection_event_id=str(job.accepted_projection_event_id),accepted_receipt_body_sha256=job.accepted_receipt_body_sha256,native_receipt_sha256=receipt['native_receipt_sha256'],wire_sha256=receipt['wire']['raw_sha256'],settled_response_sha256=receipt['settled_response_sha256'],answer=result['answer'],synthesis=result.get('synthesis'),provider_dispatched=True)
                         public=validate_question_effect_scope_v1(QuestionEffectPacketV1.model_validate_json(canonical_bytes(values)),latest)
                     result.clear();result.update(public.model_dump(mode='json'))
-            except BaseException:
+            except Exception as error:
+                if dispatched:raise QuestionEffectPostDispatchFailure(f'paid dispatch completed; cleanup/currentness cause: {error}') from error
                 if possible_claim:raise QuestionEffectUnknown('question effect cleanup/currentness UNKNOWN; no fallback or resend') from None
                 raise
     def _job(self,context,answer):
