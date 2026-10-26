@@ -89,6 +89,22 @@ class ReadOnlyConnection:
     async def query(self,cypher,params=None,*,timeout=None):
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
+    async def close(self):
+        # Gentle close: release pool sockets without the blocking
+        # pool.aclose()/wait_closed() TLS teardown that resets the shared
+        # graph TLS tunnel for peer handshakes. Connections are closed
+        # nowait so close_notify is sent but never awaited on the tunnel.
+        conn=self._connection
+        pool=getattr(conn,'_pool',None)
+        conn._pool=None;conn._driver=None;conn._graph=None
+        if pool is None:return
+        try:available=list(pool._available_connections)
+        except Exception:available=[]
+        try:in_use=list(pool._in_use_connections)
+        except Exception:in_use=[]
+        for c in available+in_use:
+            try:await c.disconnect(nowait=True)
+            except Exception:pass
 
 class SDKProjection:
     graph_prefix=PREFIX
