@@ -247,6 +247,7 @@ async function connectedAnswer(request:Request,channel:'web'|'mcp',supplied?:{ki
  let phase='original-window';
  // Fixed operational stage only: no error text, identifiers, request or evidence.
  const refuse=()=>{console.error('Oracle qualified read refused',channel,phase);return unavailableControl();};
+ const refuseErr=(err:unknown)=>{console.error('Oracle qualified read refused',channel,phase,'err',err instanceof Error?err.message:typeof err);return unavailableControl();};
  const wall=Date.now(),mono=performance.now(),window:Window={wall,mono,end:wall+30000,signal:request.signal,proxyMonoEnd:process.hrtime.bigint()+30000000000n};
  try{
   const proxy=readControlWindow(request.headers);window.end=Math.min(window.end,proxy.wall_end);window.proxyMonoEnd=BigInt(proxy.mono_end);
@@ -276,7 +277,7 @@ async function connectedAnswer(request:Request,channel:'web'|'mcp',supplied?:{ki
   phase='response-deadline';const end=instant(value.expires_at);if(end<=Date.now()||end>window.end||instant(value.checked_at)>Date.now())return refuse();window.end=Math.min(window.end,end);
   phase='final-current-employee';current(installed,window);await identity(p,window);current(installed,window);remaining(window);
   return new Response(canonicalJson(value),{status:200,headers:{...privateControlHeaders,'Content-Type':'application/json'}});
- }catch{return refuse();}
+ }catch(err){return refuseErr(err);}
 }
 export async function requestConnectedAnswer(request:Request):Promise<Response>{return connectedAnswer(request,'web');}
 export async function requestEmployeeMcpAnswer(request:Request,query:unknown):Promise<Response>{return connectedAnswer(request,'mcp',{kind:'legacy',query});}

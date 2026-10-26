@@ -145,21 +145,22 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
     if(indexed){
       const {getUniqueEmployeeForAuthUserV1}=await Promise.race([import('./lib/auth-guard'),aborted()]);remaining();
       const employee=await Promise.race([getUniqueEmployeeForAuthUserV1(result.data.user.id),aborted()]);remaining();
-      if(!employee)return unavailableControl();
+      if(!employee)return proxyDiag('no-employee');
       installed=readInstalledEmployeeBindingV1(kind,{configuredProjectUrl:url,actualProjectUrl,verifiedUserId:result.data.user.id,employeeId:employee.id,disabledAt:employee.disabledAt});profile=installed.profile;
       if(timer)clearTimeout(timer);timer=setTimeout(stop,remaining());
-      remaining();if(!originMatches()||url!==profile.project_url)return unavailableControl();
+      remaining();if(!originMatches()||url!==profile.project_url)return proxyDiag('origin-mismatch');
       const currentEmployee=await Promise.race([getUniqueEmployeeForAuthUserV1(result.data.user.id),aborted()]);remaining();
-      if(!currentEmployee||currentEmployee.id!==profile.employee_id||currentEmployee.disabledAt!==null||canonicalJson(rereadInstalledEmployeeBindingV1(installed)?.profile)!==canonicalJson(profile))return unavailableControl();
+      if(!currentEmployee||currentEmployee.id!==profile.employee_id||currentEmployee.disabledAt!==null||canonicalJson(rereadInstalledEmployeeBindingV1(installed)?.profile)!==canonicalJson(profile)){console.error('ORACLE-DIAG proxy employee-recheck fail',JSON.stringify({hasCE:!!currentEmployee,idMatch:currentEmployee?.id===profile.employee_id,disabledAt:currentEmployee?.disabledAt??'null',profileEmp:profile.employee_id}));return unavailableControl();}
     }else{
       if(result.data.user.id!==profile!.auth_user_id)return unavailableControl();
       if(canonicalJson(readBinding().profile)!==canonicalJson(profile))return unavailableControl();
     }
     remaining();return response;
-  }catch{return unavailableControl();}
+  }catch(err){console.error('ORACLE-DIAG proxy catch',err instanceof Error?err.message:String(err));return unavailableControl();}
   finally{active=false;if(timer)clearTimeout(timer);controller.abort();request.signal.removeEventListener('abort',stop);}
 }
 function fail():never{throw new Error('Replacement control unavailable');}
+function proxyDiag(reason:string):Response{console.error('ORACLE-DIAG proxy refuse',reason);return unavailableControl();}
 
 export const config = {
   matcher: [

@@ -88,7 +88,10 @@ def _protected_control_listener_v1(settings,factory,*,path,parse_request,encode_
                 self.send_header('Cache-Control', 'no-store')
                 self.end_headers()
                 self.wfile.write(encoded)
-            except Exception:
+            except Exception as exc:
+                import traceback,sys
+                print(f'ORACLE-DIAG listener deny path={path} exc={type(exc).__name__}: {exc}',file=sys.stderr,flush=True)
+                traceback.print_exc(file=sys.stderr)
                 if not started:
                     self._deny()
 
