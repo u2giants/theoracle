@@ -247,7 +247,11 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
       # Same live graph population; never extend/reuse either spent fence.
       if proof_scope=='workspace-next-recipients':
        from test_workspace_next_recipients_sql_v1 import exercise_workspace_next_recipients_v1
-       exercise_workspace_next_recipients_v1(admin_url=admin_url,state=state,authority=authority,readonly=readonly,generation=generation,settings=settings,certificates=certificates,tmp_path=tmp_path,tunnel_port=port)
+       with owned_graph_tls(container,graph,server_context=tls,expected_client_uri=WORKER) as port2:
+        def tls_url2(url):
+         parsed=urlsplit(url);return urlunsplit(('rediss',parsed.netloc.rsplit('@',1)[0]+'@localhost:'+str(port2),'','',''))
+        readonly2=tls_url2(reader['ORACLE2_TEST_PROCESSING_READONLY_GRAPH_URL'])
+        exercise_workspace_next_recipients_v1(admin_url=admin_url,state=state,authority=authority,readonly=readonly2,generation=generation,settings=settings,certificates=certificates,tmp_path=tmp_path,tunnel_port=port2)
     finally:await projection.close()
  asyncio.run(run())
 
