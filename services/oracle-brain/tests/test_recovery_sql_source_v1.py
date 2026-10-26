@@ -279,3 +279,27 @@ def test_all_census_queries_workspace_scope_or_owner_join():
  for tname,q in whens:
   has_ws=bool(re.search(r'(?:t|own)\.workspace_id\s*=\s*ANY\(\$1\)',q)) or 'workspace_ids' in q
   assert has_ws,f'{tname} census query lacks workspace filter'
+
+
+def test_operational_denials_observed_at_parameter_wins_over_column():
+ """meeting_participation_observations_v1.observed_at collides with the
+ _recovery_operational_denials_v1(observed_at) parameter. Without
+ #variable_conflict use_variable the column wins and the census breaks."""
+ source=SOURCE.read_text()
+ fn=source.split('CREATE FUNCTION oracle2._recovery_operational_denials_v1',1)[1].split('END $f$;',1)[0]
+ body=fn.split('$f$',1)[-1]
+ assert '#variable_conflict use_variable' in body, \
+  'observed_at parameter collision with observations column requires use_variable'
+ # directive must sit before DECLARE/BEGIN so every body reference resolves to the parameter
+ assert body.index('#variable_conflict use_variable')<body.index('DECLARE'), \
+  'variable_conflict must precede DECLARE so observed_at means the parameter'
+
+
+def test_recovery_current_casts_source_database_oid_to_bigint():
+ """to_jsonb(oid) emits a JSON string; RecoveryCurrentV1.source_database_oid
+ is int. The census must cast oid::bigint so pydantic gets a JSON number."""
+ source=SOURCE.read_text()
+ assert "'source_database_oid',(SELECT oid::bigint FROM pg_database WHERE datname=current_database())" in source, \
+  'source_database_oid must be cast to bigint for JSON number emission'
+ # no bare to_jsonb(oid) or oid without cast on that census key
+ assert re.search(r"'source_database_oid',\s*\(SELECT oid::bigint",source)
