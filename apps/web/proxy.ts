@@ -156,7 +156,7 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
       if(canonicalJson(readBinding().profile)!==canonicalJson(profile))return unavailableControl();
     }
     remaining();return response;
-  }catch{console.error('ORACLE-DIAG proxy catch');return unavailableControl();}
+  }catch(err){console.error('ORACLE-DIAG proxy catch',err instanceof Error?err.stack||err.message:String(err));return unavailableControl();}
   finally{active=false;if(timer)clearTimeout(timer);controller.abort();request.signal.removeEventListener('abort',stop);}
 }
 function fail():never{throw new Error('Replacement control unavailable');}

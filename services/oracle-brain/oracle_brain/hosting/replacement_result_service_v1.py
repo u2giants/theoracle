@@ -27,6 +27,7 @@ def _target_identity(target):
 
 async def _close_owned_projection_v1(self,projection,deadline):
     # Cleanup has no authority to read/query/publish or renew the operation.
+    import sys
     task=asyncio.create_task(projection.connection.close(),name='result-owned-pool-close')
     self._owned_closes[task]=projection
     cancelled=False;cleanup_end=asyncio.get_running_loop().time()+5
@@ -37,13 +38,16 @@ async def _close_owned_projection_v1(self,projection,deadline):
         try:done,_=await asyncio.wait({task},timeout=max(0,cleanup_end-asyncio.get_running_loop().time()))
         except asyncio.CancelledError:
             self._cleanup_unknown=True
+            print('ORACLE-DIAG close-cancelled cleanup_unknown=True',file=sys.stderr,flush=True)
             raise
     if not done:
         self._cleanup_unknown=True
+        print('ORACLE-DIAG close-timeout cleanup_unknown=True',file=sys.stderr,flush=True)
         raise PermissionError('owned result connection cleanup remains unknown')
     try:task.result()
-    except BaseException:
+    except BaseException as exc:
         self._cleanup_unknown=True
+        print('ORACLE-DIAG close-failed cleanup_unknown=True exc=%s'%type(exc).__name__,file=sys.stderr,flush=True)
         raise PermissionError('owned result connection cleanup failed') from None
     del self._owned_closes[task]
     if cancelled:raise asyncio.CancelledError
@@ -162,6 +166,8 @@ class _ResultOwnedLoopV1:
     async def _request(self,peer,raw,original_end,record):
         task=asyncio.current_task();record['task']=task
         _require(time.monotonic()<original_end,'original result handler deadline expired')
+        if self.closing or self.service._cleanup_unknown or len(self.requests)>=32:
+            import sys;print('ORACLE-DIAG request-refused closing=%s cleanup_unknown=%s requests=%d'%(self.closing,self.service._cleanup_unknown,len(self.requests)),file=sys.stderr,flush=True)
         _require(not self.closing and not self.service._cleanup_unknown and len(self.requests)<32,
             'owned result lifecycle unavailable')
         self.requests.add(task)
