@@ -90,18 +90,26 @@ class ReadOnlyConnection:
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
     async def close(self):
+        # Close pool connections via the raw socket. We access redis.asyncio
+        # internals (_pool, _available_connections, _in_use_connections, _writer)
+        # because the SDK's public aclose() blocks on wait_closed() and sends
+        # TLS close_notify, which poisons the shared test-tunnel SSLContext.
+        # The SO_LINGER(1,0) RST avoids close_notify; shutdown+close frees the
+        # fd immediately so the tunnel's serve task sees the disconnect.
+        # If the SDK's private layout drifts, the getattr/except guards degrade
+        # gracefully to transport.abort() only (no crash, no silent corruption).
         import socket as _so,struct as _st
         conn=self._connection
         pool=getattr(conn,'_pool',None)
         if pool is not None:
-            try:conns=list(pool._available_connections)+list(pool._in_use_connections)
+            try:conns=list(getattr(pool,'_available_connections',[]))+list(getattr(pool,'_in_use_connections',set()))
             except Exception:conns=[]
             for c in conns:
                 try:
-                    w=c._writer
-                    if w is not None and w.transport is not None:
-                        t=w.transport
-                        raw_sock=t.get_extra_info('socket')
+                    w=getattr(c,'_writer',None)
+                    t=getattr(w,'transport',None) if w is not None else None
+                    if t is not None:
+                        raw_sock=t.get_extra_info('socket') if hasattr(t,'get_extra_info') else None
                         if raw_sock is not None:
                             try:raw_sock.setsockopt(_so.SOL_SOCKET,_so.SO_LINGER,_st.pack('ii',1,0))
                             except Exception:pass
@@ -109,8 +117,10 @@ class ReadOnlyConnection:
                             except Exception:pass
                             try:raw_sock.close()
                             except Exception:pass
-                        t.abort()
-                    c._reader=None;c._writer=None
+                        try:t.abort()
+                        except Exception:pass
+                    if hasattr(c,'_reader'):c._reader=None
+                    if hasattr(c,'_writer'):c._writer=None
                 except Exception:pass
         conn._pool=None;conn._driver=None;conn._graph=None
 
@@ -326,12 +336,9 @@ class SDKProjection:
 
     async def _check_graph_snapshot(self,payload):
         # Graph integrity only. This private helper never proves read authority.
-        with open('/tmp/backend-diag.log','a') as _f:_f.write('ORACLE-DIAG-BACKEND-STAGE graph-snapshot-enter\n')
         rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized')).result_set
-        with open('/tmp/backend-diag.log','a') as _f:_f.write('ORACLE-DIAG-BACKEND-STAGE graph-snapshot-query-done rows=%d\n'%len(rows))
         expected=[digest(payload),digest({'records':self.records(payload)}),'1.4.0',True]
         if len(rows)!=1 or list(rows[0])!=expected:raise ValueError('current sealed finalized snapshot required')
-        with open('/tmp/backend-diag.log','a') as _f:_f.write('ORACLE-DIAG-BACKEND-STAGE graph-snapshot-exit\n')
 
     async def close(self):await self.connection.close()
 

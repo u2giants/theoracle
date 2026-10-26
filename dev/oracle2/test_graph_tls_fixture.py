@@ -69,9 +69,10 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                 # select for fast data waiting; recv for EOF detection through OpenSSL
                 ready,_,_=select.select([client,remote],[],[],.5)
                 if not ready:
-                    # Hard deadline: if no data for 3s, assume peer is gone.
-                    # recv() through OpenSSL may never surface FIN after shutdown.
-                    if time.monotonic()-last_data>3:
+                    # Safety net: if no data for 30s, assume peer is gone.
+                    # Primary release is via recv() EOF/error on real disconnect;
+                    # this only catches connections where OpenSSL swallows FIN.
+                    if time.monotonic()-last_data>30:
                         _diag('serve[%d] idle timeout'%conn_id);return
                     continue
                 for source in ready:

@@ -88,11 +88,7 @@ def _protected_control_listener_v1(settings,factory,*,path,parse_request,encode_
                 self.send_header('Cache-Control', 'no-store')
                 self.end_headers()
                 self.wfile.write(encoded)
-            except Exception as exc:
-                import sys,traceback
-                with open('/tmp/backend-diag.log','a') as _f:
-                    _f.write('ORACLE-DIAG-BACKEND-EXC type=%s msg=%s started=%s\n'%(type(exc).__name__,exc,started))
-                    traceback.print_exc(file=_f)
+            except Exception:
                 if not started:
                     self._deny()
 
