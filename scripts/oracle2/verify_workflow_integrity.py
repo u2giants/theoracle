@@ -273,19 +273,6 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_citation_sql',),
 # population, original shared120s ceiling and exactly ten workers.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
     'replacement_documentary_journey',after=True)
-# Preserve every current suite and the existing ten workers /120s deadline.
-QUESTION_EFFECT_PURE_SUITES=('question_core_forwarding_v1','qualified_synthesis_v1',
-    'question_effect_pricing_v1','question_effect_public_v1','question_vector_packing_v1')
-DOCUMENTARY += QUESTION_EFFECT_PURE_SUITES+('question_effects_sql_v1','question_effect_native_sql_v1')
-DOCUMENTARY=_place_suites(DOCUMENTARY,QUESTION_EFFECT_PURE_SUITES,
-    'workflow_authorization')
-# Prior exact native64s + current doc03 46s; SQL39s +doc08 79s.
-# Measured estimates only; the unchanged whole-run deadline decides success.
-DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
-    'replacement_documentary_journey',after=True)
-DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
-    'purpose_worker_startup',after=True)
-
 # Measured PR191 run39758616744 whole-module packing for the unchanged
 # question SQL39s/native64s population. No test body, worker or deadline changes.
 # Estimates: doc01~114,04~109,06~116,08~111,09~112; whole CI decides fit.

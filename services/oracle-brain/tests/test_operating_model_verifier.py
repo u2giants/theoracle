@@ -398,7 +398,7 @@ def test_new_database_browser_and_native_families_use_distinct_existing_worker_c
     assert 'qualified_workspace_sdk_sql_v1' in groups['documentary-03']
     assert 'question_effect_native_sql_v1' in groups['documentary-04']
     assert 'question_effects_sql_v1' in groups['documentary-07']
-    assert 'consolidation_sql_v1' in groups['documentary-01']
+    assert 'consolidation_sql_v1' in groups['documentary-07']
     assert 'purpose_coherent_native_journey' in groups['documentary-06']
     assert 'conversation_native_sql' in groups['documentary-03']
     assert 'conversation_native_sql' not in groups['documentary-08']
