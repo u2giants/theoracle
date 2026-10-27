@@ -53,7 +53,7 @@ def worker_startup_intent(directory,base,label):
     The caller may inspect exact labels; this reader never performs cleanup.
     """
     if (not re.fullmatch(r'oracle2-(?:ci|synthetic)-[a-z0-9-]{1,80}',base)
-            or not re.fullmatch(r'(?:documentary-[0-9]{2}|event)',label)):
+            or not re.fullmatch(r'(?:documentary-[0-9]{2}|event(?:-[0-9]{2})?)',label)):
         raise PermissionError('exact startup intent scope required')
     directory=Path(directory);parent=directory.lstat();path=directory/'startup-intent.json'
     before=path.lstat()
@@ -85,7 +85,7 @@ def worker_postgres(environment,directory,label):
     base=environment.get('COMPOSE_PROJECT_NAME','')
     if not re.fullmatch(r'oracle2-(?:ci|synthetic)-[a-z0-9-]{1,80}',base):
         raise PermissionError('owned synthetic Compose project required')
-    if not re.fullmatch(r'(?:documentary-[0-9]{2}|event)',label):
+    if not re.fullmatch(r'(?:documentary-[0-9]{2}|event(?:-[0-9]{2})?)',label):
         raise PermissionError('fixed bounded worker label required')
     project=base+'-w'+uuid4().hex[:12]
     if run('docker','ps','-aq','--filter','label=com.docker.compose.project='+project).strip():
