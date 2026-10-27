@@ -1,6 +1,6 @@
 # S08 current integration — composition, connector audit, registration and AST seal
 
-Recorded: 2026-10-27 11:12 PM EDT (America/New_York), edge-dev (Windows).
+Recorded: 2026-10-27 7:12 PM EDT (America/New_York), edge-dev (Windows).
 Branch `parent24-s08-current-integration` from genuine `origin/main`
 `489dd987f96d613be9e0546d4a772ab665b584a4` (2026-10-27 handoff tip). Worktree
 `C:\tmp\oracle-s08-int-r1`. Task class `code` declared before writes
@@ -16,7 +16,8 @@ fact below is fixture-invented; ACK never equals a visible message or provider
 idempotency. Business acceptance remains HELD. Historical 21-case runs
 (including 21 SQL / 50.25s on the older limited inventory and the PR200-branch
 one-shot) are **not** current acceptance; only the fresh gated run recorded in
-the companion run-evidence document is.
+the companion run-evidence document (added in the follow-up commit that lands
+the gated run results) is.
 
 ## 1. True-ancestor additive composition (detail 1)
 
@@ -27,9 +28,12 @@ seven missing frozen participation control/service/SQL021/tests plus the
 inherited authority repaired to SAME `protected_sql_connection_v1._connection_v1`
 and SAME `sql_execute_v1` for every SQL send.
 
-Composition onto fresh current main is **additive from the true ancestor**
-(81742134 content plus current-main owners). The inverse old-main diff
-approach is forbidden and was not used.
+Composition onto fresh current main is from the **true ancestor**
+(81742134 content plus retained current-main owners). The inverse old-main
+diff approach is forbidden and was not used. The authority file's diff
+direction is purely additive (see below); the SQL test module is a superset
+whose 21 cases and assertions are preserved with current-main fixture/timing
+cuts (see below) — "additive-only" is scoped to the authority file.
 
 Eight effective files, git-blob identity vs preserved `81742134` at this head:
 
@@ -45,8 +49,12 @@ Eight effective files, git-blob identity vs preserved `81742134` at this head:
 | `tests/test_meeting_participation_wire_v1.py` | SAME | `52b4169351a5b0f1afa8a3643e594a29ec4e98c3` |
 
 The two DIFF files are **current-main supersets that retain the preserved
-contract and add current-main owners only** (verified by diff direction
-8174→head = additive-only):
+contract and add current-main owners only**. For
+`participation_authority_v1.py` the 8174→head diff is purely additive (7
+insertions, 0 deletions); for `test_meeting_participation_sql.py` the head is
+a superset with the same 21 cases and identical assertions (34 insertions,
+12 deletions — docstring rewrite, fixture batching/caching restructure and
+timing constants only):
 
 1. `participation_authority_v1.py` — preserved repair intact (five sends on
    `sql_execute_v1`, connection on `_connection_v1`, mutation-attempted mark
@@ -58,10 +66,14 @@ contract and add current-main owners only** (verified by diff direction
    returns — including the fresh status readback — stays UNKNOWN/no-resend).
    This matches the standing rule that never-written refusals are
    deterministic, not UNKNOWN.
-2. `test_meeting_participation_sql.py` — 21 case bytes and L5 exactly-21 pins
-   preserved; current-main W10 assertion-preserving fixture batching,
-   `owned_worker_database` caching, sleep/capture-window shortening retained
-   (PR214-era cuts, previously verified assertion-preserving).
+2. `test_meeting_participation_sql.py` — L5 exactly-21 pins preserved; of the
+   21 case bodies, **20 are byte-identical to the preserved source and 1
+   differs in timing constants only**
+   (`test_actual_late_private_wire_finishes_as_orphan_without_sql_receipt`:
+   `sleep(3.1)`→`sleep(1.1)`, caller deadline 3s→1s — the PR214-era
+   assertion-preserving cuts); assertions are identical. Current-main W10
+   assertion-preserving fixture batching, `owned_worker_database` caching and
+   sleep/capture-window shortening retained.
 
 The four already-merged originals are retained untouched on this head:
 `hosting/meeting_participation_v1.py`, `meetings/participation.py`,
@@ -109,7 +121,8 @@ observe_audience}_v1`); `test_operating_model_verifier.py` asserts the
 ## 3. Registration — canonical 021 + four mandatory suites (detail 3)
 
 - `SYNTHETIC_MIGRATIONS`: `021_meeting_participation.sql` registered (23
-  entries, asserted by `test_operating_model_verifier.py:204`).
+  entries; the full-tuple assert is `test_operating_model_verifier.py:89`,
+  and `:204` asserts the `[-12:]` window that carries 021).
 - Four mandatory suites registered in `verify_workflow_integrity.py`:
   `MEETING_PARTICIPATION_CORE_SUITES = (meeting_participation_control_v1,
   meeting_participation_v1, meeting_participation_wire_v1)` in DOCUMENTARY;
@@ -163,8 +176,9 @@ post-authority-repair baseline; the authority repair's own semantic change
 
 The 21 SQL cases are exactly `test_meeting_participation_sql.py` (19 plain
 functions + 2 single-element indirect-parametrize pins = 21 collected; the L5
-comments forbid expanding those lists). SQL021 file bytes and all 21 case
-bytes unchanged from the preserved source.
+comments forbid expanding those lists). SQL021 file bytes unchanged from the
+preserved source; of the 21 case bodies, 20 are byte-identical and 1 carries
+timing constants only (§1 item 2), assertions identical.
 
 ## 5. S08 delivery doc source references (detail 6)
 
@@ -179,9 +193,9 @@ acceptance:
 
 ## 6. Gate chain (detail 4) — see companion run evidence
 
-Planned and executed under the delegated root release for this synthetic
-proof: Muse `final-check` (`--detach`, observation-week rules; `--assert-head`
-the full 40-char seal head) with `AI_POOL_CALLER=mimo
+Executed under the delegated root release for this synthetic proof:
+independent exact-head `final-check` review (`--detach`, observation-week
+rules; `--assert-head` the full 40-char seal head) with `AI_POOL_CALLER=mimo
 AI_IMPLEMENTER_ENGINE=mimo` from inside the worktree; operator-minted
 `review-receipt.json` (head + runner/plan/checker/evidence git-blob SHAs +
 verdict `APPROVE`); `ai-task-gates check --before database` precise ALLOW
@@ -189,8 +203,21 @@ recorded; then **one fresh root-run execution** of
 `scripts/oracle2/run_s08_journey_proof_v1.py` on edge-dev3 (Linux, Docker).
 Run IDs, the 21-SQL current-acceptance receipt, pure-population result and
 the journey stage record are in
-`s08-current-integration-run-20261028.md` (companion). Historical 21-case
-runs are not current acceptance.
+`s08-current-integration-run-20261028.md` (companion, added in the follow-up
+commit with the gated-run results). Historical 21-case runs are not current
+acceptance.
+
+Review routing record: the first `final-check` dispatch (Muse,
+run `d20261027T231510-2938600-24916` / lifecycle `20261027T231717-2941170-8665`)
+completed a full review of seal head `2e05249f…` whose native capture records
+**Verdict: APPROVE** plus findings M1/L1–L4; the invocation was then refused
+publication with `failure_class: stale-source` because the caller wrote an
+untracked draft file into the reviewed worktree mid-review (caller-side
+sequencing slip, logged via `ai-reviewer-issue`). Per the observation-week
+rule the failed reviewer is not retried; the findings were fixed (this
+commit) and the changed-source successor exact-head assessment was routed to
+the next usable rotation reviewer (GLM, different engine) under rotation
+rule 2. Both run IDs are recorded in the companion.
 
 Receipt-bound git-blob SHAs at the seal head (H6 semantics,
 `git show HEAD:<path> | sha256sum`):
