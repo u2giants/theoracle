@@ -1,0 +1,17 @@
+{
+  "returncode": 0,
+  "junit": "/tmp/oracle-parent24-wy02uT/s13-ops-unproven-run-20261026/s13-ops-unproven-junit.xml",
+  "junit_sha256": "a6568c28e77eb9bc11121463c534b1456ffc87d85b1f4942359258eac7d16ee7",
+  "ops_result_sha256": "257ae6ab7bff531060faecb378b930ff78a02469da1ab226c811c61887b8d5f6",
+  "elapsed_seconds": 13.792,
+  "identity": {
+    "project": "oracle2-synthetic-p24ops-mimo-w3b03474ef126",
+    "container_id": "acea453da5ef353b4e182837b002b55c8f20e4928a31c11b1597ca345793ee9d",
+    "port": 32855,
+    "worker": "documentary-01",
+    "synthetic_only": true
+  },
+  "database": "oracle_operating_model_test_c705ce424df343e69e441d5b3540b7c3",
+  "branch": "codex/parent24-s13-ops-unproven-20261026",
+  "base_head": "48cfc494d06056ab2736ac1456621b0e179134b3"
+}

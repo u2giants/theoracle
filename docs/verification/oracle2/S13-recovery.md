@@ -720,7 +720,12 @@ deleted_servable=false, keep_servable=true.
 completed immediately before the simulated outage. Production RPO depends on
 backup cadence, not restore speed. Events committed between last backup and
 outage would be lost with no surviving ledger tail. This exercise does not
-claim a production RPO figure.
+claim a production RPO figure. A follow-on cadence-aware exercise
+(`s13-ops-unproven-20261026/`) deliberately left a non-zero gap, measured
+1.511 s exposure, and proved the 6 post-backup events are genuinely lost;
+see that record for the production-cadence formula and requirements. The
+1.275 s RTO and 0.0 s RPO above are exercise-specific and are NEVER
+production figures.
 
 **Graph:** Ledger zero-loss proven (25/25 events survive dump/restore).
 Deterministic projection replay of every surviving acknowledged event proven
@@ -735,8 +740,10 @@ graph-store census gate — remains UNPROVEN.
   not weakened.
 - Live FalkorDB graph census after restore — separate remaining gate.
 - Real vector-model license — synthetic embedder only.
-- Production RPO figure — measured gap is exercise-specific.
-- Alerts/retention/quota operational runbooks — source exists; not exercised here.
+- Production RPO *figure* — not claimed here; a cadence-aware measured proof
+  and the production formula landed in
+  `s13-ops-unproven-20261026/README.md`. The 1.275 s RTO and 0.0 s RPO above
+  are exercise-specific and are NEVER production figures.
 - SQL026 installed recovery authority / PostRestoreBinding — metadata path only.
 
 ### UNPROVEN gates (exact) after this exercise
@@ -746,17 +753,22 @@ graph-store census gate — remains UNPROVEN.
    26 nodes / 25 edges / labels Assertion:25 Source:1 matches pre-outage after
    full ledger replay).
 2. ~~Real vector-model license proof~~ **PROVEN 2026-10-26 at fixture level**
-   (named `real-vector-model-license-proof-v1` artifact for
-   `openai/text-embedding-3-small`; no paid provider called; synthetic embedder
+   (named 
+eal-vector-model-license-proof-v1 artifact for
+   openai/text-embedding-3-small; no paid provider called; synthetic embedder
    explicitly distinct; live provider-side license terms still not fetched —
    that residual is named inside the artifact honest scope).
-3. Production RPO figure under real backup cadence. **UNPROVEN** — exercise
-   measured 0.0 s gap because backup ran immediately before outage; production
-   RPO depends on backup cadence, not restore speed.
-4. Alerts / retention / quota operational exercise. **UNPROVEN** — source
-   exists; not exercised in the synthetic DR cycle.
+3. Production RPO figure under real backup cadence — **SHRUNK** by the
+   cadence-aware measured proof in s13-ops-unproven-20261026/ (deliberate
+   non-zero backup-to-outage gap; 6 post-backup events honestly lost; exposure
+   1.511 s). The production *figure* itself still needs the production-cadence
+   measurement listed there. **UNPROVEN**.
+4. ~~Alerts / retention / quota operational exercise.~~ **PROVED** at synthetic
+   scale (40 stages / 120 retention records / 24 quota rows) with alert
+   firing+clearing, retention cutoff, and quota accounting after restore —
+   exact JUnit 6 passed 0 failed in s13-ops-unproven-20261026/.
 5. ~~Source/runtime admission beyond the metadata SQL path~~ **PROVEN 2026-10-26**
-   (runtime `has_authority` positive/negative + source-path `admit_document`
+   (runtime has_authority positive/negative + source-path dmit_document
    positive/negative against the restored database).
 6. Business acceptance / company activation — owner hold, unchanged. **UNPROVEN**.
 7. Real Teams producer qualification — **UNQUALIFIED** (unchanged).

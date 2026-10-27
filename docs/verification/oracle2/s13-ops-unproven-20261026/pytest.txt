@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.7.0 -- /tmp/pglast-venv-20261023/bin/python3
+cachedir: .pytest_cache
+rootdir: /tmp/oracle-parent24-wy02uT/s13-ops-unproven-20261026/services/oracle-brain
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collecting ... collected 6 items
+
+services/oracle-brain/tests/test_s13_ops_unproven_exercise_v1.py::test_alert_firing_and_clearing PASSED [ 16%]
+services/oracle-brain/tests/test_s13_ops_unproven_exercise_v1.py::test_retention_cutoff_behavior PASSED [ 33%]
+services/oracle-brain/tests/test_s13_ops_unproven_exercise_v1.py::test_quota_accounting_after_restore PASSED [ 50%]
+services/oracle-brain/tests/test_s13_ops_unproven_exercise_v1.py::test_cadence_aware_rpo_measured PASSED [ 66%]
+services/oracle-brain/tests/test_s13_ops_unproven_exercise_v1.py::test_production_rpo_formula_and_non_production_disclaimer PASSED [ 83%]
+services/oracle-brain/tests/test_s13_ops_unproven_exercise_v1.py::test_ops_scale_recorded PASSED [100%]
+
+=============================== warnings summary ===============================
+tests/test_s13_ops_unproven_exercise_v1.py::test_alert_firing_and_clearing
+  /tmp/pglast-venv-20261023/lib/python3.14/site-packages/graphrag_sdk/core/models.py:19: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.14/migration/
+    class DataModel(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /tmp/oracle-parent24-wy02uT/s13-ops-unproven-run-20261026/s13-ops-unproven-junit.xml -
+========================= 6 passed, 1 warning in 6.33s =========================
+
+---STDERR---
