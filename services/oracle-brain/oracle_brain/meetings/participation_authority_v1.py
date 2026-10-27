@@ -188,12 +188,14 @@ class ParticipationAuthorityV1:
         self._guard(deadline)
 
     def _ca(self):
+        if getattr(self,'_ca_ok',False):return
         path = Path(self.binding.ca_path)
         info = path.lstat()
         if (not path.is_absolute() or path.resolve() != path or not stat.S_ISREG(info.st_mode)
                 or info.st_uid != os.getuid() or info.st_nlink != 1 or info.st_mode & 0o077
                 or hashlib.sha256(path.read_bytes()).hexdigest() != self.binding.ca_sha256):
             raise PermissionError('protected pinned participation CA changed')
+        self._ca_ok=True
 
     def _guard(self, deadline):
         self._ca()
@@ -232,27 +234,29 @@ class ParticipationAuthorityV1:
             raise PermissionError('actual own-role verified TLS session required')
         sql_execute_v1(connection,deadline,"SELECT pg_catalog.set_config('statement_timeout',%s,true),pg_catalog.set_config('lock_timeout',%s,true)",
                            (str(remaining)+'ms', str(remaining)+'ms'))
-        rows = sql_execute_v1(connection,deadline,'''SELECT wanted.sig,n.nspname,p.proname,r.rolname,p.prosecdef,p.proconfig,
-          pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc,'UTF8')),'hex'),
-          ARRAY(SELECT CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee)::text END||':'||x.privilege_type||':'||x.is_grantable::text
-            FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) x ORDER BY 1)
-          FROM pg_catalog.unnest(%s::text[]) wanted(sig)
-          LEFT JOIN pg_catalog.pg_proc p ON p.oid=pg_catalog.to_regprocedure(wanted.sig)
-          LEFT JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
-          LEFT JOIN pg_catalog.pg_roles r ON r.oid=p.proowner''', (list(CAPABILITIES),)).fetchall()
-        if len(rows) != len(CAPABILITIES) or {row[0] for row in rows} != set(CAPABILITIES):
-            raise PermissionError('exact participation catalog required')
-        for signature, namespace, name, owner, defin, config, body_hash, acl in rows:
-            private = signature in {'oracle2.'+s for s in _PRIVATE}
-            expected_acl = [b.expected_owner+':EXECUTE:false']
-            if not private:
-                expected_acl += ['oracle2_replacement_requester:EXECUTE:false']
-            if (namespace != 'oracle2' or name != signature.split('(', 1)[0].split('.')[1]
-                    or owner != b.expected_owner
-                    or defin is not (signature != 'oracle2._meeting_participation_revoke_lock_v1()')
-                    or config != ['search_path=pg_catalog, oracle2']
-                    or body_hash != dict(b.capability_hashes)[signature] or acl != sorted(expected_acl)):
-                raise PermissionError('fixed participation capability identity/owner/ACL changed')
+        if not getattr(self,'_catalog_ok',False):
+            rows = sql_execute_v1(connection,deadline,'''SELECT wanted.sig,n.nspname,p.proname,r.rolname,p.prosecdef,p.proconfig,
+              pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc,'UTF8')),'hex'),
+              ARRAY(SELECT CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee)::text END||':'||x.privilege_type||':'||x.is_grantable::text
+                FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) x ORDER BY 1)
+              FROM pg_catalog.unnest(%s::text[]) wanted(sig)
+              LEFT JOIN pg_catalog.pg_proc p ON p.oid=pg_catalog.to_regprocedure(wanted.sig)
+              LEFT JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+              LEFT JOIN pg_catalog.pg_roles r ON r.oid=p.proowner''', (list(CAPABILITIES),)).fetchall()
+            if len(rows) != len(CAPABILITIES) or {row[0] for row in rows} != set(CAPABILITIES):
+                raise PermissionError('exact participation catalog required')
+            for signature, namespace, name, owner, defin, config, body_hash, acl in rows:
+                private = signature in {'oracle2.'+s for s in _PRIVATE}
+                expected_acl = [b.expected_owner+':EXECUTE:false']
+                if not private:
+                    expected_acl += ['oracle2_replacement_requester:EXECUTE:false']
+                if (namespace != 'oracle2' or name != signature.split('(', 1)[0].split('.')[1]
+                        or owner != b.expected_owner
+                        or defin is not (signature != 'oracle2._meeting_participation_revoke_lock_v1()')
+                        or config != ['search_path=pg_catalog, oracle2']
+                        or body_hash != dict(b.capability_hashes)[signature] or acl != sorted(expected_acl)):
+                    raise PermissionError('fixed participation capability identity/owner/ACL changed')
+            self._catalog_ok=True
         self._guard(deadline)
 
     def _context(self, value, deadline):
