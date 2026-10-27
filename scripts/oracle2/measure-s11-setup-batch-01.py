@@ -201,13 +201,13 @@ def main():
 
  seq = out["sequential_install_plus_repin"]["counts"]
  bat = out["one_admin_batch"]["counts"]
-  if seq["admin_contexts"] != 5 or bat["admin_contexts"] != 1:
+ if seq["admin_contexts"] != 5 or bat["admin_contexts"] != 1:
   raise SystemExit(f'STOP: admin_contexts expected 5/1 got {seq["admin_contexts"]}/{bat["admin_contexts"]}')
-  if seq["pins_calls"] != 5 or bat["pins_calls"] != 1:
+ if seq["pins_calls"] != 5 or bat["pins_calls"] != 1:
   raise SystemExit(f'STOP: pins_calls expected 5/1 got {seq["pins_calls"]}/{bat["pins_calls"]}')
-  if seq["admissions"] != 4 or bat["admissions"] != 4:
+ if seq["admissions"] != 4 or bat["admissions"] != 4:
   raise SystemExit(f'STOP: admissions expected 4/4 got {seq["admissions"]}/{bat["admissions"]}')
-  if seq["authorities_constructed"] != 4 or bat["authorities_constructed"] != 4:
+ if seq["authorities_constructed"] != 4 or bat["authorities_constructed"] != 4:
   raise SystemExit(f'STOP: authorities_constructed expected 4/4 got {seq["authorities_constructed"]}/{bat["authorities_constructed"]}')
  out["delta"] = dict(
      admin_contexts=seq["admin_contexts"] - bat["admin_contexts"],

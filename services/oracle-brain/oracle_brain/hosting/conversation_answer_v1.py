@@ -48,12 +48,21 @@ class ConversationAnswerV1:
         event=events[0];thread=UUID(snapshot['thread_id']);revision=snapshot['revision']
         capability_gap=None
         if self.effect_owned is not None:
-            from .question_effect_factory_v1 import QuestionEffectUnknown
+            from .question_effect_factory_v1 import QuestionEffectUnknown,QuestionEffectPostDispatchFailure
             try:
                 effect=self.effect_owned.result(self.control,snapshot,absolute_monotonic_deadline=_request_end_v1.get())
             except QuestionEffectUnknown:
                 # The employee turn is already durable. Never rerun lexical or
                 # native work after a possible claim/paid/uncertain effect.
+                latest=self.control.snapshot_v1(thread)
+                if latest['revision']!=revision:raise PermissionError('conversation changed after uncertain question effect')
+                result=present(latest);result['qualified_answer']=None
+                result['qualified_effect']=self._unobserved_v1(latest,'unknown')
+                result['answer_first']='The response outcome is unknown. Your original words are saved; no request has been repeated.'
+                return result
+            except QuestionEffectPostDispatchFailure:
+                # Paid dispatch completed; outcome is uncertain. Never mask
+                # as unavailable/not-dispatched; surface the truthful unknown.
                 latest=self.control.snapshot_v1(thread)
                 if latest['revision']!=revision:raise PermissionError('conversation changed after uncertain question effect')
                 result=present(latest);result['qualified_answer']=None
