@@ -14,7 +14,7 @@ from oracle_brain.workflows.answer import AnswerQueryV1
 from test_hosting_boundary import WORKER
 from test_purpose_transport import SERVER
 
-def install_answer(state,authority,h,readonly,generation,certificates,directory,*,channel='web',peer_certificate=None,peer_key=None,peer_uri=WORKER,server_certificate=None,listen_host='127.0.0.1',actors=None,industry_readers=()):
+def install_answer(state,authority,h,readonly,generation,certificates,directory,*,channel='web',peer_certificate=None,peer_key=None,peer_uri=WORKER,server_certificate=None,listen_host='127.0.0.1',actors=None,industry_readers=(),graph_certificate=None,graph_key=None,graph_uri=None):
  directory.mkdir(mode=0o700)
  def protected(name,raw):
   path=directory/name;path.write_bytes(raw);path.chmod(0o600)
@@ -24,10 +24,17 @@ def install_answer(state,authority,h,readonly,generation,certificates,directory,
  values['database_url']=protected('database-url',h['url'].encode());values['delivery_capability_body_hashes']=authority.delivery_capability_body_hashes
  root=state['blobs'].root;root.chmod(0o700);info=root.stat();end=authority.binding.original_horizon
  ca=certificate('ca.pem');worker=certificate('worker.pem');worker_key=certificate('worker.key');server=protected('server.pem',(server_certificate or certificates/'server.pem').read_bytes());server_key=certificate('server.key')
+ # Per-recipient graph client identity: optional unique cert/key/uri replaces the
+ # shared worker pair so two in-process answer servers never share one TLS session.
+ if graph_certificate is not None and graph_key is not None:
+  worker=protected('graph-client.pem',graph_certificate.read_bytes());worker_key=protected('graph-client.key',graph_key.read_bytes())
+  worker_uri=graph_uri or WORKER
+ else:
+  worker_uri=WORKER
  cls=ConnectedIndustryAnswerConfigV1 if industry_readers else ConnectedAnswerConfigV1
  c=cls.model_validate(dict(principal_id=h['actor'],workspace_id=state['f']['workspace'],model_id=state['manifest'].artifact_id,
   history=values,projections=(dict(version=state['manifest'].version,generation=generation,graph_url=protected('graph-url',readonly.encode())),),
-  graph_ca=ca,graph_certificate=worker,graph_key=worker_key,graph_client_uri=WORKER,graph_server_uri=SERVER,**({'industry_readers':industry_readers} if industry_readers else {}),
+  graph_ca=ca,graph_certificate=worker,graph_key=worker_key,graph_client_uri=worker_uri,graph_server_uri=SERVER,**({'industry_readers':industry_readers} if industry_readers else {}),
   storage_root=str(root),storage_device=info.st_dev,storage_inode=info.st_ino,storage_uid=info.st_uid,storage_profile_hash='a'*64,original_horizon=end,expires_at=end))
  config=protected('answer-config.json',canonical_bytes(c.model_dump(mode='json')));issuer,reviewer=actors or (uuid4(),uuid4())
  p=ConnectedAnswerPeerV1.model_validate(dict(config_sha256=config['sha256'],principal_id=c.principal_id,workspace_id=c.workspace_id,model_id=c.model_id,history_appointment_id=h['aid'],channel=channel,issuer_actor=issuer,reviewer_actor=reviewer,

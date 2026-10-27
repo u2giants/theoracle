@@ -104,13 +104,12 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
     const kind:EmployeeBindingPurposeV1=request.nextUrl.pathname===RECOMMENDATION_ACTIONS_PATH?'recommendation':request.nextUrl.pathname===MEETING_CONTROL_PATH?'meeting':request.nextUrl.pathname===CONNECTED_ANSWER_PATH?'answer':request.nextUrl.pathname===CONNECTED_MCP_PATH?'mcp-answer':conversation?'conversation':request.nextUrl.pathname===MODEL_REVIEW_PATH?'review':upload?'upload':viewer?'viewer':'control';
     const configuredProject=process.env.NEXT_PUBLIC_SUPABASE_URL;
     const originRestriction=indexed?admitEmployeeRecipientOriginV1(kind,configuredProject??'',request.headers.get('origin'),request.url):undefined;
-    if(originRestriction){
-      const end=Math.floor(Math.min(window.wall_end,originRestriction.validUntil));
-      window=Object.freeze({...window,wall_end:end,mono_end:(BigInt(window.mono_end)-BigInt(Math.ceil((window.wall_end-end)*1e6))).toString()});
-    }
+    // Narrow only the local timer via remaining(); forward the original
+    // 30s window to the backend so readControlWindow validation passes.
+    const originEnd=originRestriction?Math.floor(Math.min(window.wall_end,originRestriction.validUntil)):undefined;
     const remaining=()=>{
       if(!active||request.signal.aborted)return fail();
-      const ms=Math.min(controlWindowRemaining(window),originRestriction?originRestriction.validUntil-Date.now():Infinity,profile?instant(profile.expires_at)-Date.now():Infinity,profile?instant(profile.original_horizon)-Date.now():Infinity,installed?installedEmployeeRecipientHorizonV1(installed)-Date.now():Infinity);
+      const ms=Math.min(controlWindowRemaining(window),originRestriction?originRestriction.validUntil-Date.now():Infinity,profile?instant(profile.expires_at)-Date.now():Infinity,profile?instant(profile.original_horizon)-Date.now():Infinity,installed?installedEmployeeRecipientHorizonV1(installed)-Date.now():Infinity,originEnd!==undefined?originEnd-Date.now():Infinity);
       if(ms<=0)return fail();return Math.max(1,Math.floor(ms));
     };
     const originMatches=()=>profile&&request.headers.get('origin')===profile.web_origin&&new URL(request.url).origin===profile.web_origin;
@@ -136,7 +135,7 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
         response=next();for(const {name,value,options}of refreshedCookies.values())response.cookies.set(name,value,options);
       }},
     });
-    const actualProjectUrl:unknown=Reflect.get(client,'supabaseUrl');if(actualProjectUrl!==url)return unavailableControl();
+    const actualProjectUrl:unknown=Reflect.get(client,'supabaseUrl');if(typeof actualProjectUrl!=='string'||actualProjectUrl!==url)return unavailableControl();
     const aborted=()=>new Promise<never>((_,reject)=>{
       const rejectAbort=()=>reject(new Error('Replacement control unavailable'));controller.signal.addEventListener('abort',rejectAbort,{once:true});if(controller.signal.aborted)rejectAbort();
     });
@@ -145,10 +144,10 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
     if(indexed){
       const {getUniqueEmployeeForAuthUserV1}=await Promise.race([import('./lib/auth-guard'),aborted()]);remaining();
       const employee=await Promise.race([getUniqueEmployeeForAuthUserV1(result.data.user.id),aborted()]);remaining();
-      if(!employee)return unavailableControl();
+      if(!employee)return proxyDiag('no-employee');
       installed=readInstalledEmployeeBindingV1(kind,{configuredProjectUrl:url,actualProjectUrl,verifiedUserId:result.data.user.id,employeeId:employee.id,disabledAt:employee.disabledAt});profile=installed.profile;
       if(timer)clearTimeout(timer);timer=setTimeout(stop,remaining());
-      remaining();if(!originMatches()||url!==profile.project_url)return unavailableControl();
+      remaining();if(!originMatches()||url!==profile.project_url)return proxyDiag('origin-mismatch');
       const currentEmployee=await Promise.race([getUniqueEmployeeForAuthUserV1(result.data.user.id),aborted()]);remaining();
       if(!currentEmployee||currentEmployee.id!==profile.employee_id||currentEmployee.disabledAt!==null||canonicalJson(rereadInstalledEmployeeBindingV1(installed)?.profile)!==canonicalJson(profile))return unavailableControl();
     }else{
@@ -160,6 +159,7 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
   finally{active=false;if(timer)clearTimeout(timer);controller.abort();request.signal.removeEventListener('abort',stop);}
 }
 function fail():never{throw new Error('Replacement control unavailable');}
+function proxyDiag(_reason:string):Response{return unavailableControl();}
 
 export const config = {
   matcher: [

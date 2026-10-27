@@ -52,7 +52,7 @@ def test_actual_next_two_recipients_workspace_and_independent_revocation(admin_u
             (tmp_path/'phase-cleanup.json').write_bytes(canonical_bytes(dict(database=database,absent=True,outer_environment_restored=all(os.environ.get(key)==value for key,value in original.items()))))
 
 
-def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,generation,settings,certificates,tmp_path):
+def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,generation,settings,certificates,tmp_path,tunnel_port):
     """Fixed test-only live seam; baseline server/recipient remain untouched."""
     from oracle_brain.hosting.connected_answer_service_v1 import protected_connected_answer_server_v1
     from dev.oracle2.test_worker_postgres_fixture import owned_worker_database
@@ -95,7 +95,16 @@ def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,g
                 ext=protected(str(index)+'.ext',('subjectAltName=URI:'+uri+'\nextendedKeyUsage=clientAuth\nbasicConstraints=critical,CA:FALSE\n').encode())
                 openssl('x509','-req','-in',csr,'-CA',certificates/'ca.pem','-CAkey',certificates/'ca.key','-CAcreateserial','-out',cert,'-days','1','-extfile',ext)
                 key.chmod(0o600);cert.chmod(0o600)
-                installed=install_answer(state,own,h,readonly,generation,certificates,directory/('answer-'+str(index)),peer_certificate=cert,peer_key=key,peer_uri=uri,server_certificate=Path(settings.peer.server_certificate.path),listen_host='::1')
+                # Unique graph client key-pair per recipient (same WORKER URI the
+                # FalkorDB TLS listener accepts): separate TLS sessions so closing
+                # one answer server's pool cannot poison the peer's handshake.
+                gkey,gcsr,gcert=(directory/(str(index)+'-graph'+name) for name in ('.key','.csr','.pem'))
+                openssl('req','-newkey','rsa:2048','-nodes','-keyout',gkey,'-out',gcsr,'-subj','/CN=Invented workspace graph recipient')
+                from test_hosting_boundary import WORKER as _W
+                gext=protected(str(index)+'-graph.ext',('subjectAltName=URI:'+_W+'\nextendedKeyUsage=clientAuth\nbasicConstraints=critical,CA:FALSE\n').encode())
+                openssl('x509','-req','-in',gcsr,'-CA',certificates/'ca.pem','-CAkey',certificates/'ca.key','-CAcreateserial','-out',gcert,'-days','1','-extfile',gext)
+                gkey.chmod(0o600);gcert.chmod(0o600)
+                installed=install_answer(state,own,h,readonly,generation,certificates,directory/('answer-'+str(index)),peer_certificate=cert,peer_key=key,peer_uri=uri,server_certificate=Path(settings.peer.server_certificate.path),listen_host='::1',graph_certificate=gcert,graph_key=gkey)
                 owned=protected_connected_answer_server_v1(installed)
                 thread=threading.Thread(target=owned.serve_forever,kwargs={'poll_interval':.01});thread.start()
                 servers.append(owned);threads.append(thread)
@@ -104,7 +113,7 @@ def exercise_workspace_next_recipients_v1(*,admin_url,state,authority,readonly,g
                 assert after.model_content_hash==state['manifest'].content_hash and time.monotonic()<setup_end
         assert len({h['actor'] for h in histories})==2 and all(h['actor']!=settings.config.principal_id for h in histories)
         proof_end=min(state['ctx'].expires_at,state['q']['admission'].expires_at)
-        metadata=dict(proof_valid_until=proof_end.isoformat(),scratch=str(directory),recipients=recipients,web_database_url=employee.web_database_url,server_key_file=settings.peer.server_key.path,server_certificate_file=settings.peer.server_certificate.path,client_ca_file=settings.peer.client_ca.path,workflow_fixture='workspace-artwork-rework-v1',workflow_quote=__import__('test_workspace_workflow_fixture_v1').QUOTE,processes=[dict(process_id=p['process_id'],label=p['label']) for p in state['q']['payload']['consolidation_core']['model']['processes']])
+        metadata=dict(proof_valid_until=proof_end.isoformat(),scratch=str(directory),recipients=recipients,web_database_url=employee.web_database_url,server_key_file=settings.peer.server_key.path,server_certificate_file=settings.peer.server_certificate.path,client_ca_file=settings.peer.client_ca.path,workflow_fixture='workspace-artwork-rework-v1',workflow_quote=__import__('test_workspace_workflow_fixture_v1').QUOTE,processes=[dict(process_id=p['process_id'],label=p['label']) for p in state['q']['payload']['consolidation_core']['model']['processes']],tunnel_port=tunnel_port)
         metadata_path=protected('metadata.json',canonical_bytes(metadata))
         bundle=protected('synthetic-ca-bundle.pem',(certificates/'ca.pem').read_bytes()+Path(employee.database_root_ca).read_bytes())
         def monitor():
