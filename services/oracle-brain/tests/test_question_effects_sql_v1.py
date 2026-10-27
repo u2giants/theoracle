@@ -57,6 +57,7 @@ def historical_claim_for(x,job,valid_at,known_at):
   return c.execute('SELECT oracle2.claim_question_effect_v1(%s,%s,%s,%s,%s,%s)',(x['admission'],x['event']['event_id'],valid_at,known_at,canonical_bytes(job),datetime.now(timezone.utc)+timedelta(seconds=15))).fetchone()[0]
 
 
+
 def test_actual_question_owner_has_no_runtime_grants_or_issued_admissions(admin_url):
  with psycopg.connect(admin_url) as c:
   assert c.execute('SELECT count(*) FROM oracle2.question_effect_admissions_v1').fetchone()==(0,)
