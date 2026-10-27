@@ -84,15 +84,12 @@ try{
  assert.ok(htmlPacket&&html.includes(htmlPacket.checked_at));assert.equal(htmlPacket.company_policy,false);
  const negative=await a.evaluate(async({endpoint,body})=>{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body});return response.status;},{endpoint,body:query({principal_id:recipients[1]!.principal_id})});assert.equal(negative,503);
  const foreignProcess=await a.evaluate(async({endpoint,body})=>{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body});return response.status;},{endpoint,body:query({operation:'process',process_id:'not-in-this-model'})});assert.equal(foreignProcess,503);
- {const net=await import('node:net');await new Promise<void>((resolve,reject)=>{const probe=net.createConnection({host:'127.0.0.1',port:meta.tunnel_port},()=>{console.error('tunnel1 free slots = 8 (accept ok)');probe.destroy();resolve();});probe.on('error',reject);probe.setTimeout(3000,()=>{probe.destroy();reject(new Error('tunnel probe timeout'));});});}
  await marker('disable-a');await action(a,'Read current knowledge',0,503);
- {const net=await import('node:net');const t0=Date.now();await new Promise<void>((resolve,reject)=>{const probe=net.createConnection({host:'127.0.0.1',port:meta.tunnel_port},()=>{console.error('TUNNEL-PROBE TCP ok in '+(Date.now()-t0)+'ms');probe.destroy();resolve();});probe.on('error',(e)=>{console.error('TUNNEL-PROBE TCP fail in '+(Date.now()-t0)+'ms: '+e.message);reject(e);});probe.setTimeout(3000,()=>{probe.destroy();reject(new Error('tunnel TCP probe timeout'));});});}
  await action(b,'Read current knowledge',1);
  // Only this invented disabled_at negative is restored; every original ID,
  // token/profile/admission/expiry remains unchanged. No authority is renewed.
  await marker('restore-a');await action(a,'Read current knowledge',0);await action(a,'Reported process map',0);await a.getByRole('img',{name:'Reported process map',exact:true}).waitFor();
  await marker('revoke-a');
- {const net=await import('node:net');await new Promise<void>((resolve,reject)=>{const probe=net.createConnection({host:'127.0.0.1',port:meta.tunnel_port},()=>{console.error('REVOKE-PROBE TCP ok');probe.destroy();resolve();});probe.on('error',(e)=>{console.error('REVOKE-PROBE TCP fail: '+e.message);reject(e);});probe.setTimeout(3000,()=>{probe.destroy();reject(new Error('revoke probe timeout'));});});}
  const aDownloads=downloadCounts[0];await action(a,'Export process with evidence',0,503);assert.equal(downloadCounts[0],aDownloads);await action(a,'Read current knowledge',0,503);assert.equal(await a.getByRole('img',{name:'Reported process map',exact:true}).count(),0);await action(b,'Read current knowledge',1);
  assert.equal(await a.getByRole('button',{name:'Export evidence CSV',exact:true}).count(),0);
  const absent=await browser.newContext({ignoreHTTPSErrors:true});try{assert.equal((await absent.request.post(origin+endpoint,{headers:{Origin:origin,'Content-Type':'application/json'},data:query()})).status(),503);}finally{await absent.close();}

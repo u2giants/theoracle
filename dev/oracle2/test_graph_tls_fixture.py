@@ -7,12 +7,6 @@ from contextlib import contextmanager
 import select,socket,ssl,threading,time
 from dev.oracle2.test_readonly_graph_fixture import owned_target
 
-_DIAG='/tmp/fixture-diag.log'
-def _diag(msg):
-    try:
-        with open(_DIAG,'a') as f:f.write('[%.3f] %s\n'%(time.monotonic(),msg))
-    except Exception:pass
-
 @contextmanager
 def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
     _,target=owned_target(container,admin_url)
@@ -33,7 +27,6 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             with _sem_lock:
                 _sem_acquired+=1
                 if conn_id is not None:_conn_track[conn_id]=(time.monotonic(),None)
-            _diag('sem acquire #%d (live=%d)'%(_sem_acquired,_sem_acquired-_sem_released))
         return ok
     def _sem_release(conn_id=None):
         nonlocal _sem_released
@@ -43,10 +36,6 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             if conn_id is not None and conn_id in _conn_track:
                 _conn_track[conn_id]=(_conn_track[conn_id][0],time.monotonic())
             live=_sem_acquired-_sem_released
-            if live==0:
-                _diag('PROOF sem_acquired=%d sem_released=%d live=0'%(_sem_acquired,_sem_released))
-            else:
-                _diag('sem release #%d (live=%d)'%(_sem_released,live))
     def serve(raw):
         remote=None;client=raw;conn_id=threading.get_ident();track_id=id(raw);released=False
         def _safe_release():
@@ -58,37 +47,27 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
             raw.settimeout(1)
             hs_start=time.monotonic()
             client=track(server_context.wrap_socket(raw,server_side=True))
-            _diag('serve[%d] handshake ok in %.3fs'%(conn_id,time.monotonic()-hs_start))
             uris=[v for k,v in client.getpeercert().get('subjectAltName',()) if k=='URI']
             if uris!=[expected_client_uri]:raise PermissionError('actual graph tunnel client URI differs')
             remote=track(socket.create_connection(('127.0.0.1',target.port),timeout=1))
             client.settimeout(.5);remote.settimeout(.5)
-            _diag('serve[%d] pump start'%conn_id)
             last_data=time.monotonic()
             while not stop.is_set():
-                # select for fast data waiting; recv for EOF detection through OpenSSL
                 ready,_,_=select.select([client,remote],[],[],.5)
                 if not ready:
-                    # Safety net: if no data for 10s, assume peer is gone.
-                    # Primary release is via recv() EOF/error on real disconnect;
-                    # this only catches connections where OpenSSL swallows FIN.
-                    if time.monotonic()-last_data>10:
-                        _diag('serve[%d] idle timeout'%conn_id);return
+                    if time.monotonic()-last_data>10:return
                     continue
                 for source in ready:
                     try:data=source.recv(65536)
                     except (socket.timeout,ssl.SSLWantReadError,BlockingIOError):continue
-                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError) as exc:
-                        _diag('serve[%d] recv dead=%s'%(conn_id,type(exc).__name__));return
-                    if not data:_diag('serve[%d] peer closed'%conn_id);return
+                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError):return
+                    if not data:return
                     last_data=time.monotonic()
                     dest=remote if source is client else client
                     try:dest.sendall(data)
                     except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
-                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError) as exc:
-                        _diag('serve[%d] send dead=%s'%(conn_id,type(exc).__name__));return
-        except (OSError,ValueError,PermissionError) as exc:
-            _diag('serve[%d] exc=%s:%s'%(conn_id,type(exc).__name__,exc))
+                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError):return
+        except (OSError,ValueError,PermissionError):pass
         finally:
             for sock in (client,remote,raw):
                 if sock is not None:
@@ -96,30 +75,22 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                     try:sock.close()
                     except OSError:pass
             _safe_release()
-            _diag('serve[%d] done active=%d'%(conn_id,len(active)))
     def accept():
         while not stop.is_set():
             try:raw,_=listener.accept()
             except socket.timeout:continue
             except OSError as exc:
-                _diag('accept OSError=%s:%s stop=%s'%(type(exc).__name__,exc,stop.is_set()))
                 if stop.is_set():return
                 continue
             if not _sem_acquire(id(raw)):
-                _diag('accept semaphore full, rejecting');raw.close();continue
-            _diag('accept ok port=%s'%listener.getsockname()[1])
+                raw.close();continue
+
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
             workers.append(worker);worker.start()
     thread=threading.Thread(target=accept,daemon=False);thread.start()
-    _diag('fixture started port=%d accept_thread_alive=%s'%(listener.getsockname()[1],thread.is_alive()))
     try:yield listener.getsockname()[1]
     finally:
         stop.set();listener.close()
-        _diag('fixture stopping accept_thread_alive=%s sem_acquired=%d sem_released=%d live=%d'%(thread.is_alive(),_sem_acquired,_sem_released,_sem_acquired-_sem_released))
-        with _sem_lock:
-            for tid,(ts,rel) in _conn_track.items():
-                if rel is None:
-                    _diag('LEAKER conn=%d acquired=%.3f NEVER released'%(tid,ts))
         with lock:sockets=list(active)
         for sock in sockets:
             try:sock.shutdown(socket.SHUT_RDWR)
