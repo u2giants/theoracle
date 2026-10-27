@@ -73,7 +73,7 @@ def private(path,raw):
 def participation_sql(tmp_path,request):
     now=datetime.now(timezone.utc)
     options=getattr(request,'param',{})
-    capture_seconds=options.get('capture_seconds',25) if type(options) is dict else 25
+    capture_seconds=options.get('capture_seconds',10) if type(options) is dict else 10
     assert type(capture_seconds) is int and 10<=capture_seconds<=110
     x=dict(admin=os.environ['ORACLE2_TEST_ADMIN_URL'],workspace=uuid4(),owner=uuid4(),root=uuid4(),meeting=uuid4(),
         account='invented-'+uuid4().hex,bot=uuid4(),runtime='a'*64,registry='b'*64,until=now+timedelta(minutes=2),capture_until=now+timedelta(seconds=capture_seconds))
@@ -490,12 +490,12 @@ def test_actual_late_private_wire_finishes_as_orphan_without_sql_receipt(partici
     raw=b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}'
     original=artifact_storage._write_private_at;writes=[]
     def finish_late(*args,**kwargs):
-        result=original(*args,**kwargs);writes.append(True);time.sleep(3.1);return result
+        result=original(*args,**kwargs);writes.append(True);time.sleep(1.1);return result
     with monkeypatch.context() as patch:
         patch.setattr(artifact_storage,'_write_private_at',finish_late)
         with pytest.raises(ParticipationOutcomeUnknown):
             f.receipt_v1(intent,claim_event_id=UUID(claim.metadata['claim_event_id']),operation=uuid4(),raw_wire=raw,
-                caller_deadline=datetime.now(timezone.utc)+timedelta(seconds=3))
+                caller_deadline=datetime.now(timezone.utc)+timedelta(seconds=1))
     assert writes==[True]
     assert list(x['private'].glob('meeting-participation/**/provider-response.wire'))[0].read_bytes()==raw
     with admin(x) as c:

@@ -308,7 +308,7 @@ def test_actual_provider_rpc_can_exceed_five_seconds_without_renewing_horizon(co
     x,settings,job=compiler_worker
     assert settings.clients['census'].binding.timeout==90.0
     original=job.original_horizon
-    x['state']['after_post']=lambda:time.sleep(5.2)
+    x['state']['after_post']=lambda:time.sleep(5.01)
     PurposeJourneyCustodyV2(settings).admit(job.job_id)
     row=run_purpose_worker_once_v2(settings)
     assert row['state']=='awaiting-external-phase-admission' and x['state']['posts']==1
@@ -324,7 +324,7 @@ def test_actual_worker_short_original_job_deadline_wins_over_long_provider_rpc(a
     x=native_census_startup;x['worker_job_seconds']=4
     settings,jobs=make_initial_compiler_worker_v2(admin_url,x,tmp_path/'short-worker');job=jobs[0]
     original=job.original_horizon
-    x['state']['after_post']=lambda:time.sleep(5.5)
+    x['state']['after_post']=lambda:time.sleep(4.5)
     custody=PurposeJourneyCustodyV2(settings);custody.admit(job.job_id)
     with pytest.raises((PermissionError,TimeoutError,OSError)):
         run_purpose_worker_once_v2(settings)
@@ -399,7 +399,7 @@ def test_actual_compiler_final_current_proof_follows_controlled_slow_validation(
     def controlled_validation(*args):
         # Exceed the genuine fixture parent's <=5s observation horizon. This
         # is test timing only, never an operational expiry/clock mutation.
-        time.sleep(5.05)
+        time.sleep(5.01)
         if revoke_after_validation:
             with psycopg.connect(admin_url) as conn:
                 conn.execute('DELETE FROM oracle2.hosting_role_source_admissions WHERE role_name=%s AND source_id=%s',
@@ -432,7 +432,7 @@ def test_actual_compiler_v3_window_separates_freshness_and_original_operation(
     with psycopg.connect(admin_url) as conn:
         conn.execute("UPDATE oracle2.hosting_role_source_admissions SET expires_at=LEAST(expires_at,clock_timestamp()+interval '30 seconds') WHERE role_name=%s",
             (settings.config.expected_session_role,))
-    time.sleep(5.05)
+    time.sleep(5.01)
     assert first.current_until<datetime.now(timezone.utc)
     fresh=settings.custody_window_v3(job)
     assert datetime.now(timezone.utc)<fresh.current_until<fresh.operation_horizon<first.operation_horizon
@@ -472,7 +472,7 @@ def test_qualified_read_boundary_consolidates_observer_but_keeps_actual_source_s
             with psycopg.connect(admin_url) as conn:
                 conn.execute('DELETE FROM oracle2.hosting_role_source_admissions WHERE role_name=%s AND source_id=%s',
                     (settings.config.expected_session_role,job.source_refs[2].source_id))
-        else:time.sleep(5.05)
+        else:time.sleep(5.01)
         return job.original_horizon
     monkeypatch.setattr(guard.qualified,'valid_until',controlled_validation)
     # Mock only expensive pure summary semantics; no private artifact is seeded.
