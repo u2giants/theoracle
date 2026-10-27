@@ -6,7 +6,8 @@ from uuid import uuid4
 import pytest
 from oracle_brain.hosting import replacement_result_service_v1 as svc_mod
 from oracle_brain.hosting.replacement_result_service_v1 import (
-    ProtectedReplacementResultServiceV1,_ResultOwnedLoopV1,_target_identity)
+    ProtectedReplacementResultServiceV1,_ResultOwnedLoopV1,_target_identity,
+    _admit_owned_result_v1)
 from oracle_brain.hosting.replacement_result_settings_v1 import ProtectedReplacementResultSettingsV1
 from oracle_brain.hosting.replacement_result_v1 import ProtectedReplacementResultRequestV1,PROTOCOL
 from oracle_brain.operating_model.contracts import (
@@ -83,7 +84,7 @@ def test_pending_close_keeps_owned_loop_alive_then_observed_shutdown_joins():
         with pytest.raises(PermissionError,match='cleanup remains unknown'):future.result(timeout=6)
         actual=next(iter(s._owned_closes))
         assert s._cleanup_unknown and not actual.done() and owner.thread.is_alive()
-        with pytest.raises(PermissionError,match='lifecycle unavailable'):
+        with pytest.raises(PermissionError,match='cleanup requires observation'):
             owner.result(b'not-a-peer',b'{}',absolute_monotonic_deadline=time.monotonic()+10)
         assert tuple(s._owned_closes.values())==(projection,)
         with pytest.raises(PermissionError,match='tasks remain pending'):owner.close()
@@ -340,3 +341,69 @@ def test_confirmation_change_during_cleanup_refuses_tuple(monkeypatch,tmp_path):
     with pytest.raises(PermissionError,match='result changed during owned cleanup'):
         asyncio.run(service.handle_result_v1(_CLIENT_DER,raw))
     assert state['closed']
+
+
+def test_settled_unknown_cleanup_does_not_poison_later_requests():
+    """PR201: a settled close failure must not permanently deny later valid reads."""
+    async def run():
+        s=service()
+        async def bad_close():raise OSError('invented close failure')
+        projection=SimpleNamespace(connection=SimpleNamespace(close=bad_close))
+        with pytest.raises(PermissionError,match='cleanup failed'):
+            await s._close_owned_projection(projection,datetime.now(timezone.utc)+timedelta(seconds=10))
+        assert s._cleanup_unknown
+        # Close task is done (observed failure). Later admission must clear the
+        # stale deny so an expected negative cannot poison the backend.
+        _admit_owned_result_v1(s)
+        assert not s._cleanup_unknown
+    asyncio.run(run())
+
+
+def test_pending_unknown_cleanup_still_denies_until_settled():
+    """Fail-closed remains while owned cleanup is still in flight and unknown."""
+    s=service();owner=_ResultOwnedLoopV1(s);started=threading.Event();release=threading.Event()
+    async def slow_close():
+        started.set()
+        while not release.is_set():await asyncio.sleep(.01)
+    projection=SimpleNamespace(connection=SimpleNamespace(close=slow_close))
+    future=asyncio.run_coroutine_threadsafe(s._close_owned_projection(projection,
+        datetime.now(timezone.utc)+timedelta(seconds=20)),owner.loop)
+    try:
+        assert started.wait(1)
+        with pytest.raises(PermissionError,match='cleanup remains unknown'):future.result(timeout=6)
+        assert s._cleanup_unknown
+        with pytest.raises(PermissionError,match='cleanup requires observation'):
+            owner.result(b'not-a-peer',b'{}',absolute_monotonic_deadline=time.monotonic()+10)
+        with pytest.raises(PermissionError,match='cleanup requires observation'):
+            _admit_owned_result_v1(s)
+    finally:
+        release.set();owner.close()
+    assert not any(not t.done() for t in s._owned_closes)
+
+
+def test_foreign_process_expected_negative_then_valid_read_succeeds():
+    """PR201 gate: foreignProcess negative + restore must allow a later 200 read.
+
+    The foreign-process case raises PermissionError from the request body while
+    the owned projection close succeeds. That expected negative must leave the
+    backend able to serve the next valid request (post restore-a 'Read current
+    knowledge'). A genuinely corrupted cleanup still denies its own request.
+    """
+    async def run():
+        s=service();seen=[]
+        async def close():seen.append('closed')
+        projection=SimpleNamespace(connection=SimpleNamespace(close=close))
+        with pytest.raises(PermissionError,match='process outside current qualified model'):
+            try:raise PermissionError('process outside current qualified model')
+            finally:await s._close_owned_projection(projection,datetime.now(timezone.utc)+timedelta(seconds=10))
+        assert seen==['closed'] and not s._cleanup_unknown and not s._owned_closes
+        # Subsequent valid read admission succeeds (post restore-a).
+        _admit_owned_result_v1(s)
+        assert not s._cleanup_unknown
+        # Genuinely corrupted cleanup still fails closed for that request.
+        async def bad_close():raise OSError('invented corruption')
+        bad=SimpleNamespace(connection=SimpleNamespace(close=bad_close))
+        with pytest.raises(PermissionError,match='cleanup failed'):
+            await s._close_owned_projection(bad,datetime.now(timezone.utc)+timedelta(seconds=10))
+        assert s._cleanup_unknown
+    asyncio.run(run())

@@ -94,6 +94,7 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','021_meeting_participation.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','026_operational_recovery.sql','027_legacy_migration.sql')
 
 
+
 def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
     for stage in ('W10','W12','all','documentary','W04'):
         groups=verifier.test_groups(stage)
@@ -200,6 +201,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
     assert verifier.SYNTHETIC_MIGRATIONS[-12:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','021_meeting_participation.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','026_operational_recovery.sql','027_legacy_migration.sql')
+
 
 
 @pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])

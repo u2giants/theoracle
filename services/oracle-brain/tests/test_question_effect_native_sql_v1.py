@@ -62,6 +62,7 @@ def actual_factory_ledger(admin_url,tmp_path,monkeypatch):
     assert connection.execute('SELECT datname FROM pg_database WHERE datname=%s',(database,)).fetchall()==[]
    (tmp_path/'question-cost-phase-cleanup.json').write_bytes(canonical_bytes(dict(database=database,absent=True,outer_environment_restored=True)))
 
+
 @pytest.fixture
 def native_question(question_case,actual_factory_ledger,tmp_path,monkeypatch,request):
  x=question_case

@@ -31,7 +31,7 @@ def _connection_v1(url,deadline,*,require_pinned_address=False):
         raise PermissionError("protected SQL cannot consume PG environment defaults")
     params=psycopg.conninfo.conninfo_to_dict(url)
     allowed={'host','hostaddr','port','dbname','user','password','sslmode','sslrootcert','connect_timeout','application_name'}
-    if (set(params)-allowed or not all(params.get(k) for k in ('host','port','dbname','user','sslmode','sslrootcert'))
+    if (set(params)-allowed or not all(params.get(k) for k in ('host','port','dbname','user','password','sslmode','sslrootcert'))
             or not Path(params.get('sslrootcert','')).is_absolute() or not params.get('host') or require_pinned_address and not params.get('hostaddr')
             or any(',' in params.get(k,'') for k in ('host','hostaddr','port'))
             or params.get('sslmode')!='verify-full' or not params.get('port','5432').isdigit()):

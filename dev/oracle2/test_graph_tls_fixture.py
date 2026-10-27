@@ -13,8 +13,8 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri,dia
     if not isinstance(server_context,ssl.SSLContext) or server_context.verify_mode!=ssl.CERT_REQUIRED:
         raise PermissionError('mutually verified owned graph TLS fixture required')
     listener=socket.socket();listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-    listener.bind(('127.0.0.1',0));listener.listen(8);listener.settimeout(.1)
-    stop=threading.Event();lock=threading.Lock();active=set();workers=[];limit=threading.BoundedSemaphore(8)
+    listener.bind(('127.0.0.1',0));listener.listen(32);listener.settimeout(.1)
+    stop=threading.Event();lock=threading.Lock();active=set();workers=[];overflow=[];limit=threading.BoundedSemaphore(32)
     tls_diagnostics=[] if diagnostics is None else diagnostics
     def track(sock):
         with lock:active.add(sock)
@@ -72,12 +72,21 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri,dia
             try:raw,_=listener.accept()
             except socket.timeout:continue
             except OSError:return
-            if not limit.acquire(blocking=False):raw.close();continue
+            if not limit.acquire(blocking=False):
+                raw.close();overflow.append(1);continue
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
-            workers.append(worker);worker.start()
+            workers.append(worker)
+            try:worker.start()
+            except BaseException:
+                overflow.append(2)
+                with lock:active.discard(raw)
+                try:raw.close()
+                except OSError:pass
+                limit.release()
     thread=threading.Thread(target=accept,daemon=False);thread.start()
     try:yield listener.getsockname()[1]
     finally:
+        if overflow:print('owned-graph-tls-overflow',len(overflow),file=__import__('sys').stderr,flush=True)
         stop.set();listener.close()
         with lock:sockets=list(active)
         for sock in sockets:
