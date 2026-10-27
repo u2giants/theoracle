@@ -104,13 +104,12 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
     const kind:EmployeeBindingPurposeV1=request.nextUrl.pathname===MEETING_CONTROL_PATH?'meeting':request.nextUrl.pathname===CONNECTED_ANSWER_PATH?'answer':request.nextUrl.pathname===CONNECTED_MCP_PATH?'mcp-answer':conversation?'conversation':request.nextUrl.pathname===MODEL_REVIEW_PATH?'review':upload?'upload':viewer?'viewer':'control';
     const configuredProject=process.env.NEXT_PUBLIC_SUPABASE_URL;
     const originRestriction=indexed?admitEmployeeRecipientOriginV1(kind,configuredProject??'',request.headers.get('origin'),request.url):undefined;
-    if(originRestriction){
-      const end=Math.floor(Math.min(window.wall_end,originRestriction.validUntil));
-      window=Object.freeze({...window,wall_end:end,mono_end:(BigInt(window.mono_end)-BigInt(Math.ceil((window.wall_end-end)*1e6))).toString()});
-    }
+    // Narrow only the local timer via remaining(); forward the original
+    // 30s window to the backend so readControlWindow validation passes.
+    const originEnd=originRestriction?Math.floor(Math.min(window.wall_end,originRestriction.validUntil)):undefined;
     const remaining=()=>{
       if(!active||request.signal.aborted)return fail();
-      const ms=Math.min(controlWindowRemaining(window),originRestriction?originRestriction.validUntil-Date.now():Infinity,profile?instant(profile.expires_at)-Date.now():Infinity,profile?instant(profile.original_horizon)-Date.now():Infinity,installed?installedEmployeeRecipientHorizonV1(installed)-Date.now():Infinity);
+      const ms=Math.min(controlWindowRemaining(window),originRestriction?originRestriction.validUntil-Date.now():Infinity,profile?instant(profile.expires_at)-Date.now():Infinity,profile?instant(profile.original_horizon)-Date.now():Infinity,installed?installedEmployeeRecipientHorizonV1(installed)-Date.now():Infinity,originEnd!==undefined?originEnd-Date.now():Infinity);
       if(ms<=0)return fail();return Math.max(1,Math.floor(ms));
     };
     const originMatches=()=>profile&&request.headers.get('origin')===profile.web_origin&&new URL(request.url).origin===profile.web_origin;
