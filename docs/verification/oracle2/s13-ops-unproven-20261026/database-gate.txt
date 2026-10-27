@@ -1,0 +1,2 @@
+ai-task-gates: note: no task class was declared; using the observed class "code".
+ai-task-gates: "database" allowed without AI reviewer (owner ruling 2026-10-14: database writes skip second-AI approval).

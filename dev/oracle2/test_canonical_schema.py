@@ -172,7 +172,29 @@ def bootstrap_canonical_test_schema(url,*,container_id=None,receipt_path=None):
         return _write_receipt(receipt_path,key,_RECEIPTS[key]) if receipt_path is not None else None
     inventory = _inventory_digest(files)
     with psycopg.connect(url) as connection:
+        existing=connection.execute("SELECT to_regclass('oracle2.processing_model_admissions_v1')").fetchone()[0]
+        if existing is not None:
+            # Cross-process adoption: a prior suite already DDL-applied this
+            # database. Require the sealed structural landmarks to be present
+            # (including 024/025 tables the catalog hash does not cover), then
+            # pin the observed catalog. No self-compare of inventory.
+            landmarks=('oracle2.processing_model_admissions_v1',
+                       'oracle2.question_effect_admissions_v1',
+                       'oracle2.recommendation_action_admissions_v1',
+                       'oracle2.recommendation_registrations_v1')
+            missing=[n for n in landmarks if connection.execute('SELECT to_regclass(%s)',(n,)).fetchone()[0] is None]
+            if missing:raise PermissionError('canonical test schema landmarks missing: '+','.join(missing))
+            pin_table=connection.execute("SELECT to_regclass('oracle2._test_schema_inventory')").fetchone()[0]
+            if pin_table is None:raise PermissionError('canonical test schema inventory pin table missing')
+            pin=connection.execute('SELECT inventory FROM oracle2._test_schema_inventory ORDER BY inventory LIMIT 2').fetchall()
+            if len(pin)!=1 or pin[0][0]!=inventory:raise PermissionError('canonical test schema inventory pin differs')
+            catalog=_catalog(connection)
+            _RECEIPTS[key]={'inventory':inventory,'catalog':catalog}
+            return _write_receipt(receipt_path,key,_RECEIPTS[key]) if receipt_path is not None else None
         for path in files:connection.execute(path.read_text())
+        connection.execute('CREATE TABLE IF NOT EXISTS oracle2._test_schema_inventory (inventory text NOT NULL)')
+        connection.execute('DELETE FROM oracle2._test_schema_inventory')
+        connection.execute('INSERT INTO oracle2._test_schema_inventory VALUES (%s)',(inventory,))
         catalog = _catalog(connection)
     # Return and remember only after actual DDL transaction commit/close and a
     # fresh exact ownership check. This invented-test receipt is never app authority.

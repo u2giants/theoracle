@@ -14,7 +14,8 @@ from oracle_brain.operating_model.consolidation_authority_v1 import Consolidatio
 from oracle_brain.operating_model.paid_sdk_embeddings_v3 import PaidProjectionEmbedderV3,verify_paid_sdk_embedding_v3
 from oracle_brain.operating_model.projection_delivery import signature
 from oracle_brain.operating_model.request_deadline_v1 import _request_fence_v1
-from oracle_brain.operating_model.sdk_projection import PaidConsolidationSDKProjectionV1,ConsolidatedMetadataSDKProjectionV1
+from oracle_brain.operating_model.sdk_projection import PaidConsolidationSDKProjectionV1,ConsolidatedMetadataSDKProjectionV1,ReadOnlyConnection
+ReadOnlyConnection._test_abort_close=True  # test-only: abortive close to avoid TLS close_notify poisoning shared tunnel
 from test_consolidation_sql_v1 import sql_qualified_v3,sql_qualified_serving_v3,prepared_qualified_model,RUNTIME,REGISTRY
 from test_connected_answer_sql_v1 import own_history
 from test_paid_sdk_embeddings_v3 import paid_case_for
@@ -35,7 +36,7 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
    valid_time='unknown',supporting_observations=[extraction.payload['observations'][0]['observation_id']])
    for extraction in ctx.extractions]
  state=prepared_qualified_model(admin_url,sql_qualified_v3,tmp_path,return_fixture=True,
-  assertion_factory=browser_assertions if proof_scope=='browser' else None)
+  assertion_factory=browser_assertions if proof_scope in ('browser','workspace-next-recipients') else None)
  m=state['manifest'];payload=state['q']['payload'];f=state['f']
  h,authority=own_history(admin_url,f)
  authority=ConsolidationAuthorityV1(h['url'],binding=replace(authority.binding,retained_semantic_admissions=state['q']['trusted_admission_hashes']),delivery_capability_body_hashes=authority.delivery_capability_body_hashes)
@@ -243,6 +244,15 @@ def _exercise_owned_answer_graph_v1(admin_url,sql_qualified_v3,tmp_path,bound_tl
          await revoked.load()
        finally:
         if revoked is not None:await revoked.close()
+      # Independent browser journey after BOTH original SDK requests close.
+      # Same live graph population; never extend/reuse either spent fence.
+      if proof_scope=='workspace-next-recipients':
+       from test_workspace_next_recipients_sql_v1 import exercise_workspace_next_recipients_v1
+       with owned_graph_tls(container,graph,server_context=tls,expected_client_uri=WORKER) as port2:
+        def tls_url2(url):
+         parsed=urlsplit(url);return urlunsplit(('rediss',parsed.netloc.rsplit('@',1)[0]+'@localhost:'+str(port2),'','',''))
+        readonly2=tls_url2(reader['ORACLE2_TEST_PROCESSING_READONLY_GRAPH_URL'])
+        exercise_workspace_next_recipients_v1(admin_url=admin_url,state=state,authority=authority,readonly=readonly2,generation=generation,settings=settings,certificates=certificates,tmp_path=tmp_path,tunnel_port=port2)
     finally:await projection.close()
  asyncio.run(run())
 

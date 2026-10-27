@@ -92,6 +92,10 @@ def validate_core_evidence(core, observations, findings):
         raise PermissionError('explicit qualified consolidation contract required')
     evidence={}
     for assertion in core.assertions:
+        # The recognized versioned measurement is actual captured assertion
+        # content. Malformed content cannot pass as an arbitrary string.
+        from .consultant.measurement_evidence_v1 import measurement_from_assertion_v1
+        measurement_from_assertion_v1(assertion)
         support=set(assertion.supporting_observations)
         oppose=set(assertion.opposing_observations)
         temporal=set(assertion.temporal_observations)

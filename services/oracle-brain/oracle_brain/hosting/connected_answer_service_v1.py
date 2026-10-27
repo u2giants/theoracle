@@ -43,9 +43,9 @@ class ProtectedConnectedAnswerServiceV1:
         if type(settings) is not ConnectedAnswerSettingsV1:raise TypeError('actual protected answer settings required')
         settings.current();self.settings=settings;self._owned_closes={};self._cleanup_unknown=False
     async def handle_answer_v1(self,raw):
-        from .replacement_result_service_v1 import _close_owned_projection_v1
+        from .replacement_result_service_v1 import _close_owned_projection_v1,_admit_owned_result_v1
         request_remaining_v1()
-        if self._cleanup_unknown:raise PermissionError('owned answer cleanup requires observation')
+        _admit_owned_result_v1(self)
         request=parse_answer_request_v1(raw);s=self.settings;c=s.config
         from .industry_answer_v1 import IndustryQuestionRequestV1,answer_industry_v1
         if type(request) is IndustryQuestionRequestV1:return await answer_industry_v1(self,request,raw)

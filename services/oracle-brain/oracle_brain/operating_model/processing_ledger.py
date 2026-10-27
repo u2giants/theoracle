@@ -14,6 +14,13 @@ from psycopg.types.json import Jsonb
 from .authority_adapter import ProcessingArtifactResolver
 from .contracts import ArtifactManifest,PROCESSING_ARTIFACT_KINDS,canonical_bytes,digest
 from .ledger import Ledger
+from .request_deadline_v1 import request_remaining_v1,sql_execute_current_v1
+from .protected_sql_connection_v1 import _connection_v1
+
+
+class ProcessingCommitUnknown(PermissionError):
+    """A write may exist. Read-only reconciliation only; never resubmit it."""
+
 
 
 @runtime_checkable
@@ -49,7 +56,8 @@ class ProcessingCompilerLedger(Ledger):
             can_read=lambda *a:False,current_source=processing_sources.current_for_processing,clock=clock)
 
     def persist(self,*,workspace_id,artifact_id,version,kind,payload,refs,permission_digest,
-                compiler_digest,dependencies=(),failed=False,before_commit=None):
+                compiler_digest,dependencies=(),failed=False,before_commit=None,caller_deadline=None):
+        protected=request_remaining_v1(required=False) is not None
         if 'consolidation_core' in payload:
             raise PermissionError('qualified temporal revisions require canonical consolidation owner')
         if (kind not in PROCESSING_ARTIFACT_KINDS or not isinstance(workspace_id,UUID)
@@ -77,6 +85,11 @@ class ProcessingCompilerLedger(Ledger):
             compiler_digest=compiler_digest,dependency_digest=hashlib.sha256(dep_bytes).hexdigest(),
             content_hash=seal,private_object_key=key,state='failed' if failed else 'ready')
         deadline=self.processing_sources.binding.expires_at
+        if caller_deadline is not None:
+            from .request_deadline_v1 import sql_remaining_v1
+            sql_remaining_v1(caller_deadline)
+            if caller_deadline>deadline:raise PermissionError("caller deadline cannot extend compiler authority")
+            deadline=caller_deadline
         if (kind in {'processing_extraction_v1','processing_failed_extraction_v1'}
                 and self.processing_extraction_guard is not None):
             now=self.clock()
@@ -90,27 +103,48 @@ class ProcessingCompilerLedger(Ledger):
             until=self._validate_processing_guard(self.processing_compile_guard,manifest,payload,now)
             deadline=min(deadline,until)
         # Object storage may involve a network. It occurs BEFORE any SQL hold.
+        request_remaining_v1(required=False)
         if self.blobs.put(workspace_id,payload)!=(key,seal):
             raise ValueError('private processing object identity differs')
-        with psycopg.connect(self.url) as conn:
-            self.processing_sources._check(conn)
-            actual=conn.execute('SELECT session_user').fetchone()[0]
-            if actual!=self.processing_sources.binding.expected_session_role:
-                raise PermissionError('compiler database connection identity differs')
-            row=conn.execute('SELECT oracle2.commit_processing_candidate(%s,%s,%s,%s,%s,%s,%s,%s)',
-                (Jsonb(manifest.model_dump(mode='json')),payload_bytes,ref_bytes,dep_bytes,
-                 Jsonb([r.model_dump(mode='json') for r in receipts.values()]),
-                 self.processing_sources.binding.runtime_hash,self.processing_sources.binding.source_registry_hash,
-                 deadline)).fetchone()
-            if not row or row[0]!=manifest.model_dump(mode='json'):
-                raise PermissionError('atomic processing persistence differs')
-            if before_commit:before_commit()
-            # Repeat SQL current-authority/lineage checks after any local callback.
-            current,current_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version,connection=conn)
-            if current!=manifest or set(current_refs)!=set(refs):raise PermissionError('processing persistence changed')
-            self.processing_sources._check(conn)
-            if conn.execute('SELECT clock_timestamp()<%s',(deadline,)).fetchone()[0] is not True:
-                raise PermissionError('processing/semantic authority expired before commit')
+        request_remaining_v1(required=False)
+        attempted=False
+        try:
+            connection_owner=(_connection_v1(self.url,deadline) if protected else psycopg.connect(self.url))
+            with connection_owner as conn:
+                self.processing_sources._check(conn)
+                actual=sql_execute_current_v1(conn,'SELECT session_user').fetchone()[0]
+                if actual!=self.processing_sources.binding.expected_session_role:
+                    raise PermissionError('compiler database connection identity differs')
+                attempted=True
+                row=sql_execute_current_v1(conn,'SELECT oracle2.commit_processing_candidate(%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (Jsonb(manifest.model_dump(mode='json')),payload_bytes,ref_bytes,dep_bytes,
+                     Jsonb([r.model_dump(mode='json') for r in receipts.values()]),
+                     self.processing_sources.binding.runtime_hash,self.processing_sources.binding.source_registry_hash,
+                     deadline)).fetchone()
+                if not row or row[0]!=manifest.model_dump(mode='json'):
+                    raise PermissionError('atomic processing persistence differs')
+                if before_commit:before_commit()
+                # Repeat SQL current-authority/lineage checks after any local callback.
+                current,current_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version,connection=conn)
+                if current!=manifest or set(current_refs)!=set(refs):raise PermissionError('processing persistence changed')
+                self.processing_sources._check(conn)
+                if sql_execute_current_v1(conn,'SELECT clock_timestamp()<%s',(deadline,)).fetchone()[0] is not True:
+                    raise PermissionError('processing/semantic authority expired before commit')
+            if protected:
+                # Actual first socket has closed. Never keep a SQL connection
+                # across private body validation or independent readback.
+                request_remaining_v1()
+                current,current_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
+                if current!=manifest or set(current_refs)!=set(refs):
+                    raise PermissionError('committed processing candidate is no longer current')
+                request_remaining_v1()
+                if self.clock()>=deadline:
+                    raise PermissionError('processing authority expired after actual close')
+        except Exception as error:
+            if protected and attempted:
+                raise ProcessingCommitUnknown('processing write outcome UNKNOWN; read-only reconcile; never resubmit') from error
+            raise
+
         return manifest
 
     def _validate_processing_guard(self,guard,manifest,payload,now):

@@ -1,0 +1,184 @@
+{
+  "synthetic_only": true,
+  "business_accepted": false,
+  "teams_producer": "UNQUALIFIED",
+  "project": "s13-ops-unproven-20261026",
+  "host": "edge-dev3",
+  "gates": {
+    "alert_firing_and_clearing": {
+      "scale_stages": 40,
+      "fired_codes": [
+        "cost_cap",
+        "failing:stage-04",
+        "failing:stage-05",
+        "failing:stage-06",
+        "failing:stage-07",
+        "failing:stage-08",
+        "stuck:stage-00",
+        "stuck:stage-01",
+        "stuck:stage-02",
+        "stuck:stage-03"
+      ],
+      "fired_count": 10,
+      "partial_clear_codes": [
+        "cost_cap",
+        "failing:stage-04",
+        "failing:stage-05",
+        "failing:stage-06",
+        "failing:stage-07",
+        "failing:stage-08"
+      ],
+      "cleared_codes": [],
+      "cleared_is_empty": true,
+      "tight_threshold_codes": [
+        "cost_cap",
+        "failing:stage-04",
+        "failing:stage-05",
+        "failing:stage-06",
+        "failing:stage-07",
+        "failing:stage-08",
+        "failing:stage-09",
+        "failing:stage-10",
+        "failing:stage-11",
+        "failing:stage-12",
+        "failing:stage-13",
+        "failing:stage-14",
+        "stuck:stage-00",
+        "stuck:stage-01",
+        "stuck:stage-02",
+        "stuck:stage-03",
+        "stuck:stage-09",
+        "stuck:stage-10",
+        "stuck:stage-11",
+        "stuck:stage-12",
+        "stuck:stage-13",
+        "stuck:stage-14"
+      ],
+      "tight_threshold_codes_count": 22
+    },
+    "retention_cutoff": {
+      "scale_records": 120,
+      "decisions": {
+        "purge": 50,
+        "keep": 66,
+        "hide": 4
+      },
+      "boundary": {
+        "at_cutoff": "purge",
+        "one_second_inside": "keep",
+        "one_second_outside": "purge"
+      },
+      "unknown_kind_fails_closed": true,
+      "naive_timestamp_fails_closed": true,
+      "tombstone_wins": true,
+      "legal_hold_defers_purge": true,
+      "ttl_none_keeps": true
+    },
+    "quota_accounting_after_restore": {
+      "pre_snapshot": {
+        "total_reserved_usd": "0.240000",
+        "status_counts": {
+          "completed": 17,
+          "failed": 7
+        },
+        "quota_exhausted_receipts": 1,
+        "quota_exhausted_diagnoses": 1,
+        "reserved_at_min": "2026-09-10T18:30:51.367731+00:00",
+        "reserved_at_max": "2026-10-26T18:30:51.367731+00:00",
+        "reservation_count": 24
+      },
+      "post_snapshot": {
+        "total_reserved_usd": "0.240000",
+        "status_counts": {
+          "completed": 17,
+          "failed": 7
+        },
+        "quota_exhausted_receipts": 1,
+        "quota_exhausted_diagnoses": 1,
+        "reserved_at_min": "2026-09-10T18:30:51.367731+00:00",
+        "reserved_at_max": "2026-10-26T18:30:51.367731+00:00",
+        "reservation_count": 24
+      },
+      "snapshots_identical": true,
+      "immutability_trigger_holds": true,
+      "retry_blocked_after_restore": true,
+      "retry_block_reason": "one correction requires a diagnosed failed receipt",
+      "reserved_maximum_preserved": true,
+      "reserved_maximum_value": "0.010000",
+      "quota_exhausted_receipt_and_diagnosis_preserved": true,
+      "restored_tables": 120,
+      "empty_tables_before_restore": 0,
+      "retention_on_restored_timestamps": {
+        "pre": {
+          "evaluated": 24,
+          "decisions": {
+            "purge": 9,
+            "keep": 15
+          }
+        },
+        "post": {
+          "evaluated": 24,
+          "decisions": {
+            "purge": 9,
+            "keep": 15
+          }
+        },
+        "identical": true
+      }
+    },
+    "cadence_aware_rpo": {
+      "backup_seconds": 0.138,
+      "restore_seconds": 1.374,
+      "rpo_exposure_seconds": 1.511,
+      "deliberate_gap_seconds": 1.5,
+      "pre_backup_events": 25,
+      "gap_events_committed_after_backup": 6,
+      "gap_events_survived_restore": 0,
+      "pre_backup_events_survived_restore": 25,
+      "max_sequence_after_restore": 25,
+      "lost_event_count": 6,
+      "exposure_is_measured_not_zero": true,
+      "production_formula": {
+        "worst_case_rpo_seconds": "= backup_interval_seconds (disaster at any cadence phase)",
+        "average_rpo_seconds": "= backup_interval_seconds / 2",
+        "disaster_during_backup_risk_seconds": "= backup_duration_seconds",
+        "measured_exercise_exposure_seconds": 1.511,
+        "deliberate_gap_sleep_seconds": 1.5,
+        "note": "Production RPO is bounded by the production backup cadence, not by restore speed. This exercise deliberately left a non-zero gap so the exposure is measured rather than the 0.0 s artifact of backing up immediately before the outage.",
+        "production_figure_status": "UNPROVEN \u2014 see what_would_be_needed",
+        "what_would_be_needed": [
+          "configured production backup interval (cadence) in seconds",
+          "measured production-scale backup duration",
+          "disaster exercise at an arbitrary cadence phase, not immediately post-backup",
+          "explicit statement of any synchronous replication or WAL shipping (none claimed)",
+          "confirmation that no post-backup ledger tail survives without a newer backup"
+        ],
+        "never_production_figures": {
+          "prior_exercise_rto_seconds": 1.275,
+          "prior_exercise_rpo_seconds": 0.0,
+          "statement": "The 1.275 s RTO and 0.0 s RPO recorded by the 2026-10-26 full-recovery exercise are exercise-specific and must NEVER be quoted as production figures."
+        }
+      }
+    },
+    "scale": {
+      "stages": 40,
+      "retention_records": 120,
+      "quota_rows": 24,
+      "events_pre_backup": 25,
+      "events_post_backup_gap": 6,
+      "dump_bytes": 1246665,
+      "dump_sha256": "7dfdeefc5321e3adcce4a6ffd8626b4eadf98cfb9ca2d374d7053cda084cc379"
+    }
+  },
+  "rows_proved": [
+    "4. Alerts / retention / quota operational exercise at synthetic scale",
+    "3. Production RPO honesty (cadence-aware measured proof; production figure remains UNPROVEN)"
+  ],
+  "rows_not_touched": [
+    "1. Live FalkorDB graph census (other S13 agent)",
+    "2. Real vector-model license (other S13 agent)",
+    "5. Source/runtime admission beyond metadata SQL (other S13 agent)",
+    "6. Business acceptance / company activation \u2014 owner hold",
+    "7. Real Teams producer qualification \u2014 UNQUALIFIED"
+  ]
+}

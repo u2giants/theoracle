@@ -13,25 +13,25 @@ import { createServer } from 'node:http';
 import * as https from 'node:https';
 import * as tls from 'node:tls';
 import { NextRequest } from 'next/server';
-import { CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS } from './replacement-control-window';
+import { controlWindowRemaining, CONTROL_WINDOW_HEADER, CONTROL_BYPASS_HEADERS } from './replacement-control-window';
 import { Readable } from 'node:stream';
 import { canonicalJson, sha256, type ServerBinding } from './replacement-server-binding';
 import * as route from '../app/api/consultant/replacement/v1/protected/control/route';
 
 const id='11111111-1111-4111-8111-111111111111', employee='22222222-2222-4222-8222-222222222222', hash='a'.repeat(64);
-const identity={user:id,employee,disabledAt:null as unknown,project:'https://invented-auth.example.test',error:false,calls:0,proxyCalls:0,lateCookie:false,refreshFailure:false,authFetchUrl:'',refreshDelay:0,lateDenied:false,multipleCookies:false};
+const identity={user:id,employee,disabledAt:null as unknown,project:'https://invented-auth.example.test',error:false,calls:0,proxyCalls:0,lateCookie:false,refreshFailure:false,authFetchUrl:'',refreshDelay:0,lateDenied:false,multipleCookies:false,uniqueCalls:0,disableAfterFirst:false,uniqueMissing:false,proxyProject:''};
 (globalThis as unknown as Record<string,unknown>).__routeAuthFixture=identity;
 const hooks=registerHooks({
   resolve(specifier,context,next){
     if(context.parentURL?.endsWith('/proxy.ts')&&specifier==='@supabase/ssr')return {url:'oracle-route-test:refresh',shortCircuit:true};
     if(context.parentURL?.includes('replacement-protected-client.ts')&&specifier==='./supabase/server')return {url:'oracle-route-test:auth',shortCircuit:true};
-    if(context.parentURL?.includes('replacement-protected-client.ts')&&specifier==='./auth-guard')return {url:'oracle-route-test:employee',shortCircuit:true};
+    if((context.parentURL?.includes('replacement-protected-client.ts')&&specifier==='./auth-guard')||(context.parentURL?.endsWith('/proxy.ts')&&specifier==='./lib/auth-guard'))return {url:'oracle-route-test:employee',shortCircuit:true};
     return next(specifier,context);
   },
   load(url,context,next){
-    if(url==='oracle-route-test:refresh')return {format:'module',shortCircuit:true,source:`export function createServerClient(url,key,options){const f=globalThis.__routeAuthFixture;return {supabaseUrl:url,auth:{async getUser(){f.proxyCalls++;if(f.refreshDelay)await new Promise(r=>setTimeout(r,f.refreshDelay));if(f.authFetchUrl)await options.global.fetch(f.authFetchUrl);if(f.lateCookie){setTimeout(()=>{try{options.cookies.setAll([{name:'late',value:'never'}])}catch{f.lateDenied=true}},30);throw new Error('private refresh failure')}if(f.refreshFailure)throw new Error('private refresh failure');if(f.multipleCookies)options.cookies.setAll([{name:'first-refresh',value:'retained-first',options:{httpOnly:true,secure:true,sameSite:'strict',path:'/'}}]);options.cookies.setAll([{name:'invented-refresh',value:'retained',options:{httpOnly:true,secure:true,sameSite:'lax',path:'/'}}]);return {data:{user:{id:f.user}},error:f.error?new Error('private refresh error'):null}}}}}`};
+    if(url==='oracle-route-test:refresh')return {format:'module',shortCircuit:true,source:`export function createServerClient(url,key,options){const f=globalThis.__routeAuthFixture;return {supabaseUrl:f.proxyProject||url,auth:{async getUser(){f.proxyCalls++;if(f.refreshDelay)await new Promise(r=>setTimeout(r,f.refreshDelay));if(f.authFetchUrl)await options.global.fetch(f.authFetchUrl);if(f.lateCookie){setTimeout(()=>{try{options.cookies.setAll([{name:'late',value:'never'}])}catch{f.lateDenied=true}},30);throw new Error('private refresh failure')}if(f.refreshFailure)throw new Error('private refresh failure');if(f.multipleCookies)options.cookies.setAll([{name:'first-refresh',value:'retained-first',options:{httpOnly:true,secure:true,sameSite:'strict',path:'/'}}]);options.cookies.setAll([{name:'invented-refresh',value:'retained',options:{httpOnly:true,secure:true,sameSite:'lax',path:'/'}}]);return {data:{user:{id:f.user}},error:f.error?new Error('private refresh error'):null}}}}}`};
     if(url==='oracle-route-test:auth')return {format:'module',shortCircuit:true,source:`export async function getServerSupabase(){const f=globalThis.__routeAuthFixture;return {supabaseUrl:f.project,auth:{async getUser(){f.calls++;return {data:{user:{id:f.user}},error:f.error?new Error('private identity detail never returned'):null}}}}}`};
-    if(url==='oracle-route-test:employee')return {format:'module',shortCircuit:true,source:`export async function getEmployeeForAuthUser(){const f=globalThis.__routeAuthFixture;return {id:f.employee,disabledAt:f.disabledAt}}`};
+    if(url==='oracle-route-test:employee')return {format:'module',shortCircuit:true,source:`export async function getEmployeeForAuthUser(){const f=globalThis.__routeAuthFixture;return {id:f.employee,disabledAt:f.disabledAt}};export async function getUniqueEmployeeForAuthUserV1(){const f=globalThis.__routeAuthFixture;f.uniqueCalls++;if(f.uniqueMissing)return null;return {id:f.employee,disabledAt:f.disableAfterFirst&&f.uniqueCalls>1?true:f.disabledAt}}`};
     return next(url,context);
   },
 });
@@ -183,4 +183,61 @@ test('proxy refresh consumes original fixed deadline; helper cannot renew it aft
 
 test('multiple successful refresh callbacks preserve all real cookie values and options',async()=>{
   identity.multipleCookies=true;try{const response=await invoke();assert.equal(response.status,200);const cookies=String(response.headers['set-cookie']);assert.match(cookies,/first-refresh=retained-first/);assert.match(cookies,/SameSite=strict/i);assert.match(cookies,/invented-refresh=retained/);}finally{identity.multipleCookies=false;}
+});
+
+/** Actual proxy code and protected file/index owners; auth and employee imports
+ * are explicit invented hooks, not a real Supabase/SQL session proof. */
+test('index-only proxy selects A/B after verified identity and refuses missing or changed current bindings',async()=>{
+ const originalUser=identity.user,originalEmployee=identity.employee;
+ const singletonFile=process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE,singletonSha=process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256;
+ const secondUser='33333333-3333-4333-8333-333333333333',secondEmployee='44444444-4444-4444-8444-444444444444';
+ const recipients=[];const indexedEnd=new Date(Date.now()+3000).toISOString();
+ for(const [index,user,emp]of [[0,id,employee],[1,secondUser,secondEmployee]] as const){
+  const name='indexed-'+index;openssl('req','-newkey','rsa:2048','-nodes','-keyout',name+'.key','-out',name+'.csr','-subj','/CN=Invented indexed recipient');
+  writeFileSync(f(name+'.ext'),'subjectAltName=URI:spiffe://oracle/invented-web-'+index+'\nextendedKeyUsage=clientAuth\n');
+  openssl('x509','-req','-in',name+'.csr','-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-out',name+'.crt','-days','1','-extfile',name+'.ext');
+  chmodSync(f(name+'.key'),0o600);chmodSync(f(name+'.crt'),0o600);
+  const selected={...binding,expires_at:indexedEnd,original_horizon:indexedEnd,auth_user_id:user,employee_id:emp,client_uri:'spiffe://oracle/invented-web-'+index,client_key_file:f(name+'.key'),client_key_sha256:pin(name+'.key'),client_certificate_file:f(name+'.crt'),client_certificate_sha256:pin(name+'.crt'),client_certificate_der_sha256:sha256(new X509Certificate(read(name+'.crt')).raw)};
+  writeFileSync(f(name+'.json'),canonicalJson(selected),{mode:0o600});
+  const adviceName=name+'-advice';openssl('req','-newkey','rsa:2048','-nodes','-keyout',adviceName+'.key','-out',adviceName+'.csr','-subj','/CN=Invented indexed advice');
+  writeFileSync(f(adviceName+'.ext'),'subjectAltName=URI:spiffe://oracle/invented-advice-'+index+'\nextendedKeyUsage=clientAuth\n');openssl('x509','-req','-in',adviceName+'.csr','-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-out',adviceName+'.crt','-days','1','-extfile',adviceName+'.ext');chmodSync(f(adviceName+'.key'),0o600);chmodSync(f(adviceName+'.crt'),0o600);
+  const advice:Record<string,unknown>={...selected,purpose:'replacement-recommendation-actions-web-binding-v1',recommendation_path:'/v1/replacement/recommendation-actions',model_id:id,recommendation_config_sha256:hash,recommendation_peer_profile_sha256:hash,client_uri:'spiffe://oracle/invented-advice-'+index,client_key_file:f(adviceName+'.key'),client_key_sha256:pin(adviceName+'.key'),client_certificate_file:f(adviceName+'.crt'),client_certificate_sha256:pin(adviceName+'.crt'),client_certificate_der_sha256:sha256(new X509Certificate(read(adviceName+'.crt')).raw)};for(const key of ['intake_appointment_sha256','peer_profile_sha256','control_path'])Reflect.deleteProperty(advice,key);writeFileSync(f(adviceName+'.json'),canonicalJson(advice),{mode:0o600});
+  recipients.push({project_url:binding.project_url,auth_issuer:binding.auth_issuer,auth_user_id:user,employee_id:emp,bindings:{control:{path:f(name+'.json'),sha256:pin(name+'.json')},recommendation:{path:f(adviceName+'.json'),sha256:pin(adviceName+'.json')}}});
+ }
+ const index={schema_version:1,purpose:'replacement-employee-recipient-index-v1',issuer_actor:'55555555-5555-4555-8555-555555555555',reviewer_actor:'66666666-6666-4666-8666-666666666666',valid_from:binding.valid_from,expires_at:new Date(Date.now()+60000).toISOString(),original_horizon:new Date(Date.now()+60000).toISOString(),recipients};
+ writeFileSync(f('index.json'),canonicalJson(index),{mode:0o600});
+ process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_FILE=f('index.json');process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_SHA256=pin('index.json');
+ delete process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE;delete process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256;
+ const incoming=(headers:Record<string,string>={},method='POST',signal?:AbortSignal,kind='control')=>new NextRequest(binding.web_origin+'/api/consultant/replacement/v1/protected/'+(kind==='recommendation'?'recommendation-actions':'control'),{method,headers:{origin:binding.web_origin,...headers},signal});
+ const count=peerRequests;
+ try{
+  for(const [user,emp]of [[id,employee],[secondUser,secondEmployee]])for(const kind of ['control','recommendation']){identity.user=user!;identity.employee=emp!;const request=incoming({},'POST',undefined,kind);const response=await proxyModule.proxy(request);assert.equal(request.bodyUsed,false);assert.equal(response.headers.get('x-middleware-next'),'1');assert.match(response.headers.getSetCookie().join(';'),/invented-refresh=retained/);assert.ok(response.headers.get('x-middleware-request-'+CONTROL_WINDOW_HEADER));const original=JSON.parse(response.headers.get('x-middleware-request-'+CONTROL_WINDOW_HEADER)!);assert.ok(original.wall_end-original.wall_start>=29000,'forwarded window must be the original 30s, not narrowed');assert.ok(original.wall_end-original.wall_start<=31000);assert.ok(BigInt(original.mono_end)<=process.hrtime.bigint()+3100000000n);assert.throws(()=>controlWindowRemaining(original,{wall:original.wall_start-1000,mono:BigInt(original.mono_end)+1n,domain:original.clock_domain}));}
+  identity.user=id;identity.employee=employee;
+  const preauthRefusal=async(request:NextRequest)=>{const auth=identity.proxyCalls,sql=identity.uniqueCalls;assert.equal((await proxyModule.proxy(request)).status,503);assert.equal(identity.proxyCalls,auth);assert.equal(identity.uniqueCalls,sql);assert.equal(request.bodyUsed,false);};
+  await preauthRefusal(incoming({origin:'https://foreign.example.test'}));await preauthRefusal(incoming({origin:'https://foreign.example.test'},'POST',undefined,'recommendation'));
+  await preauthRefusal(new NextRequest('https://foreign.example.test/api/consultant/replacement/v1/protected/control',{method:'POST',headers:{origin:binding.web_origin}}));
+  const missingOrigin=incoming();missingOrigin.headers.delete('origin');await preauthRefusal(missingOrigin);
+  const project=process.env.NEXT_PUBLIC_SUPABASE_URL;process.env.NEXT_PUBLIC_SUPABASE_URL='https://foreign.example.test';await preauthRefusal(incoming());process.env.NEXT_PUBLIC_SUPABASE_URL=project;
+  const actualNow=Date.now;Date.now=()=>actualNow()+4000;try{await preauthRefusal(incoming());await preauthRefusal(incoming({},'POST',undefined,'recommendation'));}finally{Date.now=actualNow;}
+  const beforeAuth=identity.proxyCalls;assert.equal((await proxyModule.proxy(incoming({},'GET'))).status,405);assert.equal((await proxyModule.proxy(incoming({'x-middleware-subrequest':'forged'}))).status,503);assert.equal(identity.proxyCalls,beforeAuth);
+  identity.disabledAt=new Date();assert.equal((await proxyModule.proxy(incoming())).status,503);identity.disabledAt=null;
+  identity.uniqueCalls=0;identity.disableAfterFirst=true;assert.equal((await proxyModule.proxy(incoming())).status,503);identity.disableAfterFirst=false;
+  identity.error=true;assert.equal((await proxyModule.proxy(incoming())).status,503);identity.error=false;
+  identity.uniqueMissing=true;assert.equal((await proxyModule.proxy(incoming())).status,503);identity.uniqueMissing=false;
+  identity.proxyProject='https://foreign.example.test';assert.equal((await proxyModule.proxy(incoming())).status,503);identity.proxyProject='';
+  identity.employee=secondEmployee;assert.equal((await proxyModule.proxy(incoming())).status,503);identity.employee=employee;
+  identity.user='77777777-7777-4777-8777-777777777777';assert.equal((await proxyModule.proxy(incoming())).status,503);identity.user=id;
+  assert.equal((await proxyModule.proxy(incoming({origin:'https://foreign.example.test'}))).status,503);
+  const saved=process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_SHA256;delete process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_SHA256;await preauthRefusal(incoming());process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_SHA256=saved;
+  identity.refreshFailure=true;const refused=await proxyModule.proxy(incoming());assert.equal(refused.status,503);assert.equal(refused.headers.get('set-cookie'),null);identity.refreshFailure=false;
+  const controller=new AbortController();controller.abort();assert.equal((await proxyModule.proxy(incoming({},'POST',controller.signal))).status,503);
+  writeFileSync(f('indexed-1-advice.json'),'{}');await preauthRefusal(incoming({},'POST',undefined,'recommendation'));
+  writeFileSync(f('indexed-1.json'),canonicalJson({...binding,auth_user_id:secondUser,employee_id:secondEmployee}));identity.user=secondUser;identity.employee=secondEmployee;await preauthRefusal(incoming());identity.user=id;identity.employee=employee;await preauthRefusal(incoming());
+  writeFileSync(f('index.json'),canonicalJson({...index,extra:'never authority'}));await preauthRefusal(incoming());
+  assert.equal(peerRequests,count);
+ }finally{
+  identity.user=originalUser;identity.employee=originalEmployee;identity.disabledAt=null;identity.refreshFailure=false;identity.error=false;identity.disableAfterFirst=false;identity.uniqueMissing=false;identity.proxyProject='';
+  delete process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_FILE;delete process.env.ORACLE2_EMPLOYEE_RECIPIENT_INDEX_SHA256;
+  process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_FILE=singletonFile;process.env.ORACLE2_REPLACEMENT_SERVER_BINDING_SHA256=singletonSha;
+ }
 });

@@ -1,0 +1,15 @@
+{
+  "returncode": 0,
+  "junit": "/tmp/oracle-parent24-wy02uT/s13-full-recovery-run-20261026/s13-full-recovery-junit.xml",
+  "elapsed_seconds": 11.673,
+  "identity": {
+    "project": "oracle2-synthetic-p24full-mimo-w0d0d0286eec4",
+    "container_id": "de0e413cffd6e37c504c65e337f329ede4a1d172df2c403cb9d401f4b1dcefc5",
+    "port": 32804,
+    "worker": "documentary-01",
+    "synthetic_only": true
+  },
+  "database": "oracle_operating_model_test_b1887dc54e4b482483e6f58d4d338237",
+  "branch": "codex/parent24-s13-full-recovery-20261026",
+  "base_head": "4e365535f294c28a804827bd9293885bd09b9e6c"
+}
