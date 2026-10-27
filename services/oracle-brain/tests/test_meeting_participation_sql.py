@@ -44,9 +44,13 @@ def original_request_fence():
         yield
 
 
+_admin_validated=set()
 @contextmanager
 def admin(x):
-    owned_worker_database(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'],x['admin'])
+    key=x['admin']
+    if key not in _admin_validated:
+        owned_worker_database(os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER'],key)
+        _admin_validated.add(key)
     with psycopg.connect(x['admin']) as c:
         assert c.pgconn.ssl_in_use
         assert c.execute('SELECT SESSION_USER,current_database()').fetchone()==('oracle2_admin',psycopg.conninfo.conninfo_to_dict(x['admin'])['dbname'])
@@ -74,18 +78,20 @@ def participation_sql(tmp_path,request):
     x=dict(admin=os.environ['ORACLE2_TEST_ADMIN_URL'],workspace=uuid4(),owner=uuid4(),root=uuid4(),meeting=uuid4(),
         account='invented-'+uuid4().hex,bot=uuid4(),runtime='a'*64,registry='b'*64,until=now+timedelta(minutes=2),capture_until=now+timedelta(seconds=capture_seconds))
     common=tmp_path/'private';common.mkdir(mode=0o700);info=common.stat();x['private']=common
-    with admin(x) as c:
-        insert(c,'appointments',dict(appointment_id=x['root'],workspace_id=x['workspace'],actor_id=x['owner'],scope='root',granted_by=uuid4(),expires_at=x['until']))
     epoch=LiveParticipantEpochV1(purpose='meeting-live-participant-epoch-v1',epoch_id=uuid4(),epoch_revision=1,
         workspace_id=x['workspace'],meeting_id=x['meeting'],provider='recall',provider_account=x['account'],tenant_id='invented-tenant',provider_meeting_id='invented-meeting',bot_id=str(x['bot']),
         provider_participant_ids=('1',),participant_set_sha256=digest({'provider_participant_ids':['1']}),
         links=(LiveParticipantLinkV1(provider_participant_id='1',attribution='workspace_actor',actor_id=x['owner'],employee_uuid_metadata=None,mapping_evidence_sha256='c'*64),),
         issuer_actor=uuid4(),reviewer_actor=uuid4(),capture_until=x['capture_until'],valid_from=now-timedelta(seconds=1),expires_at=x['capture_until'],original_horizon=x['until'])
     x['epoch']=epoch
-    with admin(x) as c:insert(c,'meeting_participant_epochs_v1',dict(epoch_id=epoch.epoch_id,workspace_id=x['workspace'],meeting_id=x['meeting'],epoch_revision=1,epoch_sha256=epoch.sha256,epoch_payload=epoch.model_dump(mode='json')))
+    capture_roles=[]
     for name,channel,actions in [('host','employee-control',['invite','status']),('ingress','provider-ingress',['ingress','status','outbox']),('sender','worker',['process','status','participant_turn','outbox'])]:
         role='part_'+uuid4().hex[:16];actor=uuid4();leaf=uuid4();admission=uuid4();seal=sha256(str(admission).encode()).hexdigest();issuer,reviewer=uuid4(),uuid4()
-        with admin(x) as c:
+        capture_roles.append((name,channel,actions,role,actor,leaf,admission,seal,issuer,reviewer))
+    with admin(x) as c:
+        insert(c,'appointments',dict(appointment_id=x['root'],workspace_id=x['workspace'],actor_id=x['owner'],scope='root',granted_by=uuid4(),expires_at=x['until']))
+        insert(c,'meeting_participant_epochs_v1',dict(epoch_id=epoch.epoch_id,workspace_id=x['workspace'],meeting_id=x['meeting'],epoch_revision=1,epoch_sha256=epoch.sha256,epoch_payload=epoch.model_dump(mode='json')))
+        for name,channel,actions,role,actor,leaf,admission,seal,issuer,reviewer in capture_roles:
             c.execute(sql.SQL('CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD {}').format(sql.Identifier(role),sql.Literal('invented-participation-only')))
             c.execute(sql.SQL('GRANT oracle2_replacement_requester TO {}').format(sql.Identifier(role)))
             c.execute('INSERT INTO oracle2.hosting_role_runtime_admissions VALUES(%s,%s,%s,%s)',(role,x['runtime'],x['registry'],x['until']))
@@ -96,6 +102,7 @@ def participation_sql(tmp_path,request):
                 participant_epoch_id=epoch.epoch_id if name=='sender' else None,participant_epoch_sha256=epoch.sha256 if name=='sender' else None,
                 stop_valid_from=now-timedelta(seconds=1),stop_until=x['until'],scheduler_poll_seconds=1,stop_request_seconds=3,safety_allowance_seconds=1,stop_margin_seconds=5,stop_mapping_sha256='f'*64,
                 capture_until=x['capture_until'],valid_from=now-timedelta(seconds=1),original_horizon=x['until'],expires_at=x['until']))
+    for name,channel,actions,role,actor,leaf,admission,seal,issuer,reviewer in capture_roles:
         url=psycopg.conninfo.make_conninfo(x['admin'],user=role,password='invented-participation-only',hostaddr='127.0.0.1')
         child=x|dict(login=role,actor=actor,url=url,leaf=leaf,admission=admission,seal=seal,issuer=issuer,reviewer=reviewer)
         folder=tmp_path/name;folder.mkdir(mode=0o700);host=configured_settings(folder,child)
@@ -116,15 +123,18 @@ def participation_sql(tmp_path,request):
     raw=canonical_bytes({'event':'transcript.data','data':{'bot':{'id':str(x['bot'])},'data':{'words':[{'text':first_word,'start_timestamp':{'relative':0},'end_timestamp':None},{'text':second_word,'start_timestamp':{'relative':1},'end_timestamp':None}],'participant':{'id':1,'name':'Untrusted display label'},'language_code':'en'}}})
     receipt=x['ingress']['capture'].retain_ingress_v1(raw=raw,provider_event_id='invented-'+uuid4().hex,bot_id=str(x['bot']),event_kind='transcript.data',verifier_secret_sha256='d'*64,expected_head=1,caller_deadline=deadline())
     x.update(raw=raw,event=receipt.event_id,composer=sha256(Path(participation_runtime_v1.__file__).read_bytes()).hexdigest())
-    with admin(x) as c:
-        catalog=tuple((signature,c.execute("SELECT encode(sha256(convert_to(prosrc,'UTF8')),'hex') FROM pg_proc WHERE oid=to_regprocedure(%s)",(signature,)).fetchone()[0]) for signature in CAPABILITIES)
+    participation_roles=[]
     for kind,source in [('host',x['host']),('sender',x['sender']),('observer',x['sender'])]:
         admission,leaf=uuid4(),uuid4();seal=sha256(str(admission).encode()).hexdigest();issuer,reviewer=uuid4(),uuid4()
         actions={'host':['enable','disable','status'],'sender':['prepare','claim','receipt','status'],'observer':['observe','status']}[kind]
-        with admin(x) as c:
+        participation_roles.append((kind,source,admission,seal,leaf,issuer,reviewer,actions))
+    with admin(x) as c:
+        catalog=tuple((signature,c.execute("SELECT encode(sha256(convert_to(prosrc,'UTF8')),'hex') FROM pg_proc WHERE oid=to_regprocedure(%s)",(signature,)).fetchone()[0]) for signature in CAPABILITIES)
+        for kind,source,admission,seal,leaf,issuer,reviewer,actions in participation_roles:
             insert(c,'appointments',dict(appointment_id=leaf,workspace_id=x['workspace'],actor_id=source['actor'],scope='meeting-participation-'+kind,granted_by=x['owner'],parent_id=x['root'],expires_at=x['until']))
             insert(c,'meeting_participation_admissions_v1',dict(admission_id=admission,admission_sha256=seal,workspace_id=x['workspace'],meeting_id=x['meeting'],principal_id=source['actor'],role_name=source['login'],kind=kind,leaf_appointment_id=leaf,
                 capture_admission_id=source['admission'],capture_admission_sha256=source['seal'],provider='recall',platform='microsoft_teams',provider_account=x['account'],tenant_id='invented-tenant',provider_meeting_id='invented-meeting',bot_id=x['bot'],runtime_hash=x['runtime'],registry_hash=x['registry'],observation_owner_sha256='1'*64,composer_sha256=x['composer'],actions=actions,issuer_actor=issuer,reviewer_actor=reviewer,valid_from=now-timedelta(seconds=1),expires_at=x['until'],original_horizon=x['until']))
+    for kind,source,admission,seal,leaf,issuer,reviewer,actions in participation_roles:
         cfg=MeetingParticipationConfigV1(schema_version=1,purpose='meeting-participation-factory-v1',host_config_sha256=source['settings'].host.config_sha256,host_appointment_sha256=source['settings'].host.appointment_sha256,capture_config_sha256=source['settings'].config_sha256,admission_id=admission,admission_sha256=seal,principal_id=source['actor'],workspace_id=x['workspace'],meeting_id=x['meeting'],kind=kind,runtime_hash=x['runtime'],registry_hash=x['registry'],composer_sha256=x['composer'],observation_owner_sha256='1'*64,capability_hashes=catalog,issuer_actor=issuer,reviewer_actor=reviewer,valid_from=now-timedelta(seconds=1),expires_at=source['settings'].host.config.expires_at,original_horizon=source['settings'].host.config.original_horizon)
         path=source['folder']/('participation-'+kind);seal_config=private(path,canonical_bytes(cfg.model_dump(mode='json')))
         settings=load_meeting_participation_settings_v1(source['settings'],path,seal_config,issuer,reviewer)
