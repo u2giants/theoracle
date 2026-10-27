@@ -135,7 +135,7 @@ async function protectedControlProxy(request:NextRequest,window:Readonly<Control
         response=next();for(const {name,value,options}of refreshedCookies.values())response.cookies.set(name,value,options);
       }},
     });
-    const actualProjectUrl:unknown=Reflect.get(client,'supabaseUrl');if(actualProjectUrl!==url)return unavailableControl();
+    const actualProjectUrl:unknown=Reflect.get(client,'supabaseUrl');if(typeof actualProjectUrl!=='string'||actualProjectUrl!==url)return unavailableControl();
     const aborted=()=>new Promise<never>((_,reject)=>{
       const rejectAbort=()=>reject(new Error('Replacement control unavailable'));controller.signal.addEventListener('abort',rejectAbort,{once:true});if(controller.signal.aborted)rejectAbort();
     });
