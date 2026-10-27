@@ -408,6 +408,21 @@ def aggregate_evidence(jobs,results,directory):
     return collect(jobs,results,directory)
 
 
+def evidence_failure_names(jobs,evidence,results):
+    """Names the summary must never hide: failed cases and suites a killed worker never recorded."""
+    failing=[];unfinished=[];by_name={r.get('name'):r for r in results}
+    for job in jobs:
+        if not by_name.get(job['name'],{}).get('junit_present'):
+            unfinished.extend(Path(p).stem for p in job['command'] if str(p).endswith('.py'))
+    for xml in sorted(evidence.glob('*.xml')):
+        try:root=ET.fromstring(xml.read_bytes())
+        except ET.ParseError:continue
+        failing.extend(f"{case.get('classname')}::{case.get('name')}"
+            for case in root.findall('.//testcase')
+            if case.find('failure') is not None or case.find('error') is not None)
+    return failing,unfinished
+
+
 def cleanup_test_databases(admin,parts,owned):
     errors=[]
     for name in owned:
@@ -504,8 +519,9 @@ def main(argv=None):
         try:clusters.close()
         except Exception:report['cleanup_errors'].append({'reason':'owned worker cluster cleanup failed'})
         if report['cleanup_errors']:report['success']=False
+        report['failing_tests'],report['unfinished_tests']=evidence_failure_names(jobs,evidence,report.get('worker_results',[]))
         destination.write_text(json.dumps(report,indent=2)+'\n');destination.chmod(0o600)
-    print(json.dumps({k:report.get(k) for k in ('stage','success','tests','skipped','business_accepted','analytical_runtime_qualified')}))
+    print(json.dumps({k:report.get(k) for k in ('stage','success','tests','skipped','failures','business_accepted','analytical_runtime_qualified','evidence_errors','cleanup_errors','failing_tests','unfinished_tests')}))
     return 0 if report['success'] else 1
 
 if __name__=='__main__':raise SystemExit(main())
