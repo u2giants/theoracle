@@ -36,6 +36,80 @@ def pin(path,record):
 def now():return datetime.now(timezone.utc)
 def text(t):return t.isoformat().replace('+00:00','Z')
 
+# ---- Fixture-only diagnostic helpers (plan v5 §1–§8). No production effect. ----
+# §8: one module lock for jsonl appends AND the per-request sequence counter.
+_JSONL_LOCK=threading.Lock()
+_REQUEST_SEQ=0
+_diag_jsonl_path=None
+
+def _next_seq():
+    global _REQUEST_SEQ
+    with _JSONL_LOCK:
+        _REQUEST_SEQ+=1
+        return _REQUEST_SEQ
+
+def _jsonl_append(record):
+    """§8 locked append. record must already be redact_record-clean."""
+    if _diag_jsonl_path is None:return
+    line=json.dumps(record,sort_keys=True,separators=(',',':'))
+    with _JSONL_LOCK:
+        with open(_diag_jsonl_path,'a',encoding='utf-8') as f:
+            f.write(line+'\n')
+
+# §5 allow-list + redact_record live in meeting_unattended_redact so offline
+# unit tests can import them without the heavy meeting-test dependencies.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0,str(Path(__file__).resolve().parent))
+from meeting_unattended_redact import redact_record,_write_json_artifact
+
+# §1 wrap recorder: monotonic time, sequence index under the §8 lock, wrap_trace.
+class _WrapRecorder:
+    def __init__(self):
+        self.local=threading.local()
+    def _ctx(self):
+        ctx=getattr(self.local,'ctx',None)
+        if ctx is None:
+            ctx=dict(request_id=_next_seq(),trace=[],operation=None,caller_deadline=None,raise_site='UNKNOWN')
+            self.local.ctx=ctx
+        return ctx
+    def begin(self,wrap):
+        ctx=self._ctx();seq=_next_seq()
+        ctx['trace'].append(dict(wrap=wrap,event='enter',seq=seq,mono=time.monotonic()))
+        return seq
+    def ok(self,wrap,seq):
+        ctx=self._ctx();ctx['trace'].append(dict(wrap=wrap,event='exit',seq=_next_seq(),mono=time.monotonic()))
+    def fail(self,wrap,error,code_name='UNKNOWN'):
+        ctx=self._ctx();name=type(error).__name__
+        site=name if code_name=='UNKNOWN' or code_name is None else name+':'+code_name
+        if ctx['raise_site']=='UNKNOWN':ctx['raise_site']=site
+        ctx['trace'].append(dict(wrap=wrap,event='error',seq=_next_seq(),mono=time.monotonic(),error_type=name,raise_site=site))
+    def attach(self,operation,caller_deadline):
+        ctx=self._ctx();ctx['operation']=operation;ctx['caller_deadline']=caller_deadline
+    def flush(self,outcome):
+        ctx=getattr(self.local,'ctx',None)
+        if ctx is None:return None
+        self.local.ctx=None
+        record=dict(kind='request',request_id=ctx['request_id'],operation=ctx['operation'],
+            caller_deadline=ctx['caller_deadline'],raise_site=ctx['raise_site'],
+            outcome=outcome,wrap_trace=ctx['trace'])
+        _jsonl_append(redact_record(record))
+        return record
+    def mark(self,wrap,event):
+        ctx=self._ctx();ctx['trace'].append(dict(wrap=wrap,event=event,seq=_next_seq(),mono=time.monotonic()))
+
+_WRAP=_WrapRecorder()
+
+def _frame_code_name(error=None):
+    """type(error).__name__ plus the Python frame's code name at the raise site."""
+    try:
+        tb=error.__traceback__ if error is not None else None
+        name='UNKNOWN'
+        while tb is not None:
+            name=tb.tb_frame.f_code.co_name
+            tb=tb.tb_next
+        return name if name and name!='<module>' else 'UNKNOWN'
+    except Exception:return 'UNKNOWN'
+
 def role(x,d,name):
     d.mkdir(mode=0o700);actor,leaf,selected=uuid4(),uuid4(),uuid4();login='unattended_'+uuid4().hex[:12];seal=hashlib.sha256(selected.bytes).hexdigest()
     with admin(x) as c:
@@ -161,17 +235,67 @@ def unattended(meeting_sql,certs,tmp_path):
         env={**os.environ,'PYTHONHOME':sys.base_prefix,'PYTHONPATH':':'.join(str(p) for p in sys.path if p),'ORACLE2_INVENTED_PROVIDER_PORT':str(listener.getsockname()[1])}
         # Remaining independent process profiles, signer and service pins are
         # installed BEFORE invitation and BEFORE any Create request.
-        yield dict(x=x,owners=owners,scope=scope,relation=relation,supervisions=supervisions,short=short,stack=stack,child=child,socket_ready=socket_ready,scheduler_runtime=scheduler_runtime,scheduler_ref=sr,stop_runtime=stop_runtime,stop_ref=tr,env=env,certs=certs,body_ref=body_ref,body_sha=body_sha,operation=operation,provider_seen=provider_seen,bot=bot,processes=processes)
+        yield dict(x=x,owners=owners,scope=scope,relation=relation,supervisions=supervisions,short=short,stack=stack,child=child,socket_ready=socket_ready,scheduler_runtime=scheduler_runtime,scheduler_ref=sr,stop_runtime=stop_runtime,stop_runtime_old_mode=old_stop_mode,stop_ref=tr,env=env,certs=certs,body_ref=body_ref,body_sha=body_sha,operation=operation,provider_seen=provider_seen,bot=bot,processes=processes)
     finally:
-        with admin(x) as c:
-            snapshot={name:c.execute('SELECT to_jsonb(t) FROM oracle2.'+name+' t WHERE workspace_id=%s',(x['workspace'],)).fetchall() for name in ('meeting_capture_heads_v1','meeting_capture_events_v1','meeting_capture_worker_claims_v1')}
-            snapshot['receipts']=c.execute('SELECT to_jsonb(r) FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchall()
-        (tmp_path/'actual-selected-state.json').write_text(json.dumps(snapshot,sort_keys=True))
-        (tmp_path/'actual-provider-routes.json').write_text(json.dumps(provider_seen))
-        if (short/'observer-port-errors.json').exists():(tmp_path/'actual-observer-refusals.json').write_bytes((short/'observer-port-errors.json').read_bytes())
-        if (short/'observer-port-observations.json').exists():(tmp_path/'actual-observer-process-observations.json').write_bytes((short/'observer-port-observations.json').read_bytes())
-        stack.close();remaining=[p.pid for p in processes if p.poll() is None];(tmp_path/'owned-process-cleanup.json').write_text(json.dumps({'remaining_pids':remaining,'unix_sockets_absent':all(not (short/n).exists() for n in ('scheduler.sock','stop.sock'))}))
-        assert not remaining and all(not (short/n).exists() for n in ('scheduler.sock','stop.sock'));private.cleanup();assert not short.exists()
+        # §6 teardown raise must not eat evidence: nested try/finally per step so
+        # private.cleanup() still runs and the hung-child packet is not skipped.
+        teardown_steps=[]
+        def _step(name,fn):
+            try:fn();teardown_steps.append(dict(step=name,ok=True))
+            except Exception as error:teardown_steps.append(dict(step=name,ok=False,error_type=type(error).__name__))
+        def _pin_scope():
+            # §4 supervision scope model_dump pinned BEFORE teardown deletes scratch.
+            _write_json_artifact(tmp_path/'supervision-scope.json',scope.model_dump(mode='json'))
+        def _copy_spool():
+            # §4/§7 step 1: spool copy BEFORE teardown close. Spool holds
+            # nonce-sequence state and appointment hashes only (no secrets).
+            src=short/'replay';dst=tmp_path/'replay-spool'
+            if src.exists() and not dst.exists():
+                shutil.copytree(src,dst)
+                _write_json_artifact(tmp_path/'replay-spool-manifest.json',dict(
+                    copy_monotonic=time.monotonic(),
+                    members=sorted(p.name for p in dst.iterdir()),
+                    note='nonce-sequence state and appointment hashes only; no secrets'))
+        def _selected_state():
+            with admin(x) as c:
+                snapshot={name:c.execute('SELECT to_jsonb(t) FROM oracle2.'+name+' t WHERE workspace_id=%s',(x['workspace'],)).fetchall() for name in ('meeting_capture_heads_v1','meeting_capture_events_v1','meeting_capture_worker_claims_v1')}
+                snapshot['receipts']=c.execute('SELECT to_jsonb(r) FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchall()
+            _write_json_artifact(tmp_path/'actual-selected-state.json',snapshot)
+        def _provider_routes():
+            _write_json_artifact(tmp_path/'actual-provider-routes.json',list(provider_seen))
+        def _observer_files():
+            for src_name,dst_name in (('observer-port-errors.json','actual-observer-refusals.json'),
+                                      ('observer-port-observations.json','actual-observer-process-observations.json')):
+                src=short/src_name
+                if not src.exists():continue
+                try:record=json.loads(src.read_text())
+                except Exception:record=dict(error_type='UnparsedObserverFile')
+                _write_json_artifact(tmp_path/dst_name,record)
+        def _close_stack():
+            stack.close()
+        def _copy_jsonl():
+            # §7 step 3: close-then-copy AFTER stack.close() (servers stopped).
+            src=short/'create-server-responses.jsonl'
+            if src.exists():
+                (tmp_path/'create-server-responses.jsonl').write_bytes(src.read_bytes())
+        def _owned_cleanup():
+            remaining=[p.pid for p in processes if p.poll() is None]
+            _write_json_artifact(tmp_path/'owned-process-cleanup.json',dict(remaining_pids=remaining,unix_sockets_absent=all(not (short/n).exists() for n in ('scheduler.sock','stop.sock'))))
+            assert not remaining and all(not (short/n).exists() for n in ('scheduler.sock','stop.sock'))
+        def _private_cleanup():
+            private.cleanup();assert not short.exists()
+        # §7 numbered write order: spool copy before teardown close; jsonl
+        # close-then-copy after stack.close(); then owned-process-cleanup;
+        # then private.cleanup(). Supervision-scope before scratch deletion.
+        for name,fn in (
+            ('supervision-scope',_pin_scope),('replay-spool-copy',_copy_spool),
+            ('selected-state',_selected_state),('provider-routes',_provider_routes),
+            ('observer-files',_observer_files),('stack-close',_close_stack),
+            ('jsonl-close-then-copy',_copy_jsonl),
+            ('owned-process-cleanup',_owned_cleanup),('private-cleanup',_private_cleanup)):
+            _step(name,fn)
+        try:_write_json_artifact(tmp_path/'teardown-steps.json',teardown_steps)
+        except Exception:pass
 
 def ts_profile(u,name,worker_settings,peer,server):
     o=u['owners'][name];h=o['host'].config;c=worker_settings.config;certs=u['certs'];p=peer;short=u['short'];sha=lambda f:hashlib.sha256(Path(f).read_bytes()).hexdigest()
@@ -203,25 +327,11 @@ def start_unattended(u):
             u['create_server']=server
             # Fixture-only response diagnostic: log nonsecret status/header fields
             # for every create-worker response so a refusal can be diagnosed.
-            _diag_path=short/'create-server-responses.jsonl'
-            _orig_send_response=server.RequestHandlerClass.send_response
-            _orig_send_header=server.RequestHandlerClass.send_header
-            _orig_end_headers=server.RequestHandlerClass.end_headers
-            def _logged_send_response(self,code,message=None):
-                self._diag_status=code;self._diag_headers=[]
-                return _orig_send_response(self,code,message)
-            def _logged_send_header(self,keyword,value):
-                self._diag_headers.append([keyword,value])
-                return _orig_send_header(self,keyword,value)
-            def _logged_end_headers(self):
-                try:
-                    with open(_diag_path,'a') as _f:
-                        _f.write(json.dumps({'status':getattr(self,'_diag_status',None),'headers':getattr(self,'_diag_headers',[])})+'\n')
-                except Exception:pass
-                return _orig_end_headers(self)
-            server.RequestHandlerClass.send_response=_logged_send_response
-            server.RequestHandlerClass.send_header=_logged_send_header
-            server.RequestHandlerClass.end_headers=_logged_end_headers
+            # §8: locked append; §5: redact_record on every jsonl write.
+            global _diag_jsonl_path
+            _diag_jsonl_path=str(short/'create-server-responses.jsonl')
+            # Response-logging monkeypatch lives in install_wraps so its
+            # restore covers it and a partial install cannot leak the patch.
         return s
     for name in ('pre','stop','post'):worker(name)
     stop=owners['stop'];qs=u['supervisions']['stop'];qp=MeetingSupervisionPeerProfileV1(**peer_fields(stop,certs,'queue',x['until'],purpose='meeting-supervision-service-peer-v1'),process_purpose='meeting-stop-worker-process-v1',supervision_config_sha256=qs.sha256,scope_sha256=digest(u['scope'].model_dump(mode='json')))
@@ -259,6 +369,145 @@ def start_unattended(u):
     u.update(env=env,scheduler=scheduler,stop_process=stop_process,producer=producer,process_profiles=profiles,supervisor_admission=ar)
     return u
 
+def install_wraps(server):
+    """§1 fixture-only raise-site capture. Install AFTER start_unattended()
+    returns and BEFORE the first worker_request (covers refused-prepare warmup).
+    Every wrap re-raises / returns-through unchanged. Restores originals on
+    uninstall so the second test node is not double-wrapped, and restores on
+    partial install failure so a half-wrapped module cannot leak."""
+    from oracle_brain.hosting import meeting_worker_service_v1 as mws
+    from oracle_brain.hosting import _protected_control_listener_v1 as listener_mod
+    saved=[]
+    def _save(module,name):
+        saved.append((module,name,getattr(module,name)))
+    def _restore():
+        while saved:
+            module,name,orig=saved.pop()
+            setattr(module,name,orig)
+    try:
+        # Response-logging monkeypatch on the create server handler class.
+        # Saved through the same _restore chain so uninstall returns the
+        # class methods to their originals (no double-wrap on a second node).
+        _save(server.RequestHandlerClass,'send_response')
+        _save(server.RequestHandlerClass,'send_header')
+        _save(server.RequestHandlerClass,'end_headers')
+        _orig_send_response=server.RequestHandlerClass.send_response
+        _orig_send_header=server.RequestHandlerClass.send_header
+        _orig_end_headers=server.RequestHandlerClass.end_headers
+        def _logged_send_response(self,code,message=None):
+            self._diag_status=code;self._diag_headers=[]
+            return _orig_send_response(self,code,message)
+        def _logged_send_header(self,keyword,value):
+            self._diag_headers.append([keyword,value])
+            return _orig_send_header(self,keyword,value)
+        def _logged_end_headers(self):
+            try:
+                # Inline do_POST raises never reach execute_v1; flush any
+                # pending request context here so wrap_trace is not lost.
+                # Non-200 is the exact refused path (e.g. 503), not 'response'.
+                _status=getattr(self,'_diag_status',None)
+                _WRAP.flush('response' if _status==200 else 'refused')
+                _jsonl_append(redact_record(dict(kind='response',seq=_next_seq(),
+                    status=_status,
+                    headers=getattr(self,'_diag_headers',[]),
+                    mono=time.monotonic())))
+            except Exception:pass
+            return _orig_end_headers(self)
+        server.RequestHandlerClass.send_response=_logged_send_response
+        server.RequestHandlerClass.send_header=_logged_send_header
+        server.RequestHandlerClass.end_headers=_logged_end_headers
+        # Class-level: factory.execute_v1 (PRIMARY) and settings.current.
+        _save(mws._CaptureWorkerAdapter,'execute_v1')
+        _save(mws._CaptureWorkerSettings,'current')
+        orig_execute=mws._CaptureWorkerAdapter.execute_v1
+        orig_current=mws._CaptureWorkerSettings.current
+        def execute_v1(self,raw):
+            seq=_WRAP.begin('execute_v1')
+            operation='UNKNOWN';deadline=None
+            try:
+                try:
+                    body=json.loads(raw) if isinstance(raw,(bytes,bytearray)) else {}
+                    operation=str(body.get('operation') or 'UNKNOWN')
+                    deadline=body.get('caller_deadline')
+                except Exception:pass
+                _WRAP.attach(operation,deadline)
+                value=orig_execute(self,raw)
+                _WRAP.ok('execute_v1',seq)
+                _WRAP.flush('ok')
+                return value
+            except BaseException as error:
+                _WRAP.fail('execute_v1',error,_frame_code_name(error))
+                _WRAP.flush('error')
+                raise
+        def current(self):
+            seq=_WRAP.begin('settings.current')
+            try:
+                value=orig_current(self)
+                _WRAP.ok('settings.current',seq)
+                return value
+            except BaseException as error:
+                _WRAP.fail('settings.current',error,_frame_code_name(error))
+                raise
+        mws._CaptureWorkerAdapter.execute_v1=execute_v1
+        mws._CaptureWorkerSettings.current=current
+        # Module-global wraps of names imported into the listener / worker module.
+        # _parse is looked up at call time in meeting_worker_service_v1 globals
+        # (parse_request lambda and execute_v1), so wrap that binding.
+        _save(mws,'_parse')
+        orig_parse=mws._parse
+        def wrapped_parse(*args,**kwargs):
+            seq=_WRAP.begin('_parse')
+            try:
+                value=orig_parse(*args,**kwargs)
+                _WRAP.ok('_parse',seq)
+                return value
+            except BaseException as error:
+                _WRAP.fail('_parse',error,_frame_code_name(error))
+                raise
+        mws._parse=wrapped_parse
+        for target in ('peer_der_v1','fixed_request_length_v1','read_request_body_v1'):
+            _save(listener_mod,target)
+            orig=getattr(listener_mod,target)
+            def _make(name,fn):
+                def wrapped(*args,**kwargs):
+                    seq=_WRAP.begin(name)
+                    try:
+                        value=fn(*args,**kwargs)
+                        _WRAP.ok(name,seq)
+                        return value
+                    except BaseException as error:
+                        _WRAP.fail(name,error,_frame_code_name(error))
+                        raise
+                return wrapped
+            setattr(listener_mod,target,_make(target,orig))
+        # §1/_request_fence_v1 wrap MUST preserve context-manager protocol
+        # (re-yield, re-raise). Fence import pin: listener module line 12.
+        _save(listener_mod,'_request_fence_v1')
+        orig_fence=listener_mod._request_fence_v1
+        from contextlib import contextmanager as _contextmanager
+        @_contextmanager
+        def wrapped_fence(original_monotonic_end):
+            seq=_WRAP.begin('_request_fence_v1')
+            entered=False
+            try:
+                with orig_fence(original_monotonic_end):
+                    entered=True
+                    _WRAP.ok('_request_fence_v1',seq)
+                    try:
+                        yield
+                    except BaseException as error:
+                        _WRAP.fail('_request_fence_v1',error,_frame_code_name(error))
+                        raise
+            except BaseException as error:
+                if not entered:
+                    _WRAP.fail('_request_fence_v1',error,_frame_code_name(error))
+                raise
+        listener_mod._request_fence_v1=wrapped_fence
+    except BaseException:
+        _restore()
+        raise
+    return _restore
+
 def worker_request(u,body,identity='create'):
     context=ssl.create_default_context(cafile=str(u['certs']/'ca.pem'));context.verify_flags|=ssl.VERIFY_X509_STRICT
     context.load_cert_chain(str(u['certs']/(identity+'.pem')),str(u['certs']/(identity+'.key')))
@@ -280,130 +529,266 @@ def worker_request(u,body,identity='create'):
 
 @pytest.mark.parametrize('meeting_sql',[{'capture_seconds':50,'scheduler_poll_seconds':2,'stop_request_seconds':10,'stop_margin_seconds':13}],indirect=True)
 def test_actual_independent_V2_processes_Create_to_unattended_STOP_terminal_receipt(unattended,tmp_path):
-    u=start_unattended(unattended);x=u['x'];driver=ROOT/'services/oracle-brain/tests/fixtures/meeting-unattended-driver.mts'
-    from oracle_brain.meetings.supervisor_process import observe_supervisor_process_v2
-    queue_diagnostic=subprocess.run(['/usr/bin/node','--import','tsx',str(driver)],cwd=ROOT,env={**u['env'],'ORACLE2_INVENTED_QUEUE_DIAGNOSTIC':'1'},capture_output=True,timeout=12)
-    (tmp_path/'queue-diagnostic.stdout').write_bytes(queue_diagnostic.stdout);(tmp_path/'queue-diagnostic.stderr').write_bytes(queue_diagnostic.stderr)
-    assert queue_diagnostic.returncode==0,'actual SAME queue client refused; private diagnostic retained'
-    cycle_diagnostic=subprocess.run(['/usr/bin/node','--import','tsx',str(driver)],cwd=ROOT,env={**u['env'],'ORACLE2_INVENTED_CYCLE_DIAGNOSTIC':'1'},capture_output=True,timeout=12)
-    (tmp_path/'cycle-diagnostic.stdout').write_bytes(cycle_diagnostic.stdout);(tmp_path/'cycle-diagnostic.stderr').write_bytes(cycle_diagnostic.stderr)
-    assert cycle_diagnostic.returncode==0,'actual SAME cycle client refused; private diagnostic retained'
-    # Read-only warm-up proves actual current loops/queues, never creates a
-    # witness, intent or provider effect. No dispatch is retried on failure.
-    from oracle_brain.hosting.meeting_supervision_service_v1 import MeetingSupervisionFactoryV1
-    for name,settings in u['supervisions'].items():
-        value=MeetingSupervisionFactoryV1(settings).current_queue_v1(caller_deadline=min(now()+timedelta(seconds=8),settings.current()))
-        (tmp_path/(name+'-actual-queue.json')).write_bytes(canonical_bytes(value.model_dump(mode='json')))
-    refused=dict(schema_version=1,operation='prepare',operation_id=None,claim_event_id=None,wire_base64=None,error=None,caller_deadline=text(min(now()+timedelta(seconds=15),x['capture_until'])))
-    assert worker_request(u,refused,identity='other')[0]==503
-    assert worker_request(u,refused|dict(actor_id=str(x['owner'])))[0]==503
-    with admin(x) as c:
-        assert c.execute("SELECT count(*) FROM oracle2.meeting_capture_events_v1 WHERE workspace_id=%s AND action='create_intent'",(x['workspace'],)).fetchone()==(0,)
-        assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(0,)
-    ready=u['short']/'create-driver-ready'
-    actual=u['child'](['/usr/bin/node','--import','tsx',str(driver)],{**u['env'],'ORACLE2_INVENTED_READY_FILE':str(ready)},'actual-create-child',input_pipe=True)
-    ready_end=time.monotonic()+5
-    while not ready.exists() and actual.poll() is None and time.monotonic()<ready_end:time.sleep(.01)
-    assert ready.read_bytes()==b'ready' and actual.poll() is None
-    observations=[]
-    end=time.monotonic()+6;profiles=[InstalledSupervisorProcessV2.model_validate_json(Path(p['path']).read_bytes()) for p in u['process_profiles']]
-    while True:
-        try:
-            for profile in profiles:
-                try:observe_supervisor_process_v2(profile,challenge=hashlib.sha256(uuid4().bytes).hexdigest(),deadline=min(now()+timedelta(seconds=5),profile.expires_at))
-                except Exception as error:
-                    observations.append(dict(purpose=profile.purpose,error=type(error).__name__,message=str(error)));(tmp_path/'warmup-refusals.json').write_text(json.dumps(observations));raise
-            break
-        except (PermissionError,ConnectionResetError,BrokenPipeError):
-            if time.monotonic()>=end:raise
-            time.sleep(.02)
-    actual.stdin.write(b'go\n');actual.stdin.flush();actual.stdin.close();actual.wait(timeout=12)
-    # Fixture-only diagnostic metadata: capture nonsecret status/header fields,
-    # stage, exception type, supervisor witness and claim-time state before the
-    # assertion so a refusal retains exact evidence without leaking production
-    # error detail. No guard change, no retry, no fallback.
-    diag=dict(returncode=actual.returncode)
+    # §6: named try/finally from start_unattended() through the early asserts.
+    # Pre-child includes the warmup loop (Muse m5). On failure the packet keeps
+    # whatever was already written plus pre-child-failure.json naming the step.
+    u=None;restore_wraps=None;step='start_unattended';pre_child=True
+    def _fail_record(error):
+        _write_json_artifact(tmp_path/'pre-child-failure.json',
+            dict(step=step,error_type=type(error).__name__,error_message=str(error)))
     try:
-        outcome=json.loads((tmp_path/'actual-create-child.stdout').read_bytes())
-        diag.update(stage=outcome.get('stage'),error_type=outcome.get('error_type'))
-    except Exception:pass
-    if (u['short']/'create-server-responses.jsonl').exists():
-        (tmp_path/'create-server-responses.jsonl').write_bytes((u['short']/'create-server-responses.jsonl').read_bytes())
-    try:
-        witness_results=[]
-        for profile in profiles:
-            try:
-                obs=observe_supervisor_process_v2(profile,challenge=hashlib.sha256(uuid4().bytes).hexdigest(),deadline=min(now()+timedelta(seconds=5),profile.expires_at))
-                witness_results.append(dict(purpose=profile.purpose,ok=True))
-            except Exception as error:
-                witness_results.append(dict(purpose=profile.purpose,ok=False,error_type=type(error).__name__))
-        diag['supervisor_witness']=witness_results
-    except Exception as error:
-        diag['supervisor_witness_error']=type(error).__name__
-    try:
+        u=start_unattended(unattended);x=u['x'];driver=ROOT/'services/oracle-brain/tests/fixtures/meeting-unattended-driver.mts'
+        from oracle_brain.meetings.supervisor_process import observe_supervisor_process_v2
+        # §1 wrap installation: after start_unattended() returns, before the
+        # first worker_request (covers refused-prepare warmup).
+        step='install-wraps'
+        restore_wraps=install_wraps(u['create_server'])
+        step='queue-diagnostic'
+        queue_diagnostic=subprocess.run(['/usr/bin/node','--import','tsx',str(driver)],cwd=ROOT,env={**u['env'],'ORACLE2_INVENTED_QUEUE_DIAGNOSTIC':'1'},capture_output=True,timeout=12)
+        (tmp_path/'queue-diagnostic.stdout').write_bytes(queue_diagnostic.stdout);(tmp_path/'queue-diagnostic.stderr').write_bytes(queue_diagnostic.stderr)
+        assert queue_diagnostic.returncode==0,'actual SAME queue client refused; private diagnostic retained'
+        step='cycle-diagnostic'
+        cycle_diagnostic=subprocess.run(['/usr/bin/node','--import','tsx',str(driver)],cwd=ROOT,env={**u['env'],'ORACLE2_INVENTED_CYCLE_DIAGNOSTIC':'1'},capture_output=True,timeout=12)
+        (tmp_path/'cycle-diagnostic.stdout').write_bytes(cycle_diagnostic.stdout);(tmp_path/'cycle-diagnostic.stderr').write_bytes(cycle_diagnostic.stderr)
+        assert cycle_diagnostic.returncode==0,'actual SAME cycle client refused; private diagnostic retained'
+        # Read-only warm-up proves actual current loops/queues, never creates a
+        # witness, intent or provider effect. No dispatch is retried on failure.
+        from oracle_brain.hosting.meeting_supervision_service_v1 import MeetingSupervisionFactoryV1
+        step='warmup-queue-reads'
+        for name,settings in u['supervisions'].items():
+            value=MeetingSupervisionFactoryV1(settings).current_queue_v1(caller_deadline=min(now()+timedelta(seconds=8),settings.current()))
+            _write_json_artifact(tmp_path/(name+'-actual-queue.json'),value.model_dump(mode='json'))
+        step='refused-prepare-warmup'
+        refused=dict(schema_version=1,operation='prepare',operation_id=None,claim_event_id=None,wire_base64=None,error=None,caller_deadline=text(min(now()+timedelta(seconds=15),x['capture_until'])))
+        assert worker_request(u,refused,identity='other')[0]==503
+        assert worker_request(u,refused|dict(actor_id=str(x['owner'])))[0]==503
+        step='sql-zero-asserts'
         with admin(x) as c:
-            claims=c.execute('SELECT claim_id::text,state,created_at::text FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchall()
-            diag['claim_time']=[dict(claim_id=r[0],state=r[1],created_at=r[2]) for r in claims]
-    except Exception as error:
-        diag['claim_time_error']=type(error).__name__
-    (tmp_path/'create-child-diagnostics.json').write_text(json.dumps(diag,default=str))
-    assert actual.returncode==0,'actual Create child refused; exact private diagnostic retained'
-    outcome=json.loads((tmp_path/'actual-create-child.stdout').read_bytes());assert outcome['state']=='observed'
-    assert outcome['qualification'] is False and outcome['remote_stop_proven'] is False and outcome['resend_authorized'] is False
-    assert outcome['request_sha256']==u['body_sha'] and outcome['operation_id']==str(u['operation'])
-    repeated=dict(schema_version=1,operation='claim',operation_id=outcome['operation_id'],claim_event_id=None,wire_base64=None,error=None,caller_deadline=outcome['deadline'])
-    repeated_status,repeated_body,repeated_wire=worker_request(u,repeated)
-    if repeated_status==200:assert repeated_body['body_base64'] is None and repeated_body['executable'] is False
-    (tmp_path/'actual-repeated-claim.wire').write_bytes(repeated_wire)
-    with admin(x) as c:
-        assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(1,)
-        receipt=c.execute('SELECT r.wire_object_key,r.wire_sha256,r.wire_byte_count FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchone()
-    retained=(Path(u['owners']['create']['host'].config.storage_root)/receipt[0]).read_bytes()
-    assert len(retained)==receipt[2] and hashlib.sha256(retained).hexdigest()==receipt[1]
-    assert retained.endswith(canonical_bytes({'id':str(u['bot'])}))
+            assert c.execute("SELECT count(*) FROM oracle2.meeting_capture_events_v1 WHERE workspace_id=%s AND action='create_intent'",(x['workspace'],)).fetchone()==(0,)
+            assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(0,)
+        step='child-spawn-ready'
+        ready=u['short']/'create-driver-ready'
+        actual=u['child'](['/usr/bin/node','--import','tsx',str(driver)],{**u['env'],'ORACLE2_INVENTED_READY_FILE':str(ready)},'actual-create-child',input_pipe=True)
+        ready_end=time.monotonic()+5
+        while not ready.exists() and actual.poll() is None and time.monotonic()<ready_end:time.sleep(.01)
+        assert ready.read_bytes()==b'ready' and actual.poll() is None
+        # Warmup loop is inside the named try/finally (Muse m5).
+        step='warmup-observations'
+        observations=[];attempt=0
+        end=time.monotonic()+6;profiles=[InstalledSupervisorProcessV2.model_validate_json(Path(p['path']).read_bytes()) for p in u['process_profiles']]
+        while True:
+            attempt+=1
+            try:
+                for profile in profiles:
+                    try:observe_supervisor_process_v2(profile,challenge=hashlib.sha256(uuid4().bytes).hexdigest(),deadline=min(now()+timedelta(seconds=5),profile.expires_at))
+                    except Exception as error:
+                        observations.append(dict(purpose=profile.purpose,error=type(error).__name__,message=str(error)))
+                        # n8: cumulative snapshots, one file per attempt N.
+                        # Both files are written on every path so the final
+                        # warmup-refusals.json equals the last attempt file.
+                        _write_json_artifact(tmp_path/('warmup-refusals-attempt-%d.json'%attempt),observations)
+                        _write_json_artifact(tmp_path/'warmup-refusals.json',observations)
+                        raise
+                _write_json_artifact(tmp_path/('warmup-refusals-attempt-%d.json'%attempt),observations)
+                _write_json_artifact(tmp_path/'warmup-refusals.json',observations)
+                break
+            except (PermissionError,ConnectionResetError,BrokenPipeError):
+                if time.monotonic()>=end:raise
+                time.sleep(.02)
+        step='child-wait'
+        hung=False
+        actual.stdin.write(b'go\n');actual.stdin.flush();actual.stdin.close()
+        # pre_child stays True through the go write so a child that dies
+        # before go still gets pre-child-failure.json.
+        pre_child=False
+        waited=True
+        try:
+            actual.wait(timeout=12)
+            waited=True
+        except subprocess.TimeoutExpired:
+            waited=False;hung=True
+            # §6 TimeoutExpired → record and SIGKILL. Restore stop_runtime chmod.
+            try:os.kill(actual.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            try:actual.wait(timeout=5)
+            except subprocess.TimeoutExpired:pass
+            try:u['stop_runtime'].chmod(u['stop_runtime_old_mode'])
+            except Exception:pass
+        # M11: post-wait read/redact/rewrite of child stdout (child() writes it
+        # directly). Do this AFTER wait so we never race the child's write.
+        step='stdout-redact'
+        _redact_child_stdout(tmp_path)
+        # Fixture-only diagnostic metadata: capture nonsecret status/header
+        # fields, stage, exception type, supervisor witness and claim-time state
+        # before the assertion so a refusal retains exact evidence without
+        # leaking production error detail. No guard change, no retry, no fallback.
+        step='collect-diagnostics'
+        diag=dict(returncode=actual.returncode,waited=waited,hung=hung)
+        if hung:
+            diag.update(stage='wait',error_type='TimeoutExpired',error_message='REDACTED')
+        try:
+            if not hung:
+                outcome=json.loads((tmp_path/'actual-create-child.stdout').read_bytes())
+                diag.update(stage=outcome.get('stage'),error_type=outcome.get('error_type'),
+                    error_message=outcome.get('error_message'),
+                    error_cause_type=outcome.get('error_cause_type'),
+                    deadline=outcome.get('deadline'),
+                    wire_byte_count=outcome.get('wire_byte_count'),
+                    wire_sha256=outcome.get('wire_sha256'),
+                    exchange_elapsed_wall_ms=outcome.get('exchange_elapsed_wall_ms'),
+                    exchange_elapsed_mono_ms=outcome.get('exchange_elapsed_mono_ms'),
+                    wall_remaining_at_exchange_ms=outcome.get('wall_remaining_at_exchange_ms'),
+                    wall_remaining_at_catch_ms=outcome.get('wall_remaining_at_catch_ms'))
+        except Exception as error:
+            diag['stdout_parse_error']=type(error).__name__
+        try:
+            witness_results=[]
+            for profile in profiles:
+                try:
+                    observe_supervisor_process_v2(profile,challenge=hashlib.sha256(uuid4().bytes).hexdigest(),deadline=min(now()+timedelta(seconds=5),profile.expires_at))
+                    witness_results.append(dict(purpose=profile.purpose,ok=True))
+                except Exception as error:
+                    witness_results.append(dict(purpose=profile.purpose,ok=False,error_type=type(error).__name__))
+            diag['supervisor_witness']=witness_results
+        except Exception as error:
+            diag['supervisor_witness_error']=type(error).__name__
+        try:
+            with admin(x) as c:
+                # §4 exact columns: claim_id, original_deadline, created_at,
+                # effect, stage. Do NOT select state — it does not exist.
+                # Per-query-group try/except so one bad expression cannot wipe
+                # all five groups together.
+                def _group_rollback():
+                    try:c.rollback()
+                    except Exception:pass
+                try:
+                    claims=c.execute('SELECT claim_id::text,original_deadline::text,created_at::text,effect,stage,operation_id::text,request_sha256,bot_id::text,worker_id::text FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchall()
+                    diag['claim_time']=[dict(claim_id=r[0],original_deadline=r[1],created_at=r[2],effect=r[3],stage=r[4],operation_id=r[5],request_sha256=r[6],bot_id=r[7],worker_id=r[8]) for r in claims]
+                except Exception as error:
+                    diag['claim_time_error']=type(error).__name__
+                    _group_rollback()
+                try:
+                    receipt_count=c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchone()[0]
+                    receipt_rows=c.execute('SELECT q.effect,q.stage,r.wire_object_key,r.wire_sha256,r.wire_byte_count,r.receipt_id::text,r.observation FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchall()
+                    diag['receipts']=dict(count=receipt_count,rows=[dict(effect=r[0],stage=r[1],wire_object_key=r[2],wire_sha256=r[3],wire_byte_count=r[4],receipt_id=r[5],observation=r[6]) for r in receipt_rows])
+                except Exception as error:
+                    diag['receipts_error']=type(error).__name__
+                    _group_rollback()
+                try:
+                    latest=c.execute('SELECT action,payload,created_at::text FROM oracle2.meeting_capture_events_v1 WHERE workspace_id=%s ORDER BY created_at DESC LIMIT 1',(x['workspace'],)).fetchone()
+                    diag['latest_event']=dict(action=latest[0],payload=latest[1],created_at=latest[2]) if latest else None
+                except Exception as error:
+                    diag['latest_event_error']=type(error).__name__
+                    _group_rollback()
+                try:
+                    head=c.execute('SELECT state,capture_open,stop_state FROM oracle2.meeting_capture_heads_v1 WHERE workspace_id=%s AND meeting_id=%s',(x['workspace'],x['meeting'])).fetchone()
+                    diag['head_state']=dict(state=head[0],capture_open=head[1],stop_state=head[2]) if head else None
+                except Exception as error:
+                    diag['head_state_error']=type(error).__name__
+                    _group_rollback()
+                try:
+                    adm=c.execute('SELECT admission_id::text,admission_sha256,role_name,actions,capture_until::text,stop_until::text,original_horizon::text,expires_at::text FROM oracle2.meeting_capture_admissions_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchall()
+                    diag['admission_state']=[dict(admission_id=r[0],admission_sha256=r[1],role_name=r[2],actions=list(r[3]),capture_until=r[4],stop_until=r[5],original_horizon=r[6],expires_at=r[7]) for r in adm]
+                except Exception as error:
+                    diag['admission_state_error']=type(error).__name__
+                    _group_rollback()
+        except Exception as error:
+            # admin() itself failed (or the with-block aborted): record ALL
+            # five groups as failed rather than silently leaving them absent.
+            name=type(error).__name__
+            for group in ('claim_time','receipts','latest_event','head_state','admission_state'):
+                diag.setdefault(group+'_error',name)
+        _write_json_artifact(tmp_path/'create-child-diagnostics.json',diag)
+        step='returncode-assert'
+        if hung:
+            assert False,'actual Create child hung; UNKNOWN-cause-hung-child packet retained'
+        assert actual.returncode==0,'actual Create child refused; exact private diagnostic retained'
+        step='outcome-parse'
+        outcome=json.loads((tmp_path/'actual-create-child.stdout').read_bytes());assert outcome['state']=='observed'
+        assert outcome['qualification'] is False and outcome['remote_stop_proven'] is False and outcome['resend_authorized'] is False
+        assert outcome['request_sha256']==u['body_sha'] and outcome['operation_id']==str(u['operation'])
+        step='repeated-claim'
+        repeated=dict(schema_version=1,operation='claim',operation_id=outcome['operation_id'],claim_event_id=None,wire_base64=None,error=None,caller_deadline=outcome['deadline'])
+        repeated_status,repeated_body,repeated_wire=worker_request(u,repeated)
+        if repeated_status==200:assert repeated_body['body_base64'] is None and repeated_body['executable'] is False
+        (tmp_path/'actual-repeated-claim.wire').write_bytes(repeated_wire)
+        with admin(x) as c:
+            assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(1,)
+            receipt=c.execute('SELECT r.wire_object_key,r.wire_sha256,r.wire_byte_count FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchone()
+        retained=(Path(u['owners']['create']['host'].config.storage_root)/receipt[0]).read_bytes()
+        assert len(retained)==receipt[2] and hashlib.sha256(retained).hexdigest()==receipt[1]
+        assert retained.endswith(canonical_bytes({'id':str(u['bot'])}))
 
-    # Same own current queue read diagnoses the actual durable state; it cannot
-    # retry any effect or manufacture a supervisor observation.
-    try:
-        post_create_queue=MeetingSupervisionFactoryV1(u['supervisions']['stop']).current_queue_v1(caller_deadline=min(now()+timedelta(seconds=8),u['supervisions']['stop'].current()))
-        (tmp_path/'post-create-current-queue.json').write_bytes(canonical_bytes(post_create_queue.model_dump(mode='json')))
-    except Exception as error:
-        (tmp_path/'post-create-current-queue-refusal.json').write_text(json.dumps(dict(error=type(error).__name__,message=str(error))))
+        # Same own current queue read diagnoses the actual durable state; it cannot
+        # retry any effect or manufacture a supervisor observation.
+        step='post-create-current-queue'
+        try:
+            post_create_queue=MeetingSupervisionFactoryV1(u['supervisions']['stop']).current_queue_v1(caller_deadline=min(now()+timedelta(seconds=8),u['supervisions']['stop'].current()))
+            _write_json_artifact(tmp_path/'post-create-current-queue.json',post_create_queue.model_dump(mode='json'))
+        except Exception as error:
+            # Record and continue (base behavior; positives retained). The
+            # refusal artifact is the evidence; this diagnostic read cannot
+            # retry an effect or manufacture a supervisor observation.
+            _write_json_artifact(tmp_path/'post-create-current-queue-refusal.json',dict(error=type(error).__name__,message=str(error)))
+        step='terminal-loop'
+        end=time.monotonic()+max(0,(x['capture_until']-now()).total_seconds())+3
+        terminal=None
+        while time.monotonic()<end:
+            with admin(x) as c:terminal=c.execute('SELECT state,capture_open,stop_state FROM oracle2.meeting_capture_heads_v1 WHERE workspace_id=%s AND meeting_id=%s',(x['workspace'],x['meeting'])).fetchone()
+            if terminal[2]=='terminal_observed':break
+            assert (now()>=x['capture_until'] or u['scheduler'].poll() is None) and u['stop_process'].poll() is None
+            time.sleep(.1)
+        # The existing lifecycle label remains unknown after ACK; independent exact
+        # terminal receipt does not reopen capture or rewrite that retained label.
+        step='terminal-asserts'
+        assert terminal==('capture_status_unknown',False,'terminal_observed')
+        assert u['provider_seen']==['POST /api/v1/bot/ HTTP/1.1',f'GET /api/v1/bot/{u["bot"]}/ HTTP/1.1',f'POST /api/v1/bot/{u["bot"]}/leave_call/ HTTP/1.1',f'GET /api/v1/bot/{u["bot"]}/ HTTP/1.1']
+        with admin(x) as c:
+            assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(4,)
+            assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchone()==(4,)
+            assert c.execute('SELECT count(*) FROM oracle2.meeting_create_stop_relations_v1 r JOIN oracle2.meeting_capture_events_v1 e ON e.workspace_id=r.workspace_id AND e.meeting_id=r.meeting_id WHERE r.mapping_id=%s AND e.action=%s AND r.installed_at<e.created_at',(u['relation'].mapping_id,'invite')).fetchone()==(1,)
+            assert c.execute('SELECT count(*) FROM oracle2.source_reading_qualifications WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(0,)
+            wires=c.execute('SELECT q.effect,q.stage,r.wire_object_key,r.wire_sha256,r.wire_byte_count,r.receipt_id,r.observation FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchall()
+            terminal_event=c.execute("SELECT payload FROM oracle2.meeting_capture_events_v1 WHERE workspace_id=%s AND action='stop_reconciled'",(x['workspace'],)).fetchone()[0]
+        assert len(wires)==4
+        for effect,stage,key,seal,count,receipt_id,observation in wires:
+            owner='create' if effect=='capture-create' else 'stop' if effect=='capture-leave' else 'pre' if stage=='pre-stop-consistency' else 'post'
+            retained_path=Path(u['owners'][owner]['host'].config.storage_root)/key
+            raw=retained_path.read_bytes();assert not retained_path.is_symlink() and retained_path.stat().st_mode&0o077==0
+            assert len(raw)==count and hashlib.sha256(raw).hexdigest()==seal
+            header,body=raw.split(b'\r\n\r\n',1)
+            lengths=[int(v.split(b':',1)[1]) for v in header.split(b'\r\n') if v.lower().startswith(b'content-length:')]
+            assert lengths==[len(body)] and b'Connection: close' in header
+            if stage=='post-stop-terminal':
+                assert observation['kind']=='metadata-observed' and observation['complete'] is True
+                assert observation['latest_status']['code']=='call_ended'
+                assert terminal_event['terminal_event_id']==str(receipt_id)
+                assert terminal_event['metadata_sha256']==hashlib.sha256(body).hexdigest()==observation['metadata_sha256']
+
+        step='unattended-outcome'
+        _write_json_artifact(tmp_path/'actual-unattended-outcome.json',{'head':terminal,'provider_routes':u['provider_seen'],'source_qualification':False,'installation_proven':False})
+    except BaseException as error:
+        if pre_child:_fail_record(error)
         raise
-    end=time.monotonic()+max(0,(x['capture_until']-now()).total_seconds())+3
-    terminal=None
-    while time.monotonic()<end:
-        with admin(x) as c:terminal=c.execute('SELECT state,capture_open,stop_state FROM oracle2.meeting_capture_heads_v1 WHERE workspace_id=%s AND meeting_id=%s',(x['workspace'],x['meeting'])).fetchone()
-        if terminal[2]=='terminal_observed':break
-        assert (now()>=x['capture_until'] or u['scheduler'].poll() is None) and u['stop_process'].poll() is None
-        time.sleep(.1)
-    # The existing lifecycle label remains unknown after ACK; independent exact
-    # terminal receipt does not reopen capture or rewrite that retained label.
-    assert terminal==('capture_status_unknown',False,'terminal_observed')
-    assert u['provider_seen']==['POST /api/v1/bot/ HTTP/1.1',f'GET /api/v1/bot/{u["bot"]}/ HTTP/1.1',f'POST /api/v1/bot/{u["bot"]}/leave_call/ HTTP/1.1',f'GET /api/v1/bot/{u["bot"]}/ HTTP/1.1']
-    with admin(x) as c:
-        assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_claims_v1 WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(4,)
-        assert c.execute('SELECT count(*) FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchone()==(4,)
-        assert c.execute('SELECT count(*) FROM oracle2.meeting_create_stop_relations_v1 r JOIN oracle2.meeting_capture_events_v1 e ON e.workspace_id=r.workspace_id AND e.meeting_id=r.meeting_id WHERE r.mapping_id=%s AND e.action=%s AND r.installed_at<e.created_at',(u['relation'].mapping_id,'invite')).fetchone()==(1,)
-        assert c.execute('SELECT count(*) FROM oracle2.source_reading_qualifications WHERE workspace_id=%s',(x['workspace'],)).fetchone()==(0,)
-        wires=c.execute('SELECT q.effect,q.stage,r.wire_object_key,r.wire_sha256,r.wire_byte_count,r.receipt_id,r.observation FROM oracle2.meeting_capture_worker_receipts_v1 r JOIN oracle2.meeting_capture_worker_claims_v1 q USING(claim_id) WHERE q.workspace_id=%s',(x['workspace'],)).fetchall()
-        terminal_event=c.execute("SELECT payload FROM oracle2.meeting_capture_events_v1 WHERE workspace_id=%s AND action='stop_reconciled'",(x['workspace'],)).fetchone()[0]
-    assert len(wires)==4
-    for effect,stage,key,seal,count,receipt_id,observation in wires:
-        owner='create' if effect=='capture-create' else 'stop' if effect=='capture-leave' else 'pre' if stage=='pre-stop-consistency' else 'post'
-        retained_path=Path(u['owners'][owner]['host'].config.storage_root)/key
-        raw=retained_path.read_bytes();assert not retained_path.is_symlink() and retained_path.stat().st_mode&0o077==0
-        assert len(raw)==count and hashlib.sha256(raw).hexdigest()==seal
-        header,body=raw.split(b'\r\n\r\n',1)
-        lengths=[int(v.split(b':',1)[1]) for v in header.split(b'\r\n') if v.lower().startswith(b'content-length:')]
-        assert lengths==[len(body)] and b'Connection: close' in header
-        if stage=='post-stop-terminal':
-            assert observation['kind']=='metadata-observed' and observation['complete'] is True
-            assert observation['latest_status']['code']=='call_ended'
-            assert terminal_event['terminal_event_id']==str(receipt_id)
-            assert terminal_event['metadata_sha256']==hashlib.sha256(body).hexdigest()==observation['metadata_sha256']
+    finally:
+        if restore_wraps is not None:
+            try:restore_wraps()
+            except Exception:pass
 
-    (tmp_path/'actual-unattended-outcome.json').write_text(json.dumps({'head':terminal,'provider_routes':u['provider_seen'],'source_qualification':False,'installation_proven':False}))
+def _redact_child_stdout(tmp_path):
+    """M11 fixture post-pass: parse the driver's canonicalJson stdout line and
+    run redact_record before the file is finalized. A line that does not parse
+    is written as the UnparsedStdout template (stage UNKNOWN, no unbound
+    <stage>); the raw bytes are not kept."""
+    path=tmp_path/'actual-create-child.stdout'
+    if not path.exists():return
+    raw=path.read_bytes()
+    try:
+        record=json.loads(raw)
+        if not isinstance(record,dict):raise ValueError('not an object')
+        _write_json_artifact(path,record)
+    except Exception:
+        _write_json_artifact(path,dict(state='UNKNOWN',stage='UNKNOWN',error_type='UnparsedStdout',raw_kind='unlisted'))
 
 @pytest.mark.parametrize('meeting_sql',[{'capture_seconds':40,'scheduler_poll_seconds':2,'stop_request_seconds':10,'stop_margin_seconds':13}],indirect=True)
 def test_actual_producer_death_refuses_Create_before_any_provider_HTTP(unattended,tmp_path):
