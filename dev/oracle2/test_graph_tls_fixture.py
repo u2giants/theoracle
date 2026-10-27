@@ -19,8 +19,31 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri,dia
     def track(sock):
         with lock:active.add(sock)
         return sock
+    _sem_acquired=0;_sem_released=0;_sem_lock=threading.Lock()
+    _conn_track={}  # conn_id -> (acquire_ts, release_ts|None)
+    def _sem_acquire(conn_id=None):
+        nonlocal _sem_acquired
+        ok=limit.acquire(blocking=False)
+        if ok:
+            with _sem_lock:
+                _sem_acquired+=1
+                if conn_id is not None:_conn_track[conn_id]=(time.monotonic(),None)
+        return ok
+    def _sem_release(conn_id=None):
+        nonlocal _sem_released
+        limit.release()
+        with _sem_lock:
+            _sem_released+=1
+            if conn_id is not None and conn_id in _conn_track:
+                _conn_track[conn_id]=(_conn_track[conn_id][0],time.monotonic())
+            live=_sem_acquired-_sem_released
     def serve(raw):
-        remote=None;client=raw
+        remote=None;client=raw;conn_id=threading.get_ident();track_id=id(raw);released=False
+        def _safe_release():
+            nonlocal released
+            if not released:
+                released=True
+                _sem_release(track_id)
         # Source-only TLS diagnostic: record the actual numeric peer before any
         # wrap/handshake, and the peer DER hash only when the handshake succeeds.
         # No global SSL patch, no fallback, no retry; existing CA/SNI/pins stay.
@@ -30,6 +53,7 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri,dia
         except OSError:peer_address='unavailable'
         try:
             raw.settimeout(1)
+            hs_start=time.monotonic()
             try:
                 client=track(server_context.wrap_socket(raw,server_side=True))
             except (OSError,ValueError) as failure:
@@ -46,15 +70,23 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri,dia
             uris=[v for k,v in client.getpeercert().get('subjectAltName',()) if k=='URI']
             if uris!=[expected_client_uri]:raise PermissionError('actual graph tunnel client URI differs')
             remote=track(socket.create_connection(('127.0.0.1',target.port),timeout=1))
-            client.settimeout(.2);remote.settimeout(.2)
+            client.settimeout(.5);remote.settimeout(.5)
+            last_data=time.monotonic()
             while not stop.is_set():
-                ready,_,_=select.select([client,remote],[],[],.1)
-                if client.pending() and client not in ready:ready.append(client)
+                ready,_,_=select.select([client,remote],[],[],.5)
+                if not ready:
+                    if time.monotonic()-last_data>10:return
+                    continue
                 for source in ready:
                     try:data=source.recv(65536)
-                    except (socket.timeout,ssl.SSLWantReadError):continue
+                    except (socket.timeout,ssl.SSLWantReadError,BlockingIOError):continue
+                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError):return
                     if not data:return
-                    (remote if source is client else client).sendall(data)
+                    last_data=time.monotonic()
+                    dest=remote if source is client else client
+                    try:dest.sendall(data)
+                    except (socket.timeout,ssl.SSLWantWriteError,BlockingIOError):continue
+                    except (ConnectionResetError,ConnectionAbortedError,BrokenPipeError,OSError):return
         except (OSError,ValueError,PermissionError) as failure:
             # Post-handshake settlement failures are distinct from TLS handshake
             # failures; keep the stage honest so diagnostics never blame TLS.
@@ -66,14 +98,17 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri,dia
                     with lock:active.discard(sock)
                     try:sock.close()
                     except OSError:pass
-            limit.release()
+            _safe_release()
     def accept():
         while not stop.is_set():
             try:raw,_=listener.accept()
             except socket.timeout:continue
-            except OSError:return
-            if not limit.acquire(blocking=False):
+            except OSError as exc:
+                if stop.is_set():return
+                continue
+            if not _sem_acquire(id(raw)):
                 raw.close();overflow.append(1);continue
+
             track(raw);worker=threading.Thread(target=serve,args=(raw,),daemon=False)
             workers.append(worker)
             try:worker.start()

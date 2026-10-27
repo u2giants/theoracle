@@ -1,5 +1,5 @@
 """Real pinned SDK ingestion from sealed ledger records; never second extraction."""
-import json,logging,hashlib,copy
+import asyncio,json,logging,hashlib,copy
 from importlib.metadata import version
 from uuid import UUID
 from graphrag_sdk import GraphRAG,ConnectionConfig,FalkorDBConnection,Ontology,Entity,Relation,ChunkingStrategy,ExtractionStrategy,TextChunk,TextChunks
@@ -89,6 +89,40 @@ class ReadOnlyConnection:
     async def query(self,cypher,params=None,*,timeout=None):
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
+    _test_abort_close=False  # set True only by test fixture to avoid TLS close_notify poisoning shared tunnel
+    async def close(self):
+        if not self._test_abort_close:
+            await self._connection.close()
+            return
+        # Test-only: abortive close to avoid TLS close_notify poisoning the
+        # shared test-tunnel SSLContext. SO_LINGER(1,0) sends RST; shutdown+close
+        # frees the fd immediately so the tunnel's serve task sees the disconnect.
+        # getattr/except guards degrade gracefully if SDK private layout drifts.
+        import socket as _so,struct as _st
+        conn=self._connection
+        pool=getattr(conn,'_pool',None)
+        if pool is not None:
+            try:conns=list(getattr(pool,'_available_connections',[]))+list(getattr(pool,'_in_use_connections',set()))
+            except Exception:conns=[]
+            for c in conns:
+                try:
+                    w=getattr(c,'_writer',None)
+                    t=getattr(w,'transport',None) if w is not None else None
+                    if t is not None:
+                        raw_sock=t.get_extra_info('socket') if hasattr(t,'get_extra_info') else None
+                        if raw_sock is not None:
+                            try:raw_sock.setsockopt(_so.SOL_SOCKET,_so.SO_LINGER,_st.pack('ii',1,0))
+                            except Exception:pass
+                            try:raw_sock.shutdown(_so.SHUT_RDWR)
+                            except Exception:pass
+                            try:raw_sock.close()
+                            except Exception:pass
+                        try:t.abort()
+                        except Exception:pass
+                    if hasattr(c,'_reader'):c._reader=None
+                    if hasattr(c,'_writer'):c._writer=None
+                except Exception:pass
+        conn._pool=None;conn._driver=None;conn._graph=None
 
 class SDKProjection:
     graph_prefix=PREFIX
