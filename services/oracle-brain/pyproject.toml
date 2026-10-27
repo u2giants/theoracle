@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 process-analysis = ["pm4py==2.7.22"]
-test = ["pytest>=8,<10", "pytest-xdist>=3,<4", "boto3>=1.42,<2"]
+test = ["pytest>=8,<10", "boto3>=1.42,<2"]
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]

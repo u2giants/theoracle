@@ -461,7 +461,7 @@ def main(argv=None):
             from dev.oracle2.test_canonical_schema import bootstrap_canonical_test_schema
             schema_receipt=(evidence/(label+'-schema.json')).resolve()
             schema_seal=bootstrap_canonical_test_schema(target,container_id=identity['container_id'],receipt_path=schema_receipt)
-            command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short','-n','2',f'--basetemp={evidence/(label+"-tmp")}',f'--junitxml={evidence/(label+".xml")}']
+            command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--basetemp={evidence/(label+"-tmp")}',f'--junitxml={evidence/(label+".xml")}']
             jobs.append({'name':label,'command':command,'env':{**os.environ,**worker_env,'ORACLE2_TEST_ADMIN_URL':target,'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT':str(schema_receipt),'ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256':schema_seal,'PYTHONPATH':str(ROOT/'services/oracle-brain'),
                 'OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1','MKL_NUM_THREADS':'1','NUMEXPR_NUM_THREADS':'1'}})
         results,worker_cleanup=run_test_groups(jobs,evidence,deadline=time.monotonic()+120)
