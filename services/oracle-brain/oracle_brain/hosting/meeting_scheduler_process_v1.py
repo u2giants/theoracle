@@ -17,6 +17,10 @@ from oracle_brain.hosting.original_intake_v1 import _pinned,_parse,load_original
 from oracle_brain.hosting.meeting_capture_v1 import load_meeting_capture_settings_v1,MeetingCaptureFactoryV1
 from oracle_brain.hosting.meeting_supervision_service_v1 import load_meeting_supervision_settings_v1,MeetingSupervisionFactoryV1
 HASH=r'^[a-f0-9]{64}$'
+# A refused READ tick (another reader serializing the same queue read, or the
+# queue advancing between this tick's own reads) is not a broken loop; only real
+# install/SQL failures may flip the health flag that gates later observations.
+_TRANSIENT_READ_REFUSALS=frozenset({'scheduler observation already running','actual queue changed during scheduler observation'})
 
 class MeetingSchedulerRuntimeV1(StrictRecord):
     purpose:Literal['meeting-scheduler-runtime-v1']
@@ -124,7 +128,8 @@ class _InstalledSchedulerV1:
                             self.mutation_uncertain=False
                         self.last_success=time.monotonic();self.error=False
                     finally:self.lock.release()
-            except Exception:self.error=True
+            except Exception as error:
+                if type(error) is not PermissionError or str(error) not in _TRANSIENT_READ_REFUSALS:self.error=True
             if datetime.now(timezone.utc)>=min(c.capture_until,c.expires_at):self.stop.set();break
             self.stop.wait(max(0,self.next_poll-time.monotonic()))
     def observe(self,connection):
@@ -149,7 +154,7 @@ class _InstalledSchedulerV1:
                 if (self.stop.is_set() or self.loop is None or not self.loop.is_alive() or self.error or self.mutation_uncertain
                     or not 0<=time.monotonic()-self.last_success<=self.config.scheduler_poll_seconds+2
                     or self.next_poll<time.monotonic()-self.config.scheduler_poll_seconds):raise PermissionError('actual scheduler loop unavailable')
-                if not self.lock.acquire(blocking=False):raise PermissionError('scheduler current read busy')
+                if not self.lock.acquire(timeout=max(0.,min(2.,request_remaining_v1(required=True)))):raise PermissionError('scheduler current read busy')
                 try:packet,_due=self.fresh(q.caller_deadline)
                 finally:self.lock.release()
                 if packet.scope_sha256!=q.scope_sha256:raise PermissionError('actual observer and queue scope differ')
