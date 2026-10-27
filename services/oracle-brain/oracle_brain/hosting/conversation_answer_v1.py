@@ -61,7 +61,7 @@ class ConversationAnswerV1:
                 result['answer_first']='The response outcome is unknown. Your original words are saved; no request has been repeated.'
                 return result
             except (PermissionError,psycopg.Error,ValueError):
-                if any(not t.done() for t in self.effect_owned.service._owned_closes):raise
+                if self.effect_owned.service._cleanup_unknown and any(not t.done() for t in self.effect_owned.service._owned_closes):raise
                 capability_gap='The independently authorized search or synthesis capability is unavailable. This answer uses existing qualified records only.'
             else:
                 latest=self.control.snapshot_v1(thread)

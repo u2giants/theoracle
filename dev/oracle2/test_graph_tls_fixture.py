@@ -4,25 +4,45 @@ No Redis parsing, credentials, endpoint selector or production startup route.
 The caller owns the exact graph/ACL; closing this tunnel is not graph cleanup.
 """
 from contextlib import contextmanager
-import select,socket,ssl,threading,time
+import hashlib,select,socket,ssl,threading,time
 from dev.oracle2.test_readonly_graph_fixture import owned_target
 
 @contextmanager
-def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
+def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri,diagnostics=None):
     _,target=owned_target(container,admin_url)
     if not isinstance(server_context,ssl.SSLContext) or server_context.verify_mode!=ssl.CERT_REQUIRED:
         raise PermissionError('mutually verified owned graph TLS fixture required')
     listener=socket.socket();listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
     listener.bind(('127.0.0.1',0));listener.listen(32);listener.settimeout(.1)
     stop=threading.Event();lock=threading.Lock();active=set();workers=[];overflow=[];limit=threading.BoundedSemaphore(32)
+    tls_diagnostics=[] if diagnostics is None else diagnostics
     def track(sock):
         with lock:active.add(sock)
         return sock
     def serve(raw):
         remote=None;client=raw
+        # Source-only TLS diagnostic: record the actual numeric peer before any
+        # wrap/handshake, and the peer DER hash only when the handshake succeeds.
+        # No global SSL patch, no fallback, no retry; existing CA/SNI/pins stay.
+        peer_address=None;handshake_done=False
+        try:
+            peer_address=raw.getpeername()
+        except OSError:peer_address='unavailable'
         try:
             raw.settimeout(1)
-            client=track(server_context.wrap_socket(raw,server_side=True))
+            try:
+                client=track(server_context.wrap_socket(raw,server_side=True))
+            except (OSError,ValueError) as failure:
+                tls_diagnostics.append({'stage':'handshake_failed','peer_address':peer_address,
+                    'peer_der_sha256':None,'error_type':type(failure).__name__})
+                return
+            handshake_done=True
+            try:
+                peer_der=client.getpeercert(binary_form=True)
+                peer_der_sha256=hashlib.sha256(peer_der).hexdigest() if peer_der else None
+            except (OSError,ValueError):peer_der_sha256='unavailable'
+            tls_diagnostics.append({'stage':'handshake_succeeded','peer_address':peer_address,
+                'peer_der_sha256':peer_der_sha256,'expected_client_uri':expected_client_uri})
             uris=[v for k,v in client.getpeercert().get('subjectAltName',()) if k=='URI']
             if uris!=[expected_client_uri]:raise PermissionError('actual graph tunnel client URI differs')
             remote=track(socket.create_connection(('127.0.0.1',target.port),timeout=1))
@@ -35,7 +55,11 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
                     except (socket.timeout,ssl.SSLWantReadError):continue
                     if not data:return
                     (remote if source is client else client).sendall(data)
-        except (OSError,ValueError,PermissionError):pass
+        except (OSError,ValueError,PermissionError) as failure:
+            # Post-handshake settlement failures are distinct from TLS handshake
+            # failures; keep the stage honest so diagnostics never blame TLS.
+            tls_diagnostics.append({'stage':'post_handshake_failed' if handshake_done else 'handshake_failed',
+                'peer_address':peer_address,'peer_der_sha256':None,'error_type':type(failure).__name__})
         finally:
             for sock in (client,remote,raw):
                 if sock is not None:
@@ -74,10 +98,24 @@ def owned_graph_tls(container,admin_url,*,server_context,expected_client_uri):
         for worker in workers:worker.join(max(0,end-time.monotonic()))
         if thread.is_alive() or any(worker.is_alive() for worker in workers):raise RuntimeError('owned graph TLS fixture completion unknown')
 
-def verify_graph_tls_peer(port,*,ca_file,certificate_file,key_file,expected_server_uri):
+def verify_graph_tls_peer(port,*,ca_file,certificate_file,key_file,expected_server_uri,diagnostics=None):
     """Preflight own immutable fixture context; SDK also verifies CA+hostname."""
+    notes=[] if diagnostics is None else diagnostics
     context=ssl.create_default_context(cafile=str(ca_file));context.load_cert_chain(str(certificate_file),str(key_file))
     with socket.create_connection(('127.0.0.1',port),timeout=1) as raw:
-        with context.wrap_socket(raw,server_hostname='localhost') as peer:
-            if [v for k,v in peer.getpeercert().get('subjectAltName',()) if k=='URI']!=[expected_server_uri]:
-                raise PermissionError('actual owned graph TLS server URI differs')
+        # Source-only diagnostic: numeric peer before wrap; DER hash only after
+        # a successful handshake. No global SSL patch, no fallback, no retry.
+        try:peer_address=raw.getpeername()
+        except OSError:peer_address='unavailable'
+        try:
+            with context.wrap_socket(raw,server_hostname='localhost') as peer:
+                peer_der=peer.getpeercert(binary_form=True)
+                notes.append({'stage':'client_handshake_succeeded','peer_address':peer_address,
+                    'peer_der_sha256':hashlib.sha256(peer_der).hexdigest() if peer_der else None,
+                    'expected_server_uri':expected_server_uri})
+                if [v for k,v in peer.getpeercert().get('subjectAltName',()) if k=='URI']!=[expected_server_uri]:
+                    raise PermissionError('actual owned graph TLS server URI differs')
+        except (OSError,ssl.SSLError,ValueError) as failure:
+            notes.append({'stage':'client_handshake_failed','peer_address':peer_address,
+                'peer_der_sha256':None,'error_type':type(failure).__name__})
+            raise

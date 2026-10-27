@@ -35,26 +35,33 @@ def save(path,value):
  return ProtectedInputV1(path=str(path.resolve()),sha256=hashlib.sha256(raw).hexdigest())
 
 @pytest.fixture
-def actual_factory_ledger(admin_url):
- # A deliberate immutable overrun must keep blocking its ORIGINAL key ledger.
- # Each case is a SEPARATE independent invented installation/universe, not
- # proof that retargeting the SAME actual account can reset liabilities.
- # Give every invented case a separate complete canonical owned DB; never
- # delete cost rows, clear holds, alter guards or rely on test ordering.
+def actual_factory_ledger(admin_url,tmp_path,monkeypatch):
+ # Every case remains a separate invented account installation/universe. The
+ # SAME canonical owner binds its fresh UUID receipt; outer receipt never
+ # authorizes another target, no migration replay or cost-row reset.
  import os
  from dev.oracle2.test_worker_postgres_fixture import owned_worker_database
- from dev.oracle2.test_canonical_schema import bootstrap_canonical_test_schema
+ from dev.oracle2.test_canonical_schema import owned_phase_database
  container=os.environ['ORACLE2_SYNTHETIC_POSTGRES_CONTAINER']
- owned_worker_database(container,admin_url)
- name='oracle_operating_model_test_'+uuid4().hex
- with psycopg.connect(admin_url,autocommit=True) as connection:connection.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
- target=psycopg.conninfo.make_conninfo(admin_url,dbname=name)
+ keys=('ORACLE2_TEST_ADMIN_URL','ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT','ORACLE2_TEST_CANONICAL_SCHEMA_RECEIPT_SHA256')
+ original={key:os.environ.get(key) for key in keys};database=None
+ directory=tmp_path/'question-cost-phase';directory.mkdir(mode=0o700)
  try:
-  owned_worker_database(container,target);bootstrap_canonical_test_schema(target)
-  yield from _canonical_actual_factory_ledger.__wrapped__(target)
+  with owned_phase_database(admin_url,container,directory) as environment:
+   target=environment['ORACLE2_TEST_ADMIN_URL'];database=psycopg.conninfo.conninfo_to_dict(target)['dbname']
+   with monkeypatch.context() as current:
+    for key in keys:current.setenv(key,environment[key])
+    owned_worker_database(container,target)
+    try:yield from _canonical_actual_factory_ledger.__wrapped__(target)
+    finally:owned_worker_database(container,target)
  finally:
   owned_worker_database(container,admin_url)
-  with psycopg.connect(admin_url,autocommit=True) as connection:connection.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(name)))
+  assert all(os.environ.get(key)==value for key,value in original.items())
+  if database is not None:
+   with psycopg.connect(admin_url) as connection:
+    assert connection.execute('SELECT datname FROM pg_database WHERE datname=%s',(database,)).fetchall()==[]
+   (tmp_path/'question-cost-phase-cleanup.json').write_bytes(canonical_bytes(dict(database=database,absent=True,outer_environment_restored=True)))
+
 
 @pytest.fixture
 def native_question(question_case,actual_factory_ledger,tmp_path,monkeypatch,request):

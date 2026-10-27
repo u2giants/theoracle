@@ -1,0 +1,1419 @@
+{
+  "schema_version": 2,
+  "source": "services/oracle-brain/sql/026_operational_recovery.sql census CASE + DECLARE sites",
+  "composition": "true-ancestor additive (c187bfc3..2633c53b) onto origin/main bf788080",
+  "canonical_tables_parsed": 123,
+  "census_queries_audited": 75,
+  "operational_tables_v1_count": 56,
+  "census_query_pass": 75,
+  "census_query_fail": 0,
+  "declare_collision_sites": [
+    {
+      "line": 389,
+      "arg": "d->'migrations'",
+      "alias": "WITH",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 390,
+      "arg": "d->'migrations'",
+      "alias": "m",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 391,
+      "arg": "d->'migrations'",
+      "alias": "m",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 393,
+      "arg": "d->'purpose_bindings'",
+      "alias": "x",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 396,
+      "arg": "d->'purpose_bindings'",
+      "alias": "WHERE",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 408,
+      "arg": "profile->'purpose_bindings'",
+      "alias": "x",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 409,
+      "arg": "profile->'purpose_bindings'",
+      "alias": "WHERE",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 453,
+      "arg": "profile->'purpose_bindings'",
+      "alias": "target",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 480,
+      "arg": "admission_row.scope_coverage",
+      "alias": "LOOP",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 494,
+      "arg": "d->'workspace_ids'",
+      "alias": "w",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 494,
+      "arg": "admission_row.scope_coverage",
+      "alias": "s",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 495,
+      "arg": "d->'workspace_ids'",
+      "alias": "w",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 495,
+      "arg": "admission_row.scope_coverage",
+      "alias": "s",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 628,
+      "arg": "own.scope_coverage",
+      "alias": "recovery_scope_item",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 705,
+      "arg": "a.scope_coverage",
+      "alias": "recovery_scope_item",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 714,
+      "arg": "d->'databases'",
+      "alias": "LOOP",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 718,
+      "arg": "d->'private_roots'",
+      "alias": "LOOP",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    },
+    {
+      "line": 787,
+      "arg": "j->field",
+      "alias": "LOOP",
+      "collision_with_appointments_scope": false,
+      "status": "pass"
+    }
+  ],
+  "declare_collision_fail": 0,
+  "ratified_fixes_verified": {
+    "receipt-workspace-join": true,
+    "scope-srf-alias-claim-recovery": true,
+    "scope-srf-alias-denials-union": true
+  },
+  "ratified_fixes_applied": [
+    {
+      "id": "receipt-workspace-join",
+      "site": "026_operational_recovery.sql census CASE meeting_capture_worker_receipts_v1",
+      "defect": "t.workspace_id referenced but receipts table has no workspace_id column",
+      "fix": "JOIN meeting_capture_worker_claims_v1 own ON own.claim_id=t.claim_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "id": "scope-srf-alias-qualification",
+      "site": "claim_recovery_phase_v1 ancestors CTE (line ~705) + denials union revoked_admissions (line ~628)",
+      "defect": "naked jsonb_array_elements(...scope_coverage) scope collides with appointments.scope text",
+      "fix": "AS recovery_scope_item(value) with qualified recovery_scope_item.value at all SAME sites"
+    }
+  ],
+  "queries": [
+    {
+      "table": "appointments",
+      "primary": "appointments",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "appointments"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.appointments"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.appointments t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "artifact_invalidations",
+      "primary": "artifact_invalidations",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "artifact_invalidations"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.artifact_invalidations"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.artifact_invalidations t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "conversation_processing_admissions_v1",
+      "primary": "conversation_processing_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "conversation_processing_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.conversation_processing_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.conversation_processing_admissions_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "hosting_original_population_admissions_v1",
+      "primary": "hosting_original_population_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "hosting_original_population_admissions_v1",
+        "original_source_populations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.hosting_original_population_admissions_v1",
+        "unresolved alias oracle2.original_source_populations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.hosting_original_population_admissions_v1 t JOIN oracle2.original_source_populations_v1 own ON own.population_id=t.population_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "hosting_original_source_admissions",
+      "primary": "hosting_original_source_admissions",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "hosting_original_source_admissions"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.hosting_original_source_admissions"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.hosting_original_source_admissions t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "hosting_request_principal_admissions",
+      "primary": "hosting_request_principal_admissions",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "hosting_request_principal_admissions"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.hosting_request_principal_admissions"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.hosting_request_principal_admissions t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "hosting_role_runtime_admissions",
+      "primary": "hosting_role_runtime_admissions",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "hosting_request_principal_admissions",
+        "hosting_role_runtime_admissions",
+        "hosting_role_source_admissions",
+        "meeting_capture_admissions_v1",
+        "meeting_participation_admissions_v1",
+        "migration_admissions_v1",
+        "processing_model_admissions_v1",
+        "question_effect_admissions_v1",
+        "recommendation_action_admissions_v1",
+        "recovery_operation_admissions_v1",
+        "research_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.hosting_role_runtime_admissions",
+        "unresolved alias oracle2.hosting_role_source_admissions",
+        "unresolved alias oracle2.hosting_request_principal_admissions",
+        "unresolved alias oracle2.processing_model_admissions_v1",
+        "unresolved alias oracle2.recovery_operation_admissions_v1",
+        "unresolved alias oracle2.meeting_capture_admissions_v1",
+        "unresolved alias oracle2.meeting_participation_admissions_v1",
+        "unresolved alias oracle2.research_admissions_v1",
+        "unresolved alias oracle2.question_effect_admissions_v1",
+        "unresolved alias oracle2.recommendation_action_admissions_v1",
+        "unresolved alias oracle2.migration_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.hosting_role_runtime_admissions t WHERE EXISTS(SELECT 1 FROM oracle2.hosting_role_source_admissions own WHERE own.role_name=t.role_name AND own.workspace_id=ANY(..."
+    },
+    {
+      "table": "hosting_role_source_admissions",
+      "primary": "hosting_role_source_admissions",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "hosting_role_source_admissions"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.hosting_role_source_admissions"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.hosting_role_source_admissions t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_admissions_v1",
+      "primary": "meeting_capture_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_capture_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_admissions_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_final_fetch_claims_v1",
+      "primary": "meeting_capture_final_fetch_claims_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_capture_final_fetch_claims_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_final_fetch_claims_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_final_fetch_claims_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_processing_links_v1",
+      "primary": "meeting_capture_processing_links_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_capture_processing_links_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_processing_links_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_processing_links_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_enqueue_claims_v1",
+      "primary": "meeting_capture_enqueue_claims_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_capture_enqueue_claims_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_enqueue_claims_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_enqueue_claims_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_enqueue_receipts_v1",
+      "primary": "meeting_capture_enqueue_receipts_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_capture_enqueue_claims_v1",
+        "meeting_capture_enqueue_receipts_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_enqueue_receipts_v1",
+        "unresolved alias oracle2.meeting_capture_enqueue_claims_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_enqueue_receipts_v1 t JOIN oracle2.meeting_capture_enqueue_claims_v1 own USING(claim_id) WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_events_v1",
+      "primary": "meeting_capture_events_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_capture_events_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_events_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_events_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_heads_v1",
+      "primary": "meeting_capture_heads_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_capture_heads_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_heads_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_heads_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_revocations_v1",
+      "primary": "meeting_capture_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_capture_admissions_v1",
+        "meeting_capture_revocations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_revocations_v1",
+        "unresolved alias oracle2.meeting_capture_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_revocations_v1 t JOIN oracle2.meeting_capture_admissions_v1 own ON own.admission_id=t.admission_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_worker_claims_v1",
+      "primary": "meeting_capture_worker_claims_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_capture_worker_claims_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_worker_claims_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_claims_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_capture_worker_receipts_v1",
+      "primary": "meeting_capture_worker_receipts_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_capture_worker_claims_v1",
+        "meeting_capture_worker_receipts_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_capture_worker_receipts_v1",
+        "unresolved alias oracle2.meeting_capture_worker_claims_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_capture_worker_receipts_v1 t JOIN oracle2.meeting_capture_worker_claims_v1 own ON own.claim_id=t.claim_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_create_stop_relation_revocations_v1",
+      "primary": "meeting_create_stop_relation_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_create_stop_relation_revocations_v1",
+        "meeting_create_stop_relations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_create_stop_relation_revocations_v1",
+        "unresolved alias oracle2.meeting_create_stop_relations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_create_stop_relation_revocations_v1 t JOIN oracle2.meeting_create_stop_relations_v1 own ON own.mapping_id=t.mapping_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_create_stop_relations_v1",
+      "primary": "meeting_create_stop_relations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_create_stop_relations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_create_stop_relations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_create_stop_relations_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_final_mapping_revocations_v1",
+      "primary": "meeting_final_mapping_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_final_mapping_revocations_v1",
+        "meeting_final_mappings_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_final_mapping_revocations_v1",
+        "unresolved alias oracle2.meeting_final_mappings_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_final_mapping_revocations_v1 t JOIN oracle2.meeting_final_mappings_v1 own ON own.mapping_id=t.mapping_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_final_mappings_v1",
+      "primary": "meeting_final_mappings_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_final_mappings_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_final_mappings_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_final_mappings_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_normalization_claims_v1",
+      "primary": "meeting_normalization_claims_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_normalization_claims_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_normalization_claims_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_normalization_claims_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_normalization_intakes_v1",
+      "primary": "meeting_normalization_intakes_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_normalization_claims_v1",
+        "meeting_normalization_intakes_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_normalization_intakes_v1",
+        "unresolved alias oracle2.meeting_normalization_claims_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_normalization_intakes_v1 t JOIN oracle2.meeting_normalization_claims_v1 own ON own.claim_id=t.claim_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participant_epoch_revocations_v1",
+      "primary": "meeting_participant_epoch_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_participant_epoch_revocations_v1",
+        "meeting_participant_epochs_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participant_epoch_revocations_v1",
+        "unresolved alias oracle2.meeting_participant_epochs_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participant_epoch_revocations_v1 t JOIN oracle2.meeting_participant_epochs_v1 own ON own.epoch_id=t.epoch_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participant_epochs_v1",
+      "primary": "meeting_participant_epochs_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_participant_epochs_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participant_epochs_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participant_epochs_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_admissions_v1",
+      "primary": "meeting_participation_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_participation_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_admissions_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_audience_heads_v1",
+      "primary": "meeting_participation_audience_heads_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_participation_audience_heads_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_audience_heads_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_audience_heads_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_delivery_events_v1",
+      "primary": "meeting_participation_delivery_events_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_participation_delivery_events_v1",
+        "meeting_participation_intents_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_delivery_events_v1",
+        "unresolved alias oracle2.meeting_participation_intents_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_delivery_events_v1 t JOIN oracle2.meeting_participation_intents_v1 own ON own.intent_id=t.intent_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_delivery_heads_v1",
+      "primary": "meeting_participation_delivery_heads_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_participation_delivery_heads_v1",
+        "meeting_participation_intents_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_delivery_heads_v1",
+        "unresolved alias oracle2.meeting_participation_intents_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_delivery_heads_v1 t JOIN oracle2.meeting_participation_intents_v1 own ON own.intent_id=t.intent_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_events_v1",
+      "primary": "meeting_participation_events_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_participation_events_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_events_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_events_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_heads_v1",
+      "primary": "meeting_participation_heads_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_participation_heads_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_heads_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_heads_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_intents_v1",
+      "primary": "meeting_participation_intents_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_participation_intents_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_intents_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_intents_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_observations_v1",
+      "primary": "meeting_participation_observations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "meeting_participation_observations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_observations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_observations_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "meeting_participation_revocations_v1",
+      "primary": "meeting_participation_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "meeting_participation_admissions_v1",
+        "meeting_participation_revocations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.meeting_participation_revocations_v1",
+        "unresolved alias oracle2.meeting_participation_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.meeting_participation_revocations_v1 t JOIN oracle2.meeting_participation_admissions_v1 own ON own.admission_id=t.admission_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_admission_revocations_v1",
+      "primary": "migration_admission_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "migration_admission_revocations_v1",
+        "migration_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_admission_revocations_v1",
+        "unresolved alias oracle2.migration_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_admission_revocations_v1 t JOIN oracle2.migration_admissions_v1 own USING(admission_id) WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_admissions_v1",
+      "primary": "migration_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "migration_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_admissions_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_capture_observations_v1",
+      "primary": "migration_capture_observations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "migration_capture_observations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_capture_observations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_capture_observations_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_citation_bindings_v1",
+      "primary": "migration_citation_bindings_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "migration_citation_bindings_v1",
+        "migration_inventories_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_citation_bindings_v1",
+        "unresolved alias oracle2.migration_inventories_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_citation_bindings_v1 t JOIN oracle2.migration_inventories_v1 own USING(inventory_id) WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_events_v1",
+      "primary": "migration_events_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "migration_events_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_events_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_events_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_heads_v1",
+      "primary": "migration_heads_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "migration_heads_v1",
+        "migration_inventories_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_heads_v1",
+        "unresolved alias oracle2.migration_inventories_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_heads_v1 t JOIN oracle2.migration_inventories_v1 own USING(inventory_id) WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_intent_observations_v1",
+      "primary": "migration_intent_observations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "migration_intent_observations_v1",
+        "migration_intents_v1",
+        "migration_inventories_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_intent_observations_v1",
+        "unresolved alias oracle2.migration_intents_v1",
+        "unresolved alias oracle2.migration_inventories_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_intent_observations_v1 t JOIN oracle2.migration_intents_v1 i USING(intent_id) JOIN oracle2.migration_inventories_v1 own USING(inventory_id) WHERE own.w..."
+    },
+    {
+      "table": "migration_intents_v1",
+      "primary": "migration_intents_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "migration_intents_v1",
+        "migration_inventories_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_intents_v1",
+        "unresolved alias oracle2.migration_inventories_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_intents_v1 t JOIN oracle2.migration_inventories_v1 own USING(inventory_id) WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_inventories_v1",
+      "primary": "migration_inventories_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "migration_inventories_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_inventories_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_inventories_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_inventory_entries_v1",
+      "primary": "migration_inventory_entries_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "migration_inventories_v1",
+        "migration_inventory_entries_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_inventory_entries_v1",
+        "unresolved alias oracle2.migration_inventories_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_inventory_entries_v1 t JOIN oracle2.migration_inventories_v1 own USING(inventory_id) WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_resolution_events_v1",
+      "primary": "migration_resolution_events_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "migration_events_v1",
+        "migration_resolution_events_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_resolution_events_v1",
+        "unresolved alias oracle2.migration_events_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_resolution_events_v1 t JOIN oracle2.migration_events_v1 own ON own.event_id=t.event_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_source_bindings_v1",
+      "primary": "migration_source_bindings_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "migration_source_bindings_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_source_bindings_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_source_bindings_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "migration_source_versions_v1",
+      "primary": "migration_source_versions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "migration_source_bindings_v1",
+        "migration_source_versions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.migration_source_versions_v1",
+        "unresolved alias oracle2.migration_source_bindings_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.migration_source_versions_v1 t JOIN oracle2.migration_source_bindings_v1 own USING(binding_id) WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "original_source_population_members_v1",
+      "primary": "original_source_population_members_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "original_source_population_members_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.original_source_population_members_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.original_source_population_members_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "original_source_populations_v1",
+      "primary": "original_source_populations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "original_source_populations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.original_source_populations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.original_source_populations_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "processing_model_admission_revocations_v1",
+      "primary": "processing_model_admission_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "processing_model_admission_revocations_v1",
+        "processing_model_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.processing_model_admission_revocations_v1",
+        "unresolved alias oracle2.processing_model_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.processing_model_admission_revocations_v1 t JOIN oracle2.processing_model_admissions_v1 own ON own.admission_id=t.admission_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "processing_model_admissions_v1",
+      "primary": "processing_model_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "processing_model_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.processing_model_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.processing_model_admissions_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "question_effect_admission_revocations_v1",
+      "primary": "question_effect_admission_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "question_effect_admission_revocations_v1",
+        "question_effect_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.question_effect_admission_revocations_v1",
+        "unresolved alias oracle2.question_effect_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.question_effect_admission_revocations_v1 t JOIN oracle2.question_effect_admissions_v1 own ON own.admission_id=t.admission_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "question_effect_admissions_v1",
+      "primary": "question_effect_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "question_effect_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.question_effect_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.question_effect_admissions_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "question_effect_observations_v1",
+      "primary": "question_effect_observations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "question_effect_observations_v1",
+        "question_effect_operations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.question_effect_observations_v1",
+        "unresolved alias oracle2.question_effect_operations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.question_effect_observations_v1 t JOIN oracle2.question_effect_operations_v1 own ON own.operation_id=t.operation_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "question_effect_operations_v1",
+      "primary": "question_effect_operations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "question_effect_operations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.question_effect_operations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.question_effect_operations_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "recommendation_action_admissions_v1",
+      "primary": "recommendation_action_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "recommendation_action_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.recommendation_action_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.recommendation_action_admissions_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "recommendation_action_events_v1",
+      "primary": "recommendation_action_events_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "recommendation_action_events_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.recommendation_action_events_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.recommendation_action_events_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "recommendation_action_revocations_v1",
+      "primary": "recommendation_action_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "recommendation_action_admissions_v1",
+        "recommendation_action_revocations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.recommendation_action_revocations_v1",
+        "unresolved alias oracle2.recommendation_action_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.recommendation_action_revocations_v1 t JOIN oracle2.recommendation_action_admissions_v1 own ON own.admission_id=t.admission_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "recommendation_registrations_v1",
+      "primary": "recommendation_registrations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "recommendation_registrations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.recommendation_registrations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.recommendation_registrations_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "recommendation_repairs_v1",
+      "primary": "recommendation_repairs_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "recommendation_repairs_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.recommendation_repairs_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.recommendation_repairs_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "recovery_admission_revocations_v1",
+      "primary": "recovery_admission_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "recovery_admission_revocations_v1",
+        "recovery_operation_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.recovery_admission_revocations_v1",
+        "unresolved alias oracle2.recovery_operation_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.recovery_admission_revocations_v1 t JOIN oracle2.recovery_operation_admissions_v1 own USING(admission_id) WHERE EXISTS(SELECT 1 FROM jsonb_array_elements_text(co..."
+    },
+    {
+      "table": "recovery_operation_admissions_v1",
+      "primary": "recovery_operation_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "recovery_operation_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.recovery_operation_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.recovery_operation_admissions_v1 t WHERE EXISTS(SELECT 1 FROM jsonb_array_elements_text(convert_from(t.descriptor_bytes,''UTF8'')::jsonb->''workspace_ids'') w WH..."
+    },
+    {
+      "table": "research_admission_revocations_v1",
+      "primary": "research_admission_revocations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "research_admission_revocations_v1",
+        "research_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.research_admission_revocations_v1",
+        "unresolved alias oracle2.research_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.research_admission_revocations_v1 t JOIN oracle2.research_admissions_v1 own ON own.admission_id=t.admission_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "research_admissions_v1",
+      "primary": "research_admissions_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "research_admissions_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.research_admissions_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.research_admissions_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "research_attempts_v1",
+      "primary": "research_attempts_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "research_attempts_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.research_attempts_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.research_attempts_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "research_events_v1",
+      "primary": "research_events_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "research_attempts_v1",
+        "research_events_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.research_events_v1",
+        "unresolved alias oracle2.research_attempts_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.research_events_v1 t JOIN oracle2.research_attempts_v1 own ON own.run_id=t.run_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "research_registrations_v1",
+      "primary": "research_registrations_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "research_registrations_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.research_registrations_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.research_registrations_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "research_run_heads_v1",
+      "primary": "research_run_heads_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": false,
+      "referenced_tables": [
+        "research_attempts_v1",
+        "research_run_heads_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.research_run_heads_v1",
+        "unresolved alias oracle2.research_attempts_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.research_run_heads_v1 t JOIN oracle2.research_attempts_v1 own ON own.run_id=t.run_id WHERE own.workspace_id=ANY($1)"
+    },
+    {
+      "table": "research_state_v1",
+      "primary": "research_state_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "research_state_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.research_state_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.research_state_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "source_blocks",
+      "primary": "source_blocks",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "source_blocks"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.source_blocks"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.source_blocks t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "source_original_revisions",
+      "primary": "source_original_revisions",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "source_original_revisions"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.source_original_revisions"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.source_original_revisions t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "source_original_withdrawals_v1",
+      "primary": "source_original_withdrawals_v1",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "source_original_withdrawals_v1"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.source_original_withdrawals_v1"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.source_original_withdrawals_v1 t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "source_reading_qualifications",
+      "primary": "source_reading_qualifications",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "source_reading_qualifications"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.source_reading_qualifications"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.source_reading_qualifications t WHERE t.workspace_id=ANY($1)"
+    },
+    {
+      "table": "sources",
+      "primary": "sources",
+      "status": "pass",
+      "workspace_scoped": true,
+      "primary_has_workspace_id": true,
+      "referenced_tables": [
+        "sources"
+      ],
+      "issues": [],
+      "notes": [
+        "unresolved alias oracle2.sources"
+      ],
+      "query_preview": "SELECT to_jsonb(t) AS row FROM oracle2.sources t WHERE t.workspace_id=ANY($1)"
+    }
+  ],
+  "operational_tables_v1": [
+    "meeting_capture_admissions_v1",
+    "meeting_capture_enqueue_claims_v1",
+    "meeting_capture_enqueue_receipts_v1",
+    "meeting_capture_events_v1",
+    "meeting_capture_final_fetch_claims_v1",
+    "meeting_capture_heads_v1",
+    "meeting_capture_processing_links_v1",
+    "meeting_capture_revocations_v1",
+    "meeting_capture_worker_claims_v1",
+    "meeting_capture_worker_receipts_v1",
+    "meeting_create_stop_relation_revocations_v1",
+    "meeting_create_stop_relations_v1",
+    "meeting_final_mapping_revocations_v1",
+    "meeting_final_mappings_v1",
+    "meeting_normalization_claims_v1",
+    "meeting_normalization_intakes_v1",
+    "meeting_participant_epoch_revocations_v1",
+    "meeting_participant_epochs_v1",
+    "meeting_participation_admissions_v1",
+    "meeting_participation_audience_heads_v1",
+    "meeting_participation_delivery_events_v1",
+    "meeting_participation_delivery_heads_v1",
+    "meeting_participation_events_v1",
+    "meeting_participation_heads_v1",
+    "meeting_participation_intents_v1",
+    "meeting_participation_observations_v1",
+    "meeting_participation_revocations_v1",
+    "migration_admission_revocations_v1",
+    "migration_admissions_v1",
+    "migration_capture_observations_v1",
+    "migration_citation_bindings_v1",
+    "migration_events_v1",
+    "migration_heads_v1",
+    "migration_intent_observations_v1",
+    "migration_intents_v1",
+    "migration_inventories_v1",
+    "migration_inventory_entries_v1",
+    "migration_resolution_events_v1",
+    "migration_source_bindings_v1",
+    "migration_source_versions_v1",
+    "question_effect_admission_revocations_v1",
+    "question_effect_admissions_v1",
+    "question_effect_observations_v1",
+    "question_effect_operations_v1",
+    "recommendation_action_admissions_v1",
+    "recommendation_action_events_v1",
+    "recommendation_action_revocations_v1",
+    "recommendation_registrations_v1",
+    "recommendation_repairs_v1",
+    "research_admission_revocations_v1",
+    "research_admissions_v1",
+    "research_attempts_v1",
+    "research_events_v1",
+    "research_registrations_v1",
+    "research_run_heads_v1",
+    "research_state_v1"
+  ]
+}
