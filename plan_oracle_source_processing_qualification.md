@@ -3,6 +3,19 @@
 
 ## STATUS — read first
 
+**October 23, 2026 EDT — parent24 resume after closeout; program OPEN.** Canonical delivery STATUS lives in [plan_oracle_consultant_overhaul.md](plan_oracle_consultant_overhaul.md) **STATUS first**; this plan tracks its own obligations only. Main tip `81f9f6d9`. S03–S16/#27–40 and #58 remain open; #25/#26 retain only their offline/synthetic acceptance. No company/business/adoption/retirement authority is renewed. Read the [resume handoff](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-23T1425Z-edge-dev-mimo-parent24-resume.md) and the [October 22 closeout](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-22T1211Z-edge-dev3-codex-parent24-closeout.md).
+
+| Current delivery | Verification / next action |
+|---|---|
+| Main tip `81f9f6d9` | W10 **5472 success:true** (run 39855010833). PR195/196/198/199/202/203/204 merged. |
+| S13 / PR197 | Ratified SQL repairs on `3072140f`; pins match; SQL source tests 20/20; 27 SQL cases collect. Audit: 56 operational-owner census queries (75 census-query sites + 18 DECLARE sites). Runner10 after independent resource assessment. True three-way merge only. |
+| S07 | Diagnostics + fresh-proof plan on main. Fresh invented proof after independent SOURCE+ONE review and root release. |
+| S08 PR200 / S11 PR201 | Open source preservation; Linux proofs before landing. |
+| Writer cut / S14–S16 / W/U readiness | Design on main; implementation and separate business acceptance remain open. |
+| Preservation and ownership | Open PR branches retained. No company originals, production, or POP shared-db writes. |
+
+**Already settled — do not re-ask:** approved exact assertion/version/scope remains in force until explicitly withdrawn when its approver loses authority; new revisions/scopes do not inherit approval, and source-read rights stay separately current. The complete handoff records failures, exact next gates and all remaining phases.
+
 Updated October 15, 2026, 11:30 PM EDT. Owner: parent #24 adopting Codex coordinator; work stays on existing [S03 #27](https://github.com/u2giants/theoracle/issues/27) under [#24](https://github.com/u2giants/theoracle/issues/24). Architecture landed documentation-only in PR145 at f6f22837dcbca64c9492aee840e6506b1cd809c7 and PR146 at a5a5ebe7b1738d1bd871b7776a5b65d3a73b7207; the coordinator accepted the source-only trust-A design and subsequently the explicitly bounded two-column lease extension below. Q2a context source landed in PR147 at 675b2ea1eb3476d1b3f4c1de8efba0a93b4dc1c6. Current combined source candidate 23adcacdcef4697ca8db67d7d997de979c2f9568 passed canonical synthetic W10: 1299 tests,0 skipped,0 failures, no cleanup errors, within the unchanged common 120-second deadline. Final combined independent security review, source shipment and all actual target/action qualification remain OPEN. This is source/synthetic evidence only: no actual provider, private original, business acceptance, installation, production action or new runtime/grant authority is claimed.
 
 | Step | State | Gate and evidence |

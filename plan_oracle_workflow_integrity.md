@@ -9,6 +9,19 @@ Implementation owner: Codex chat `01a13a68-dc8a-73b1-8506-808c7227d8d9` on edge-
 
 ## STATUS — read first
 
+**October 23, 2026 EDT — parent24 resume after closeout; program OPEN.** Canonical delivery STATUS lives in [plan_oracle_consultant_overhaul.md](plan_oracle_consultant_overhaul.md) **STATUS first**; this plan tracks its own obligations only. Main tip `81f9f6d9`. S03–S16/#27–40 and #58 remain open; #25/#26 retain only their offline/synthetic acceptance. No company/business/adoption/retirement authority is renewed. Read the [resume handoff](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-23T1425Z-edge-dev-mimo-parent24-resume.md) and the [October 22 closeout](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-22T1211Z-edge-dev3-codex-parent24-closeout.md).
+
+| Current delivery | Verification / next action |
+|---|---|
+| Main tip `81f9f6d9` | W10 **5472 success:true** (run 39855010833). PR195/196/198/199/202/203/204 merged. |
+| S13 / PR197 | Ratified SQL repairs on `3072140f`; pins match; SQL source tests 20/20; 27 SQL cases collect. Audit: 56 operational-owner census queries (75 census-query sites + 18 DECLARE sites). Runner10 after independent resource assessment. True three-way merge only. |
+| S07 | Diagnostics + fresh-proof plan on main. Fresh invented proof after independent SOURCE+ONE review and root release. |
+| S08 PR200 / S11 PR201 | Open source preservation; Linux proofs before landing. |
+| Writer cut / S14–S16 / W/U readiness | Design on main; implementation and separate business acceptance remain open. |
+| Preservation and ownership | Open PR branches retained. No company originals, production, or POP shared-db writes. |
+
+**Already settled — do not re-ask:** approved exact assertion/version/scope remains in force until explicitly withdrawn when its approver loses authority; new revisions/scopes do not inherit approval, and source-read rights stay separately current. The complete handoff records failures, exact next gates and all remaining phases.
+
 **CURRENT WHOLE-PROGRAM COORDINATION — October 21, 2026, 6:35 PM EDT:**
 The accountable owner is Codex chat `01a16013-c8c6-7113-b307-7d4d516f2bc6`
 on edge-dev3. Read the [complete current S/W/U obligation ledger](plan_oracle_consultant_overhaul.md#current-whole-program-obligation-ledger--october-21-2026-635-pm-edt)

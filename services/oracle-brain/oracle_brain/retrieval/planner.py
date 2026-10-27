@@ -16,25 +16,7 @@ from ..operating_model.source_receipts import _StrictModel
 
 RetrievalMode = Literal["local", "connected", "historical", "global"]
 
-_HISTORICAL_MARKERS = (
-    "historical", "history", "used to", "previously", "earlier",
-    "in the past", "over time", "before the", "last year", "last quarter",
-)
-_CONNECTED_MARKERS = (
-    "across process", "between", "handoff", "downstream", "upstream",
-    "connect", "related process", "interface", "depend", "along the",
-    "end to end", "from design to",
-)
-_GLOBAL_MARKERS = (
-    "company-wide", "companywide", "across the company", "across the org",
-    "all processes", "entire company", "entire org", "whole company",
-    "every process", "organization-wide", "org-wide", "overall",
-)
-_LOCAL_MARKERS = (
-    "this process", "this source", "this document", "single process",
-    "in this", "the process",
-)
-
+from ..operating_model.question_signals_v1 import (_HISTORICAL_MARKERS,_CONNECTED_MARKERS,_GLOBAL_MARKERS,_LOCAL_MARKERS,_signals)
 
 class AccessBounds(_StrictModel):
     """Role and workspace bounds every candidate span must satisfy."""
@@ -90,14 +72,6 @@ class RetrievalPlan(_StrictModel):
         return self
 
 
-def _signals(question: str) -> tuple[bool, bool, bool, bool]:
-    text = question.lower()
-    return (
-        any(m in text for m in _HISTORICAL_MARKERS),
-        any(m in text for m in _CONNECTED_MARKERS),
-        any(m in text for m in _GLOBAL_MARKERS),
-        any(m in text for m in _LOCAL_MARKERS),
-    )
 
 
 def plan_retrieval(
