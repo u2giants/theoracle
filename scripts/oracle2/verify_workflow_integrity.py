@@ -101,6 +101,10 @@ MEETING_CAPTURE_EVENT_SUITES=('meeting_stop_semantics_sql','meeting_capture_sql'
     'meeting_create_stop_relation_sql','meeting_delivery_sql','meeting_queue_sql',
     'meeting_queue_tls_sql','meeting_normalization_tls_sql','meeting_scheduler_process_sql',
     'meeting_worker_tls_sql','meeting_stop_readiness_sql','original_intake_protected_connection_sql')
+MEETING_PARTICIPATION_CORE_SUITES=('meeting_participation_control_v1',
+    'meeting_participation_v1','meeting_participation_wire_v1')
+MEETING_PARTICIPATION_EVENT_SUITES=('meeting_participation_sql',)
+DOCUMENTARY += MEETING_PARTICIPATION_CORE_SUITES
 DOCUMENTARY += MEETING_CAPTURE_CORE_SUITES+MEETING_CAPTURE_CUSTODY_SUITES
 MIGRATION_CURRENT_CAPTURE_SUITES=('legacy_snapshot_v1','legacy_export_contract_v1',
     'legacy_storage_capture_v1','legacy_s3_signing_v1','legacy_migration_factory_v1','legacy_migration_sql','legacy_migration_citation_sql')
@@ -115,6 +119,7 @@ DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 EVENT += MEETING_CAPTURE_EVENT_SUITES
+EVENT += MEETING_PARTICIPATION_EVENT_SUITES
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2
 
