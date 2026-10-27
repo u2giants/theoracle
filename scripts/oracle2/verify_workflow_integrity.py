@@ -281,19 +281,6 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
 # sibling: keep the whole population, ten workers and unchanged120s deadline.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('source_processing_qualification',),
     'workflow_authorization',after=True)
-# Preserve every current suite and the existing ten workers /120s deadline.
-QUESTION_EFFECT_PURE_SUITES=('question_core_forwarding_v1','qualified_synthesis_v1',
-    'question_effect_pricing_v1','question_effect_public_v1','question_vector_packing_v1')
-DOCUMENTARY += QUESTION_EFFECT_PURE_SUITES+('question_effects_sql_v1','question_effect_native_sql_v1')
-DOCUMENTARY=_place_suites(DOCUMENTARY,QUESTION_EFFECT_PURE_SUITES,
-    'workflow_authorization')
-# Prior exact native64s + current doc03 46s; SQL39s +doc08 79s.
-# Measured estimates only; the unchanged whole-run deadline decides success.
-DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
-    'replacement_documentary_journey',after=True)
-DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
-    'purpose_worker_startup',after=True)
-
 # Second-repack placement after CI 39842552937: documentary-09 again lacked
 # JUnit because conversation_native_sql had been moved onto its already-full
 # tail. Keep conversation_native_sql on documentary-03 (the PR191 home that
