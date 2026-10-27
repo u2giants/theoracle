@@ -89,15 +89,15 @@ class ReadOnlyConnection:
     async def query(self,cypher,params=None,*,timeout=None):
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
+    _test_abort_close=False  # set True only by test fixture to avoid TLS close_notify poisoning shared tunnel
     async def close(self):
-        # Close pool connections via the raw socket. We access redis.asyncio
-        # internals (_pool, _available_connections, _in_use_connections, _writer)
-        # because the SDK's public aclose() blocks on wait_closed() and sends
-        # TLS close_notify, which poisons the shared test-tunnel SSLContext.
-        # The SO_LINGER(1,0) RST avoids close_notify; shutdown+close frees the
-        # fd immediately so the tunnel's serve task sees the disconnect.
-        # If the SDK's private layout drifts, the getattr/except guards degrade
-        # gracefully to transport.abort() only (no crash, no silent corruption).
+        if not self._test_abort_close:
+            await self._connection.close()
+            return
+        # Test-only: abortive close to avoid TLS close_notify poisoning the
+        # shared test-tunnel SSLContext. SO_LINGER(1,0) sends RST; shutdown+close
+        # frees the fd immediately so the tunnel's serve task sees the disconnect.
+        # getattr/except guards degrade gracefully if SDK private layout drifts.
         import socket as _so,struct as _st
         conn=self._connection
         pool=getattr(conn,'_pool',None)
