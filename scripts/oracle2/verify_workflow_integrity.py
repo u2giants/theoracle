@@ -276,20 +276,29 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('protected_raw_original_factory_v1',),
     'purpose_context_v2',after=True)
 DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
     'replacement_documentary_journey',after=True)
-# W10 SAME worker-fit rebalance: meeting_participation_sql (~50s, 21 cases)
-# tipped the single event worker past the shared 120s deadline. Place it on
-# documentary-08's measured light sibling so the event worker returns to its
-# proven ~97s baseline. purpose_worker_startup runs LAST in doc-08 so its
-# heavy fixture does not slow the SQL suites. Full population, ten workers
-# and unchanged 120s deadline retained.
+# W10 SAME worker-fit rebalance: meeting_participation_sql (~50s) and
+# purpose_worker_startup (~46s) together exceed 120s with question_effects_sql_v1.
+# Split event into 2 workers: event-01 holds base+participation+purpose_worker,
+# event-02 holds meeting_capture. Move 2 light suites from doc-07 to event-02
+# and merge doc-07+doc-08 to stay at ten workers. Full population, unchanged 120s.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('meeting_participation_sql',),
     'purpose_worker_startup',after=True)
 DOCUMENTARY=_place_suites(DOCUMENTARY,('purpose_worker_startup',),
     'question_effects_sql_v1',after=True)
+# Move meeting_participation_sql and purpose_worker_startup to EVENT
+DOCUMENTARY=tuple(s for s in DOCUMENTARY if s not in ('meeting_participation_sql','purpose_worker_startup'))
+# Move 2 light connected_answer suites from doc-07 to EVENT (for event-02 balance)
+_moved=('connected_answer_contract_v1','connected_answer_sdk_sql_v1')
+DOCUMENTARY=tuple(s for s in DOCUMENTARY if s not in _moved)
+# Insert before meeting_capture (meeting_stop_semantics_sql is first in MEETING_CAPTURE_EVENT_SUITES)
+_mi=EVENT.index('meeting_stop_semantics_sql')
+EVENT=EVENT[:_mi]+('meeting_participation_sql','purpose_worker_startup')+EVENT[_mi:-1]+_moved+EVENT[-1:]
+
+EVENT_BOUNDARIES=('meeting_stop_semantics_sql',)
 
 DOCUMENTARY_BOUNDARIES=('workflow_authorization','replacement_documentary_journey',
     'original_corpus_import','raw_endpoint_inventory_v1',
-    'purpose_context_v2','purpose_native_census_startup','meeting_participation_sql',
+    'purpose_context_v2','purpose_native_census_startup',
     'paid_sdk_embeddings_v3')
 
 
@@ -300,7 +309,10 @@ def test_groups(stage):
         starts=(0,*(DOCUMENTARY.index(name) for name in DOCUMENTARY_BOUNDARIES),len(DOCUMENTARY))
         groups.extend((f'documentary-{index+1:02d}',DOCUMENTARY[start:end])
             for index,(start,end) in enumerate(zip(starts,starts[1:])))
-    if required in (EVENT,DOCUMENTARY+EVENT):groups.append(('event',EVENT))
+    if required in (EVENT,DOCUMENTARY+EVENT):
+        starts=(0,*(EVENT.index(name) for name in EVENT_BOUNDARIES),len(EVENT))
+        groups.extend((f'event-{index+1:02d}',EVENT[start:end])
+            for index,(start,end) in enumerate(zip(starts,starts[1:])))
     flattened=tuple(suite for _,suites in groups for suite in suites)
     if (flattened!=required or len(set(flattened))!=len(flattened)
             or any(not suites for _,suites in groups) or len(groups)>10):

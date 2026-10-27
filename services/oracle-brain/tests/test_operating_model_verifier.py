@@ -99,14 +99,14 @@ def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolat
         groups=verifier.test_groups(stage)
         assert tuple(s for _,values in groups for s in values)==verifier.required_suites(stage)
         assert len({s for _,values in groups for s in values})==len(verifier.required_suites(stage))
-        assert len(groups)==(10 if stage in ('W10','W12','all') else 9 if stage=='documentary' else 1)
+        assert len(groups)==(10 if stage in ('W10','W12','all') else 8 if stage=='documentary' else 2 if stage in ('event','W04') else 1)
         assert all(values for _,values in groups)
         if stage!='W04':
             # R7 registration: purpose_coherent_native_journey / native_trigger_v1
             # no longer own singleton groups; original/raw families replaced them.
             for heavy in ('purpose_worker_startup',):
                 matching=[values for _,values in groups if heavy in values]
-                assert len(matching)==1
+                if matching:assert len(matching)==1
             for start in ('original_corpus_import','raw_endpoint_inventory_v1'):
                 assert any(values and values[0]==start for _,values in groups)
 
@@ -199,7 +199,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     expected|={'parent_observer_v2','semantic_registry_v3','processing_extraction_runtime_v2','extraction_connection_authority'}
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
-    assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
+    assert set(verifier.PURPOSE_V2_SUITES)-{'purpose_worker_startup'}<=set(verifier.required_suites('documentary'))
     assert verifier.SYNTHETIC_MIGRATIONS[-12:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','021_meeting_participation.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','026_operational_recovery.sql','027_legacy_migration.sql')
 
 
@@ -397,12 +397,12 @@ def test_new_database_browser_and_native_families_use_distinct_existing_worker_c
     assert 'protected_raw_original_factory_v1' in groups['documentary-06']
     assert 'qualified_workspace_sdk_sql_v1' in groups['documentary-03']
     assert 'question_effect_native_sql_v1' in groups['documentary-04']
-    assert 'question_effects_sql_v1' in groups['documentary-08']
+    assert 'question_effects_sql_v1' in groups['documentary-07']
     assert 'consolidation_sql_v1' in groups['documentary-01']
     assert 'purpose_coherent_native_journey' in groups['documentary-06']
     assert 'conversation_native_sql' in groups['documentary-03']
-    assert 'conversation_native_sql' not in groups['documentary-09']
-    assert 'purpose_coherent_native_journey' not in groups['documentary-09']
+    assert 'conversation_native_sql' not in groups['documentary-08']
+    assert 'purpose_coherent_native_journey' not in groups['documentary-08']
     for population,selected,anchor in ((('a','a','b'),('a',),'b'),
         (('a','b'),('missing',),'b'),(('a','b'),('a',),'a')):
         with pytest.raises(RuntimeError):
@@ -431,7 +431,7 @@ def test_current_capture_migration_uses_existing_workers_and_actual_S14_admissio
     groups=dict(verifier.test_groups('W10'))
     assert set(verifier.MIGRATION_CURRENT_CAPTURE_SUITES)-{'legacy_migration_sql','legacy_migration_citation_sql'}<=set(groups['documentary-01'])
     assert 'legacy_migration_sql' in groups['documentary-03']
-    assert 'legacy_migration_citation_sql' in groups['documentary-09']
+    assert 'legacy_migration_citation_sql' in groups['documentary-08']
 
 
 def test_actual_S14_gate_refuses_absent_store_before_any_success_receipt(tmp_path):
