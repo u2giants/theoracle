@@ -1,0 +1,165 @@
+{
+  "synthetic_only": true,
+  "business_accepted": false,
+  "teams_producer": "UNQUALIFIED",
+  "scale": {
+    "accepted_events": 25,
+    "artifacts": 8,
+    "conversation_events": 5,
+    "once_intents": 1,
+    "cost_observations": 1,
+    "private_files": 9
+  },
+  "timings": {
+    "seed_seconds": 1.225,
+    "backup_seconds": 0.251,
+    "restore_seconds": 1.246,
+    "rto_seconds": 1.246,
+    "rpo_exposure_seconds": 0.0,
+    "restore_target_seconds": 3600,
+    "ledger_backup_objective_seconds": 900
+  },
+  "gates": {
+    "native_dump_restore": {
+      "dump_sha256": "d42d082ff55361d6a1a3956ab27708e1abdc2ae648c98967cff57d7a2af54e2c",
+      "dump_bytes": 1249715,
+      "source_database_removed": true,
+      "live_root_removed": true,
+      "empty_tables_before_restore": 0,
+      "restored_tables": 120
+    },
+    "archive_child": {
+      "archive_sha256": "df2609da35203922ad3be7c07dab63defeead8a006466efc517d5497756a1994",
+      "archive_bytes": 20480,
+      "file_count": 9,
+      "total_bytes": 1221,
+      "serving_authorized": false,
+      "dispatch_authorized": false,
+      "unpacked_files": 9
+    },
+    "private_roots": {
+      "restored_mode": "0o700",
+      "blob_checksums_match": true,
+      "blob_count": 8
+    },
+    "vector": {
+      "model_name": "synthetic-fixed-8",
+      "dimensions": 8,
+      "vector_count": 8,
+      "license_recorded": "invented-fixed-dimensions-no-third-party-model"
+    },
+    "license": {
+      "synthetic_embedder": "invented-fixed-dimensions-no-third-party-model",
+      "falkordb_sspl_v4207_reviewed": true,
+      "real_vector_model_license_unproved": true
+    },
+    "once_cost": {
+      "once_intents": 1,
+      "once_unique_binding": 1,
+      "once_observations": 1,
+      "cost_observations": 1,
+      "cost_bytes_preserved": true
+    },
+    "checkpoint_019": {
+      "thread_rows": 1,
+      "thread_state": [
+        "paused",
+        5,
+        "ad64ff94-fe51-4f73-b2a1-eeb04c95bebb"
+      ],
+      "conversation_events": 5,
+      "checkpoint_rows": 1,
+      "checkpoint_owner": [
+        "34fae73b-287c-4568-9d21-73a1562231d3",
+        "0abb93a4-cb48-40f6-a1a0-cb14d86a5d45"
+      ],
+      "resume": {
+        "checkpoint_readable": true,
+        "checkpoint_state": "paused",
+        "checkpoint_budget": 8,
+        "pending_question_preserved": true,
+        "question_count_preserved": true
+      }
+    },
+    "acknowledged_events": {
+      "accounted": 25,
+      "applied": 25,
+      "blocked": 0,
+      "duplicates": 0,
+      "serving_authorized": false,
+      "all_accounted": true,
+      "projected": 25
+    },
+    "denied_deleted_evidence": {
+      "denied_servable": false,
+      "deleted_servable": false,
+      "keep_servable": true,
+      "purge_count": 30
+    },
+    "graph_census": {
+      "pre_outage": {
+        "node_count": 26,
+        "edge_count": 25,
+        "labels": {
+          "Source": 1,
+          "Assertion": 25
+        },
+        "active_assertions": 25
+      },
+      "post_replay": {
+        "node_count": 26,
+        "edge_count": 25,
+        "labels": {
+          "Source": 1,
+          "Assertion": 25
+        },
+        "active_assertions": 25
+      },
+      "graph_lost_during_outage": true,
+      "census_match": true,
+      "node_count_match": true,
+      "edge_count_match": true,
+      "labels_match": true
+    },
+    "real_vector_model_license_proof": {
+      "artifact_kind": "real-vector-model-license-proof-v1",
+      "artifact_path": "/tmp/oracle-parent24-wy02uT/s13-full-recovery-run-20261026/real-vector-model-license-proof-v1.json",
+      "artifact_sha256": "33335fba322dc60263e9deaaf9252793001275e8d148d4177ba436eba3ce1efa",
+      "model_name": "openai/text-embedding-3-small",
+      "license_instrument": "OpenAI Terms of Use (service terms governing API model use)",
+      "fixture_level_only": true,
+      "provider_call_made": false,
+      "live_license_text_fetched": false,
+      "synthetic_distinct": true,
+      "synthetic_embedder_name": "synthetic-fixed-8"
+    },
+    "source_runtime_admission": {
+      "has_authority_positive": true,
+      "has_authority_negative": false,
+      "admit_no_approval_admitted": false,
+      "admit_no_approval_reason": "no current processing approval for exact request",
+      "admit_with_approval_admitted": true,
+      "admit_with_approval_reason": ""
+    },
+    "outage_rto_rpo": {
+      "restore_seconds": 1.246,
+      "rto_within_60min": true,
+      "backup_seconds": 0.251,
+      "ledger_backup_within_15min": true,
+      "rpo_exposure_seconds": 0.0,
+      "rpo_limitation": "RPO exposure is the interval between the last successful backup completion and the outage instant. Events committed in that window would be lost with no surviving ledger tail. This exercise measured a real gap; production RPO depends on backup cadence, not on restore speed."
+    },
+    "scale": {
+      "tested_events": 25,
+      "tested_artifacts": 8,
+      "dump_bytes": 1249715,
+      "archive_bytes": 20480,
+      "graph_replay": "ledger-identity-replay-only",
+      "graph_note": "Full SDKProjection rebuild onto FalkorDB is a separate graph-store proof. This exercise proves ledger survival and deterministic projection replay of every surviving acknowledged event (zero loss relative to the surviving ledger). Graph loss zero follows from ledger zero-loss plus deterministic replay; live Falkor graph census is recorded as a separate remaining gate."
+    }
+  },
+  "source_database": "oracle_operating_model_test_6c64a3c312f34526aa3d041324d49a29",
+  "restore_database": "oracle_operating_model_test_16fd0f5ceb9248049765598855bb1020",
+  "project": "s13-full-recovery-20261026",
+  "host": "edge-dev3"
+}

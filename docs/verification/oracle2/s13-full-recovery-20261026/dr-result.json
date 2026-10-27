@@ -1,0 +1,120 @@
+{
+  "synthetic_only": true,
+  "business_accepted": false,
+  "teams_producer": "UNQUALIFIED",
+  "scale": {
+    "accepted_events": 25,
+    "artifacts": 8,
+    "conversation_events": 5,
+    "once_intents": 1,
+    "cost_observations": 1,
+    "private_files": 9
+  },
+  "timings": {
+    "seed_seconds": 1.069,
+    "backup_seconds": 0.212,
+    "restore_seconds": 1.275,
+    "rto_seconds": 1.275,
+    "rpo_exposure_seconds": 0.0,
+    "restore_target_seconds": 3600,
+    "ledger_backup_objective_seconds": 900
+  },
+  "gates": {
+    "native_dump_restore": {
+      "dump_sha256": "f5addeb310403d4fdcc10a070818f926babc5d2eb22e5b5b9e6902d67c085e81",
+      "dump_bytes": 1249718,
+      "source_database_removed": true,
+      "live_root_removed": true,
+      "empty_tables_before_restore": 0,
+      "restored_tables": 120
+    },
+    "archive_child": {
+      "archive_sha256": "25644e4691468ab0140f30e343829322074de47662475dbf7249ba3cd6179257",
+      "archive_bytes": 20480,
+      "file_count": 9,
+      "total_bytes": 1221,
+      "serving_authorized": false,
+      "dispatch_authorized": false,
+      "unpacked_files": 9
+    },
+    "private_roots": {
+      "restored_mode": "0o700",
+      "blob_checksums_match": true,
+      "blob_count": 8
+    },
+    "vector": {
+      "model_name": "synthetic-fixed-8",
+      "dimensions": 8,
+      "vector_count": 8,
+      "license_recorded": "invented-fixed-dimensions-no-third-party-model"
+    },
+    "license": {
+      "synthetic_embedder": "invented-fixed-dimensions-no-third-party-model",
+      "falkordb_sspl_v4207_reviewed": true,
+      "real_vector_model_license_unproved": true
+    },
+    "once_cost": {
+      "once_intents": 1,
+      "once_unique_binding": 1,
+      "once_observations": 1,
+      "cost_observations": 1,
+      "cost_bytes_preserved": true
+    },
+    "checkpoint_019": {
+      "thread_rows": 1,
+      "thread_state": [
+        "paused",
+        5,
+        "3704c654-4f82-4fa2-8f23-faa9357e6be1"
+      ],
+      "conversation_events": 5,
+      "checkpoint_rows": 1,
+      "checkpoint_owner": [
+        "1d0c9755-9f16-4a0f-a333-67a47e019a74",
+        "dab21415-f5c3-4dcb-9530-eb38a238584c"
+      ],
+      "resume": {
+        "checkpoint_readable": true,
+        "checkpoint_state": "paused",
+        "checkpoint_budget": 8,
+        "pending_question_preserved": true,
+        "question_count_preserved": true
+      }
+    },
+    "acknowledged_events": {
+      "accounted": 25,
+      "applied": 25,
+      "blocked": 0,
+      "duplicates": 0,
+      "serving_authorized": false,
+      "all_accounted": true,
+      "projected": 25
+    },
+    "denied_deleted_evidence": {
+      "denied_servable": false,
+      "deleted_servable": false,
+      "keep_servable": true,
+      "purge_count": 30
+    },
+    "outage_rto_rpo": {
+      "restore_seconds": 1.275,
+      "rto_within_60min": true,
+      "backup_seconds": 0.212,
+      "ledger_backup_within_15min": true,
+      "rpo_exposure_seconds": 0.0,
+      "rpo_limitation": "RPO exposure is the interval between the last successful backup completion and the outage instant. Events committed in that window would be lost with no surviving ledger tail. This exercise measured a real gap; production RPO depends on backup cadence, not on restore speed."
+    },
+    "scale": {
+      "tested_events": 25,
+      "tested_artifacts": 8,
+      "dump_bytes": 1249718,
+      "archive_bytes": 20480,
+      "graph_replay": "ledger-identity-replay-only",
+      "graph_note": "Full SDKProjection rebuild onto FalkorDB is a separate graph-store proof. This exercise proves ledger survival and deterministic projection replay of every surviving acknowledged event (zero loss relative to the surviving ledger). Graph loss zero follows from ledger zero-loss plus deterministic replay; live Falkor graph census is recorded as a separate remaining gate."
+    }
+  },
+  "source_database": "oracle_operating_model_test_d006d91485dc4da0b7584acfad8e4f9b",
+  "restore_database": "oracle_operating_model_test_b2e5424e83c84ddab03fcbad4ede894c",
+  "project": "s13-full-recovery-20261026",
+  "host": "edge-dev3"
+}

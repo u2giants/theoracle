@@ -1,0 +1,26 @@
+{
+  "admission_pins": {
+    "model_literal": "openai/text-embedding-3-small",
+    "model_literal_source": "oracle_brain.operating_model.provider_adapter.py",
+    "pricing_class": "QualifiedQueryEmbeddingPricingV1",
+    "terms_hash_pattern": "^[0-9a-f]{64}$",
+    "terms_hash_required": true
+  },
+  "artifact_kind": "real-vector-model-license-proof-v1",
+  "fixture_admission_row": {
+    "provider_model_column": "openai/text-embedding-3-small",
+    "table": "oracle2.question_effect_admissions_v1",
+    "terms_hash_column_present": true
+  },
+  "honest_scope": "Fixture-level named license/admission proof artifact for the real vector model openai/text-embedding-3-small. Model identity, license instrument name, and admission pins are recorded from the codebase closed contracts. No paid provider was called and no live license text was fetched. This does not prove the live license terms currently in force at the provider. The synthetic embedder used in this DR exercise is a distinct invented model and is not this real model.",
+  "license_instrument": "OpenAI Terms of Use (service terms governing API model use)",
+  "license_recorded_from": "codebase admission pins (provider_adapter.py model literal, terms_hash field, QualifiedQueryEmbeddingPricingV1)",
+  "live_license_text_fetched": false,
+  "model_family": "OpenAI text embedding (real production vector model)",
+  "model_name": "openai/text-embedding-3-small",
+  "provider_call_made": false,
+  "recorded_at_fixture_level": true,
+  "synthetic_embedder_distinct": true,
+  "synthetic_embedder_license": "invented-fixed-dimensions-no-third-party-model",
+  "synthetic_embedder_name": "synthetic-fixed-8"
+}

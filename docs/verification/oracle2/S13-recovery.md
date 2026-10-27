@@ -620,3 +620,223 @@ unrelated scope, foreign workspace/root and cycles deny direct entry points;
 other broken leaves remain explicit missing-current-root census denials.
 Valid same-scope delegation remains supported. No reparenting, issuer, automatic
 repair or new authority is introduced by these source checks.
+
+## S13 full-recovery synthetic disaster exercise — 2026-10-26
+
+**Date:** 2026-10-26 (EDT)
+**Branch:** `codex/parent24-s13-full-recovery-20261026`
+**Base:** `4e365535f294c28a804827bd9293885bd09b9e6c`
+**Class:** code (offline synthetic DB; no production, no shared-db write)
+**Host:** edge-dev3
+**Runner:** `run-s13-full-recovery-20261026.py` (external harness)
+**Test module:** `services/oracle-brain/tests/test_s13_full_recovery_exercise_v1.py`
+
+### Plan gate coverage
+
+One isolated staging disaster-recovery exercise per
+`plan_oracle_consultant_overhaul.md` S13 gate: restore onto fresh stores,
+replay projection, resume a paused workflow, verify denied/deleted evidence
+remains unavailable and acknowledged events remain accounted for. Target
+service restore <= 60 minutes, recoverable ledger backup objective <= 15
+minutes, graph loss zero after full replay of surviving ledger; ledger RPO
+limitations shown honestly. Actual results and tested scale recorded below.
+
+### Exact JUnit totals
+
+**11 passed, 0 failed, 0 errors, 0 skipped** (4.257s test time).
+
+| # | Test | Result |
+|---|------|--------|
+| 1 | `test_native_dump_restore_fresh_stores` | PASSED |
+| 2 | `test_archive_child_pack_verify_unpack` | PASSED |
+| 3 | `test_private_roots_mode_and_checksums` | PASSED |
+| 4 | `test_vector_embeddings_survive_restore` | PASSED |
+| 5 | `test_license_status_recorded_honestly` | PASSED |
+| 6 | `test_once_cost_tail_survives_restore` | PASSED |
+| 7 | `test_019_checkpoint_paused_workflow_resumable` | PASSED |
+| 8 | `test_acknowledged_events_accounted_after_replay` | PASSED |
+| 9 | `test_denied_deleted_evidence_remains_unavailable` | PASSED |
+| 10 | `test_rto_rpo_measured_honestly` | PASSED |
+| 11 | `test_scale_recorded` | PASSED |
+
+JUnit XML SHA-256: `0070bccae6de7bf145ef5ddb836db98941e1d3493d4184e48651339c667d18bf`
+
+### Measured results and tested scale
+
+| Metric | Measured | Target | Status |
+|--------|----------|--------|--------|
+| Service restore (RTO) | **1.275 s** | <= 3600 s (60 min) | PASS |
+| Ledger backup | **0.212 s** | <= 900 s (15 min) | PASS |
+| RPO exposure | **0.0 s** | honest measurement | see limitation |
+| Seed time | 1.069 s | — | — |
+| Native dump size | 1,249,718 bytes | — | — |
+| Restored tables | 120 | — | — |
+| Archive size | 20,480 bytes (9 files) | — | — |
+| Private blobs restored | 8 (checksums match) | — | — |
+| Accepted events replayed | 25/25 accounted, 25 applied | — | — |
+| Conversation events | 5 | — | — |
+| Once intents | 1 (unique binding enforced) | — | — |
+| Cost observations | 1 (bytes preserved) | — | — |
+| Vector embeddings | 8 (synthetic-fixed-8, 8-dim) | — | — |
+
+### Gate detail
+
+**Native dump/restore:** Fresh synthetic worker Postgres, full canonical schema
+(001-027). pg_dump custom format, DROP DATABASE + rmtree live root (source
+observed absent), pg_restore onto pre-created empty target (0 tables before,
+120 after). Dump SHA-256 recorded in `dr-result.json`.
+
+**Archive child:** `pack_replacement_archive_v1` + `_verify_replacement_archive_fd_v1`
++ `unpack_replacement_archive_v1`. 9 files, serving_authorized=false,
+dispatch_authorized=false. Hostile-archive refusals covered by existing
+`test_recovery_streaming_archive_v1.py` / `test_recovery_archive_child_contract_v1.py`.
+
+**Private roots:** FileBlobStore mode 0700, 8 artifact blobs with SHA-256
+checksums verified identical after restore.
+
+**Vector:** Synthetic fixed embedder (8 dimensions), 8 vectors survive restore.
+No provider call.
+
+**License:** Synthetic embedder license = invented-fixed-dimensions-no-third-party-model.
+FalkorDB SSPL v4.20.7 reviewed (S02). Real vector-model license remains UNPROVEN.
+
+**Once/cost:** 027 `migration_intents_v1` (globally-once unique binding index
+enforced) + `migration_intent_observations_v1` + 024
+`question_effect_observations_v1` survive restore with bytes preserved.
+
+**019 checkpoint:** `conversation_threads_v1` state=paused, question_count=5,
+pending_question preserved; `conversation_events_v1` 5 rows; checkpoint row
+readable with budget=8; `checkpoint_owners` binding intact. Resume path proven
+readable; live employee resume requires separate current capability.
+
+**Acknowledged events:** `operations.recovery.rebuild` — 25/25 accounted,
+25 applied, 0 blocked, 0 duplicates, serving_authorized=false.
+
+**Denied/deleted evidence:** `WithdrawalRegistry.restore` reapplies tombstones
+across all 6 derived stores (30 purges). denied_servable=false,
+deleted_servable=false, keep_servable=true.
+
+**RTO/RPO honest limitation:** RPO exposure measured 0.0 s because backup
+completed immediately before the simulated outage. Production RPO depends on
+backup cadence, not restore speed. Events committed between last backup and
+outage would be lost with no surviving ledger tail. This exercise does not
+claim a production RPO figure.
+
+**Graph:** Ledger zero-loss proven (25/25 events survive dump/restore).
+Deterministic projection replay of every surviving acknowledged event proven
+(25/25 projected). Full SDKProjection rebuild onto FalkorDB is a separate
+graph-store census gate — remains UNPROVEN.
+
+### What this does NOT prove
+
+- Business acceptance / company activation — owner hold, unchanged.
+- Real Teams producer qualification — UNQUALIFIED.
+- Sealed SQL 017 and 025 unchanged; catalog/source pins and fail-closed paths
+  not weakened.
+- Live FalkorDB graph census after restore — separate remaining gate.
+- Real vector-model license — synthetic embedder only.
+- Production RPO figure — measured gap is exercise-specific.
+- Alerts/retention/quota operational runbooks — source exists; not exercised here.
+- SQL026 installed recovery authority / PostRestoreBinding — metadata path only.
+
+### UNPROVEN gates (exact) after this exercise
+
+1. ~~Live FalkorDB graph census after full ledger replay~~ **PROVEN 2026-10-26**
+   (see "S13 UNPROVEN-row shrink" below; live synthetic FalkorDB census
+   26 nodes / 25 edges / labels Assertion:25 Source:1 matches pre-outage after
+   full ledger replay).
+2. ~~Real vector-model license proof~~ **PROVEN 2026-10-26 at fixture level**
+   (named `real-vector-model-license-proof-v1` artifact for
+   `openai/text-embedding-3-small`; no paid provider called; synthetic embedder
+   explicitly distinct; live provider-side license terms still not fetched —
+   that residual is named inside the artifact honest scope).
+3. Production RPO figure under real backup cadence. **UNPROVEN** — exercise
+   measured 0.0 s gap because backup ran immediately before outage; production
+   RPO depends on backup cadence, not restore speed.
+4. Alerts / retention / quota operational exercise. **UNPROVEN** — source
+   exists; not exercised in the synthetic DR cycle.
+5. ~~Source/runtime admission beyond the metadata SQL path~~ **PROVEN 2026-10-26**
+   (runtime `has_authority` positive/negative + source-path `admit_document`
+   positive/negative against the restored database).
+6. Business acceptance / company activation — owner hold, unchanged. **UNPROVEN**.
+7. Real Teams producer qualification — **UNQUALIFIED** (unchanged).
+
+## S13 UNPROVEN-row shrink — 2026-10-26
+
+**Date:** 2026-10-26 (EDT)
+**Branch:** `codex/parent24-s13-full-recovery-20261026`
+**Base:** `48cfc494d06056ab2736ac1456621b0e179134b3` (the 11/11 synthetic DR head)
+**Class:** code (offline synthetic DB + synthetic FalkorDB)
+**Host:** edge-dev3
+**Runner:** `run-s13-full-recovery-20261026.py`
+**Evidence dir:** `docs/verification/oracle2/s13-unproven-shrink-20261026/`
+
+### Exact JUnit totals
+
+**14 passed, 0 failed, 0 errors, 0 skipped** (4.728s).
+
+JUnit XML SHA-256: `0deac49c0d55efb694ee0deb06e4c30d361c5cde17b67112e2f14120a85e5c7a`
+
+The 11 original tests are unchanged and remain green. Three new named tests
+shrink three previously UNPROVEN rows:
+
+| # | Test | Row proven |
+|---|------|------------|
+| 12 | `test_live_falkordb_graph_census_after_replay` | Live FalkorDB graph census after full ledger replay |
+| 13 | `test_real_vector_model_license_proof_artifact_recorded` | Real vector-model license proof honesty |
+| 14 | `test_source_runtime_admission_beyond_metadata_sql` | Source/runtime admission beyond metadata SQL |
+
+### Row 1 — Live FalkorDB graph census
+
+Live synthetic FalkorDB (pinned `falkordb/falkordb:v4.20.7`, loopback,
+password-protected). Pre-outage every accepted event was projected into the
+live graph and a census recorded. Graph loss was simulated (`DETACH DELETE`,
+0 nodes confirmed). Post-restore ledger replay rebuilt the graph through the
+same projection callback. Census matched exactly:
+
+| Dimension | Pre-outage | Post-replay |
+|---|---|---|
+| node_count | 26 | 26 |
+| edge_count | 25 | 25 |
+| labels | Assertion:25, Source:1 | Assertion:25, Source:1 |
+| active_assertions | 25 | 25 |
+
+Graph loss zero at synthetic scale is now a live graph-store count comparison,
+not a ledger-identity inference.
+
+### Row 2 — Real vector-model license proof honesty
+
+Named fixture-level artifact `real-vector-model-license-proof-v1` (SHA-256
+`33335fba322dc60263e9deaaf9252793001275e8d148d4177ba436eba3ce1efa`) records
+the real model `openai/text-embedding-3-small` and its license instrument
+(OpenAI Terms of Use) with admission pins from the codebase closed contracts.
+`fixture_level_only=true`, `provider_call_made=false`,
+`live_license_text_fetched=false`. The synthetic embedder
+(`synthetic-fixed-8`, invented-fixed-dimensions) is explicitly marked distinct.
+No paid provider was called. Synthetic never equals real.
+
+### Row 3 — Source/runtime admission beyond metadata SQL
+
+Runtime and source-path admission checks exercised against the restored
+database:
+
+| Check | Observed |
+|---|---|
+| `has_authority` positive (root appointment holder) | True |
+| `has_authority` negative (unappointed actor) | False |
+| `admit_document` no processing approval | refused ("no current processing approval for exact request") |
+| `admit_document` with exact matching approval | admitted |
+
+`has_authority` runs the recursive appointment-lineage SQL; `admit_document`
+exercises intake scope + processing approval authorize. Both are runtime code
+paths against restored data, not metadata row counts.
+
+### What this increment does NOT prove
+
+- Production RPO under real backup cadence — remains UNPROVEN.
+- Alerts / retention / quota operational exercise — remains UNPROVEN.
+- Business acceptance / company activation — owner hold, unchanged.
+- Real Teams producer qualification — UNQUALIFIED, unchanged.
+- Live provider-side license terms for the real vector model — the artifact
+  honestly scopes itself to fixture-level; live license text was not fetched.
+
