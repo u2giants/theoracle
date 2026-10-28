@@ -661,8 +661,9 @@ Conversation: `POST /answer` accepts `history: [{role, content}]` (last 6 turns)
 
 ### Supervision: when the implementer must ask a stronger model
 
-The implementing session (GLM 5.1 / Sol 6.1 class) does not guess. It stops and asks a stronger model (Claude Opus/Fable via a fresh session, or GPT-5.x via the `codex-second-opinion` skill), posting the question and the answer on the step's child issue, whenever any of these holds:
+The implementing session (GLM 5.1 / Sol 6.1 class) does not guess. On any of the triggers below it stops, posts the question on the step's child issue, and waits. Owner ruling (Albert, 2026-10-28): the only reviewer or helper is **Claude Opus or Fable**; GPT-5.x and GLM are not used as reviewers. The implementer cannot call Claude itself, so Albert pastes the question (or the review prompt) into a fresh Opus/Fable session. Nothing is locked in the repository; this is a procedure, not a branch rule.
 
+Triggers:
 1. A step requires a design choice the plan text does not spell out (a missing table column, an unspecified threshold, an unnamed file).
 2. A verification gate has failed twice with different fixes attempted.
 3. The fixture cross-source question ("Where does licensing approval stall and why?") stops being answerable after a change.
@@ -670,7 +671,12 @@ The implementing session (GLM 5.1 / Sol 6.1 class) does not guess. It stops and 
 5. Any change would touch a Locked decision in §8.
 6. Projected cost of a stage on the real corpus exceeds twice the smoke-test estimate.
 
-**Periodic check by a stronger model (Albert's request 2026-10-27):** every step's PR gets one independent review by a stronger model before merge, scoped to "does this PR do what Step N says and does it violate Part 1 or §8?" The review is a comment on the child issue. In addition, after steps 3, 6, 9 and 11 (the context cut points) the stronger model reads the plan STATUS, the merged code for the completed steps, and the eval results, and writes a short drift note on #240. Albert can also run the `code-review` skill at any time on any open PR.
+**Per-step review (Albert's request 2026-10-27, mechanics ruled 2026-10-28):**
+1. The implementer opens the step's PR and does **not** merge it. It posts `Ready for review: PR #<n>` on the child issue with the verification-gate artifact linked.
+2. Every child issue (#241–#255) carries a section "How this step gets checked" with a paste-ready review prompt. Albert pastes it into a fresh Claude Opus/Fable session on this repository.
+3. That session reads Part 1, §8 and the step text, runs the step's tests itself, and posts one signed comment on the child issue ending `VERDICT: APPROVE` or `VERDICT: FIX` with a numbered list.
+4. On APPROVE the reviewing session merges the PR, ticks the issue checkboxes and updates the STATUS row. On FIX the implementer continues from the list and re-posts `Ready for review`.
+5. After steps 3, 6, 9 and 11 (the context cut points) the same prompt also asks for a short drift note on #240: is the program still on course for Part 1, and what should change before the next steps.
 
 ## 12. Access and environment
 
