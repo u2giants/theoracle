@@ -16,7 +16,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 
 | Step | Title | State | Evidence / blocker | Updated (EDT) |
 |---|---|---|---|---|
-| 0 | Freeze old program, retire old plans, create `apps/brain` skeleton | ⬜ open | #241 | |
+| 0 | Freeze old program, retire old plans, create `apps/brain` skeleton | ✅ done | #241, PR #260; `apps/brain/tests/test_health.py::test_health_reports_db` passed (CI run 40700489831, head dc2a0bd; reviewer rerun local); `docker build apps/brain` ok | 2026-10-28 10:15 EDT |
 | 1 | Postgres schema `cmap` (sources, chunks, extractions, entities, edges, communities, questions, eval) | ⬜ open | #242 | |
 | 2 | Source intake: upload, bulk folder import, transcript import, diagram import | ⬜ open | #243 | |
 | 3 | Reading: text extraction, page images, chunking | ⬜ open | #244 | |
