@@ -46,6 +46,7 @@ MAX_TOKENS = 2000
 DEFAULT_MAX_FRONTIER_CALLS = 5000
 INFERENCE_MAX_CONFIDENCE = 0.6
 CONTEXT_SENTENCES = 2
+CALL_ATTEMPTS = 3
 
 REL_TYPES: tuple[str, ...] = (
     "PERFORMS",
@@ -70,6 +71,10 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 class RelationsError(RuntimeError):
     """Raised when the relations stage cannot finish a chunk."""
+
+
+class FrontierCapReached(RelationsError):
+    """Raised when ``BRAIN_MAX_FRONTIER_CALLS_PER_JOB`` is used up."""
 
 
 @dataclass
@@ -274,7 +279,7 @@ class _Counters:
         with self.lock:
             used = self.usage.get("frontier_calls", 0)
             if used >= cap:
-                raise RelationsError(
+                raise FrontierCapReached(
                     f"BRAIN_MAX_FRONTIER_CALLS_PER_JOB cap of {cap} reached; "
                     "rerun the relations job to resume (finished chunks are skipped)"
                 )
@@ -357,7 +362,17 @@ def _process_chunk(
     """Ask the model for one chunk's relations and validate them."""
     known = known_mentions(text, mentions)
     prompt = build_prompt(text, known, last_sentences(previous_text))
-    payload = _call_model(prompt, counters)
+    payload: dict[str, Any] = {}
+    for attempt in range(1, CALL_ATTEMPTS + 1):
+        try:
+            payload = _call_model(prompt, counters)
+            break
+        except FrontierCapReached:
+            raise
+        except (RelationsError, httpx.HTTPError) as exc:
+            if attempt == CALL_ATTEMPTS:
+                raise
+            logger.warning("relations call failed (%s); retrying chunk %s", exc, chunk_id)
     by_key = {item.key: item for item in known}
     relations, new_mentions = validate_response(text, by_key, payload)
     return ChunkResult(
