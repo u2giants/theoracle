@@ -19,7 +19,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 | 0 | Freeze old program, retire old plans, create `apps/brain` skeleton | ✅ done | #241, PR #260; `apps/brain/tests/test_health.py::test_health_reports_db` passed (CI run 40700489831, head dc2a0bd; reviewer rerun local); `docker build apps/brain` ok | 2026-10-28 10:15 EDT |
 | 1 | Postgres schema `cmap` (sources, chunks, extractions, entities, edges, communities, questions, eval) | ✅ done | #242, PR #261; `apps/brain/tests/test_schema.py::test_all_tables_exist` and `test_migrate_runs_twice_without_error` passed (CI "brain tests" on d617a0b; reviewer rerun local) | 2026-10-28 EDT |
 | 2 | Source intake: upload, bulk folder import, transcript import, diagram import | ✅ done | #243, PR #264; `apps/brain/tests/test_intake.py` (12 tests incl. all six adversarial cases) green in CI "brain tests" on cded0e3 and reviewer rerun; page live upload deferred to Step 3 read proof | 2026-10-28 2:00 PM EDT |
-| 3 | Reading: text extraction, page images, chunking | ⬜ open | #244 | |
+| 3 | Reading: text extraction, page images, chunking | ✅ done | #244, PR #267; `apps/brain/tests/test_read.py` (12 tests: one per format + `test_blank_pdf_page_uses_vision`) and `test_embed.py` green in CI "brain tests" on a297a23 and reviewer rerun; transcript fixture gives 246 turn chunks under the step's merge rule (estimate was ~60) | 2026-10-28 3:27 PM EDT |
 | 4 | Passage classification and flat extraction via ScaleDown | ⬜ open | #245 | |
 | 5 | Relationship extraction via frontier model | ⬜ open | #246 | |
 | 6 | Entity resolution (merge the same thing named differently) | ⬜ open | #247 | |
