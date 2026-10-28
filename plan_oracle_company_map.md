@@ -2,7 +2,7 @@
 
 Written 2026-10-27, 10:50 PM EDT, by Claude (Fable 5.1) on edge-dev3 for Albert Hazan.
 Parent issue: [u2giants/theoracle#240](https://github.com/u2giants/theoracle/issues/240) (children #241–#255, one per step; the old parent #24 is history).
-Registered handoff: [HANDOFF.d/2026-10-28T1517Z-edge-dev-mimo-company-map-program-baton.md](HANDOFF.d/2026-10-28T1517Z-edge-dev-mimo-company-map-program-baton.md).
+Registered handoff: [HANDOFF.d/2026-10-28T1909Z-edge-dev-mimo-company-map-step3-cut.md](HANDOFF.d/2026-10-28T1909Z-edge-dev-mimo-company-map-step3-cut.md).
 Background review that produced this plan: [docs/review-2026-10-27-consultant-plan-and-code.md](docs/review-2026-10-27-consultant-plan-and-code.md).
 ScaleDown call-by-call analysis: [scaledown-report.md](scaledown-report.md).
 
