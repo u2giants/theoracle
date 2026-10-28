@@ -6,9 +6,9 @@ bootstrapped admin URL — as the S08 journey runner provides after calling
 bootstrap_canonical_test_schema. It does NOT call bootstrap itself and does
 NOT use the conftest admin_url fixture (that fixture is opt-in and not
 requested here). A standalone fresh-DB run needs the runner's bootstrap first.
-The sealed SYNTHETIC_MIGRATIONS inventory is 20 entries
-(001,002,004,006-014,017-020,021-023,027; omits 003/005) — not a contiguous
-001..014 chain. The "21 SQL green first" rule is enforced by the journey
+The sealed SYNTHETIC_MIGRATIONS inventory is 23 entries
+(001,002,004,006-014,017-027; omits 003/005) — not a contiguous
+001..027 chain. The "21 SQL green first" rule is enforced by the journey
 runner, which bootstraps then runs this module before any journey stage.
 """
 from contextlib import contextmanager
@@ -495,7 +495,7 @@ def test_actual_late_private_wire_finishes_as_orphan_without_sql_receipt(partici
         patch.setattr(artifact_storage,'_write_private_at',finish_late)
         with pytest.raises(ParticipationOutcomeUnknown):
             f.receipt_v1(intent,claim_event_id=UUID(claim.metadata['claim_event_id']),operation=uuid4(),raw_wire=raw,
-                caller_deadline=datetime.now(timezone.utc)+timedelta(seconds=1))
+                caller_deadline=datetime.now(timezone.utc)+timedelta(seconds=3))
     assert writes==[True]
     assert list(x['private'].glob('meeting-participation/**/provider-response.wire'))[0].read_bytes()==raw
     with admin(x) as c:

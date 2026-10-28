@@ -115,7 +115,6 @@ SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integri
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
     '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql',
     '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','021_meeting_participation.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','026_operational_recovery.sql','027_legacy_migration.sql')
-
 DOCUMENTARY += ('qualified_workspace_v1','qualified_workspace_sdk_sql_v1')
 DOCUMENTARY += ('connected_answer_contract_v1','connected_answer_sdk_sql_v1','connected_answer_service_v1','connected_answer_sql_v1','conversation_answer_v1','natural_business_question_v1')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
@@ -274,6 +273,19 @@ DOCUMENTARY=_place_suites(DOCUMENTARY,('legacy_migration_citation_sql',),
 # population, original shared120s ceiling and exactly ten workers.
 DOCUMENTARY=_place_suites(DOCUMENTARY,('conversation_native_sql',),
     'replacement_documentary_journey',after=True)
+# Measured PR191 run39758616744 whole-module packing for the unchanged
+# question SQL39s/native64s population. No test body, worker or deadline changes.
+# Estimates: doc01~114,04~109,06~116,08~111,09~112; whole CI decides fit.
+DOCUMENTARY=_place_suites(DOCUMENTARY,('consolidation_sql_v1',),
+    'purpose_worker_startup',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effects_sql_v1',),
+    'workflow_authorization')
+DOCUMENTARY=_place_suites(DOCUMENTARY,('protected_raw_original_factory_v1',),
+    'purpose_context_v2',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('qualified_workspace_sdk_sql_v1',),
+    'paid_sdk_embeddings_v3',after=True)
+DOCUMENTARY=_place_suites(DOCUMENTARY,('question_effect_native_sql_v1',),
+    'original_corpus_import',after=True)
 
 # Run39846165685 completed all5472 tests with zero failures but the shared
 # timed_out flag marked every worker when documentary03 exceeded120s wall
