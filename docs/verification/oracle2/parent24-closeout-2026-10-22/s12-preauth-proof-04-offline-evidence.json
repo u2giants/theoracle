@@ -1,0 +1,53 @@
+{
+  "packet": "s12-preauth-proof-04-offline-evidence",
+  "date_est": "2026-10-26",
+  "consumer_head": "7defd1eeeaccad46ba04b96952c439305065c796",
+  "runner_sha256": "5b05cb4a41a8bc50b6284b4c1d09fa99b7003deb0680e8e9fd5063fd48731911",
+  "cases_2_to_9_malformed_negatives": {
+    "status": "PROVEN_OFFLINE_LIVE",
+    "method": "invented_next_employee_pair_fixture_v1 called with container='never-connect' and admin_url=''; owned_worker_database stubbed to raise if reached",
+    "stub_reached": false,
+    "results": {
+      "empty": "ValueError: exact two invented employee entries required",
+      "one": "ValueError: exact two invented employee entries required",
+      "three": "ValueError: exact two invented employee entries required",
+      "auth-duplicate": "ValueError: distinct exact invented authuser/employee/bool tuples required",
+      "employee-duplicate": "ValueError: distinct exact invented authuser/employee/bool tuples required",
+      "string-uuid": "ValueError: distinct exact invented authuser/employee/bool tuples required",
+      "boolean-admin": "ValueError: distinct exact invented authuser/employee/bool tuples required",
+      "unknown-tuple": "ValueError: distinct exact invented authuser/employee/bool tuples required"
+    }
+  },
+  "workflow_structure": {
+    "status": "PROVEN_OFFLINE_LIVE",
+    "fixture": "workspace-artwork-rework-v1",
+    "formal_eligible": true,
+    "steps": 5,
+    "transitions": 6,
+    "conditions": 2,
+    "roles": 3,
+    "handoffs": 1,
+    "rework": 1,
+    "rework_edge": "art-t6 Revise ART -> Review ART",
+    "exclusive_split_edges_from_art_decision": 2,
+    "all_step_labels_in_quote": true,
+    "all_condition_wordings_in_quote": true
+  },
+  "case_1_end_to_end": {
+    "status": "UNPROVEN",
+    "reason": "requires live DB gate + Next/AuthSDK HTTPS run under runner 04; never executed"
+  },
+  "named_unproven_gates": [
+    "S12-04-REVIEW",
+    "S12-04-DB-GATE",
+    "S12-04-ROOT-RELEASE",
+    "S12-04-LIVE-9CASE",
+    "S12-04-NEXT-E2E",
+    "S12-04-PROCESS-ABSENCE",
+    "S12-04-TEAMS",
+    "S12-04-BIZ"
+  ],
+  "invented_receipts": "none",
+  "business_acceptance_hold": true,
+  "teams_producer": "UNQUALIFIED"
+}

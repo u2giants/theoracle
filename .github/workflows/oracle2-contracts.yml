@@ -57,6 +57,34 @@ jobs:
           test -n "$GITHUB_RUN_ID"
           test -n "$GITHUB_RUN_ATTEMPT"
           printf 'ORACLE_TARGET_PROFILE_PATH=%s/oracle-target-%s-%s/targets.json\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - name: Allocate per-run loopback store ports
+        run: |
+          python3 - <<'PYEOF'
+          import socket, os
+          socks = []
+          try:
+              for _ in range(5):
+                  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                  s.bind(("127.0.0.1", 0))
+                  socks.append(s)
+              ports = [s.getsockname()[1] for s in socks]
+          finally:
+              for s in socks:
+                  s.close()
+          pg, cand, conf, obj, rest = ports
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"ORACLE2_POSTGRES_PORT={pg}\n")
+              f.write(f"ORACLE2_CANDIDATE_PORT={cand}\n")
+              f.write(f"ORACLE2_CONFIRMED_PORT={conf}\n")
+              f.write(f"ORACLE2_OBJECT_PORT={obj}\n")
+              f.write(f"ORACLE2_RESTORED_PORT={rest}\n")
+              f.write(f"ORACLE2_OPERATING_TEST_GRAPH_URL=redis://:oracle2_candidate_local_only@127.0.0.1:{cand}\n")
+              f.write(f"ORACLE2_TEST_ADMIN_URL=postgresql://oracle2_admin:oracle2_local_admin_only@127.0.0.1:{pg}/oracle2\n")
+              f.write(f"ORACLE2_TEST_CANDIDATE_URL=redis://:oracle2_candidate_local_only@127.0.0.1:{cand}\n")
+              f.write(f"ORACLE2_TEST_CONFIRMED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:{conf}\n")
+              f.write(f"ORACLE2_TEST_BLOB_ENDPOINT=http://127.0.0.1:{obj}\n")
+              f.write(f"ORACLE2_TEST_FALKORDB_URL=redis://:oracle2_candidate_local_only@127.0.0.1:{cand}\n")
+          PYEOF
       - name: Full-history checkout for frozen S01 corpus
         uses: actions/checkout@v4
         with:
@@ -187,7 +215,7 @@ jobs:
             if docker compose -f dev/oracle2/compose.yaml exec -T falkor-confirmed redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
             sleep 2
           done
-          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:57680 \
+          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:$ORACLE2_CONFIRMED_PORT \
             services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
               --pilot out/oracle2/resource-pilot.json \
               --stress out/oracle2/resource-stress.json \
@@ -202,14 +230,14 @@ jobs:
           docker cp "$confirmed:/data/dump.rdb" $RUNNER_TEMP/oracle2-s02-restore-${GITHUB_RUN_ID}/dump.rdb
           docker run -d --name oracle2-ci-restored-${{ github.run_id }} \
             -e FALKORDB_ARGS='--dir /data --requirepass oracle2_confirmed_local_only --appendonly no' \
-            -p 127.0.0.1:57681:6379 \
+            -p 127.0.0.1:$ORACLE2_RESTORED_PORT:6379 \
             -v $RUNNER_TEMP/oracle2-s02-restore-${GITHUB_RUN_ID}:/data \
             falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
           for attempt in {1..30}; do
             if docker exec oracle2-ci-restored-${{ github.run_id }} redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
             sleep 2
           done
-          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:57681 \
+          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:$ORACLE2_RESTORED_PORT \
             services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
               --pilot out/oracle2/resource-pilot.json \
               --stress out/oracle2/resource-stress.json \
