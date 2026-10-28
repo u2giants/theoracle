@@ -24,19 +24,6 @@ from .replacement_public_view_v1 import (public_snapshot_v1,qualified_map_view_v
 def _target_identity(target):
     return target.model_dump(mode='json',exclude={'checked_at','valid_until'})
 
-def _admit_owned_result_v1(service):
-    """Fail closed only while owned cleanup remains unsettled.
-
-    A settled close (success or observed failure) must not permanently poison
-    the backend: the request that hit UNKNOWN already failed closed. Sticky
-    deny is reserved for cleanup that is still in flight and therefore unknown.
-    """
-    if not getattr(service,'_cleanup_unknown',False):
-        return
-    if any(not task.done() for task in service._owned_closes):
-        raise PermissionError('owned result cleanup requires observation')
-    service._cleanup_unknown=False
-
 
 async def _close_owned_projection_v1(self,projection,deadline):
     # Cleanup has no authority to read/query/publish or renew the operation.
@@ -74,7 +61,7 @@ class ProtectedReplacementResultServiceV1:
 
     async def handle_result_v1(self,peer_certificate,raw):
         s=self.settings;c=s.config;start=datetime.now(timezone.utc)
-        _admit_owned_result_v1(self)
+        _require(not self._cleanup_unknown,'owned result cleanup requires observation')
         # Called only by the fixed server using actual verified SSL socket DER.
         _require(type(peer_certificate) is bytes and hashlib.sha256(peer_certificate).hexdigest()==c.client_certificate_sha256,
             'exact authenticated result client required')
@@ -154,7 +141,7 @@ class _ResultOwnedLoopV1:
     def __init__(self,service):
         from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
         from .question_effect_factory_v1 import ProtectedQuestionEffectFactoryV1
-        _require(type(service) in (ProtectedReplacementResultServiceV1,ProtectedConnectedAnswerServiceV1,ProtectedQuestionEffectFactoryV1),'exact owned result service or fixed answer/question service required')
+        _require(type(service) in (ProtectedReplacementResultServiceV1,ProtectedConnectedAnswerServiceV1,ProtectedQuestionEffectFactoryV1),'exact owned fixed result/answer/question service required')
         self.service=service;self.requests=set();self.closing=False
         self.records={};self.record_lock=threading.RLock();self.observed_outcomes={'returned':0,'failed':0,'cancelled':0}
         self.loop=asyncio.new_event_loop();self.ready=threading.Event()
@@ -176,9 +163,8 @@ class _ResultOwnedLoopV1:
     async def _request(self,peer,raw,original_end,record):
         task=asyncio.current_task();record['task']=task
         _require(time.monotonic()<original_end,'original result handler deadline expired')
-        _require(not self.closing and len(self.requests)<32,
+        _require(not self.closing and not self.service._cleanup_unknown and len(self.requests)<32,
             'owned result lifecycle unavailable')
-        _admit_owned_result_v1(self.service)
         self.requests.add(task)
         try:
             from .connected_answer_service_v1 import ProtectedConnectedAnswerServiceV1
@@ -213,8 +199,7 @@ class _ResultOwnedLoopV1:
                 self.records.pop(future,None)
 
     def result(self,peer,raw,*,absolute_monotonic_deadline):
-        _require(not self.closing,'owned result lifecycle unavailable')
-        _admit_owned_result_v1(self.service)
+        _require(not self.closing and not self.service._cleanup_unknown,'owned result lifecycle unavailable')
         _require(type(absolute_monotonic_deadline) in (int,float)
             and math.isfinite(absolute_monotonic_deadline)
             and time.monotonic()<absolute_monotonic_deadline,'original result handler deadline expired')

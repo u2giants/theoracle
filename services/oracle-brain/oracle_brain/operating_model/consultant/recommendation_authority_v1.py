@@ -37,10 +37,6 @@ PUBLIC = {'read': 'read_recommendation_actions_v1', 'register': 'register_recomm
 class RecommendationOutcomeUnknown(PermissionError):
     """Possible write/commit completed; read-only reconciliation, never resend."""
 
-class RecommendationActionRefused(PermissionError):
-    """Deterministic never-written refusal. No write occurred; this command_id
-    was not stored and reconcile will never succeed. Not UNKNOWN."""
-
 
 @dataclass(frozen=True)
 class RecommendationBindingV1:
@@ -205,13 +201,11 @@ class RecommendationAuthorityV1:
                     or {k:v for k,v in fresh.items() if k!='valid_until'}!={k:v for k,v in result.items() if k!='valid_until'}):
                 raise PermissionError('committed recommendation receipt no longer current')
             return self._result(fresh,deadline)
-        except (psycopg.errors.SerializationFailure,psycopg.errors.UniqueViolation,psycopg.errors.InsufficientPrivilege,psycopg.errors.InvalidParameterValue) as error:
+        except (psycopg.errors.SerializationFailure,psycopg.errors.UniqueViolation,psycopg.errors.InsufficientPrivilege,psycopg.errors.InvalidParameterValue):
             if complete:raise RecommendationOutcomeUnknown('recommendation write may be committed; read-only reconcile, no resend') from None
-            if attempted:raise RecommendationActionRefused(f'never-written recommendation action refused: {error}') from error
             raise
-        except Exception as error:
-            if complete:raise RecommendationOutcomeUnknown('recommendation write outcome UNKNOWN; read-only reconcile, no resend') from None
-            if attempted:raise RecommendationActionRefused(f'never-written recommendation action refused: {error}') from error
+        except Exception:
+            if attempted:raise RecommendationOutcomeUnknown('recommendation write outcome UNKNOWN; read-only reconcile, no resend') from None
             raise
 
     def feedback_v1(self, command, raw, *, _runtime_recheck=None):
