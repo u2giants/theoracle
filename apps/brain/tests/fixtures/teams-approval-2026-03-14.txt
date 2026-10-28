@@ -1,0 +1,301 @@
+Ilona: Morning Marco, did the spring program POs go out yet?
+Marco: Morning. Not yet, we are still waiting on the approval for the Meadow Lane set.
+Ilona: Which approval do you mean, the licensor sign-off?
+Marco: Same thing, I just call it Jessica's approval because she is the one who records it.
+Ilona: Right, it is the licensor sign-off but Jessica files it in the Artwork Log.
+Marco: And until it shows up in the log my hands are tied, I cannot cut the PO.
+Ilona: I know, I am sorry. The package went to licensing two weeks ago.
+Marco: Fourteen days. I have the aging report open right now, it is the oldest line on it.
+Ilona: Ouch. Did you ask Jessica where it sits?
+Marco: I asked Monday. She said it went out to the licensor and she is waiting on their email.
+Ilona: That matches what she told me. The licensor account manager is slow this quarter.
+Marco: Slow is one word for it. Last season the same thing happened with Harbor View.
+Ilona: I remember. That one sat so long the whole set missed the sample room date.
+Marco: And then everyone acted surprised. This is the third program in a row.
+Ilona: Tell me about it. The procedure says five business days for sign-off.
+Marco: Five days is a fantasy. We are at ten business days on Meadow Lane already.
+Ilona: The procedure also says Jessica escalates on day six.
+Marco: Has she escalated?
+Ilona: She said she would ping their account manager. I do not know if she did.
+Marco: Great. So we just wait. Meanwhile the vendor is asking me for a ship window.
+Ilona: What did you tell the vendor?
+Marco: Nothing yet. I do not want to commit a date without a PO.
+Ilona: Fair. Last time we promised a date without sign-off and it blew up.
+Marco: It blew up on me anyway. The buyers always eat the delay.
+Ilona: The buyers and design. I redrew the same artwork twice last spring.
+Marco: Because the licensor bounced the package, right?
+Ilona: Exactly. They sent it back for the colorway. Then again for the character pose.
+Marco: Every bounce is another two weeks.
+Ilona: Three weeks actually, because the corrections go back into the same queue.
+Marco: And Jessica has to review the corrected package again before it goes out.
+Ilona: Correct. She checks it against the style guide before resubmitting.
+Marco: So the loop is design, Jessica, licensor, back to design, Jessica, licensor.
+Ilona: You got it. And every lap the sign-off date moves.
+Marco: I just need one thing: when the licensor email lands, somebody files it.
+Ilona: That is supposed to happen the same day. Procedure four four.
+Marco: It does not though. Last time the email sat in the shared mailbox for a week.
+Ilona: I know. Jessica found it during the Harbor View cleanup.
+Marco: So we waited on an approval that had already been granted.
+Ilona: That one still makes me angry. Nine days of nothing.
+Marco: And the PO was already late when we found it.
+Ilona: Do you think we should flag this to Priya in QA? She keeps the audit list.
+Marco: Maybe. I mostly want a fix, not a bigger list.
+Ilona: A fix would be a second person who can file sign-off.
+Marco: The procedure has a backup coordinator rule. Section six three.
+Ilona: It does, but the backup only records it after the email is filed in the mailbox.
+Marco: And nobody checks the mailbox. So the backup rule does nothing.
+Ilona: It is a rule with no one owning the trigger.
+Marco: That is the whole process in one sentence honestly.
+Ilona: Ha. Fair. I would still say the pinch point is the single approver.
+Marco: Jessica is the only licensing manager we have.
+Ilona: When she is out the whole program freezes. Remember December?
+Marco: I am trying to forget December. Two programs stacked up over the holidays.
+Ilona: And the reorder below five thousand units moved on the old sign-off.
+Marco: Yes because that exception exists. Reorders with unchanged artwork.
+Ilona: Exactly, except when the licensor issued a style guide update.
+Marco: Which they did in January. So the exception stopped applying.
+Ilona: And everything queued behind the new sign-off again.
+Marco: I have an idea and you will not like it.
+Ilona: Try me.
+Marco: Provisional POs. The VP of Product can authorize provisional artwork release.
+Ilona: Read the procedure again. Provisional artwork release, but PO release still needs sign-off.
+Marco: I know. I read it three times hoping it would say something else.
+Ilona: It does not. The PO is gated on the Artwork Log date.
+Marco: Then what is the point of provisional release?
+Ilona: So QA and the sample room can start work. Production cannot.
+Marco: Useful for everyone except the person who needs the vendor window.
+Ilona: I hear you. The gate is the sign-off record, not the sign-off itself.
+Marco: And that is the Harbor View problem again. Email granted, log empty.
+Ilona: What if we asked for a daily check of the shared mailbox?
+Marco: Who owns that?
+Ilona: The backup coordinator. It is in their scope technically.
+Marco: Technically. I want a name on a calendar, not a scope document.
+Ilona: Then we should propose it as a change with an owner role.
+Marco: Now you sound like the consultants.
+Ilona: Ouch. I sound like someone who has watched three programs slip.
+Marco: Fair. What would you measure?
+Ilona: Days between licensor email and log entry. That is the hidden delay.
+Marco: I would add days from package submission to sign-off. The visible one.
+Ilona: Both. And a count of packages returned for correction.
+Marco: Returned for correction is huge. Half our delays are rework.
+Ilona: The style guide is dense. Design does not get a copy of the updates.
+Marco: Wait, you do not get style guide updates?
+Ilona: Not automatically. Licensing forwards them sometimes.
+Marco: Sometimes.
+Ilona: When they remember. So we draw against an old guide and get bounced.
+Marco: That is a different problem but it feeds the same stall.
+Ilona: It is all one stall from where I stand. Approval throughput.
+Marco: Approval throughput. I will remember that phrase for the meeting.
+Ilona: Which meeting?
+Marco: Ops review, Thursday. They asked why open POs are aging.
+Ilona: Because licensing approval takes three weeks and nobody tracks the middle part.
+Marco: The middle part being the email sitting in a mailbox.
+Ilona: And the rework loop that nobody measures.
+Marco: I will bring the aging report. Can you bring the package history?
+Ilona: I can pull submission dates and bounce counts per program.
+Marco: Perfect. If I show ten days of aging and you show three bounces, that is the story.
+Ilona: The story being that the approval step is the bottleneck.
+Marco: Everyone knows it is. Nobody has numbers.
+Ilona: Then Thursday we bring numbers.
+Marco: Deal. Did you see the vendor email about Harbor View reorder?
+Ilona: The one asking for a ship date? I saw it and ignored it.
+Marco: It is on my list now. The reorder is under five thousand units.
+Ilona: Then the old sign-off should apply. Unchanged artwork, right?
+Marco: Unchanged artwork. But the January style guide update.
+Ilona: Right. That kills the exception. We need a fresh sign-off.
+Marco: Wonderful. So the reorder is stuck in the same queue as Meadow Lane.
+Ilona: Is the aging report going to show both lines as one problem?
+Marco: Two lines, one problem. I will group them under approval wait.
+Ilona: Good. If they see it as two separate delays they will treat it as noise.
+Marco: Do you think Jessica would object to us presenting this?
+Ilona: I think she would say she is doing everything she can.
+Marco: She is. One person against two account managers at the licensor.
+Ilona: The problem is the shape of the process, not her.
+Marco: Agreed. I will say that explicitly Thursday.
+Ilona: Please do. I do not want this to turn into a blame session.
+Marco: It is not blame, it is capacity. One approver is a single point of failure.
+Ilona: Single point of failure. There is our headline.
+Marco: I will write it on the slide exactly like that.
+Ilona: Ha. With a backup who actually has mailbox access.
+Marco: And a daily filing check with a name against it.
+Ilona: That is a concrete change we can actually propose.
+Marco: Reversible too. If it does not work we stop doing it.
+Ilona: The metric would be the email to log delay.
+Marco: And the review after thirty days.
+Ilona: Look at you, proposing experiments.
+Marco: I have been listening to too many podcasts.
+Ilona: Speaking of which, did you hear the vendor moved their cut off date?
+Marco: Which vendor, the ceramics one?
+Ilona: Same. Cut off moved up by two weeks for the summer program.
+Marco: That is bad. Summer program sign-off is not even submitted yet.
+Ilona: When does it go out?
+Ilona: Package is done. I am waiting on one colorway from the designer.
+Ilona: Once that lands I submit it to licensing today or tomorrow.
+Marco: Then we are already behind before the licensor sees it.
+Ilona: Story of my life. Design gets compressed, licensing gets compressed, buyers get nothing.
+Marco: And the vendor cut off does not move for anyone.
+Ilona: I will flag the cut off date in the package notes so licensing sees it.
+Marco: Will that make them prioritize it?
+Ilona: There is no priority lane. Everything goes in the same queue.
+Marco: Maybe that is the next proposal after Thursday.
+Ilona: Priority flags for programs with a vendor cut off inside thirty days.
+Marco: Now who sounds like a consultant.
+Ilona: I hate you.
+Ilona: But yes. One thing at a time. First the mailbox filing.
+Marco: Agreed. Fix the invisible delay first, then the queue.
+Ilona: Do you want the package history in a sheet or a doc?
+Ilona: Sheet. I will do it the way I did for Harbor View.
+Marco: With submission dates and return reasons?
+Ilona: Submission date, return reason, sign-off date, days total.
+Ilona: And a column for whether the email sat in the mailbox.
+Ilona: That last one might be guesswork for older programs.
+Marco: Guesswork is fine if we label it as such.
+Ilona: I will label it. I do not want anyone accusing us of inventing numbers.
+Ilona: Not after the last review where nobody could say where the delay was.
+Marco: That review was painful. Two hours and no answer.
+Ilona: The answer was sitting in a mailbox the whole time.
+Marco: I will never stop finding that funny and sad at the same time.
+Ilona: Emphasis on sad. Nine days.
+Marco: Nine days. Right. What time is the ops review Thursday?
+Ilona: Two o'clock. Conference room B or the Teams bridge.
+Ilona: I will join on Teams, I have the sample room walkthrough at two thirty.
+Marco: Sample room, right. How is that checklist going?
+Ilona: The new one is much better. We actually have pass and fail columns now.
+Marco: Did QA sign off on it?
+Ilona: Priya did. She wants the lighting note added back in though.
+Ilona: The old checklist had a lighting check and the new one dropped it.
+Marco: Add it back. You do not want a sample rejected over lighting.
+Ilona: Exactly what Priya said. I will update the doc this week.
+Marco: Is that the same sample room that Meadow Lane samples are waiting for?
+Ilona: The same one. They cannot start until artwork releases.
+Ilona: Provisional release covers the sample room actually.
+Marco: Right, the VP exception. Provisional artwork release only.
+Ilona: I could ask for provisional release on Meadow Lane so samples start.
+Marco: That would help QA even if it does not help me.
+Ilona: I will ask Jessica today. It is worth two days of sample room time.
+Marco: Two days I will take. Everything helps at this point.
+Ilona: Okay. I will email Jessica and copy you.
+Ilona: Subject line: Meadow Lane provisional release request.
+Ilona: I will also ask her if the licensor has a date for sign-off.
+Ilona: And whether she escalated per section five.
+Marco: Careful. Asking whether she escalated might read as pressure.
+Ilona: I will phrase it as offering help, not auditing her.
+Ilona: Something like: anything I can do to push the licensor on this one?
+Marco: That is better. Offer cover, not blame.
+Ilona: And ask if the backup coordinator should watch the mailbox this week.
+Marco: Perfect. If she says yes, we have a live test of the fix.
+Ilona: A live test with zero new process. Just a person checking a mailbox.
+Marco: That is how good changes start. Boring ones with owners.
+Ilona: Boring ones with owners. I will steal that too.
+Ilona: We should collect these phrases for the slide.
+Ilona: Single point of failure. Invisible delay. Boring ones with owners.
+Marco: The consultants could not do better.
+Ilona: We are not consultants, we are the people waiting on the PO.
+Ilona: Which reminds me, do you need the SKU list from me for the aging report?
+Marco: Please. All spring program SKUs with open POs or no PO yet.
+Ilona: I will export it this morning. Do you want the ones with no artwork yet?
+Ilona: The ones where design has not finished, those are not approval delays.
+Marco: Good point. Put them in a separate tab labeled not in approval yet.
+Ilona: So we do not inflate the approval numbers.
+Marco: Exactly. Rigorous or nobody believes us.
+Ilona: Rigorous. Fine. I will do three tabs: waiting, returned, and not submitted.
+Ilona: Waiting on sign-off, returned for correction, and not in approval yet.
+Ilona: Waiting will be the long one.
+Ilona: I can already tell you it is twelve lines.
+Marco: Twelve lines of POs waiting on one approval step.
+Marco: When you put it like that the slide writes itself.
+Ilona: Twelve lines and one name in the approver column.
+Marco: Careful. Thursday is about the process, not the person.
+Ilona: I know. I will put approver as licensing manager, not Jessica.
+Marco: Thank you. She is going to be in the room.
+Ilona: She should be. She knows where the time actually goes.
+Ilona: The licensor email turnaround is not on her.
+Ilona: But the mailbox filing is, and the escalation on day six.
+Marco: We can present those two as process gaps with named owners.
+Ilona: Owner role, not name. Backup coordinator and licensing manager.
+Marco: Perfect. Slide one: the numbers. Slide two: two proposed changes.
+Ilona: Slide three: the metric and the thirty day review.
+Ilona: And slide four maybe: what we are asking for from ops.
+Marco: Which is just cover for the two changes and nothing else.
+Ilona: No new systems, no new software. Just a mailbox check.
+Ilona: And maybe a shared copy of style guide updates for design.
+Marco: That one is free. It is an email forward.
+Ilona: A forward with an owner. Who owns it?
+Ilona: Licensing. It is literally their distribution job.
+Ilona: But add it to the procedure revision history later, not Thursday.
+Ilona: Thursday is the mailbox fix. Keep it to one ask.
+Marco: One ask. Agreed. Too many asks and we get none.
+Ilona: Classic. Okay I am going to write the package history sheet now.
+Ilona: I will send it before end of day.
+Ilona: And the SKU export in the same email.
+Ilona: With the three tabs.
+Marco: Wonderful. I will build the aging slide over lunch.
+Marco: Two programs in the numbers: Meadow Lane and Harbor View reorder.
+Ilona: Harbor View reorder is a good example because artwork is unchanged.
+Ilona: So nobody can argue the delay is design rework.
+Ilona: It is purely the sign-off record being behind the sign-off.
+Marco: That is the cleanest example we have. I will lead with it.
+Ilona: Lead with Harbor View, land on Meadow Lane.
+Ilona: Harbor View shows the invisible delay, Meadow Lane shows the capacity issue.
+Marco: Harbor View: the email existed and the log was empty.
+Marco: Meadow Lane: one approver, two account managers, ten days and counting.
+Ilona: That is the whole story in two lines.
+Marco: Two lines, twelve POs, and one mailbox that nobody owns.
+Ilona: Put that on the last slide as the summary.
+Ilona: Also, completely unrelated, are you coming to the team lunch Friday?
+Ilona: The team lunch Friday, are you coming?
+Marco: Probably. Where is it?
+Ilona: The new place near the sample room. Priya picked it.
+Marco: Fine, as long as nobody asks me about POs between courses.
+Ilona: No promises.
+Ilona: Ha. Okay, sheet time. Talk later.
+Marco: Later. And thanks, this is the first time we have had a real story for the delay.
+Ilona: Boring ones with owners. Write it down.
+Ilona: Writing it down now. See you Thursday if not before.
+Marco: See you. I will send the aging slide draft tonight.
+Ilona: Perfect. I will comment on it before standup.
+Ilona: Good luck with the vendor on the cut off date.
+Ilona: Someone has to tell them summer is already late.
+Marco: I will handle the vendor. You handle Jessica and the mailbox.
+Ilona: Deal.
+Ilona: One more thing. Should we loop in the licensing coordinator directly?
+Ilona: For the mailbox watch I mean, instead of asking Jessica to delegate.
+Marco: Ask Jessica first. Going around her is how we lose her support.
+Ilona: You are right. Ask her first, and offer the coordinator as the helper.
+Marco: Exactly. Her idea, our support.
+Ilona: Okay. Email draft now. For real this time.
+Ilona: For real this time.
+Ilona: Subject: Meadow Lane sign-off status and one small help request.
+Ilona: Opening: thanks for pushing the licensor on this one.
+Ilona: Then the provisional release ask, then the mailbox watch offer.
+Ilona: Short. Three paragraphs max.
+Marco: Perfect length. Long emails to approvers go unread.
+Ilona: Truer words. Sending in five.
+Ilona: Sent.
+Ilona: CC'd you so you have it in writing for Thursday.
+Marco: Got it. Filing it under evidence.
+Ilona: Evidence. Ha. We are building a case file now.
+Ilona: Twelve POs versus one mailbox. Exhibit A.
+Ilona: I will stop now before this becomes a courtroom drama.
+Marco: Talk tomorrow?
+Ilona: Talk tomorrow. I will have the aging slide draft tonight.
+Marco: And I will have the three tabs ready before standup.
+Ilona: Then we are ready before Thursday for once.
+Marco: For once. Mark the calendar.
+Ilona: Marked. Have a good one, Marco.
+Marco: You too. And if Jessica replies today, forward it.
+Ilona: Forwarding it the second it lands.
+Marco: That is the whole point of this exercise. Nobody waits on invisible mail.
+Ilona: Exactly. Visible process, named owners.
+Marco: Okay, get to your standup before Priya scores you late.
+Ilona: Going now. She already has me at two late marks this month.
+Marco: Make it two and a half and she will start a column for you.
+Ilona: Ha. Do not give her ideas.
+Marco: Too late, I already suggested it.
+Ilona: You are the worst. Bye.
+Marco: Bye Ilona.
+Ilona: And thanks again for pushing the numbers together on this one.
+Marco: Twelve POs deserve a slide.
+Ilona: They deserve a fix. The slide is step one.
+Marco: Step one. See you Thursday.
+
