@@ -1,0 +1,14 @@
+# Local development stores for apps/brain (plan §12).
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: oracle
+      POSTGRES_PASSWORD: oracle
+      POSTGRES_DB: brain_dev
+    ports:
+      - "5432:5432"
+  falkordb:
+    image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+    ports:
+      - "6379:6379"

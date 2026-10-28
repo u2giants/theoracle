@@ -1,0 +1,70 @@
+name: Brain CI
+
+# Step 0 of plan_oracle_company_map.md: apps/brain tests against real
+# Postgres (pgvector) and the pinned FalkorDB image.
+
+on:
+  pull_request:
+    paths:
+      - 'apps/brain/**'
+      - '.github/workflows/brain-ci.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  test:
+    name: brain tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: oracle
+          POSTGRES_PASSWORD: oracle
+          POSTGRES_DB: brain_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oracle -d brain_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      falkordb:
+        image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.12.19'
+
+      - name: Sync dependencies
+        working-directory: apps/brain
+        run: uv sync
+
+      - name: Ruff
+        working-directory: apps/brain
+        run: uv run ruff check .
+
+      - name: Pytest
+        working-directory: apps/brain
+        run: uv run pytest
+        env:
+          DATABASE_URL: postgresql://oracle:oracle@localhost:5432/brain_test
+          FALKORDB_URL: redis://localhost:6379

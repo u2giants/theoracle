@@ -1,3 +1,5 @@
+SUPERSEDED 2026-10-27 by [plan_oracle_company_map.md](plan_oracle_company_map.md) on Albert's ruling; no further S-steps run.
+
 # Oracle operating-model rebuild and measured process analysis
 
 Written and revised October 11, 2026 EDT. This revision supersedes PR85’s
