@@ -94,7 +94,6 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','021_meeting_participation.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','026_operational_recovery.sql','027_legacy_migration.sql')
 
 
-
 def test_parallel_population_is_exact_bounded_and_heavy_native_suites_are_isolated():
     for stage in ('W10','W12','all','documentary','W04'):
         groups=verifier.test_groups(stage)
@@ -202,7 +201,6 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)-{'purpose_worker_startup'}<=set(verifier.required_suites('documentary'))
     assert verifier.SYNTHETIC_MIGRATIONS[-12:]==('014_replacement_source_custody.sql','017_processing_model_history.sql','018_original_review_reading_input.sql','019_employee_conversations.sql','020_meeting_capture.sql','021_meeting_participation.sql','022_consolidated_answer_delivery.sql','023_maintained_research.sql','024_question_effects.sql','025_recommendation_actions.sql','026_operational_recovery.sql','027_legacy_migration.sql')
-
 
 
 @pytest.mark.parametrize('damage',['foreign-project','foreign-service','foreign-network','public-port','no-label'])
@@ -392,7 +390,7 @@ def test_actual_web_identity_and_framework_source_are_in_recorded_execution_inve
 
 def test_new_database_browser_and_native_families_use_distinct_existing_worker_capacity():
     groups=dict(verifier.test_groups('W10'))
-    assert set(verifier.CONSOLIDATION_SUITES)-{'consolidation_next_auth_browser_v1'}<=set(groups['documentary-01'])
+    assert set(verifier.CONSOLIDATION_SUITES)-{'consolidation_next_auth_browser_v1','consolidation_sql_v1'}<=set(groups['documentary-01'])
     assert 'consolidation_next_auth_browser_v1' in groups['documentary-07']
     assert sum(suites.count('consolidation_next_auth_browser_v1') for suites in groups.values())==1
     assert {'protected_raw_original_factory_sql','original_review_reading_input_sql'}<=set(groups['documentary-04'])
@@ -400,7 +398,7 @@ def test_new_database_browser_and_native_families_use_distinct_existing_worker_c
     assert 'qualified_workspace_sdk_sql_v1' in groups['documentary-03']
     assert 'question_effect_native_sql_v1' in groups['documentary-04']
     assert 'question_effects_sql_v1' in groups['documentary-07']
-    assert 'consolidation_sql_v1' in groups['documentary-01']
+    assert 'consolidation_sql_v1' in groups['documentary-07']
     assert 'purpose_coherent_native_journey' in groups['documentary-06']
     assert 'conversation_native_sql' in groups['documentary-03']
     assert 'conversation_native_sql' not in groups['documentary-08']
