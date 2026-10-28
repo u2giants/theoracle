@@ -18,7 +18,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 |---|---|---|---|---|
 | 0 | Freeze old program, retire old plans, create `apps/brain` skeleton | ✅ done | #241, PR #260; `apps/brain/tests/test_health.py::test_health_reports_db` passed (CI run 40700489831, head dc2a0bd; reviewer rerun local); `docker build apps/brain` ok | 2026-10-28 10:15 EDT |
 | 1 | Postgres schema `cmap` (sources, chunks, extractions, entities, edges, communities, questions, eval) | ✅ done | #242, PR #261; `apps/brain/tests/test_schema.py::test_all_tables_exist` and `test_migrate_runs_twice_without_error` passed (CI "brain tests" on d617a0b; reviewer rerun local) | 2026-10-28 EDT |
-| 2 | Source intake: upload, bulk folder import, transcript import, diagram import | ⬜ open | #243 | |
+| 2 | Source intake: upload, bulk folder import, transcript import, diagram import | ✅ done | #243, PR #264; `apps/brain/tests/test_intake.py` (12 tests incl. all six adversarial cases) green in CI "brain tests" on cded0e3 and reviewer rerun; page live upload deferred to Step 3 read proof | 2026-10-28 2:00 PM EDT |
 | 3 | Reading: text extraction, page images, chunking | ⬜ open | #244 | |
 | 4 | Passage classification and flat extraction via ScaleDown | ⬜ open | #245 | |
 | 5 | Relationship extraction via frontier model | ⬜ open | #246 | |

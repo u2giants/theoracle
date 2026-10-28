@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import psycopg
+from psycopg.types.json import Json
 from psycopg_pool import ConnectionPool
 
 from brain.config import Settings, get_settings
@@ -46,3 +47,17 @@ def run_sql(path: str | Path, settings: Settings | None = None) -> None:
         with conn.cursor() as cur:
             cur.execute(sql)
         conn.commit()
+
+
+def enqueue_job(kind: str, payload: dict, settings: Settings | None = None) -> str:
+    """Insert one queued job and return its id."""
+    pool = get_pool(settings)
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO cmap.job (kind, payload) VALUES (%s, %s) RETURNING id",
+                (kind, Json(payload)),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return str(row[0])
