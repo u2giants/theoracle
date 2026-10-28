@@ -14,6 +14,8 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
+SUPERSEDED 2026-10-27 by [plan_oracle_company_map.md](plan_oracle_company_map.md) on Albert's ruling; no further S-steps run.
+
 **October 23, 2026 EDT — parent24 resume after closeout; program OPEN.** Read the [resume handoff](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-23T1425Z-edge-dev-mimo-parent24-resume.md) and the [October 22 closeout](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-10-22T1211Z-edge-dev3-codex-parent24-closeout.md) before any execution. Main tip `81f9f6d9`. S03–S16/#27–40 and #58 remain open; #25/#26 retain only their offline/synthetic acceptance. No company/business/adoption/retirement authority is renewed. Business-acceptance hold stays until the whole readiness list is proved.
 
 | Current delivery | Verification / next action |

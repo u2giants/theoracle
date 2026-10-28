@@ -1,3 +1,5 @@
+SUPERSEDED 2026-10-27 by [plan_oracle_company_map.md](plan_oracle_company_map.md) on Albert's ruling; no further S-steps run.
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob f88f1cc0f590bb211b3f636485ebd4108d01cfdb at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Oracle original-processing qualification and generated-truth separation
 

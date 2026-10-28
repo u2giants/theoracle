@@ -1,3 +1,5 @@
+SUPERSEDED 2026-10-27 by [plan_oracle_company_map.md](plan_oracle_company_map.md) on Albert's ruling; no further S-steps run.
+
 # Connected business answers — first refactor slice
 
 ## STATUS (2026-09-22)
