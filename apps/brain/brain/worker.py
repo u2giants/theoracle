@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from brain.db import get_pool
+from brain.extract.flat import handle_classify_extract
 from brain.read.pipeline import handle_read_source
 
 logger = logging.getLogger(__name__)
@@ -16,7 +17,10 @@ POLL_SECONDS = 2.0
 
 Handler = Callable[[dict[str, Any]], None]
 
-HANDLERS: dict[str, Handler] = {"read_source": handle_read_source}
+HANDLERS: dict[str, Handler] = {
+    "read_source": handle_read_source,
+    "classify_extract": handle_classify_extract,
+}
 
 
 def claim_next_job() -> dict[str, Any] | None:

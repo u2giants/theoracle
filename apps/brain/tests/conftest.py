@@ -177,3 +177,78 @@ def fake_embeddings(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
     monkeypatch.setattr(embed_mod, "_post_embeddings", _post_embeddings)
     return calls
+
+
+class FakeScaleDown:
+    """Replay recorded ScaleDown ``/classify`` and ``/extract`` responses.
+
+    Each recorded entry matches on a substring of the chunk text; a chunk that
+    matches nothing gets the recorded default (chatter, no entities), which is
+    how most of a transcript looks.
+    """
+
+    def __init__(self, names: list[str]) -> None:
+        self.classify_calls: list[str] = []
+        self.extract_calls: list[str] = []
+        self.classify_entries: list[dict[str, Any]] = []
+        self.extract_entries: list[dict[str, Any]] = []
+        self.defaults: dict[str, dict[str, Any]] = {}
+        for name in names:
+            recorded = json.loads(
+                (RECORDED_DIR / "scaledown" / name).read_text(encoding="utf-8")
+            )
+            self.classify_entries.extend(recorded.get("classify") or [])
+            self.extract_entries.extend(recorded.get("extract") or [])
+            self.defaults.update(recorded.get("defaults") or {})
+
+    def _pick(self, stage: str, text: str) -> dict[str, Any]:
+        entries = self.classify_entries
+        if stage != "classify":
+            entries = self.extract_entries
+        for entry in entries:
+            match = str(entry.get("match") or "")
+            if match and match in text:
+                return dict(entry["response"])
+        return dict(self.defaults[stage])
+
+    def __call__(self, path: str, body: dict[str, Any], settings: Any) -> dict[str, Any]:
+        del settings
+        text = str(body.get("text") or "")
+        if path == "/classify":
+            self.classify_calls.append(text)
+            return self._pick("classify", text)
+        self.extract_calls.append(text)
+        return self._pick("extract", text)
+
+
+def fake_scaledown(monkeypatch: pytest.MonkeyPatch, *names: str) -> FakeScaleDown:
+    """Replay recorded ScaleDown responses through the flat-stage HTTP seam."""
+    from brain.extract import flat
+
+    fake = FakeScaleDown(list(names))
+    monkeypatch.setattr(flat, "_post_scaledown", fake)
+    return fake
+
+
+def fake_frontier(monkeypatch: pytest.MonkeyPatch, name: str) -> list[list[dict[str, Any]]]:
+    """Replay one recorded frontier flat response; return the message log."""
+    from brain.extract import flat
+
+    recorded = json.loads(
+        (RECORDED_DIR / "scaledown" / name).read_text(encoding="utf-8")
+    )
+    calls: list[list[dict[str, Any]]] = []
+
+    def _post_chat(
+        messages: list[dict[str, Any]],
+        settings: Any,
+    ) -> dict[str, Any]:
+        del settings
+        calls.append(messages)
+        return {
+            "choices": [{"message": {"content": json.dumps(recorded)}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+        }
+
+    monkeypatch.setattr(flat, "_post_chat", _post_chat)
+    return calls

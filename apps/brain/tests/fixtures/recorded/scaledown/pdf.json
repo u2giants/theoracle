@@ -1,0 +1,244 @@
+{
+  "defaults": {
+    "classify": {
+      "top_label": "chatter",
+      "scores": {
+        "process": 0.01,
+        "responsibility": 0.01,
+        "rule": 0.01,
+        "reference": 0.01,
+        "problem": 0.01,
+        "decision": 0.01,
+        "chatter": 0.95
+      },
+      "labels": [
+        "process",
+        "responsibility",
+        "rule",
+        "reference",
+        "problem",
+        "decision",
+        "chatter"
+      ],
+      "ocr_text": null
+    },
+    "extract": {
+      "entities": [],
+      "structured_result": {},
+      "ocr_text": null
+    }
+  },
+  "classify": [
+    {
+      "match": "1. Purpose",
+      "response": {
+        "top_label": "reference",
+        "scores": {
+          "process": 0.06,
+          "responsibility": 0.12,
+          "rule": 0.06,
+          "reference": 0.55,
+          "problem": 0.05,
+          "decision": 0.06,
+          "chatter": 0.1
+        },
+        "labels": [
+          "process",
+          "responsibility",
+          "rule",
+          "reference",
+          "problem",
+          "decision",
+          "chatter"
+        ],
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "4.1 Design submits the concept package",
+      "response": {
+        "top_label": "process",
+        "scores": {
+          "process": 0.94,
+          "responsibility": 0.01,
+          "rule": 0.01,
+          "reference": 0.01,
+          "problem": 0.01,
+          "decision": 0.01,
+          "chatter": 0.01
+        },
+        "labels": [
+          "process",
+          "responsibility",
+          "rule",
+          "reference",
+          "problem",
+          "decision",
+          "chatter"
+        ],
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "6.1 Reorder SKUs below 5,000",
+      "response": {
+        "top_label": "rule",
+        "scores": {
+          "process": 0.04,
+          "responsibility": 0.03,
+          "rule": 0.86,
+          "reference": 0.03,
+          "problem": 0.01,
+          "decision": 0.02,
+          "chatter": 0.01
+        },
+        "labels": [
+          "process",
+          "responsibility",
+          "rule",
+          "reference",
+          "problem",
+          "decision",
+          "chatter"
+        ],
+        "ocr_text": null
+      }
+    }
+  ],
+  "extract": [
+    {
+      "match": "1. Purpose",
+      "response": {
+        "entities": [
+          {
+            "text": "Licensing Manager",
+            "type": "Role",
+            "confidence": 0.92,
+            "start": 578,
+            "end": 595
+          },
+          {
+            "text": "Design Lead",
+            "type": "Role",
+            "confidence": 0.88,
+            "start": 514,
+            "end": 525
+          },
+          {
+            "text": "Buyer",
+            "type": "Role",
+            "confidence": 0.87,
+            "start": 682,
+            "end": 687
+          }
+        ],
+        "structured_result": {
+          "Role": [
+            "Licensing Manager",
+            "Design Lead",
+            "Buyer"
+          ]
+        },
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "4.1 Design submits the concept package",
+      "response": {
+        "entities": [
+          {
+            "text": "Design submits the concept package",
+            "type": "Step",
+            "confidence": 0.95,
+            "start": 18,
+            "end": 52
+          },
+          {
+            "text": "The Licensing Manager reviews the package",
+            "type": "Step",
+            "confidence": 0.95,
+            "start": 123,
+            "end": 164
+          },
+          {
+            "text": "The Licensing Manager submits the package to the licensor",
+            "type": "Step",
+            "confidence": 0.94,
+            "start": 241,
+            "end": 298
+          },
+          {
+            "text": "the Licensing Manager records the sign-off",
+            "type": "Step",
+            "confidence": 0.94,
+            "start": 370,
+            "end": 412
+          },
+          {
+            "text": "Design releases the artwork to QA and to the buyer",
+            "type": "Step",
+            "confidence": 0.93,
+            "start": 474,
+            "end": 524
+          },
+          {
+            "text": "The Buyer may create the purchase order",
+            "type": "Step",
+            "confidence": 0.95,
+            "start": 531,
+            "end": 570
+          }
+        ],
+        "structured_result": {
+          "Step": [
+            "Design submits the concept package",
+            "The Licensing Manager reviews the package",
+            "The Licensing Manager submits the package to the licensor",
+            "the Licensing Manager records the sign-off",
+            "Design releases the artwork to QA and to the buyer",
+            "The Buyer may create the purchase order"
+          ]
+        },
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "6.1 Reorder SKUs below 5,000",
+      "response": {
+        "entities": [
+          {
+            "text": "Reorder SKUs below 5,000 units with unchanged artwork",
+            "type": "Exception",
+            "confidence": 0.9,
+            "start": 19,
+            "end": 72
+          },
+          {
+            "text": "Rush programs",
+            "type": "Exception",
+            "confidence": 0.82,
+            "start": 195,
+            "end": 208
+          },
+          {
+            "text": "recorded licensor sign-off",
+            "type": "Rule",
+            "confidence": 0.8,
+            "start": 317,
+            "end": 343
+          }
+        ],
+        "structured_result": {
+          "Exception": [
+            "Reorder SKUs below 5,000 units with unchanged artwork",
+            "Rush programs"
+          ],
+          "Rule": [
+            "recorded licensor sign-off"
+          ]
+        },
+        "ocr_text": null
+      }
+    }
+  ]
+}

@@ -22,7 +22,7 @@ class EmbedError(RuntimeError):
     """Raised when the embeddings endpoint cannot embed a batch."""
 
 
-def _vector_literal(vector: Sequence[float]) -> str:
+def vector_literal(vector: Sequence[float]) -> str:
     """Return the pgvector text form of one embedding."""
     return "[" + ",".join(f"{value:.8g}" for value in vector) + "]"
 
@@ -39,7 +39,13 @@ def _post_embeddings(
     response = httpx.post(
         f"{OPENROUTER_BASE_URL}/embeddings",
         headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-        json={"model": settings.brain_embed_model, "input": texts},
+        json={
+            "model": settings.brain_embed_model,
+            "input": texts,
+            # text-embedding-3-large defaults to 3072 dims; the schema and
+            # BRAIN_EMBED_DIMS contract is 1024, so it must be asked for.
+            "dimensions": settings.brain_embed_dims,
+        },
         timeout=120.0,
     )
     if response.status_code != 200:
@@ -105,6 +111,6 @@ def embed_and_store(
         for (chunk_id, _), vector in zip(chunks, vectors, strict=True):
             conn.execute(
                 "UPDATE cmap.chunk SET embedding = %s::vector WHERE id = %s",
-                (_vector_literal(vector), chunk_id),
+                (vector_literal(vector), chunk_id),
             )
         conn.commit()
