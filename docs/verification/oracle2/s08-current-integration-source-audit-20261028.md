@@ -68,10 +68,13 @@ timing constants only):
    deterministic, not UNKNOWN.
 2. `test_meeting_participation_sql.py` — L5 exactly-21 pins preserved; of the
    21 case bodies, **20 are byte-identical to the preserved source and 1
-   differs in timing constants only**
+   retains a sleep-constant cut only**
    (`test_actual_late_private_wire_finishes_as_orphan_without_sql_receipt`:
-   `sleep(3.1)`→`sleep(1.1)`, caller deadline 3s→1s — the PR214-era
-   assertion-preserving cuts); assertions are identical. Current-main W10
+   `sleep(3.1)`→`sleep(1.1)`); its caller deadline was restored to the
+   preserved 3s in the follow-up repair (the W10 cut to 1s could never fit
+   the connector's 2.002s startup floor and broke the case's post-write
+   UNKNOWN semantics — found and named by the gated 21-SQL run and flagged
+   independently by both reviews). Assertions identical. Current-main W10
    assertion-preserving fixture batching, `owned_worker_database` caching and
    sleep/capture-window shortening retained.
 
@@ -177,8 +180,8 @@ post-authority-repair baseline; the authority repair's own semantic change
 The 21 SQL cases are exactly `test_meeting_participation_sql.py` (19 plain
 functions + 2 single-element indirect-parametrize pins = 21 collected; the L5
 comments forbid expanding those lists). SQL021 file bytes unchanged from the
-preserved source; of the 21 case bodies, 20 are byte-identical and 1 carries
-timing constants only (§1 item 2), assertions identical.
+preserved source; of the 21 case bodies, 20 are byte-identical and 1 retains
+a sleep-constant cut only (§1 item 2), assertions identical.
 
 ## 5. S08 delivery doc source references (detail 6)
 
