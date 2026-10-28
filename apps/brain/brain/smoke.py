@@ -27,6 +27,7 @@ from brain.migrate import migrate
 from brain.read.chunk import Chunk
 from brain.read.detect import detect_kind
 from brain.read.pipeline import read_chunks
+from brain.resolve.resolve import run_resolve
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 SMOKE_TITLE_PREFIX = "[smoke] "
@@ -44,6 +45,11 @@ def _clear_prior_runs() -> None:
         conn.execute(
             "DELETE FROM cmap.source WHERE title LIKE %s",
             (SMOKE_TITLE_PREFIX + "%",),
+        )
+        # Entities left with no mentions belonged to earlier smoke runs.
+        conn.execute(
+            "DELETE FROM cmap.entity e WHERE NOT EXISTS "
+            "(SELECT 1 FROM cmap.mention m WHERE m.entity_id = e.id)"
         )
         conn.commit()
 
@@ -82,7 +88,13 @@ def _insert_chunks(
             row = conn.execute(
                 "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count) "
                 "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (source_id, ordinal, Json(chunk.locator), chunk.text, chunk.token_count),
+                (
+                    source_id,
+                    ordinal,
+                    Json(chunk.locator),
+                    chunk.text,
+                    chunk.token_count,
+                ),
             ).fetchone()
             pairs.append((str(row[0]), chunk.text))
         conn.commit()
@@ -173,6 +185,21 @@ def _counts(source_id: str) -> dict[str, Any]:
     }
 
 
+def _print_entities() -> None:
+    """Print entity totals and the multi-source entities the map will join on."""
+    with get_pool().connection() as conn:
+        total = conn.execute(
+            "SELECT count(*), count(*) FILTER (WHERE source_count >= 2) FROM cmap.entity"
+        ).fetchone()
+        joined = conn.execute(
+            "SELECT entity_type, canonical_name, mention_count, source_count FROM cmap.entity "
+            "WHERE source_count >= 2 ORDER BY source_count DESC, mention_count DESC LIMIT 25"
+        ).fetchall()
+    print(f"ENTITIES total={total[0]} multi_source={total[1]}")
+    for entity_type, name, mentions, sources in joined:
+        print(f"    {entity_type}: {name} mentions={mentions} sources={sources}")
+
+
 def _merge(target: dict[str, int], addition: dict[str, Any]) -> None:
     """Merge integer counters from ``addition`` into ``target``."""
     for key, value in addition.items():
@@ -257,6 +284,13 @@ def main() -> int:
         f"edges={grand['edges']} communities={grand['communities']} "
         f"(communities arrive at step 8)"
     )
+    resolve_stats = run_resolve(settings)
+    _merge(
+        usage_total,
+        {k: v for k, v in resolve_stats.items() if k.startswith("frontier")},
+    )
+    print(f"resolve: {resolve_stats}")
+    _print_entities()
     print(f"usage: {usage_total}")
     if grand["chunks"]:
         print(

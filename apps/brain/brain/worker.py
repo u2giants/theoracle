@@ -11,6 +11,7 @@ from brain.db import get_pool
 from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
 from brain.read.pipeline import handle_read_source
+from brain.resolve.resolve import handle_resolve
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ HANDLERS: dict[str, Handler] = {
     "read_source": handle_read_source,
     "classify_extract": handle_classify_extract,
     "relations": handle_relations,
+    "resolve": handle_resolve,
 }
 
 

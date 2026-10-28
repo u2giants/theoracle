@@ -568,3 +568,14 @@ def handle_relations(job: dict[str, Any]) -> None:
     )
     if first_error is not None:
         raise first_error
+    _enqueue_resolve()
+
+
+def _enqueue_resolve() -> None:
+    """Queue one whole-corpus ``resolve`` job (step 6) unless one is waiting."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            "INSERT INTO cmap.job (kind, payload) SELECT 'resolve', '{}'::jsonb "
+            "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'resolve' AND state = 'queued')"
+        )
+        conn.commit()
