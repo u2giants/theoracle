@@ -3,7 +3,7 @@
 Written 2026-10-27, 11:05 PM EDT, edge-dev3, Claude (Fable 5.1). Session: review of parent #24 and the new plan.
 
 ## Status line
-Plan [plan_oracle_company_map.md](../plan_oracle_company_map.md) written; committed and pushed on branch `claude/ai-mckinsey-consultant-review-3cae51`, PR to `main` (number recorded in the plan STATUS once opened). No implementation code exists yet. Every STATUS row in the plan is ⬜ open. Nothing deployed, no secrets created.
+Plan [plan_oracle_company_map.md](../plan_oracle_company_map.md) written; committed and pushed on branch `claude/ai-mckinsey-consultant-review-3cae51`, merged to `main` via PRs #239, #257, #258. No implementation code exists yet. Every STATUS row in the plan is ⬜ open. Nothing deployed, no secrets created.
 
 ## What a successor does
 1. Read the plan's STATUS table and Part 1, then start at step 0.
@@ -25,3 +25,9 @@ See plan §7. Headline: the sixteen-step overhaul plan, thin single-document jou
 ## Related files
 - Review that led here: [docs/review-2026-10-27-consultant-plan-and-code.md](../docs/review-2026-10-27-consultant-plan-and-code.md)
 - ScaleDown call analysis: [scaledown-report.md](../scaledown-report.md)
+
+## Closing note (2026-10-28, 8:55 AM EDT, same session)
+- Tracking: parent https://github.com/u2giants/theoracle/issues/240 with children #241–#255 (one per step 0–14), attached as sub-issues.
+- Owner ruling 2026-10-28 (Albert): no repository lock; only Claude Opus or Fable reviews; GPT and GLM never review. Albert pastes the review prompt that sits at the bottom of each child issue ("How this step gets checked") into a fresh Opus/Fable session; the implementer opens the PR, does not merge, posts `Ready for review: PR #n`. Mechanics in plan §11.
+- Nothing implemented yet. Next action: start Step 0 (https://github.com/u2giants/theoracle/issues/241) in a GLM 5.1 / Sol 6.1 session.
+- Known CI noise: `Oracle offline suites` / `test_ci_trust_boundary` (KeyError 'uses') fails on `main` itself; unrelated to this program, not fixed here (scope freeze).
