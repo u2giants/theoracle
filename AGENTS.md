@@ -12,6 +12,8 @@ Claude Code uses .claudeignore. Other tools follow **What to ignore** in this fi
 
 ## Consultant overhaul discovery
 
+**Current program (2026-10-27):** read [plan_oracle_company_map.md](plan_oracle_company_map.md) **STATUS first**. It supersedes the sixteen-step overhaul plan below on Albert's ruling (big picture first, FalkorDB kept, no permission system, no per-claim grading). The paragraphs that follow are history.
+
 For the company-consultant replacement requested on 2026-09-27 EDT, read
 [`plan_oracle_consultant_overhaul.md`](plan_oracle_consultant_overhaul.md) **STATUS first**
 and follow parent issue #24. This is the durable project-memory pointer: do not
