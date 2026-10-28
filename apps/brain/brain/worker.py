@@ -9,6 +9,7 @@ from typing import Any
 
 from brain.db import get_pool
 from brain.extract.flat import handle_classify_extract
+from brain.extract.relations import handle_relations
 from brain.read.pipeline import handle_read_source
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ Handler = Callable[[dict[str, Any]], None]
 HANDLERS: dict[str, Handler] = {
     "read_source": handle_read_source,
     "classify_extract": handle_classify_extract,
+    "relations": handle_relations,
 }
 
 

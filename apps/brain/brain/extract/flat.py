@@ -30,7 +30,7 @@ import httpx
 from psycopg.types.json import Json
 
 from brain.config import Settings, get_settings
-from brain.db import get_pool
+from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.normalize import normalize_name
 
@@ -621,6 +621,8 @@ def handle_classify_extract(job: dict[str, Any]) -> None:
     for outcome in outcomes:
         _write_outcome(outcome)
     _record_usage(job.get("id"), counters.usage)
+    if job.get("id") is not None:
+        enqueue_job("relations", {"source_id": source_id})
     logger.info(
         "classify_extract source=%s chunks=%d mentions=%d usage=%s",
         source_id,

@@ -252,3 +252,44 @@ def fake_frontier(monkeypatch: pytest.MonkeyPatch, name: str) -> list[list[dict[
 
     monkeypatch.setattr(flat, "_post_chat", _post_chat)
     return calls
+
+
+class FakeRelations:
+    """Replay recorded frontier relations responses, matched on chunk text."""
+
+    def __init__(self, name: str) -> None:
+        recorded = json.loads(
+            (RECORDED_DIR / "frontier" / name).read_text(encoding="utf-8")
+        )
+        self.entries: list[dict[str, Any]] = recorded.get("responses") or []
+        self.default: dict[str, Any] = recorded.get("default") or {"relations": []}
+        self.prompts: list[str] = []
+        self.override: dict[str, Any] | None = None
+
+    def _passage(self, prompt: str) -> str:
+        return prompt.split("PASSAGE:\n<<<\n", 1)[-1].split("\n>>>", 1)[0]
+
+    def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+        del settings
+        prompt = str(messages[-1]["content"])
+        self.prompts.append(prompt)
+        passage = self._passage(prompt)
+        response = self.override if self.override is not None else self.default
+        if self.override is None:
+            for entry in self.entries:
+                if str(entry.get("match") or "") in passage:
+                    response = entry["response"]
+                    break
+        return {
+            "choices": [{"message": {"content": json.dumps(response)}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+        }
+
+
+def fake_relations(monkeypatch: pytest.MonkeyPatch, name: str = "relations.json") -> FakeRelations:
+    """Replay recorded frontier responses through the relations HTTP seam."""
+    from brain.extract import relations
+
+    fake = FakeRelations(name)
+    monkeypatch.setattr(relations, "_post_chat", fake)
+    return fake
