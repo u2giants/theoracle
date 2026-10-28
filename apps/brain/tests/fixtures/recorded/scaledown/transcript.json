@@ -1,0 +1,235 @@
+{
+  "defaults": {
+    "classify": {
+      "top_label": "chatter",
+      "scores": {
+        "process": 0.01,
+        "responsibility": 0.01,
+        "rule": 0.01,
+        "reference": 0.01,
+        "problem": 0.01,
+        "decision": 0.01,
+        "chatter": 0.95
+      },
+      "labels": [
+        "process",
+        "responsibility",
+        "rule",
+        "reference",
+        "problem",
+        "decision",
+        "chatter"
+      ],
+      "ocr_text": null
+    },
+    "extract": {
+      "entities": [],
+      "structured_result": {},
+      "ocr_text": null
+    }
+  },
+  "classify": [
+    {
+      "match": "Which approval do you mean",
+      "response": {
+        "top_label": "process",
+        "scores": {
+          "process": 0.72,
+          "responsibility": 0.05,
+          "rule": 0.04,
+          "reference": 0.02,
+          "problem": 0.06,
+          "decision": 0.06,
+          "chatter": 0.05
+        },
+        "labels": [
+          "process",
+          "responsibility",
+          "rule",
+          "reference",
+          "problem",
+          "decision",
+          "chatter"
+        ],
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "I just call it Jessica's approval",
+      "response": {
+        "top_label": "responsibility",
+        "scores": {
+          "process": 0.07,
+          "responsibility": 0.61,
+          "rule": 0.05,
+          "reference": 0.03,
+          "problem": 0.04,
+          "decision": 0.05,
+          "chatter": 0.15
+        },
+        "labels": [
+          "process",
+          "responsibility",
+          "rule",
+          "reference",
+          "problem",
+          "decision",
+          "chatter"
+        ],
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "Jessica is the only licensing manager",
+      "response": {
+        "top_label": "responsibility",
+        "scores": {
+          "process": 0.02,
+          "responsibility": 0.93,
+          "rule": 0.01,
+          "reference": 0.01,
+          "problem": 0.01,
+          "decision": 0.01,
+          "chatter": 0.01
+        },
+        "labels": [
+          "process",
+          "responsibility",
+          "rule",
+          "reference",
+          "problem",
+          "decision",
+          "chatter"
+        ],
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "the approval step is the bottleneck",
+      "response": {
+        "top_label": "problem",
+        "scores": {
+          "process": 0.03,
+          "responsibility": 0.02,
+          "rule": 0.01,
+          "reference": 0.01,
+          "problem": 0.88,
+          "decision": 0.03,
+          "chatter": 0.02
+        },
+        "labels": [
+          "process",
+          "responsibility",
+          "rule",
+          "reference",
+          "problem",
+          "decision",
+          "chatter"
+        ],
+        "ocr_text": null
+      }
+    }
+  ],
+  "extract": [
+    {
+      "match": "Which approval do you mean",
+      "response": {
+        "entities": [
+          {
+            "text": "the licensor sign-off",
+            "type": "Process",
+            "confidence": 0.91,
+            "start": 35,
+            "end": 56
+          }
+        ],
+        "structured_result": {
+          "Process": [
+            "the licensor sign-off"
+          ]
+        },
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "I just call it Jessica's approval",
+      "response": {
+        "entities": [
+          {
+            "text": "Jessica",
+            "type": "Person",
+            "confidence": 0.97,
+            "start": 34,
+            "end": 41
+          },
+          {
+            "text": "Jessica's approval",
+            "type": "Process",
+            "confidence": 0.84,
+            "start": 34,
+            "end": 52
+          }
+        ],
+        "structured_result": {
+          "Person": [
+            "Jessica"
+          ],
+          "Process": [
+            "Jessica's approval"
+          ]
+        },
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "Jessica is the only licensing manager",
+      "response": {
+        "entities": [
+          {
+            "text": "Jessica",
+            "type": "Person",
+            "confidence": 0.98,
+            "start": 7,
+            "end": 14
+          },
+          {
+            "text": "licensing manager",
+            "type": "Role",
+            "confidence": 0.93,
+            "start": 27,
+            "end": 44
+          }
+        ],
+        "structured_result": {
+          "Person": [
+            "Jessica"
+          ],
+          "Role": [
+            "licensing manager"
+          ]
+        },
+        "ocr_text": null
+      }
+    },
+    {
+      "match": "the approval step is the bottleneck",
+      "response": {
+        "entities": [
+          {
+            "text": "the approval step is the bottleneck",
+            "type": "Issue",
+            "confidence": 0.89,
+            "start": 28,
+            "end": 63
+          }
+        ],
+        "structured_result": {
+          "Issue": [
+            "the approval step is the bottleneck"
+          ]
+        },
+        "ocr_text": null
+      }
+    }
+  ]
+}

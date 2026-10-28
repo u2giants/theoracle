@@ -2,7 +2,7 @@
 
 Written 2026-10-27, 10:50 PM EDT, by Claude (Fable 5.1) on edge-dev3 for Albert Hazan.
 Parent issue: [u2giants/theoracle#240](https://github.com/u2giants/theoracle/issues/240) (children #241–#255, one per step; the old parent #24 is history).
-Registered handoff: [HANDOFF.d/2026-10-28T1909Z-edge-dev-mimo-company-map-step3-cut.md](HANDOFF.d/2026-10-28T1909Z-edge-dev-mimo-company-map-step3-cut.md).
+Registered handoff: [HANDOFF.d/2026-10-28T2023Z-edge-dev-mimo-company-map-step4-flat.md](HANDOFF.d/2026-10-28T2023Z-edge-dev-mimo-company-map-step4-flat.md).
 Background review that produced this plan: [docs/review-2026-10-27-consultant-plan-and-code.md](docs/review-2026-10-27-consultant-plan-and-code.md).
 ScaleDown call-by-call analysis: [scaledown-report.md](scaledown-report.md).
 
@@ -20,7 +20,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 | 1 | Postgres schema `cmap` (sources, chunks, extractions, entities, edges, communities, questions, eval) | ✅ done | #242, PR #261; `apps/brain/tests/test_schema.py::test_all_tables_exist` and `test_migrate_runs_twice_without_error` passed (CI "brain tests" on d617a0b; reviewer rerun local) | 2026-10-28 EDT |
 | 2 | Source intake: upload, bulk folder import, transcript import, diagram import | ✅ done | #243, PR #264; `apps/brain/tests/test_intake.py` (12 tests incl. all six adversarial cases) green in CI "brain tests" on cded0e3 and reviewer rerun; page live upload deferred to Step 3 read proof | 2026-10-28 2:00 PM EDT |
 | 3 | Reading: text extraction, page images, chunking | ✅ done | #244, PR #267; `apps/brain/tests/test_read.py` (12 tests: one per format + `test_blank_pdf_page_uses_vision`) and `test_embed.py` green in CI "brain tests" on a297a23 and reviewer rerun; transcript fixture gives 246 turn chunks under the step's merge rule (estimate was ~60) | 2026-10-28 3:27 PM EDT |
-| 4 | Passage classification and flat extraction via ScaleDown | ⬜ open | #245 | |
+| 4 | Passage classification and flat extraction via ScaleDown | ✅ done | #245, PR #269; `apps/brain/tests/test_flat.py` (6 tests incl. `test_flat_fallback_matches_shape`) green in CI "brain tests" on f9c09c7 and reviewer rerun; live smoke 253 chunks / 807 mentions / 0 frontier tokens (PR body) | 2026-10-28 4:33 PM EDT |
 | 5 | Relationship extraction via frontier model | ⬜ open | #246 | |
 | 6 | Entity resolution (merge the same thing named differently) | ⬜ open | #247 | |
 | 7 | Graph projection into FalkorDB | ⬜ open | #248 | |

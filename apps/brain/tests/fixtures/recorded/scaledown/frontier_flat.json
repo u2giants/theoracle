@@ -1,0 +1,36 @@
+{
+  "top_label": "responsibility",
+  "scores": {
+    "process": 0.02,
+    "responsibility": 0.93,
+    "rule": 0.01,
+    "reference": 0.01,
+    "problem": 0.01,
+    "decision": 0.01,
+    "chatter": 0.01
+  },
+  "entities": [
+    {
+      "text": "Jessica",
+      "type": "Person",
+      "confidence": 0.98,
+      "start": 7,
+      "end": 14
+    },
+    {
+      "text": "licensing manager",
+      "type": "Role",
+      "confidence": 0.93,
+      "start": 27,
+      "end": 44
+    }
+  ],
+  "structured_result": {
+    "Person": [
+      "Jessica"
+    ],
+    "Role": [
+      "licensing manager"
+    ]
+  }
+}
