@@ -1,0 +1,24 @@
+{
+  "page_text": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry",
+  "diagram": {
+    "kind": "flowchart",
+    "nodes": [
+      {"id": "n1", "label": "Submit concept package", "shape": "box"},
+      {"id": "n2", "label": "Compliance review", "shape": "box"},
+      {"id": "n3", "label": "Licensor approval?", "shape": "diamond"},
+      {"id": "n4", "label": "Record sign-off (Jessica)", "shape": "box"},
+      {"id": "n5", "label": "Fix package and resubmit", "shape": "box"},
+      {"id": "n6", "label": "Create PO", "shape": "box"}
+    ],
+    "edges": [
+      {"from": "n1", "to": "n2", "label": ""},
+      {"from": "n2", "to": "n3", "label": ""},
+      {"from": "n3", "to": "n4", "label": "yes"},
+      {"from": "n3", "to": "n5", "label": "no"},
+      {"from": "n5", "to": "n1", "label": ""},
+      {"from": "n4", "to": "n6", "label": ""}
+    ],
+    "swimlanes": ["Design", "Licensing", "Buyer"]
+  },
+  "unreadable_regions": ""
+}

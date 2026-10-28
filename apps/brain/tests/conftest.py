@@ -8,9 +8,11 @@ Supabase.
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import psycopg
 import pytest
@@ -24,6 +26,7 @@ ADMIN_AUTH_USER_ID = "00000000-0000-4000-8000-0000000000a2"
 EMPLOYEE_AUTH_USER_ID = "00000000-0000-4000-8000-0000000000b2"
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+RECORDED_DIR = FIXTURES_DIR / "recorded"
 
 _EMPLOYEE_STUBS_SQL = """
 CREATE TABLE IF NOT EXISTS public.employees (
@@ -129,3 +132,48 @@ def admin_headers() -> dict[str, str]:
 def user_headers() -> dict[str, str]:
     """Headers for the non-admin test employee."""
     return {"x-brain-token": TEST_TOKEN, "x-user-id": EMPLOYEE_AUTH_USER_ID}
+
+
+def load_recorded(name: str) -> dict[str, Any]:
+    """Load one recorded model response from ``tests/fixtures/recorded/``."""
+    return json.loads((RECORDED_DIR / name).read_text(encoding="utf-8"))
+
+
+def fake_vision(monkeypatch: pytest.MonkeyPatch, name: str) -> list[list[dict[str, Any]]]:
+    """Replay a recorded vision response; return the message log of the calls."""
+    from brain.read import vision
+
+    recorded = load_recorded(name)
+    calls: list[list[dict[str, Any]]] = []
+
+    def _post_chat(
+        messages: list[dict[str, Any]],
+        settings: Any,
+    ) -> dict[str, Any]:
+        del settings
+        calls.append(messages)
+        return {
+            "choices": [{"message": {"content": json.dumps(recorded)}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+        }
+
+    monkeypatch.setattr(vision, "_post_chat", _post_chat)
+    return calls
+
+
+def fake_embeddings(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Replace the embeddings transport; return the batch log of the calls."""
+    from brain import embed as embed_mod
+
+    calls: list[list[str]] = []
+
+    def _post_embeddings(
+        texts: list[str],
+        settings: Any,
+    ) -> tuple[list[list[float]], dict[str, int]]:
+        calls.append(list(texts))
+        vectors = [[0.001 * len(text)] * settings.brain_embed_dims for text in texts]
+        return vectors, {"embedding_tokens": len(texts) * 3}
+
+    monkeypatch.setattr(embed_mod, "_post_embeddings", _post_embeddings)
+    return calls
