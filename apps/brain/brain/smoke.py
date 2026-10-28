@@ -5,8 +5,7 @@ real ScaleDown and OpenRouter calls and prints chunk, mention, edge and
 community counts plus the token cost. From step 4 on it runs before every
 step's PR and the counts go into the PR body.
 
-Edges and communities stay zero until steps 5-8 build them; the flat stage is
-what this measures.
+Edges come from the step 5 relations stage; communities stay zero until step 8.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_and_store
 from brain.extract.flat import handle_classify_extract
+from brain.extract.relations import handle_relations
 from brain.migrate import migrate
 from brain.read.chunk import Chunk
 from brain.read.detect import detect_kind
@@ -89,19 +89,25 @@ def _insert_chunks(
     return pairs
 
 
-def _run_flat(source_id: str) -> dict[str, Any]:
-    """Run the real ``classify_extract`` handler and return its usage."""
+def _run_job(kind: str, handler: Any, source_id: str) -> dict[str, Any]:
+    """Run one real stage handler as a job row and return its usage."""
     pool = get_pool()
     with pool.connection() as conn:
+        # The previous stage queues this one; the smoke test runs it inline.
+        conn.execute(
+            "DELETE FROM cmap.job WHERE kind = %s AND state = 'queued' "
+            "AND payload->>'source_id' = %s",
+            (kind, source_id),
+        )
         row = conn.execute(
             "INSERT INTO cmap.job (kind, payload, state) "
-            "VALUES ('classify_extract', %s, 'running') RETURNING id",
-            (Json({"source_id": source_id}),),
+            "VALUES (%s, %s, 'running') RETURNING id",
+            (kind, Json({"source_id": source_id})),
         ).fetchone()
         job_id = str(row[0])
         conn.commit()
     try:
-        handle_classify_extract({"id": job_id, "payload": {"source_id": source_id}})
+        handler({"id": job_id, "payload": {"source_id": source_id}})
     except Exception as exc:
         with pool.connection() as conn:
             conn.execute(
@@ -144,7 +150,13 @@ def _counts(source_id: str) -> dict[str, Any]:
         models = conn.execute(
             "SELECT e.model, count(*) FROM cmap.extraction e "
             "JOIN cmap.chunk c ON c.id = e.chunk_id "
-            "WHERE c.source_id = %s AND e.stage = 'flat' GROUP BY e.model ORDER BY e.model",
+            "WHERE c.source_id = %s GROUP BY e.model ORDER BY e.model",
+            (source_id,),
+        ).fetchall()
+        relations = conn.execute(
+            "SELECT r.rel_type, count(*) FROM cmap.relation r "
+            "JOIN cmap.chunk c ON c.id = r.chunk_id "
+            "WHERE c.source_id = %s GROUP BY r.rel_type ORDER BY count(*) DESC",
             (source_id,),
         ).fetchall()
         kinds = conn.execute(
@@ -156,6 +168,7 @@ def _counts(source_id: str) -> dict[str, Any]:
         "chunks": int(chunks),
         "mentions": {str(kind): int(count) for kind, count in mentions},
         "extraction_models": {str(model): int(count) for model, count in models},
+        "relations": {str(kind): int(count) for kind, count in relations},
         "passage_kinds": {str(kind or "none"): int(count) for kind, count in kinds},
     }
 
@@ -220,24 +233,29 @@ def main() -> int:
         source_id = _insert_source(fixture.name, kind, data)
         pairs = _insert_chunks(source_id, chunks)
         embed_and_store(pairs, usage=read_usage)
-        flat_usage = _run_flat(source_id)
+        flat_usage = _run_job("classify_extract", handle_classify_extract, source_id)
+        relations_usage = _run_job("relations", handle_relations, source_id)
         _merge(usage_total, read_usage)
         _merge(usage_total, flat_usage)
+        _merge(usage_total, relations_usage)
         counts = _counts(source_id)
         grand["chunks"] += counts["chunks"]
         mention_total = sum(counts["mentions"].values())
         grand["mentions"] += mention_total
+        edge_total = sum(counts["relations"].values())
+        grand["edges"] += edge_total
         tokens = read_usage.get("embedding_tokens", 0)
         print(
             f"- {fixture.name} [{kind}]: chunks={counts['chunks']} "
             f"mentions={mention_total} {counts['mentions']} "
             f"passage_kinds={counts['passage_kinds']}"
         )
+        print(f"    relations={edge_total} {counts['relations']}")
         print(f"    extraction={counts['extraction_models']} embed_tokens={tokens}")
     print(
         f"TOTAL chunks={grand['chunks']} mentions={grand['mentions']} "
         f"edges={grand['edges']} communities={grand['communities']} "
-        f"(edges/communities arrive at steps 5-8)"
+        f"(communities arrive at step 8)"
     )
     print(f"usage: {usage_total}")
     if grand["chunks"]:

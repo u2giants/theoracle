@@ -1,0 +1,85 @@
+{
+  "default": {"relations": [], "new_mentions": []},
+  "responses": [
+    {
+      "match": "Marco: Same thing, I just call it Jessica's approval",
+      "response": {
+        "relations": [
+          {"from": "m1", "to": "m2", "type": "PERFORMS",
+           "description": "Jessica is the person who records the approval Marco calls Jessica's approval.",
+           "stance": "report", "confidence": 0.8,
+           "quote": "I just call it Jessica's approval because she is the one who records it."}
+        ],
+        "new_mentions": []
+      }
+    },
+    {
+      "match": "Marco: Jessica is the only licensing manager we have.",
+      "response": {
+        "relations": [
+          {"from": "m1", "to": "m2", "type": "PERFORMS",
+           "description": "Jessica is the only person in the licensing manager role.",
+           "stance": "report", "confidence": 0.9,
+           "quote": "Jessica is the only licensing manager we have."}
+        ],
+        "new_mentions": []
+      }
+    },
+    {
+      "match": "the approval step is the bottleneck",
+      "response": {
+        "relations": [
+          {"from": "m1", "to": "x1", "type": "BLOCKED_BY",
+           "description": "The stall in the program is held up at the licensing approval step.",
+           "stance": "report", "confidence": 0.75,
+           "quote": "the approval step is the bottleneck"}
+        ],
+        "new_mentions": [
+          {"key": "x1", "type": "Step", "name": "approval step", "quote": "the approval step is the bottleneck"}
+        ]
+      }
+    },
+    {
+      "match": "4.1 Design submits the concept package",
+      "response": {
+        "relations": [
+          {"from": "m1", "to": "m2", "type": "HANDS_OFF_TO",
+           "description": "Design hands the concept package to the Licensing Manager for review.",
+           "stance": "policy", "confidence": 0.95,
+           "quote": "4.1 Design submits the concept package (concept form, artwork"},
+          {"from": "m2", "to": "m3", "type": "PRECEDES",
+           "description": "The Licensing Manager reviews the package before submitting it to the licensor.",
+           "stance": "policy", "confidence": 0.9,
+           "quote": "4.3 The Licensing Manager submits the package to the licensor for"},
+          {"from": "m4", "to": "m6", "type": "PRECEDES",
+           "description": "The sign-off must be recorded before the Buyer may create the purchase order.",
+           "stance": "policy", "confidence": 0.9,
+           "quote": "4.6 The Buyer may create the purchase order only after the"},
+          {"from": "m1", "to": "m9", "type": "HANDS_OFF_TO",
+           "description": "A relation whose target key does not exist.",
+           "stance": "policy", "confidence": 0.9,
+           "quote": "4.1 Design submits the concept package (concept form, artwork"}
+        ],
+        "new_mentions": []
+      }
+    },
+    {
+      "match": "6. Exceptions",
+      "response": {
+        "relations": [
+          {"from": "m1", "to": "x1", "type": "EXCEPT_WHEN",
+           "description": "Small unchanged reorders may proceed on the prior sign-off except when the licensor has updated its style guide.",
+           "stance": "policy", "confidence": 0.9,
+           "quote": "proceed on the prior sign-off, except when the licensor has"},
+          {"from": "m2", "to": "m3", "type": "DEPENDS_ON",
+           "description": "Rush programs still need recorded licensor sign-off before purchase-order release.",
+           "stance": "policy", "confidence": 0.85,
+           "quote": "artwork release, but purchase-order release still requires"}
+        ],
+        "new_mentions": [
+          {"key": "x1", "type": "Exception", "name": "licensor style-guide update", "quote": "issued a style-guide update since that approval."}
+        ]
+      }
+    }
+  ]
+}
