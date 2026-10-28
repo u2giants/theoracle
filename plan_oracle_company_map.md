@@ -1,7 +1,7 @@
 # Oracle Company Map — implementation plan (v3 program)
 
 Written 2026-10-27, 10:50 PM EDT, by Claude (Fable 5.1) on edge-dev3 for Albert Hazan.
-Parent issue: [u2giants/theoracle#24](https://github.com/u2giants/theoracle/issues/24).
+Parent issue: [u2giants/theoracle#240](https://github.com/u2giants/theoracle/issues/240) (children #241–#255, one per step; the old parent #24 is history).
 Registered handoff: [HANDOFF.d/2026-10-28T0250Z-edge-dev3-claude-company-map-plan.md](HANDOFF.d/2026-10-28T0250Z-edge-dev3-claude-company-map-plan.md).
 Background review that produced this plan: [docs/review-2026-10-27-consultant-plan-and-code.md](docs/review-2026-10-27-consultant-plan-and-code.md).
 ScaleDown call-by-call analysis: [scaledown-report.md](scaledown-report.md).
@@ -16,21 +16,21 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 
 | Step | Title | State | Evidence / blocker | Updated (EDT) |
 |---|---|---|---|---|
-| 0 | Freeze old program, retire old plans, create `apps/brain` skeleton | ⬜ open | | |
-| 1 | Postgres schema `cmap` (sources, chunks, extractions, entities, edges, communities, questions, eval) | ⬜ open | | |
-| 2 | Source intake: upload, bulk folder import, transcript import, diagram import | ⬜ open | | |
-| 3 | Reading: text extraction, page images, chunking | ⬜ open | | |
-| 4 | Passage classification and flat extraction via ScaleDown | ⬜ open | | |
-| 5 | Relationship extraction via frontier model | ⬜ open | | |
-| 6 | Entity resolution (merge the same thing named differently) | ⬜ open | | |
-| 7 | Graph projection into FalkorDB | ⬜ open | | |
-| 8 | Community detection and hierarchical summaries | ⬜ open | | |
-| 9 | Question answering: local and global modes | ⬜ open | | |
-| 10 | Company Map page and source viewer | ⬜ open | | |
-| 11 | Evaluation harness: the 20 cross-source questions | ⬜ open | | |
-| 12 | Open-question queue and Teams interviews (reuse existing bot) | ⬜ open | | |
-| 13 | Recommendations with competing explanations | ⬜ open | | |
-| 14 | Hosting on Coolify + Vercel; first full run on the real corpus | ⬜ open | | |
+| 0 | Freeze old program, retire old plans, create `apps/brain` skeleton | ⬜ open | #241 | |
+| 1 | Postgres schema `cmap` (sources, chunks, extractions, entities, edges, communities, questions, eval) | ⬜ open | #242 | |
+| 2 | Source intake: upload, bulk folder import, transcript import, diagram import | ⬜ open | #243 | |
+| 3 | Reading: text extraction, page images, chunking | ⬜ open | #244 | |
+| 4 | Passage classification and flat extraction via ScaleDown | ⬜ open | #245 | |
+| 5 | Relationship extraction via frontier model | ⬜ open | #246 | |
+| 6 | Entity resolution (merge the same thing named differently) | ⬜ open | #247 | |
+| 7 | Graph projection into FalkorDB | ⬜ open | #248 | |
+| 8 | Community detection and hierarchical summaries | ⬜ open | #249 | |
+| 9 | Question answering: local and global modes | ⬜ open | #250 | |
+| 10 | Company Map page and source viewer | ⬜ open | #251 | |
+| 11 | Evaluation harness: the 20 cross-source questions | ⬜ open | #252 | |
+| 12 | Open-question queue and Teams interviews (reuse existing bot) | ⬜ open | #253 | |
+| 13 | Recommendations with competing explanations | ⬜ open | #254 | |
+| 14 | Hosting on Coolify + Vercel; first full run on the real corpus | ⬜ open | #255 | |
 
 **Business acceptance:** none yet. Albert and Ilona read the first Company Map after step 14 and mark what is wrong. Nothing before that needs a human.
 
@@ -658,6 +658,19 @@ Conversation: `POST /answer` accepts `history: [{role, content}]` (last 6 turns)
 - Prompts are Markdown files; changing one changes `prompt_hash`; extraction rows with an old hash are redone only when `POST /sources/reprocess` (admin) is called. Do not auto-reprocess the whole corpus on every prompt tweak.
 - Times quoted to humans are EST/EDT.
 - Do not read `docs/oracle/`, the old plans beyond their STATUS, or `HANDOFF.d/archive-parent24/`.
+
+### Supervision: when the implementer must ask a stronger model
+
+The implementing session (GLM 5.1 / Sol 6.1 class) does not guess. It stops and asks a stronger model (Claude Opus/Fable via a fresh session, or GPT-5.x via the `codex-second-opinion` skill), posting the question and the answer on the step's child issue, whenever any of these holds:
+
+1. A step requires a design choice the plan text does not spell out (a missing table column, an unspecified threshold, an unnamed file).
+2. A verification gate has failed twice with different fixes attempted.
+3. The fixture cross-source question ("Where does licensing approval stall and why?") stops being answerable after a change.
+4. A ScaleDown or frontier call returns output whose shape does not match the plan and the fallback also fails.
+5. Any change would touch a Locked decision in §8.
+6. Projected cost of a stage on the real corpus exceeds twice the smoke-test estimate.
+
+**Periodic check by a stronger model (Albert's request 2026-10-27):** every step's PR gets one independent review by a stronger model before merge, scoped to "does this PR do what Step N says and does it violate Part 1 or §8?" The review is a comment on the child issue. In addition, after steps 3, 6, 9 and 11 (the context cut points) the stronger model reads the plan STATUS, the merged code for the completed steps, and the eval results, and writes a short drift note on #240. Albert can also run the `code-review` skill at any time on any open PR.
 
 ## 12. Access and environment
 
