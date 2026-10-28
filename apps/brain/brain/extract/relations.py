@@ -34,12 +34,7 @@ from psycopg.types.json import Json
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
-from brain.extract.flat import (
-    ENTITY_TYPES,
-    OPENROUTER_BASE_URL,
-    FlatError,
-    parse_model_json,
-)
+from brain.extract.flat import ENTITY_TYPES, OPENROUTER_BASE_URL
 from brain.extract.normalize import normalize_name
 
 logger = logging.getLogger(__name__)
@@ -313,16 +308,15 @@ def parse_relations_json(content: str) -> dict[str, Any]:
     A response cut off at ``max_tokens`` keeps every relation and new mention
     that arrived complete; the cut-off tail is dropped.
     """
-    try:
-        return parse_model_json(content)
-    except FlatError:
-        pass
     start, end = content.find("{"), content.rfind("}")
     if 0 <= start < end:
         try:
-            return parse_model_json(content[start : end + 1])
-        except FlatError:
-            pass
+            # strict=False: quotes copied from spreadsheets carry raw tabs.
+            value = json.loads(content[start : end + 1], strict=False)
+        except json.JSONDecodeError:
+            value = None
+        if isinstance(value, dict):
+            return value
     salvaged = {
         "relations": _complete_items(content, "relations"),
         "new_mentions": _complete_items(content, "new_mentions"),
@@ -338,7 +332,7 @@ def _complete_items(content: str, name: str) -> list[Any]:
     match = re.search(rf'"{name}"\s*:\s*\[', content)
     if match is None:
         return []
-    decoder = json.JSONDecoder()
+    decoder = json.JSONDecoder(strict=False)
     items: list[Any] = []
     index = match.end()
     while True:

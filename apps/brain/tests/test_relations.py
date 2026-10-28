@@ -227,5 +227,7 @@ def test_truncated_response_keeps_complete_relations() -> None:
     )
     parsed = parse_relations_json(content)
     assert [item["type"] for item in parsed["relations"]] == ["USES"]
+    tabbed = parse_relations_json('{"relations": [{"quote": "PO-1\tMeadow"}]}')
+    assert tabbed["relations"][0]["quote"] == "PO-1\tMeadow"
     with pytest.raises(RelationsError):
         parse_relations_json("no json here")
