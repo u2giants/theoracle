@@ -201,9 +201,9 @@ program's front door. It completed the same session, review included.
 ## 5. Root causes and key findings
 
 - **Test database for `apps/brain` (steps 0–2 all used it):** Postgres 16 +
-  pgvector runs as Docker container `brain2-test-pg` on host `edge-dev3`
-  (192.168.3.42), published port **56789**, credentials `oracle`/`oracle`,
-  database `brain_test` — the same shape as
+  pgvector runs as Docker container `brain2-test-pg` on the project's Linux
+  test host (`edge-dev3`), published port **56789**, credentials
+  `oracle`/`oracle`, database `brain_test` — the same shape as
   [`apps/brain/compose.dev.yaml`](https://github.com/u2giants/theoracle/blob/main/apps/brain/compose.dev.yaml)
   and the CI service in
   [`.github/workflows/brain-ci.yml`](https://github.com/u2giants/theoracle/blob/main/.github/workflows/brain-ci.yml).
