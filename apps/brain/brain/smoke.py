@@ -6,7 +6,8 @@ community counts plus the token cost. From step 4 on it runs before every
 step's PR and the counts go into the PR body.
 
 Edges come from the step 5 relations stage; from step 7 the projection prints
-the grouped graph counts, and from step 8 the community counts and reports.
+the grouped graph counts, from step 8 the community counts and reports, and
+from step 9 one local and one global answer over the fixture question.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import Any
 
 from psycopg.types.json import Json
 
+from brain.answer.answer import answer_question
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_and_store
@@ -34,6 +36,7 @@ from brain.resolve.resolve import run_resolve
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 SMOKE_TITLE_PREFIX = "[smoke] "
+SMOKE_QUESTION = "Where does licensing approval stall and why?"
 
 # The transcript fixture is a .txt of "Speaker: text" lines, which the intake
 # API would receive through POST /sources/transcript; detect_kind() alone would
@@ -298,6 +301,16 @@ def main() -> int:
     print(f"project: {project_stats}")
     community_stats = run_communities(settings)
     print(f"communities: {community_stats}")
+    for mode in ("local", "global"):
+        answer_usage: dict[str, int] = {}
+        result = answer_question(SMOKE_QUESTION, mode, [], settings, answer_usage)
+        _merge(usage_total, answer_usage)
+        cited = {item.get("source_id") for item in result["citations"]}
+        print(
+            f"answer {mode}: mode_used={result['mode_used']} "
+            f"citations={len(result['citations'])} sources={len(cited)} "
+            f"unknowns={len(result.get('unknowns') or [])}"
+        )
     print(f"usage: {usage_total}")
     if grand["chunks"]:
         print(

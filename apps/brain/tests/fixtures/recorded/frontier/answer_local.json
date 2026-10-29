@@ -1,0 +1,13 @@
+{
+ "responses": [
+  {
+   "match": "Where does licensing approval stall",
+   "answer_md": "The approval stalls at the licensor sign-off step [1]. The procedure expects the Licensing Manager to record the sign-off [2], and the flowchart shows the rework loop when the licensor rejects the package [3].",
+   "unknowns": ["Whether the licensor has a written turnaround commitment."]
+  }
+ ],
+ "default": {
+  "answer_md": "The sign-off stalls at the licensor review step [1]. There is no further evidence for this claim [2].",
+  "unknowns": ["Nothing else in the data speaks to the question."]
+ }
+}
