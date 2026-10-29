@@ -2,11 +2,14 @@
 
 Batches of 64 chunk texts per call; every vector is written to
 ``cmap.chunk.embedding``. The model id comes from ``BRAIN_EMBED_MODEL`` and
-never from this code (plan §8).
+never from this code (plan §8). Transient provider failures are retried: a
+live smoke issues tens of thousands of these calls (the step-8 open-question
+dedupe re-embeds the queue per question) and one 502 used to kill the run.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 import httpx
@@ -14,8 +17,11 @@ import httpx
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 
+logger = logging.getLogger(__name__)
+
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 EMBED_BATCH = 64
+EMBED_ATTEMPTS = 3
 
 
 class EmbedError(RuntimeError):
@@ -28,6 +34,21 @@ def vector_literal(vector: Sequence[float]) -> str:
 
 
 def _post_embeddings(
+    texts: list[str],
+    settings: Settings,
+) -> tuple[list[list[float]], dict[str, int]]:
+    """POST one embeddings batch, retrying transient provider failures."""
+    last_error: Exception | None = None
+    for _attempt in range(EMBED_ATTEMPTS):
+        try:
+            return _post_embeddings_once(texts, settings)
+        except (EmbedError, httpx.HTTPError) as exc:
+            logger.warning("embeddings call failed: %s", exc)
+            last_error = exc
+    raise EmbedError("embeddings call failed after retries") from last_error
+
+
+def _post_embeddings_once(
     texts: list[str],
     settings: Settings,
 ) -> tuple[list[list[float]], dict[str, int]]:
