@@ -541,3 +541,14 @@ def handle_resolve(job: dict[str, Any]) -> None:
             )
             conn.commit()
     logger.info("resolve stats=%s", stats)
+    _enqueue_project()
+
+
+def _enqueue_project() -> None:
+    """Queue one whole-corpus ``project`` job (step 7) unless one is waiting."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            "INSERT INTO cmap.job (kind, payload) SELECT 'project', '{}'::jsonb "
+            "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'project' AND state = 'queued')"
+        )
+        conn.commit()

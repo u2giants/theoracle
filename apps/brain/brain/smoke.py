@@ -5,7 +5,8 @@ real ScaleDown and OpenRouter calls and prints chunk, mention, edge and
 community counts plus the token cost. From step 4 on it runs before every
 step's PR and the counts go into the PR body.
 
-Edges come from the step 5 relations stage; communities stay zero until step 8.
+Edges come from the step 5 relations stage; from step 7 the projection prints
+the grouped graph counts. Communities stay zero until step 8.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from brain.db import get_pool
 from brain.embed import embed_and_store
 from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
+from brain.graph.project import run_project
 from brain.migrate import migrate
 from brain.read.chunk import Chunk
 from brain.read.detect import detect_kind
@@ -291,6 +293,8 @@ def main() -> int:
     )
     print(f"resolve: {resolve_stats}")
     _print_entities()
+    project_stats = run_project(settings)
+    print(f"project: {project_stats}")
     print(f"usage: {usage_total}")
     if grand["chunks"]:
         print(
