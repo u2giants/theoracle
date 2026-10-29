@@ -424,6 +424,35 @@ def test_frontier_salvages_truncated_describe_fields(
     assert frontier.ask("prompt") == {"canonical_name": "Ilona"}
 
 
+def test_frontier_accepts_content_block_lists(
+    monkeypatch: pytest.MonkeyPatch, frontier_env
+) -> None:
+    """Step-8 smoke finding: some providers answer with content blocks."""
+
+    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+        del messages, settings
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": '{"canonical_name": "Ilona",'},
+                            {"type": "text", "text": ' "description": "A day."}'},
+                        ]
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 5},
+        }
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _post_chat)
+    frontier = resolve_mod._Frontier(get_settings())
+    assert frontier.ask("prompt") == {
+        "canonical_name": "Ilona",
+        "description": "A day.",
+    }
+
+
 def test_frontier_salvages_truncated_report_fields(
     monkeypatch: pytest.MonkeyPatch, frontier_env
 ) -> None:

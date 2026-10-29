@@ -294,7 +294,12 @@ def _call_model(prompt: str, counters: _Counters) -> dict[str, Any]:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise RelationsError("frontier relations response has no message content") from exc
-    if not isinstance(content, str):
+    if isinstance(content, list):
+        # Some providers return content as a list of text blocks.
+        content = "".join(
+            str(part.get("text", "")) for part in content if isinstance(part, dict)
+        )
+    if not isinstance(content, str) or not content:
         raise RelationsError("frontier relations message content is not text")
     finish = (body.get("choices") or [{}])[0].get("finish_reason")
     if finish == "length":

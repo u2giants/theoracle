@@ -156,6 +156,13 @@ class _Frontier:
             raise ResolveError(
                 "frontier resolve response has no message content"
             ) from exc
+        if isinstance(content, list):
+            # Some providers return content as a list of text blocks.
+            content = "".join(
+                str(part.get("text", "")) for part in content if isinstance(part, dict)
+            )
+        if not isinstance(content, str):
+            raise ResolveError("frontier resolve response has no message content")
         start, end = content.find("{"), content.rfind("}")
         if 0 <= start < end:
             # Models sometimes answer with a trailing comma before the closing
