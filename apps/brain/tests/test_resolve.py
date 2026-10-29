@@ -337,3 +337,33 @@ def test_describe_runs_once_per_count(
         "SELECT canonical_name, mention_count, source_count FROM cmap.entity"
     ).fetchone()
     assert row == ("Artwork Log", 3, 1)
+
+
+def test_cap_hit_then_rerun_describes_remaining(
+    monkeypatch: pytest.MonkeyPatch, db: Any, frontier_env
+) -> None:
+    """A describe pass cut off by the frontier cap resumes on the next run."""
+    fake = _fake(
+        monkeypatch, names={"System": "Artwork Log", "Process": "Sample Room"}
+    )
+    source = _seed_text(db, "artwork log and sample room", "cap-resume")
+    for index in range(3):
+        _mention(db, source, "System", "artwork log", _unit("x"), quote=f"a {index}")
+        _mention(db, source, "Process", "sample room", _unit("y"), quote=f"b {index}")
+    monkeypatch.setenv("BRAIN_MAX_FRONTIER_CALLS_PER_JOB", "1")
+    get_settings.cache_clear()
+    with pytest.raises(resolve_mod.FrontierCapReached):
+        run_resolve()
+    described = db.execute(
+        "SELECT count(*) FROM cmap.entity WHERE described_at_count = mention_count"
+    ).fetchone()[0]
+    assert described == 1
+    monkeypatch.setenv("BRAIN_MAX_FRONTIER_CALLS_PER_JOB", "10")
+    get_settings.cache_clear()
+    stats = run_resolve()
+    assert stats["described"] == 1
+    assert len(fake.describe_prompts) == 2
+    rows = db.execute(
+        "SELECT canonical_name, described_at_count FROM cmap.entity ORDER BY canonical_name"
+    ).fetchall()
+    assert rows == [("Artwork Log", 3), ("Sample Room", 3)]

@@ -451,15 +451,17 @@ def _refresh_counts(conn: psycopg.Connection, entity_ids: set[str]) -> None:
     )
 
 
-def _describe(
-    conn: psycopg.Connection, entity_ids: set[str], frontier: _Frontier
-) -> int:
-    """Rewrite description and canonical name for entities with ≥3 new-count mentions."""
+def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
+    """Rewrite description and canonical name for entities with ≥3 new-count mentions.
+
+    Candidates are selected corpus-wide, not from this run's touched entities,
+    so a run interrupted by the frontier cap finishes describing on the next run.
+    """
     rows = conn.execute(
         "SELECT id, entity_type, mention_count FROM cmap.entity "
-        "WHERE id = ANY(%s::uuid[]) AND mention_count >= %s "
-        "AND (described_at_count IS NULL OR described_at_count <> mention_count)",
-        (list(entity_ids), DESCRIBE_MIN_MENTIONS),
+        "WHERE mention_count >= %s "
+        "AND described_at_count IS DISTINCT FROM mention_count",
+        (DESCRIBE_MIN_MENTIONS,),
     ).fetchall()
     template = DESCRIBE_PROMPT_PATH.read_text(encoding="utf-8")
     written = 0
@@ -509,8 +511,7 @@ def run_resolve(settings: Settings | None = None) -> dict[str, int]:
             if touched:
                 _refresh_counts(conn, touched)
                 conn.commit()
-        if touched:
-            stats["described"] = _describe(conn, touched, frontier)
+        stats["described"] = _describe(conn, frontier)
     stats.update(frontier.usage)
     return stats
 
