@@ -325,6 +325,7 @@ def test_describe_runs_once_per_count(
     monkeypatch: pytest.MonkeyPatch, db: Any, frontier_env
 ) -> None:
     fake = _fake(monkeypatch, names={"System": "Artwork Log"})
+    fake_embeddings(monkeypatch)
     source = _seed_text(db, "artwork log three times", "describe")
     for index in range(3):
         _mention(
@@ -334,9 +335,11 @@ def test_describe_runs_once_per_count(
     run_resolve()
     assert len(fake.describe_prompts) == 1
     row = db.execute(
-        "SELECT canonical_name, mention_count, source_count FROM cmap.entity"
+        "SELECT canonical_name, mention_count, source_count, embedding FROM cmap.entity"
     ).fetchone()
-    assert row == ("Artwork Log", 3, 1)
+    assert row[:3] == ("Artwork Log", 3, 1)
+    refreshed = 0.001 * len("Artwork Log — Described.")
+    assert float(str(row[3]).strip("[]").split(",")[0]) == pytest.approx(refreshed)
 
 
 def test_cap_hit_then_rerun_describes_remaining(
@@ -346,6 +349,7 @@ def test_cap_hit_then_rerun_describes_remaining(
     fake = _fake(
         monkeypatch, names={"System": "Artwork Log", "Process": "Sample Room"}
     )
+    fake_embeddings(monkeypatch)
     source = _seed_text(db, "artwork log and sample room", "cap-resume")
     for index in range(3):
         _mention(db, source, "System", "artwork log", _unit("x"), quote=f"a {index}")

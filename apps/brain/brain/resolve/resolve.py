@@ -34,6 +34,7 @@ import psycopg
 
 from brain.config import Settings, get_settings
 from brain.db import get_pool
+from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import OPENROUTER_BASE_URL
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS
 
@@ -481,11 +482,23 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
         result = frontier.ask(prompt)
         name = str(result.get("canonical_name") or "").strip()
         description = str(result.get("description") or "").strip()
-        conn.execute(
+        row = conn.execute(
             "UPDATE cmap.entity SET canonical_name = COALESCE(NULLIF(%s, ''), canonical_name), "
             "description = COALESCE(NULLIF(%s, ''), description), described_at_count = %s "
-            "WHERE id = %s",
+            "WHERE id = %s RETURNING canonical_name, description",
             (name, description, mention_count, entity_id),
+        ).fetchone()
+        # The embedding follows the rewritten text, one entity per call so a
+        # cap-hit interruption cannot leave a described entity stale (step-6
+        # drift note on #240).
+        vector = embed_texts(
+            [f"{str(row[0])} — {str(row[1] or '')}"],
+            frontier.settings,
+            frontier.usage,
+        )[0]
+        conn.execute(
+            "UPDATE cmap.entity SET embedding = %s::vector WHERE id = %s",
+            (vector_literal(vector), entity_id),
         )
         conn.commit()
         written += 1
