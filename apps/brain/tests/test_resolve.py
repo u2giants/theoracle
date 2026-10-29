@@ -398,3 +398,27 @@ def test_frontier_tolerates_trailing_comma_and_fence(
         "canonical_name": "Thursday",
         "description": "A day.",
     }
+
+
+def test_frontier_salvages_truncated_describe_fields(
+    monkeypatch: pytest.MonkeyPatch, frontier_env
+) -> None:
+    """Live smoke finding: describe answers can be cut off at max_tokens."""
+
+    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+        del messages, settings
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '```json\n{\n  "canonical_name": "Ilona",\n'
+                        '  "description": "Ilona discusses the approval'
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 5},
+        }
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _post_chat)
+    frontier = resolve_mod._Frontier(get_settings())
+    assert frontier.ask("prompt") == {"canonical_name": "Ilona"}

@@ -52,9 +52,13 @@ EMBED_TOP_K = 5
 DESCRIBE_MIN_MENTIONS = 3
 DESCRIBE_MAX_QUOTES = 12
 CANDIDATE_SAMPLE_QUOTES = 2
-MAX_TOKENS = 600
+MAX_TOKENS = 2000
 
 _INITIALS = re.compile(r"^(?:[A-Za-z]\.\s*){1,3}$|^[A-Z]{1,3}$")
+_FIELD_RE = re.compile(
+    r'"(canonical_name|description|same_as|reason)"\s*:\s*"((?:[^"\\]|\\.)*)"'
+    r'|"confidence"\s*:\s*(-?\d+(?:\.\d+)?)'
+)
 
 
 class ResolveError(RuntimeError):
@@ -163,7 +167,26 @@ class _Frontier:
                 value = None
             if isinstance(value, dict):
                 return value
+        salvaged = _salvage_fields(content)
+        if salvaged:
+            return salvaged
         raise ResolveError(f"resolve response is not JSON: {content[:300]!r}")
+
+
+def _salvage_fields(content: str) -> dict[str, Any]:
+    """Pull complete known fields out of a truncated JSON answer.
+
+    A describe answer cut off at ``max_tokens`` has no closing brace; the
+    fields that did finish are still usable (same spirit as the step-5
+    relations parser keeping complete items).
+    """
+    out: dict[str, Any] = {}
+    for match in _FIELD_RE.finditer(content):
+        if match.group(1) is not None:
+            out[match.group(1)] = match.group(2)
+        else:
+            out["confidence"] = float(match.group(3))
+    return out
 
 
 def title_case(name: str) -> str:
