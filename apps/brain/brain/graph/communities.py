@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,7 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts
 from brain.graph.project import _load_edges, _load_entities
-from brain.resolve.resolve import _Frontier
+from brain.resolve.resolve import FrontierCapReached, _Frontier
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ MAX_CONTEXT_TOKENS = 12000
 MAX_EDGES_IN_CONTEXT = 40
 MAX_QUOTES_IN_CONTEXT = 25
 DEDUPE_COSINE = 0.9
+REPORT_WORKERS = 6
 
 SCOPE_L0 = "one area of how a company operates"
 SCOPE_L1 = "one part of the company"
@@ -371,6 +373,87 @@ def _store_open_questions(
     return written
 
 
+def _split_report_md(report_md: str) -> tuple[str, str]:
+    """Recover ``(title, summary)`` from the Markdown ``_report_md`` renders."""
+    head = str(report_md).split("\n## Findings", 1)[0]
+    title, _, summary = head.partition("\n\n")
+    if title.startswith("# "):
+        title = title[2:]
+    return title.strip(), summary.strip()
+
+
+def _existing_reports(
+    conn: psycopg.Connection,
+) -> dict[tuple[int, frozenset[str]], dict[str, Any]]:
+    """Community rows already stored, keyed by (level, entity set).
+
+    A rerun over the same graph reuses them instead of asking the frontier
+    again (per-report upsert semantics), so a pass stopped partway continues
+    where it died.
+    """
+    rows = conn.execute(
+        "SELECT id, level, title, report_md, findings, entity_ids FROM cmap.community"
+    ).fetchall()
+    out: dict[tuple[int, frozenset[str]], dict[str, Any]] = {}
+    for row in rows:
+        title, summary = _split_report_md(row[3])
+        findings = row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]")
+        key = (int(row[1]), frozenset(str(item) for item in (row[5] or [])))
+        out[key] = {
+            "row_id": str(row[0]),
+            "title": title or str(row[2]),
+            "summary": summary,
+            "findings": findings,
+        }
+    return out
+
+
+def _ask_with_retry(
+    frontier: _Frontier, scope: str, extra_instructions: str, context: str
+) -> dict[str, Any] | None:
+    """One community report; a flaky answer never kills the pass.
+
+    ``frontier.ask`` already retries transient failures; one more full ask
+    follows before the community is skipped and counted.
+    """
+    try:
+        return _ask_report(frontier, scope, extra_instructions, context)
+    except FrontierCapReached:
+        raise
+    except Exception as exc:
+        logger.warning("community report failed: %s", exc)
+    try:
+        return _ask_report(frontier, scope, extra_instructions, context)
+    except FrontierCapReached:
+        raise
+    except Exception as exc:
+        logger.warning("community report failed on retry: %s", exc)
+        return None
+
+
+def _ask_many(
+    frontier: _Frontier,
+    tasks: list[tuple[str, str, str]],
+    workers: int = REPORT_WORKERS,
+) -> list[dict[str, Any] | None]:
+    """Run report asks on a bounded pool, preserving input order in results.
+
+    Only the frontier calls are parallel; contexts are built before and every
+    store runs after, so the written rows are identical to a serial pass.
+    """
+    if not tasks:
+        return []
+    results: list[dict[str, Any] | None] = [None] * len(tasks)
+    with ThreadPoolExecutor(max_workers=min(workers, len(tasks))) as pool:
+        futures = {
+            pool.submit(_ask_with_retry, frontier, scope, extra, context): index
+            for index, (scope, extra, context) in enumerate(tasks)
+        }
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
+    return results
+
+
 def run_communities(settings: Settings | None = None) -> dict[str, Any]:
     """Detect communities and write their reports at levels 0, 1 and 2."""
     cfg = settings if settings is not None else get_settings()
@@ -379,6 +462,8 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         "communities_l0": 0,
         "communities_l1": 0,
         "reports": 0,
+        "reports_reused": 0,
+        "reports_failed": 0,
         "findings_dropped": 0,
         "open_questions": 0,
     }
@@ -403,41 +488,115 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             by_community.setdefault(level0[node["id"]], []).append(node)
         stats["communities_l0"] = len(by_community)
         stats["communities_l1"] = len(set(level1.values()))
+        existing = _existing_reports(conn)
 
-        summaries: dict[int, dict[str, Any]] = {}
-        row_ids: dict[int, str] = {}
+        # Contexts first, serially: identical input order to a serial pass.
+        l0_items: list[tuple[int, list[str], tuple[int, frozenset[str]], str]] = []
         for community, members in sorted(by_community.items()):
-            report = _ask_report(
-                frontier, SCOPE_L0, "", _context_l0(conn, members, edges)
-            )
             member_ids = [member["id"] for member in members]
-            row_id, dropped = _store(
-                conn, 0, None, report, member_ids, graph_version, valid_sources
-            )
-            row_ids[community] = row_id
-            stats["findings_dropped"] += dropped
+            key = (0, frozenset(str(item) for item in member_ids))
+            l0_items.append((community, member_ids, key, _context_l0(conn, members, edges)))
+
+        def _finish_l0(
+            community: int,
+            member_ids: list[str],
+            key: tuple[int, frozenset[str]],
+            report: dict[str, Any] | None,
+        ) -> tuple[dict[str, Any], str]:
+            if key in existing:
+                stored = existing[key]
+                row_id = stored["row_id"]
+                conn.execute(
+                    "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
+                    (graph_version, row_id),
+                )
+                conn.commit()
+                stats["reports_reused"] += 1
+            elif report is not None:
+                stored = report
+                row_id, dropped = _store(
+                    conn, 0, None, stored, member_ids, graph_version, valid_sources
+                )
+                stats["findings_dropped"] += dropped
+                stats["open_questions"] += _store_open_questions(
+                    conn, stored, member_ids, cfg
+                )
+                conn.commit()
+            else:
+                stats["reports_failed"] += 1
+                raise KeyError(community)
             stats["reports"] += 1
-            stats["open_questions"] += _store_open_questions(
-                conn, report, member_ids, cfg
-            )
-            summaries[community] = {
-                "title": report["title"],
-                "summary": report["summary"],
-                "findings": report["findings"],
+            return {
+                "title": stored["title"],
+                "summary": stored["summary"],
+                "findings": stored["findings"],
                 "source_ids": sorted(
                     {
                         source_id
-                        for finding in report["findings"]
+                        for finding in stored["findings"]
                         for source_id in finding.get("source_ids", [])
                     }
                 ),
-            }
-            conn.commit()
+            }, row_id
 
+        asked = _ask_many(
+            frontier,
+            [
+                (SCOPE_L0, "", context)
+                for community, member_ids, key, context in l0_items
+                if key not in existing
+            ],
+        )
+        summaries: dict[int, dict[str, Any]] = {}
+        row_ids: dict[int, str] = {}
+        ask_index = 0
+        for community, member_ids, key, _context in l0_items:
+            report = None
+            if key not in existing:
+                report = asked[ask_index]
+                ask_index += 1
+                if report is None:
+                    stats["reports_failed"] += 1
+                    continue
+            summary, row_id = _finish_l0(community, member_ids, key, report)
+            summaries[community] = summary
+            row_ids[community] = row_id
+
+        level1_groups = _group_summaries(level1, summaries)
         level1_rows: dict[int, str] = {}
-        for level1_id, report_rows in _group_summaries(level1, summaries).items():
-            report = _ask_report(frontier, SCOPE_L1, "", _context_reports(report_rows))
+        level1_items: list[tuple[int, list[dict[str, Any]], list[str], tuple[int, frozenset[str]], str]] = []
+        for level1_id, report_rows in level1_groups.items():
             member_ids = _member_ids(level1, level0, level1_id)
+            key = (1, frozenset(str(item) for item in member_ids))
+            level1_items.append(
+                (level1_id, report_rows, member_ids, key, _context_reports(report_rows))
+            )
+        asked_l1 = _ask_many(
+            frontier,
+            [
+                (SCOPE_L1, "", context)
+                for level1_id, report_rows, member_ids, key, context in level1_items
+                if key not in existing
+            ],
+        )
+        ask_index = 0
+        for level1_id, _report_rows, member_ids, key, _context in level1_items:
+            if key in existing:
+                row_id = existing[key]["row_id"]
+                conn.execute(
+                    "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
+                    (graph_version, row_id),
+                )
+                conn.commit()
+                stats["reports_reused"] += 1
+                stats["reports"] += 1
+                level1_rows[level1_id] = row_id
+                continue
+            report = asked_l1[ask_index]
+            ask_index += 1
+            if report is None:
+                stats["reports_failed"] += 1
+                continue
             row_id, dropped = _store(
                 conn, 1, None, report, member_ids, graph_version, valid_sources
             )
@@ -458,13 +617,29 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 )
                 conn.commit()
 
-        company = _ask_report(frontier, SCOPE_L2, COMPANY_EXTRA, _context_reports(list(summaries.values())))
-        company_row, dropped = _store(
-            conn, 2, None, company, entity_ids, graph_version, valid_sources
-        )
-        stats["findings_dropped"] += dropped
+        company_key = (2, frozenset(str(item) for item in entity_ids))
+        if company_key in existing:
+            company_row = existing[company_key]["row_id"]
+            conn.execute(
+                "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
+                (graph_version, company_row),
+            )
+            stats["reports_reused"] += 1
+        else:
+            company = _ask_with_retry(
+                frontier,
+                SCOPE_L2,
+                COMPANY_EXTRA,
+                _context_reports(list(summaries.values())),
+            )
+            if company is None:
+                raise RuntimeError("company community report failed after retries")
+            company_row, dropped = _store(
+                conn, 2, None, company, entity_ids, graph_version, valid_sources
+            )
+            stats["findings_dropped"] += dropped
+            stats["open_questions"] += _store_open_questions(conn, company, entity_ids, cfg)
         stats["reports"] += 1
-        stats["open_questions"] += _store_open_questions(conn, company, entity_ids, cfg)
         conn.execute(
             "UPDATE cmap.community SET parent_id = %s WHERE level = 1",
             (company_row,),

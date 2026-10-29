@@ -25,6 +25,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -128,11 +129,17 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
 
 
 class _Frontier:
-    """Frontier calls under the per-job cap, with usage counters."""
+    """Frontier calls under the per-job cap, with usage counters.
+
+    Callers may share one instance across a worker pool; the cap and the
+    usage counters are guarded so ``BRAIN_MAX_FRONTIER_CALLS_PER_JOB`` stays
+    a per-job limit while the HTTP calls run in parallel.
+    """
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.usage: dict[str, int] = {}
+        self._lock = threading.Lock()
 
     def ask(self, prompt: str) -> dict[str, Any]:
         """One JSON answer, retrying transient provider failures."""
@@ -151,19 +158,21 @@ class _Frontier:
         cap = self.settings.brain_max_frontier_calls_per_job
         if cap is None:
             cap = DEFAULT_MAX_FRONTIER_CALLS
-        used = self.usage.get("frontier_calls", 0)
-        if used >= cap:
-            raise FrontierCapReached(
-                f"BRAIN_MAX_FRONTIER_CALLS_PER_JOB cap of {cap} reached; "
-                "rerun the resolve job to continue (resolved mentions are skipped)"
-            )
-        self.usage["frontier_calls"] = used + 1
+        with self._lock:
+            used = self.usage.get("frontier_calls", 0)
+            if used >= cap:
+                raise FrontierCapReached(
+                    f"BRAIN_MAX_FRONTIER_CALLS_PER_JOB cap of {cap} reached; "
+                    "rerun the resolve job to continue (resolved mentions are skipped)"
+                )
+            self.usage["frontier_calls"] = used + 1
         body = _post_chat([{"role": "user", "content": prompt}], self.settings)
         tokens = (body.get("usage") or {}).get("total_tokens")
         if isinstance(tokens, int):
-            self.usage["frontier_tokens"] = (
-                self.usage.get("frontier_tokens", 0) + tokens
-            )
+            with self._lock:
+                self.usage["frontier_tokens"] = (
+                    self.usage.get("frontier_tokens", 0) + tokens
+                )
         try:
             content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:

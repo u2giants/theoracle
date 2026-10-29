@@ -44,27 +44,56 @@ SMOKE_QUESTION = "Where does licensing approval stall and why?"
 FIXTURE_KINDS = {"teams-approval-2026-03-14.txt": "transcript"}
 
 
-def _clear_prior_runs() -> None:
-    """Drop earlier smoke sources so fixture sha256 values can be reused.
+def _clear_prior_runs(digests: set[str]) -> None:
+    """Drop stale smoke data so fixture sha256 values can be reused.
 
-    Community reports and open questions are whole-corpus rows (no FK to
-    source), so a crashed or repeated smoke run leaves them behind; clearing
-    them keeps the rerun's report counts and dedupe queue honest.
+    Sources whose bytes match the current fixture set are kept so a rerun
+    resumes over them instead of re-ingesting. Community reports and open
+    questions are whole-corpus rows (no FK to source), so they are cleared
+    only when no fixture source is preserved; a resumed pass lets
+    ``run_communities`` reuse the rows that are already there.
     """
     pool = get_pool()
     with pool.connection() as conn:
         conn.execute(
-            "DELETE FROM cmap.source WHERE title LIKE %s",
-            (SMOKE_TITLE_PREFIX + "%",),
+            "DELETE FROM cmap.source WHERE title LIKE %s "
+            "AND (sha256 IS NULL OR NOT (sha256 = ANY(%s)))",
+            (SMOKE_TITLE_PREFIX + "%", list(digests)),
         )
         # Entities left with no mentions belonged to earlier smoke runs.
         conn.execute(
             "DELETE FROM cmap.entity e WHERE NOT EXISTS "
             "(SELECT 1 FROM cmap.mention m WHERE m.entity_id = e.id)"
         )
-        conn.execute("DELETE FROM cmap.community")
-        conn.execute("DELETE FROM cmap.open_question")
+        remaining = conn.execute(
+            "SELECT count(*) FROM cmap.source WHERE title LIKE %s",
+            (SMOKE_TITLE_PREFIX + "%",),
+        ).fetchone()[0]
+        if remaining == 0:
+            conn.execute("DELETE FROM cmap.community")
+            conn.execute("DELETE FROM cmap.open_question")
         conn.commit()
+
+
+def _existing_source(filename: str, digest: str) -> str | None:
+    """Return the id of a preserved smoke source, or None when it is new."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM cmap.source WHERE title = %s AND sha256 = %s",
+            (SMOKE_TITLE_PREFIX + filename, digest),
+        ).fetchone()
+    return str(row[0]) if row else None
+
+
+def _unembedded_chunks(source_id: str) -> list[tuple[str, str]]:
+    """``(chunk_id, text)`` pairs of one source still missing embeddings."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT id, text FROM cmap.chunk "
+            "WHERE source_id = %s AND embedding IS NULL ORDER BY ordinal",
+            (source_id,),
+        ).fetchall()
+    return [(str(row[0]), str(row[1])) for row in rows]
 
 
 def _insert_source(filename: str, kind: str, data: bytes) -> str:
@@ -260,7 +289,12 @@ def main() -> int:
     print(f"extraction path: {path}")
     print(f"frontier model: {settings.brain_frontier_model}")
     migrate()
-    _clear_prior_runs()
+    digests = {
+        fixture.name: hashlib.sha256(fixture.read_bytes()).hexdigest()
+        for fixture in sorted(FIXTURES_DIR.iterdir())
+        if fixture.is_file() and fixture.name != "build_fixtures.py"
+    }
+    _clear_prior_runs(set(digests.values()))
     usage_total: dict[str, int] = {}
     grand = {"chunks": 0, "mentions": 0, "edges": 0, "communities": 0}
     for fixture in sorted(FIXTURES_DIR.iterdir()):
@@ -269,10 +303,17 @@ def main() -> int:
         data = fixture.read_bytes()
         kind = FIXTURE_KINDS.get(fixture.name) or detect_kind(fixture.name, data[:4096])
         read_usage: dict[str, int] = {}
-        chunks = read_chunks(kind, data, read_usage)
-        source_id = _insert_source(fixture.name, kind, data)
-        pairs = _insert_chunks(source_id, chunks)
-        embed_and_store(pairs, usage=read_usage)
+        existing_id = _existing_source(fixture.name, digests[fixture.name])
+        if existing_id is not None:
+            source_id = existing_id
+            pairs = _unembedded_chunks(source_id)
+            if pairs:
+                embed_and_store(pairs, usage=read_usage)
+        else:
+            chunks = read_chunks(kind, data, read_usage)
+            source_id = _insert_source(fixture.name, kind, data)
+            pairs = _insert_chunks(source_id, chunks)
+            embed_and_store(pairs, usage=read_usage)
         flat_usage = _run_job("classify_extract", handle_classify_extract, source_id)
         relations_usage = _run_job("relations", handle_relations, source_id)
         _merge(usage_total, read_usage)

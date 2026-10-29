@@ -98,6 +98,30 @@ def test_leiden_groups_fixture_approval_nodes_together(
     assert jessica != _community_of(db, "Acme Factory")
 
 
+def test_second_pass_reuses_stored_reports(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """A rerun over the same graph reuses every report and asks nothing."""
+    _seed_approval_map(db)
+    run_project()
+    fake = _fake(monkeypatch)
+    first = run_communities()
+    prompts_after_first = len(fake.prompts)
+    rows_after_first = db.execute(
+        "SELECT count(*) FROM cmap.community"
+    ).fetchone()[0]
+    second = run_communities()
+    assert len(fake.prompts) == prompts_after_first
+    assert (
+        db.execute("SELECT count(*) FROM cmap.community").fetchone()[0]
+        == rows_after_first
+    )
+    assert first["reports"] == rows_after_first
+    assert second["reports_reused"] == second["reports"]
+    assert second["reports_failed"] == 0
+    assert second.get("frontier_calls", 0) == 0
+
+
 def test_small_communities_merged(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
     """A 2-entity community with only one neighbour folds into it."""
     source = _seed_text(db, "cluster seed", "clusters")
