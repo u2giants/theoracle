@@ -371,3 +371,30 @@ def test_cap_hit_then_rerun_describes_remaining(
         "SELECT canonical_name, described_at_count FROM cmap.entity ORDER BY canonical_name"
     ).fetchall()
     assert rows == [("Artwork Log", 3), ("Sample Room", 3)]
+
+
+def test_frontier_tolerates_trailing_comma_and_fence(
+    monkeypatch: pytest.MonkeyPatch, frontier_env
+) -> None:
+    """Live smoke finding: describe answers may fence the JSON and add commas."""
+
+    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+        del messages, settings
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '```json\n{\n  "canonical_name": "Thursday",\n'
+                        '  "description": "A day.",\n}\n```'
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 5},
+        }
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _post_chat)
+    frontier = resolve_mod._Frontier(get_settings())
+    assert frontier.ask("prompt") == {
+        "canonical_name": "Thursday",
+        "description": "A day.",
+    }

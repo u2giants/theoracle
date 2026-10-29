@@ -154,8 +154,11 @@ class _Frontier:
             ) from exc
         start, end = content.find("{"), content.rfind("}")
         if 0 <= start < end:
+            # Models sometimes answer with a trailing comma before the closing
+            # brace or bracket; Python's json cannot, so drop it first.
+            text = re.sub(r",(\s*[}\]])", r"\1", content[start : end + 1])
             try:
-                value = json.loads(content[start : end + 1], strict=False)
+                value = json.loads(text, strict=False)
             except json.JSONDecodeError:
                 value = None
             if isinstance(value, dict):
