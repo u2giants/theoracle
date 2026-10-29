@@ -333,7 +333,7 @@ def parse_relations_json(content: str) -> dict[str, Any]:
 
 
 def _complete_items(content: str, name: str) -> list[Any]:
-    """Return the complete objects of array ``name`` in possibly cut-off JSON."""
+    """Return the complete values of array ``name`` in possibly cut-off JSON."""
     match = re.search(rf'"{name}"\s*:\s*\[', content)
     if match is None:
         return []
@@ -343,7 +343,7 @@ def _complete_items(content: str, name: str) -> list[Any]:
     while True:
         while index < len(content) and content[index] in " \t\r\n,":
             index += 1
-        if index >= len(content) or content[index] != "{":
+        if index >= len(content):
             return items
         try:
             item, index = decoder.raw_decode(content, index)

@@ -422,3 +422,40 @@ def test_frontier_salvages_truncated_describe_fields(
     monkeypatch.setattr(resolve_mod, "_post_chat", _post_chat)
     frontier = resolve_mod._Frontier(get_settings())
     assert frontier.ask("prompt") == {"canonical_name": "Ilona"}
+
+
+def test_frontier_salvages_truncated_report_fields(
+    monkeypatch: pytest.MonkeyPatch, frontier_env
+) -> None:
+    """Step-8 smoke finding: community reports can also be cut off."""
+
+    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+        del messages, settings
+        content = (
+            '```json\n{\n  "title": "Licensing Approval Workflow",\n'
+            '  "summary": "This area covers the licensing approval process",\n'
+            '  "findings": [\n'
+            '    {"text": "The sign-off stalls.", "kind": "bottleneck", '
+            '"stance": "report", "entity_ids": [], "source_ids": ["s1"]},\n'
+            '    {"text": "cut off'
+        )
+        return {
+            "choices": [{"message": {"content": content}}],
+            "usage": {"total_tokens": 5},
+        }
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _post_chat)
+    frontier = resolve_mod._Frontier(get_settings())
+    assert frontier.ask("prompt") == {
+        "title": "Licensing Approval Workflow",
+        "summary": "This area covers the licensing approval process",
+        "findings": [
+            {
+                "text": "The sign-off stalls.",
+                "kind": "bottleneck",
+                "stance": "report",
+                "entity_ids": [],
+                "source_ids": ["s1"],
+            }
+        ],
+    }

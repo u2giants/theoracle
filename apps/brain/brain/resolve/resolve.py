@@ -36,7 +36,7 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import OPENROUTER_BASE_URL
-from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS
+from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,11 @@ EMBED_TOP_K = 5
 DESCRIBE_MIN_MENTIONS = 3
 DESCRIBE_MAX_QUOTES = 12
 CANDIDATE_SAMPLE_QUOTES = 2
-MAX_TOKENS = 2000
+MAX_TOKENS = 4000
 
 _INITIALS = re.compile(r"^(?:[A-Za-z]\.\s*){1,3}$|^[A-Z]{1,3}$")
 _FIELD_RE = re.compile(
-    r'"(canonical_name|description|same_as|reason)"\s*:\s*"((?:[^"\\]|\\.)*)"'
+    r'"(canonical_name|description|same_as|reason|title|summary)"\s*:\s*"((?:[^"\\]|\\.)*)"'
     r'|"confidence"\s*:\s*(-?\d+(?:\.\d+)?)'
 )
 
@@ -186,6 +186,10 @@ def _salvage_fields(content: str) -> dict[str, Any]:
             out[match.group(1)] = match.group(2)
         else:
             out["confidence"] = float(match.group(3))
+    for name in ("findings", "open_questions"):
+        items = _complete_items(content, name)
+        if items:
+            out[name] = items
     return out
 
 
