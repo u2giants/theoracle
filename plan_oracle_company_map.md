@@ -24,7 +24,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 | 5 | Relationship extraction via frontier model | ✅ done | #246, PR #270; `apps/brain/tests/test_relations.py` (7 tests incl. fabricated-quote, unknown-type, resume) green in CI "brain tests" on 5401308 and reviewer rerun; live smoke 546 edges, ~795 frontier tokens/chunk | 2026-10-28 6:30 PM EDT |
 | 6 | Entity resolution (merge the same thing named differently) | ✅ done | #247, PR #271; `apps/brain/tests/test_resolve.py` (8 tests incl. `test_cap_hit_then_rerun_describes_remaining`) green in CI "brain tests" on b0ed95a; round-2 review APPROVE (issue #247 comment 6488291445) | 2026-10-29 12:59 AM EDT |
 | 7 | Graph projection into FalkorDB | ✅ done | #248, PR #273; `apps/brain/tests/test_project.py` (7 tests incl. `test_rebuild_is_idempotent`, `test_edge_weight_counts_distinct_sources`, done-when query in `test_fixture_approval_neighborhood`) green in CI "brain tests" on 4cbe189 and reviewer rerun; review APPROVE (issue #248 comment 6489296818) | 2026-10-29 2:04 AM EDT |
-| 8 | Community detection and hierarchical summaries | ⬜ open | #249 | |
+| 8 | Community detection and hierarchical summaries | ✅ done | #249, PR #275; `apps/brain/tests/test_communities.py` (4 tests incl. `test_leiden_groups_fixture_approval_nodes_together`, `test_small_communities_merged`, `test_report_findings_cite_sources`) green in CI "brain tests" and reviewer rerun (4 passed); review APPROVE (issue #249 comment 6499501103) | 2026-10-29 10:32 AM EDT |
 | 9 | Question answering: local and global modes | ⬜ open | #250 | |
 | 10 | Company Map page and source viewer | ⬜ open | #251 | |
 | 11 | Evaluation harness: the 20 cross-source questions | ⬜ open | #252 | |
