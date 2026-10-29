@@ -453,6 +453,28 @@ def test_frontier_accepts_content_block_lists(
     }
 
 
+def test_frontier_retries_transient_failures(
+    monkeypatch: pytest.MonkeyPatch, frontier_env
+) -> None:
+    """Step-8 smoke finding: one empty provider answer must not fail the job."""
+    calls = {"count": 0}
+
+    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+        del messages, settings
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {"choices": [{"message": {"content": None}}], "usage": {}}
+        return {
+            "choices": [{"message": {"content": '{"canonical_name": "Ilona"}'}}],
+            "usage": {"total_tokens": 5},
+        }
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _post_chat)
+    frontier = resolve_mod._Frontier(get_settings())
+    assert frontier.ask("prompt") == {"canonical_name": "Ilona"}
+    assert frontier.usage["frontier_calls"] == 2
+
+
 def test_frontier_salvages_truncated_report_fields(
     monkeypatch: pytest.MonkeyPatch, frontier_env
 ) -> None:

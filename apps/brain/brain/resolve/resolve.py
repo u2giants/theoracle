@@ -53,6 +53,7 @@ DESCRIBE_MIN_MENTIONS = 3
 DESCRIBE_MAX_QUOTES = 12
 CANDIDATE_SAMPLE_QUOTES = 2
 MAX_TOKENS = 4000
+ASK_ATTEMPTS = 3
 
 _INITIALS = re.compile(r"^(?:[A-Za-z]\.\s*){1,3}$|^[A-Z]{1,3}$")
 _FIELD_RE = re.compile(
@@ -134,6 +135,19 @@ class _Frontier:
         self.usage: dict[str, int] = {}
 
     def ask(self, prompt: str) -> dict[str, Any]:
+        """One JSON answer, retrying transient provider failures."""
+        last_error: ResolveError | None = None
+        for _attempt in range(ASK_ATTEMPTS):
+            try:
+                return self._ask_once(prompt)
+            except FrontierCapReached:
+                raise
+            except (ResolveError, httpx.HTTPError) as exc:
+                logger.warning("frontier call failed: %s", exc)
+                last_error = exc
+        raise last_error if last_error is not None else ResolveError("no attempt")
+
+    def _ask_once(self, prompt: str) -> dict[str, Any]:
         cap = self.settings.brain_max_frontier_calls_per_job
         if cap is None:
             cap = DEFAULT_MAX_FRONTIER_CALLS
