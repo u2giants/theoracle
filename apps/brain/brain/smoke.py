@@ -45,7 +45,12 @@ FIXTURE_KINDS = {"teams-approval-2026-03-14.txt": "transcript"}
 
 
 def _clear_prior_runs() -> None:
-    """Drop earlier smoke sources so fixture sha256 values can be reused."""
+    """Drop earlier smoke sources so fixture sha256 values can be reused.
+
+    Community reports and open questions are whole-corpus rows (no FK to
+    source), so a crashed or repeated smoke run leaves them behind; clearing
+    them keeps the rerun's report counts and dedupe queue honest.
+    """
     pool = get_pool()
     with pool.connection() as conn:
         conn.execute(
@@ -57,6 +62,8 @@ def _clear_prior_runs() -> None:
             "DELETE FROM cmap.entity e WHERE NOT EXISTS "
             "(SELECT 1 FROM cmap.mention m WHERE m.entity_id = e.id)"
         )
+        conn.execute("DELETE FROM cmap.community")
+        conn.execute("DELETE FROM cmap.open_question")
         conn.commit()
 
 
