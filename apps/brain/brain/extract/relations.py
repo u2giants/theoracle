@@ -294,7 +294,12 @@ def _call_model(prompt: str, counters: _Counters) -> dict[str, Any]:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise RelationsError("frontier relations response has no message content") from exc
-    if not isinstance(content, str):
+    if isinstance(content, list):
+        # Some providers return content as a list of text blocks.
+        content = "".join(
+            str(part.get("text", "")) for part in content if isinstance(part, dict)
+        )
+    if not isinstance(content, str) or not content:
         raise RelationsError("frontier relations message content is not text")
     finish = (body.get("choices") or [{}])[0].get("finish_reason")
     if finish == "length":
@@ -333,7 +338,7 @@ def parse_relations_json(content: str) -> dict[str, Any]:
 
 
 def _complete_items(content: str, name: str) -> list[Any]:
-    """Return the complete objects of array ``name`` in possibly cut-off JSON."""
+    """Return the complete values of array ``name`` in possibly cut-off JSON."""
     match = re.search(rf'"{name}"\s*:\s*\[', content)
     if match is None:
         return []
@@ -343,7 +348,7 @@ def _complete_items(content: str, name: str) -> list[Any]:
     while True:
         while index < len(content) and content[index] in " \t\r\n,":
             index += 1
-        if index >= len(content) or content[index] != "{":
+        if index >= len(content):
             return items
         try:
             item, index = decoder.raw_decode(content, index)

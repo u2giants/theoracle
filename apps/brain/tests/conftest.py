@@ -94,7 +94,10 @@ def _clean_cmap() -> None:
     """Empty the intake tables so every test starts from zero sources."""
     settings = get_settings()
     with psycopg.connect(settings.database_url, connect_timeout=5) as conn:
-        conn.execute("TRUNCATE cmap.source, cmap.job, cmap.entity CASCADE")
+        conn.execute(
+            "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
+            "cmap.graph_version CASCADE"
+        )
         conn.commit()
 
 

@@ -36,7 +36,7 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import OPENROUTER_BASE_URL
-from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS
+from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,12 @@ EMBED_TOP_K = 5
 DESCRIBE_MIN_MENTIONS = 3
 DESCRIBE_MAX_QUOTES = 12
 CANDIDATE_SAMPLE_QUOTES = 2
-MAX_TOKENS = 2000
+MAX_TOKENS = 4000
+ASK_ATTEMPTS = 3
 
 _INITIALS = re.compile(r"^(?:[A-Za-z]\.\s*){1,3}$|^[A-Z]{1,3}$")
 _FIELD_RE = re.compile(
-    r'"(canonical_name|description|same_as|reason)"\s*:\s*"((?:[^"\\]|\\.)*)"'
+    r'"(canonical_name|description|same_as|reason|title|summary)"\s*:\s*"((?:[^"\\]|\\.)*)"'
     r'|"confidence"\s*:\s*(-?\d+(?:\.\d+)?)'
 )
 
@@ -134,6 +135,19 @@ class _Frontier:
         self.usage: dict[str, int] = {}
 
     def ask(self, prompt: str) -> dict[str, Any]:
+        """One JSON answer, retrying transient provider failures."""
+        last_error: ResolveError | None = None
+        for _attempt in range(ASK_ATTEMPTS):
+            try:
+                return self._ask_once(prompt)
+            except FrontierCapReached:
+                raise
+            except (ResolveError, httpx.HTTPError) as exc:
+                logger.warning("frontier call failed: %s", exc)
+                last_error = exc
+        raise last_error if last_error is not None else ResolveError("no attempt")
+
+    def _ask_once(self, prompt: str) -> dict[str, Any]:
         cap = self.settings.brain_max_frontier_calls_per_job
         if cap is None:
             cap = DEFAULT_MAX_FRONTIER_CALLS
@@ -156,6 +170,13 @@ class _Frontier:
             raise ResolveError(
                 "frontier resolve response has no message content"
             ) from exc
+        if isinstance(content, list):
+            # Some providers return content as a list of text blocks.
+            content = "".join(
+                str(part.get("text", "")) for part in content if isinstance(part, dict)
+            )
+        if not isinstance(content, str):
+            raise ResolveError("frontier resolve response has no message content")
         start, end = content.find("{"), content.rfind("}")
         if 0 <= start < end:
             # Models sometimes answer with a trailing comma before the closing
@@ -186,6 +207,10 @@ def _salvage_fields(content: str) -> dict[str, Any]:
             out[match.group(1)] = match.group(2)
         else:
             out["confidence"] = float(match.group(3))
+    for name in ("findings", "open_questions"):
+        items = _complete_items(content, name)
+        if items:
+            out[name] = items
     return out
 
 
