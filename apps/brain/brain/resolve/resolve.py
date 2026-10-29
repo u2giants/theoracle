@@ -530,7 +530,16 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             .replace("{{names_json}}", json.dumps(names, ensure_ascii=False))
             .replace("{{quotes}}", quotes)
         )
-        result = frontier.ask(prompt)
+        try:
+            result = frontier.ask(prompt)
+        except FrontierCapReached:
+            raise
+        except ResolveError as exc:
+            # A description is an enhancement over the mention quote; a call
+            # the provider keeps failing leaves this entity for the next run
+            # (the pass is already resumable, see the docstring).
+            logger.warning("describe skipped for entity %s: %s", entity_id, exc)
+            continue
         name = str(result.get("canonical_name") or "").strip()
         description = str(result.get("description") or "").strip()
         row = conn.execute(
