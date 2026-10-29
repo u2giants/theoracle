@@ -25,6 +25,7 @@ EXPECTED_TABLES = {
     "eval_run",
     "recommendation",
     "employee_flags",
+    "resolve_decision",  # added by step 6 (sql/002_resolve.sql)
 }
 
 
@@ -46,7 +47,7 @@ def test_migrate_runs_twice_without_error() -> None:
 
 
 def test_all_tables_exist() -> None:
-    """information_schema lists exactly the 15 cmap tables after migration."""
+    """information_schema lists exactly the cmap tables (15 from step 1, plus step 6's resolve_decision)."""
     run_migrate()
     settings = get_settings()
     with psycopg.connect(settings.database_url, connect_timeout=5) as conn:
