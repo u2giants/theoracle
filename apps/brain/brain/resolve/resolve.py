@@ -34,6 +34,7 @@ import psycopg
 
 from brain.config import Settings, get_settings
 from brain.db import get_pool
+from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import OPENROUTER_BASE_URL
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS
 
@@ -51,9 +52,13 @@ EMBED_TOP_K = 5
 DESCRIBE_MIN_MENTIONS = 3
 DESCRIBE_MAX_QUOTES = 12
 CANDIDATE_SAMPLE_QUOTES = 2
-MAX_TOKENS = 600
+MAX_TOKENS = 2000
 
 _INITIALS = re.compile(r"^(?:[A-Za-z]\.\s*){1,3}$|^[A-Z]{1,3}$")
+_FIELD_RE = re.compile(
+    r'"(canonical_name|description|same_as|reason)"\s*:\s*"((?:[^"\\]|\\.)*)"'
+    r'|"confidence"\s*:\s*(-?\d+(?:\.\d+)?)'
+)
 
 
 class ResolveError(RuntimeError):
@@ -153,13 +158,35 @@ class _Frontier:
             ) from exc
         start, end = content.find("{"), content.rfind("}")
         if 0 <= start < end:
+            # Models sometimes answer with a trailing comma before the closing
+            # brace or bracket; Python's json cannot, so drop it first.
+            text = re.sub(r",(\s*[}\]])", r"\1", content[start : end + 1])
             try:
-                value = json.loads(content[start : end + 1], strict=False)
+                value = json.loads(text, strict=False)
             except json.JSONDecodeError:
                 value = None
             if isinstance(value, dict):
                 return value
+        salvaged = _salvage_fields(content)
+        if salvaged:
+            return salvaged
         raise ResolveError(f"resolve response is not JSON: {content[:300]!r}")
+
+
+def _salvage_fields(content: str) -> dict[str, Any]:
+    """Pull complete known fields out of a truncated JSON answer.
+
+    A describe answer cut off at ``max_tokens`` has no closing brace; the
+    fields that did finish are still usable (same spirit as the step-5
+    relations parser keeping complete items).
+    """
+    out: dict[str, Any] = {}
+    for match in _FIELD_RE.finditer(content):
+        if match.group(1) is not None:
+            out[match.group(1)] = match.group(2)
+        else:
+            out["confidence"] = float(match.group(3))
+    return out
 
 
 def title_case(name: str) -> str:
@@ -481,11 +508,23 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
         result = frontier.ask(prompt)
         name = str(result.get("canonical_name") or "").strip()
         description = str(result.get("description") or "").strip()
-        conn.execute(
+        row = conn.execute(
             "UPDATE cmap.entity SET canonical_name = COALESCE(NULLIF(%s, ''), canonical_name), "
             "description = COALESCE(NULLIF(%s, ''), description), described_at_count = %s "
-            "WHERE id = %s",
+            "WHERE id = %s RETURNING canonical_name, description",
             (name, description, mention_count, entity_id),
+        ).fetchone()
+        # The embedding follows the rewritten text, one entity per call so a
+        # cap-hit interruption cannot leave a described entity stale (step-6
+        # drift note on #240).
+        vector = embed_texts(
+            [f"{str(row[0])} — {str(row[1] or '')}"],
+            frontier.settings,
+            frontier.usage,
+        )[0]
+        conn.execute(
+            "UPDATE cmap.entity SET embedding = %s::vector WHERE id = %s",
+            (vector_literal(vector), entity_id),
         )
         conn.commit()
         written += 1
@@ -528,3 +567,14 @@ def handle_resolve(job: dict[str, Any]) -> None:
             )
             conn.commit()
     logger.info("resolve stats=%s", stats)
+    _enqueue_project()
+
+
+def _enqueue_project() -> None:
+    """Queue one whole-corpus ``project`` job (step 7) unless one is waiting."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            "INSERT INTO cmap.job (kind, payload) SELECT 'project', '{}'::jsonb "
+            "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'project' AND state = 'queued')"
+        )
+        conn.commit()

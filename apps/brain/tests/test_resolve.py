@@ -325,6 +325,7 @@ def test_describe_runs_once_per_count(
     monkeypatch: pytest.MonkeyPatch, db: Any, frontier_env
 ) -> None:
     fake = _fake(monkeypatch, names={"System": "Artwork Log"})
+    fake_embeddings(monkeypatch)
     source = _seed_text(db, "artwork log three times", "describe")
     for index in range(3):
         _mention(
@@ -334,9 +335,11 @@ def test_describe_runs_once_per_count(
     run_resolve()
     assert len(fake.describe_prompts) == 1
     row = db.execute(
-        "SELECT canonical_name, mention_count, source_count FROM cmap.entity"
+        "SELECT canonical_name, mention_count, source_count, embedding FROM cmap.entity"
     ).fetchone()
-    assert row == ("Artwork Log", 3, 1)
+    assert row[:3] == ("Artwork Log", 3, 1)
+    refreshed = 0.001 * len("Artwork Log — Described.")
+    assert float(str(row[3]).strip("[]").split(",")[0]) == pytest.approx(refreshed)
 
 
 def test_cap_hit_then_rerun_describes_remaining(
@@ -346,6 +349,7 @@ def test_cap_hit_then_rerun_describes_remaining(
     fake = _fake(
         monkeypatch, names={"System": "Artwork Log", "Process": "Sample Room"}
     )
+    fake_embeddings(monkeypatch)
     source = _seed_text(db, "artwork log and sample room", "cap-resume")
     for index in range(3):
         _mention(db, source, "System", "artwork log", _unit("x"), quote=f"a {index}")
@@ -367,3 +371,54 @@ def test_cap_hit_then_rerun_describes_remaining(
         "SELECT canonical_name, described_at_count FROM cmap.entity ORDER BY canonical_name"
     ).fetchall()
     assert rows == [("Artwork Log", 3), ("Sample Room", 3)]
+
+
+def test_frontier_tolerates_trailing_comma_and_fence(
+    monkeypatch: pytest.MonkeyPatch, frontier_env
+) -> None:
+    """Live smoke finding: describe answers may fence the JSON and add commas."""
+
+    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+        del messages, settings
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '```json\n{\n  "canonical_name": "Thursday",\n'
+                        '  "description": "A day.",\n}\n```'
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 5},
+        }
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _post_chat)
+    frontier = resolve_mod._Frontier(get_settings())
+    assert frontier.ask("prompt") == {
+        "canonical_name": "Thursday",
+        "description": "A day.",
+    }
+
+
+def test_frontier_salvages_truncated_describe_fields(
+    monkeypatch: pytest.MonkeyPatch, frontier_env
+) -> None:
+    """Live smoke finding: describe answers can be cut off at max_tokens."""
+
+    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+        del messages, settings
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '```json\n{\n  "canonical_name": "Ilona",\n'
+                        '  "description": "Ilona discusses the approval'
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 5},
+        }
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _post_chat)
+    frontier = resolve_mod._Frontier(get_settings())
+    assert frontier.ask("prompt") == {"canonical_name": "Ilona"}
