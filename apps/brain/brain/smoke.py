@@ -6,7 +6,7 @@ community counts plus the token cost. From step 4 on it runs before every
 step's PR and the counts go into the PR body.
 
 Edges come from the step 5 relations stage; from step 7 the projection prints
-the grouped graph counts. Communities stay zero until step 8.
+the grouped graph counts, and from step 8 the community counts and reports.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from brain.db import get_pool
 from brain.embed import embed_and_store
 from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
+from brain.graph.communities import run_communities
 from brain.graph.project import run_project
 from brain.migrate import migrate
 from brain.read.chunk import Chunk
@@ -284,7 +285,7 @@ def main() -> int:
     print(
         f"TOTAL chunks={grand['chunks']} mentions={grand['mentions']} "
         f"edges={grand['edges']} communities={grand['communities']} "
-        f"(communities arrive at step 8)"
+        f"(source-level; grouped graph and community counts print below)"
     )
     resolve_stats = run_resolve(settings)
     _merge(
@@ -295,6 +296,8 @@ def main() -> int:
     _print_entities()
     project_stats = run_project(settings)
     print(f"project: {project_stats}")
+    community_stats = run_communities(settings)
+    print(f"communities: {community_stats}")
     print(f"usage: {usage_total}")
     if grand["chunks"]:
         print(

@@ -10,6 +10,7 @@ from typing import Any
 from brain.db import get_pool
 from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
+from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
 from brain.read.pipeline import handle_read_source
 from brain.resolve.resolve import handle_resolve
@@ -26,6 +27,7 @@ HANDLERS: dict[str, Handler] = {
     "relations": handle_relations,
     "resolve": handle_resolve,
     "project": handle_project,
+    "communities": handle_communities,
 }
 
 
