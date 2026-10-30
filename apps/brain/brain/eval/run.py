@@ -88,6 +88,27 @@ def prompt_hashes() -> dict[str, str]:
     }
 
 
+def model_manifest(settings: Settings) -> dict[str, Any]:
+    """Which models produce an eval run, kept so bake-off runs compare honestly."""
+    return {
+        "answer": settings.brain_frontier_model,
+        "grade": settings.brain_frontier_model,
+        "vision": settings.brain_vision_model,
+        "embed": settings.brain_embed_model,
+        "scaledown_enabled": settings.brain_scaledown_enabled,
+    }
+
+
+def _extraction_models() -> dict[str, int]:
+    """Row counts per model behind the stored graph content."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT COALESCE(model, 'unknown'), count(*) "
+            "FROM cmap.extraction GROUP BY 1"
+        ).fetchall()
+    return {str(row[0]): int(row[1]) for row in rows}
+
+
 def score_grade(total: int, covered: list[int], contradicted: list[int]) -> float:
     """covered / total minus 0.2 per contradicted point, floored at 0."""
     if total <= 0:
@@ -301,11 +322,20 @@ def run_eval(settings: Settings | None = None) -> dict[str, Any]:
     results = [evaluate_question(item, cfg, usage) for item in questions]
     mean = round(sum(item["score"] for item in results) / len(results), 4)
     version = _graph_version()
+    models = model_manifest(cfg)
+    models["extraction_models"] = _extraction_models()
     with get_pool().connection() as conn:
         row = conn.execute(
-            "INSERT INTO cmap.eval_run (graph_version, prompt_hashes, results, mean_score) "
-            "VALUES (%s, %s, %s, %s) RETURNING id::text, created_at",
-            (version, json.dumps(prompt_hashes()), json.dumps(results), mean),
+            "INSERT INTO cmap.eval_run "
+            "(graph_version, prompt_hashes, results, mean_score, models) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id::text, created_at",
+            (
+                version,
+                json.dumps(prompt_hashes()),
+                json.dumps(results),
+                mean,
+                json.dumps(models),
+            ),
         ).fetchone()
         conn.commit()
     return {
@@ -313,6 +343,7 @@ def run_eval(settings: Settings | None = None) -> dict[str, Any]:
         "created_at": row[1].isoformat(),
         "graph_version": version,
         "mean_score": mean,
+        "models": models,
         "results": results,
         "usage": usage,
     }
@@ -359,6 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"eval run {run['id']} graph_version={run['graph_version']} mean={run['mean_score']}"
     )
+    print(f"models: {run['models']}")
     print(f"usage: {run['usage']}")
     return 0
 
