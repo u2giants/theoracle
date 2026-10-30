@@ -83,9 +83,9 @@ classification/extraction service with a frontier fallback.
 | 4 | Relationship extraction | `brain/extract/relations.py:162-187,289-312` | `BRAIN_FRONTIER_MODEL` | 1 call per non-chatter chunk; ~100k calls on the full corpus (plan §11) | JSON mode, 2000 tokens |
 | 5 | Entity resolution | `brain/resolve/resolve.py:103-128` | `BRAIN_FRONTIER_MODEL` | 1 judge call per ambiguous mention (cosine band 0.80–0.92); 1 describe per entity ≥3 mentions | JSON mode, 4000 tokens |
 | 6 | Community reports | `brain/communities.py` (`graph/communities.py:256-278`) | `BRAIN_FRONTIER_MODEL` | 1 call per community (Leiden L0/L1 + 1 company report); 6 workers; 12k-token contexts; reuse on rerun | JSON mode, 4000 tokens |
-| 7 | Question answering | `brain/answer/answer.py:97-122` | `BRAIN_FRONTIER_MODEL` | 1–2 calls per question (+ map calls, 10 reports/batch); local graph context + ≤30 chunks; global over reports | JSON mode, 4000 tokens |
+| 7 | Question answering | `brain/answer/answer.py:97-122` | `BRAIN_CHAT_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`; split landed PR #295) | 1–2 calls per question (+ map calls, 10 reports/batch); local graph context + ≤30 chunks; global over reports | JSON mode, 4000 tokens |
 | 8 | Recommendations | `brain/recommend/recommend.py:336` | `BRAIN_FRONTIER_MODEL` | 1 call per qualifying finding (≥2 sources); 12k-token context | JSON mode, 4000 tokens |
-| 9 | Eval grading | `brain/eval/run.py:51-76` | `BRAIN_FRONTIER_MODEL` | 1 call per eval question (plus the answer calls) | JSON mode, 800 tokens |
+| 9 | Eval grading | `brain/eval/run.py:51-76` | `BRAIN_EVAL_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`) | 1 call per eval question (plus the answer calls) | JSON mode, 800 tokens |
 
 Production (Coolify, verified live 2026-10-30) runs exactly:
 `BRAIN_FRONTIER_MODEL=anthropic/claude-sonnet-4.5`,
@@ -738,6 +738,17 @@ and worth checking first: current Gemini flash tiers, current GPT mini tiers,
 DeepSeek v4 tiers, Qwen 3.x, GLM 5.x, Kimi/MiniMax/StepFun current flags —
 plus `anthropic/claude-haiku-5.5` for the conversation seat.
 
+**Known candidate failures already measured (2026-10-30, edge-dev3 session;
+detail in `HANDOFF.d/2026-10-30T1442Z-edge-dev3-claude-step14-model-split.md`
+§4):** `deepseek/deepseek-v4.1-flash` and `qwen/qwen3.8-flash` crash the
+relations stage with "frontier relations message content is not text" —
+reasoning-flagged models burn `max_tokens` on thinking and return empty
+content in JSON mode; treat empty content as a stage failure and prefer
+non-reasoning tiers for the JSON stages (or raise max_tokens and retest).
+`anthropic/claude-haiku-5.5` returned empty content on 2 of 5 eval answers —
+must be fixed before it takes the conversation seat. Two eval scores recorded
+that day (0.47 / 0.40) came from an empty graph and are INVALID.
+
 **Order of runs (cheapest evidence first).**
 1. **Per-stage micro-evals** (§4 recipes) on fixture inputs — hours, dollars.
 2. **Stage swap + step-11 eval** on the real corpus (seed questions now; the
@@ -811,9 +822,10 @@ does not invent a second config store: a small brain endpoint `GET /models`
 (service token, mirrors the `eval_run.models` manifest) feeds the cards the
 live env values, each card names its env var (e.g. `BRAIN_FRONTIER_MODEL`) and
 the card says where it is set (Coolify app `oracle-brain`). Seating a bake-off
-winner = the AI operator updates that env (and, once the model split lands, the
-per-stage env vars `BRAIN_HEAVY_MODEL` / `BRAIN_CONVERSATION_MODEL` /
-`BRAIN_GRADE_MODEL`). If the bake-off later proves we change models often
+winner = the AI operator updates that env. The model split landed in PR #295:
+`BRAIN_CHAT_MODEL` for the conversation seat, `BRAIN_EVAL_MODEL` for the
+frozen grader, `BRAIN_FRONTIER_MODEL` for heavy work — each falls back to the
+frontier model when unset. If the bake-off later proves we change models often
 enough to deserve DB-backed seats, that is a separate, explicitly approved
 change — not smuggled in with the layout.
 
