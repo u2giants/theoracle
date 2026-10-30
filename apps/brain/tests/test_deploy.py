@@ -95,3 +95,10 @@ def test_unset_compose_variables_do_not_break_settings(
     settings = Settings()
     assert settings.brain_max_frontier_calls_per_job is None
     assert settings.brain_embed_dims == 1024
+
+
+def test_brain_port_declared_for_proxy() -> None:
+    """Coolify's proxy needs the port: the API drops it from the domain."""
+    brain = _load(COMPOSE)["services"]["oracle-brain"]
+    assert brain["expose"] == ["8000"]
+    assert "EXPOSE 8000" in (BRAIN / "Dockerfile").read_text(encoding="utf-8")

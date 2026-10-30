@@ -16,4 +16,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY brain ./brain
 RUN uv sync --frozen --no-dev
 
+EXPOSE 8000
+
 CMD ["python", "-m", "brain"]

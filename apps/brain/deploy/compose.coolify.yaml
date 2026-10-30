@@ -7,6 +7,8 @@ services:
   oracle-brain:
     image: 'ghcr.io/u2giants/theoracle-brain:${BRAIN_IMAGE_TAG:-latest}'
     restart: unless-stopped
+    expose:
+      - '8000'
     environment:
       - SERVICE_FQDN_ORACLE_BRAIN_8000
       - 'DATABASE_URL=${DATABASE_URL}'
