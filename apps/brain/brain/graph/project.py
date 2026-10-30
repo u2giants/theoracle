@@ -113,8 +113,21 @@ def _load_entities(conn: psycopg.Connection) -> list[dict[str, Any]]:
     return nodes
 
 
-def _load_edges(conn: psycopg.Connection) -> list[dict[str, Any]]:
-    """Group source-level relations into one projected edge per triple."""
+def _load_edges(
+    conn: psycopg.Connection, entity_ids: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Group source-level relations into one projected edge per triple.
+
+    With ``entity_ids`` only edges whose both ends are in that set are read
+    (the step-10 community graph); without it the whole corpus is read.
+    """
+    scope = ""
+    params: tuple[Any, ...] = ()
+    if entity_ids is not None:
+        scope = (
+            " AND fm.entity_id = ANY(%s::uuid[]) AND tm.entity_id = ANY(%s::uuid[])"
+        )
+        params = (entity_ids, entity_ids)
     rows = conn.execute(
         "SELECT fm.entity_id AS from_id, tm.entity_id AS to_id, r.rel_type, "
         "ch.source_id, r.description, r.stance, r.confidence, r.quote, r.chunk_id "
@@ -122,7 +135,8 @@ def _load_edges(conn: psycopg.Connection) -> list[dict[str, Any]]:
         "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
         "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
         "JOIN cmap.chunk ch ON ch.id = r.chunk_id "
-        "WHERE fm.entity_id IS NOT NULL AND tm.entity_id IS NOT NULL"
+        "WHERE fm.entity_id IS NOT NULL AND tm.entity_id IS NOT NULL" + scope,
+        params,
     ).fetchall()
     groups: dict[tuple[str, str, str], dict[str, Any]] = {}
     for from_id, to_id, rel_type, source_id, description, stance, confidence, quote, chunk_id in rows:
