@@ -122,6 +122,8 @@ def eval_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("BRAIN_SCALEDOWN_ENABLED", "true")
     monkeypatch.setenv("SCALEDOWN_API_KEY", "test-scaledown-key")
     monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "test/frontier-model")
+    monkeypatch.setenv("BRAIN_CHAT_MODEL", "test/chat-model")
+    monkeypatch.setenv("BRAIN_EVAL_MODEL", "test/eval-model")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -193,8 +195,11 @@ def test_eval_fixture_mean_at_least_08(
     assert stored[0][3] == run["graph_version"]
     models = stored[0][4]
     assert models == run["models"]
-    assert models["answer"] == "test/frontier-model"
-    assert models["grade"] == "test/frontier-model"
+    assert models["answer"] == "test/chat-model"
+    assert models["grade"] == "test/eval-model"
+    assert models["chat"] == "test/chat-model"
+    assert models["eval"] == "test/eval-model"
+    assert models["frontier"] == "test/frontier-model"
     assert models["scaledown_enabled"] is True
     assert isinstance(models["extraction_models"], dict)
     assert models["extraction_models"]

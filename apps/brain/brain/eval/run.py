@@ -26,7 +26,7 @@ import httpx
 
 from brain.answer import answer as answer_mod
 from brain.answer.answer import AnswerError, answer_question, parse_model_json
-from brain.config import Settings, eval_model, get_settings
+from brain.config import Settings, chat_model, eval_model, get_settings
 from brain.db import get_pool
 
 logger = logging.getLogger(__name__)
@@ -91,8 +91,11 @@ def prompt_hashes() -> dict[str, str]:
 def model_manifest(settings: Settings) -> dict[str, Any]:
     """Which models produce an eval run, kept so bake-off runs compare honestly."""
     return {
-        "answer": settings.brain_frontier_model,
-        "grade": settings.brain_frontier_model,
+        "answer": chat_model(settings),
+        "grade": eval_model(settings),
+        "chat": settings.brain_chat_model,
+        "eval": settings.brain_eval_model,
+        "frontier": settings.brain_frontier_model,
         "vision": settings.brain_vision_model,
         "embed": settings.brain_embed_model,
         "scaledown_enabled": settings.brain_scaledown_enabled,
