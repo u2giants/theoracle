@@ -208,6 +208,11 @@ def test_answer_becomes_source(
     _connect()
     assert run_interview_tick()["asked"] == 1
 
+    blank = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=None, text=" \n ")
+    assert blank["handled"] is False
+    assert _states(db)[qid] == "asked"
+    assert db.execute("SELECT count(*) FROM cmap.source").fetchone() == (0,)
+
     answer = "Jessica signs it, but only after Ilona checks the artwork."
     reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=answer)
     assert reply["handled"] is True
@@ -290,7 +295,7 @@ def test_disabled_sends_nothing(
     assert set(_states(db).values()) == {"open"}
 
 
-def test_service_routes_need_token(client: Any) -> None:
+def test_service_routes_need_token(client: Any, user_headers: dict[str, str]) -> None:
     from conftest import TEST_TOKEN
 
     body = {"email": EMPLOYEE_EMAIL, "text": "hello"}
@@ -298,6 +303,12 @@ def test_service_routes_need_token(client: Any) -> None:
     ok = client.post("/interview/teams/inbound", json=body, headers={"x-brain-token": TEST_TOKEN})
     assert ok.status_code == 200
     assert client.get(f"/interview/teams/conversation/{EMPLOYEE_ID}").status_code == 401
+    assert client.post(
+        "/interview/teams/inbound", json=body, headers=user_headers
+    ).status_code == 403
+    assert client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=user_headers
+    ).status_code == 403
 
 
 def test_admin_overview_pause_and_route(

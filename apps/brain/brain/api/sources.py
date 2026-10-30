@@ -12,12 +12,14 @@ import hashlib
 import io
 import mimetypes
 import re
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from psycopg.types.json import Json
 from pydantic import BaseModel
 from starlette.datastructures import UploadFile
 
@@ -124,10 +126,10 @@ def _parse_effective_date(raw: str | None) -> date | None:
         ) from exc
 
 
-def _find_by_sha256(sha: str) -> str | None:
+def _find_by_sha256(sha: str, conn: Any = None) -> str | None:
     """Return the id of the source already holding ``sha``, if any."""
     pool = get_pool()
-    with pool.connection() as conn:
+    with (pool.connection() if conn is None else nullcontext(conn)) as conn:
         row = conn.execute(
             "SELECT id::text FROM cmap.source WHERE sha256 = %s",
             (sha,),
@@ -149,10 +151,12 @@ def _insert_source(
     department_hint: str | None,
     effective_date: date | None,
     uploaded_by: str | None,
+    conn: Any = None,
 ) -> dict[str, Any]:
     """Insert one ``cmap.source`` row and queue its ``read_source`` job."""
     pool = get_pool()
-    with pool.connection() as conn:
+    owns_connection = conn is None
+    with (pool.connection() if owns_connection else nullcontext(conn)) as conn:
         row = conn.execute(
             f"INSERT INTO cmap.source ({_SOURCE_COLUMNS}) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), 'queued', NULL) "
@@ -170,8 +174,15 @@ def _insert_source(
                 uploaded_by,
             ),
         ).fetchone()
-        conn.commit()
-    enqueue_job("read_source", {"source_id": source_id})
+        if owns_connection:
+            conn.commit()
+        else:
+            conn.execute(
+                "INSERT INTO cmap.job (kind, payload) VALUES (%s, %s)",
+                ("read_source", Json({"source_id": source_id})),
+            )
+    if owns_connection:
+        enqueue_job("read_source", {"source_id": source_id})
     return _row_to_dict(row)
 
 
@@ -218,10 +229,11 @@ def ingest_bytes(
     department_hint: str | None,
     effective_date: date | None,
     uploaded_by: str | None,
+    conn: Any = None,
 ) -> dict[str, Any]:
-    """Store ``data`` as a new source, or report the duplicate sha."""
+    """Store data, optionally joining the caller's source/job transaction."""
     sha = hashlib.sha256(data).hexdigest()
-    existing = _find_by_sha256(sha)
+    existing = _find_by_sha256(sha, conn)
     if existing is not None:
         return {"id": existing, "duplicate": True}
     source_id = str(uuid4())
@@ -241,6 +253,7 @@ def ingest_bytes(
             department_hint=department_hint,
             effective_date=effective_date,
             uploaded_by=uploaded_by,
+            conn=conn,
         )
     except Exception:
         store.delete(key)

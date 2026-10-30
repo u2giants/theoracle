@@ -10,7 +10,7 @@
 // link. The actual live listener is still Recall.ai; this bot is the Teams UX
 // wrapper that summons Recall into the meeting.
 //
-// Company Map interviews (plan step 12): every message is first offered to
+// Company Map interviews (plan step 12): non-join messages are first offered to
 // the brain, which stores the sender's conversation reference (the only way
 // the bot may later write to them), handles "stop"/"skip", and records a
 // reply to an asked question as a source. Messages the brain does not claim
@@ -112,7 +112,7 @@ async function handleTurn(context: TurnContext, req: NextRequest): Promise<void>
   }
 
   const commandText = removeBotMention(context);
-  if (await offerToInterviews(context, commandText)) return;
+  if (!isJoinCommand(commandText) && await offerToInterviews(context, commandText)) return;
   if (!isJoinCommand(commandText)) {
     await context.sendActivity('To bring Oracle into this meeting, type "join" or "join <Teams meeting link>".');
     return;

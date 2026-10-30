@@ -1,6 +1,6 @@
 """Incoming Teams messages for interviews (plan step 12).
 
-The Next.js bot route forwards every message here first. This module stores
+The Next.js bot route forwards non-join messages here first. This module stores
 the employee's conversation reference (so the bot may later write to them),
 handles "stop" and "skip", and turns a reply to an asked question into a
 ``cmap.source`` transcript that flows through the normal pipeline. Anything
@@ -81,6 +81,8 @@ def handle_inbound(
                 (employee_id, Json(conversation_ref)),
             )
             conn.commit()
+        if not text.strip():
+            return {"handled": False, "reply": None, "employee_id": employee_id}
         command = _command(text)
         if command == "stop":
             conn.execute(
@@ -95,7 +97,7 @@ def handle_inbound(
             "SELECT id::text, question FROM cmap.open_question "
             "WHERE state = 'asked' AND target_employee_id = %s "
             "AND asked_at > now() - make_interval(days => %s) "
-            "ORDER BY asked_at DESC LIMIT 1",
+            "ORDER BY asked_at DESC LIMIT 1 FOR UPDATE",
             (employee_id, ANSWER_WINDOW_DAYS),
         ).fetchone()
         if row is None:
@@ -115,18 +117,18 @@ def handle_inbound(
                 "employee_id": employee_id,
                 "question_id": question_id,
             }
-    answer = text.strip()
-    day = datetime.now(EASTERN).date().isoformat()
-    source = ingest_bytes(
-        kind="transcript",
-        title=f"Interview answer — {employee_name} — {day}",
-        original_filename=f"interview-answer-{question_id}.txt",
-        data=_transcript_text(question, employee_name, answer).encode("utf-8"),
-        department_hint=None,
-        effective_date=None,
-        uploaded_by=None,
-    )
-    with pool.connection() as conn:
+        answer = text.strip()
+        day = datetime.now(EASTERN).date().isoformat()
+        source = ingest_bytes(
+            kind="transcript",
+            title=f"Interview answer — {employee_name} — {day}",
+            original_filename=f"interview-answer-{question_id}.txt",
+            data=_transcript_text(question, employee_name, answer).encode("utf-8"),
+            department_hint=None,
+            effective_date=None,
+            uploaded_by=None,
+            conn=conn,
+        )
         conn.execute(
             "UPDATE cmap.open_question SET state = 'answered', answer = %s, "
             "answered_at = now(), answer_source_id = %s WHERE id = %s",

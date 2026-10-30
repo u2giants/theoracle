@@ -69,7 +69,10 @@ def require_admin(user: Annotated[User, Depends(current_user)]) -> User:
     return user
 
 
-def require_service(x_brain_token: str = Header(default="")) -> None:
+def require_service(
+    x_brain_token: str = Header(default=""),
+    x_user_id: str | None = Header(default=None),
+) -> None:
     """Accept a server-to-server call carrying only the shared token.
 
     Used by the Teams bot routes, which act for no logged-in employee.
@@ -80,6 +83,9 @@ def require_service(x_brain_token: str = Header(default="")) -> None:
     if x_brain_token != expected:
         raise HTTPException(status_code=401, detail="invalid x-brain-token")
 
+    if x_user_id is not None:
+        raise HTTPException(status_code=403, detail="service calls must not carry x-user-id")
+
 
 def admin_or_service(
     x_brain_token: str = Header(default=""),
@@ -87,7 +93,7 @@ def admin_or_service(
 ) -> User | None:
     """An admin employee, or ``None`` for a service call with no user header."""
     if not x_user_id:
-        require_service(x_brain_token)
+        require_service(x_brain_token, None)
         return None
     user = current_user(x_brain_token=x_brain_token, x_user_id=x_user_id)
     return require_admin(user)
