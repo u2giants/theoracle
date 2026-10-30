@@ -119,14 +119,17 @@ Open PRs at this writing:
   fixture micro-evals first; $25/day budget rules; results table), and the
   model-page rework spec (§6 of that doc). Rebased onto redacted main;
   awaiting doc-safety, then prose merge.
-- Page-rework implementation (sub-agent, in flight): branch
-  `web/model-page-new-stages`, worktree on edge-dev in the machine temp area
-  (`theoracle-model-page` — machine-local by nature). It had uncommitted
-  `apps/brain/brain/api/models.py`, `apps/brain/tests/test_models_api.py`,
-  `apps/web/app/admin/settings/_components/stage-briefs.ts`, `brain/main.py`
-  when resumed; it was told to finish, run tests, and open a PR signed
-  "Posted by MiMo chat ses_ffe5e72d1f0cbffeX3dv5QYOOh on edge-dev". Collect
-  its PR URL from its chat result or `gh pr list`.
+- **PR #302** https://github.com/u2giants/theoracle/pull/302 — the model page
+  rework (sub-agent, completed after this baton was drafted): nine Company Map
+  stage cards (max-w-5xl 2-col grid, seat chips, Copy-job-brief buttons wired
+  to the brief's §4 texts), legacy model routes collapsed below, pool-page
+  layout fixes (shared sticky filter header, overflow wrapper, compact
+  Copy-from menu), and a new `require_service`-guarded `GET /models` brain
+  endpoint (env-only, split-aware). Verified: brain suite 128 passed, ruff
+  clean, `pnpm -w typecheck` and `lint` clean, Playwright screenshots of
+  `/admin/settings` and `/admin/settings/model-pool` visually reviewed via the
+  fake-auth harness. Opened, NOT merged at baton close — merge it per the code
+  lane when its CI is green.
 
 Not started / not done:
 - **Prod migration 004 is NOT applied** (see dead end 1 — the task-gates class
@@ -254,13 +257,12 @@ Not started / not done:
    `EXIT=0`, merge that PR with `gh pr merge <n> --squash --admin` (prose
    lane). You'll know it worked when `gh pr view <n> --json state` says
    MERGED and the step-14 baton + job brief are on `main`.
-2. **Collect the page-rework PR** (sub-agent branch `web/model-page-new-stages`).
-   If its PR is open: verify brain tests + `pnpm -w typecheck`/`lint` on it,
-   then merge per the code lane. If the sub-agent died with uncommitted work
-   in its worktree (`theoracle-model-page` on edge-dev machine temp), finish
-   per the job brief §6 spec. You'll know it worked when `/admin/settings`
-   shows the nine Company Map stage cards (max-w-5xl grid) with Copy-job-brief
-   buttons and the legacy section collapsed.
+2. **Merge PR #302** (model page rework) once its CI is green —
+   `gh pr view 302 --json state` then the code lane. Its verification is
+   already green locally (128 brain tests, typecheck, lint, Playwright
+   screenshots). You'll know it worked when `/admin/settings` shows the nine
+   Company Map stage cards (max-w-5xl grid) with Copy-job-brief buttons and
+   the legacy section collapsed.
 3. **Apply migration 004 to prod** before any eval run: `python -m
    brain.migrate` against the prod Supabase (see §8 for the connection item).
    Blocked for the previous session by the gate (dead end 1) — if the gate
@@ -378,20 +380,29 @@ sparse grid (2 files, 762/716 lines), the full legacy stage list with settings
 keys, and the Tailwind/shadcn conventions. That report shaped the job brief §6
 page spec. No files touched.
 
-**general-1 — model page rework implementation (in flight at session end).**
-Asked to implement the job brief §6 spec on branch `web/model-page-new-stages`
-in its own worktree, including a new `GET /models` brain endpoint, nine stage
-cards with clipboard job briefs, the collapsed legacy section, and pool-page
-layout fixes; verify with brain tests + typecheck + lint; open a PR, do not
-merge. It had created `apps/brain/brain/api/models.py`,
-`apps/brain/tests/test_models_api.py`,
-`apps/web/app/admin/settings/_components/stage-briefs.ts` and edited
-`brain/main.py` (uncommitted) when the app crashed; it was resumed mid-session
-and was still running at wrap-up. Its worktree is machine-local
-(`theoracle-model-page` under the edge-dev temp area) — do not delete it; the
-successor collects or finishes its PR. It deliberately does NOT touch
-`apps/brain/brain/eval/run.py`, `sql/004_eval_models.sql`, or any
-`packages/db/migrations/` file.
+**general-1 — model page rework implementation (COMPLETED).** Asked to
+implement the job brief §6 spec on branch `web/model-page-new-stages`: new
+`GET /models` brain endpoint, nine stage cards with clipboard job briefs,
+collapsed legacy section, pool-page layout fixes; verify with brain tests +
+typecheck + lint; open a PR, do not merge. After one app crash and a resume it
+delivered PR https://github.com/u2giants/theoracle/pull/302 (8 files) with
+128 brain tests passing, ruff/typecheck/lint clean, and Playwright screenshots
+of both pages visually reviewed via the fake-auth harness. Notes it flagged:
+`BRAIN_CHAT_MODEL`/`BRAIN_EVAL_MODEL` were unset in its screenshot run
+(fallback shown); pool catalog refresh was partial (Google parse error; 85
+models displayed); the brief §6 header link was omitted because the brief was
+not on `main` at its build time (it is now — a successor may add the link).
+Findings worth keeping: the map e2e harness
+(`apps/web/tests/map/fake-supabase-auth.mjs` + `map_seed.py` +
+`playwright.map.config.ts`) bootstraps any authenticated admin UI screenshot
+without production credentials, but the target DB needs `packages/db`
+migrations plus an `auth.uid()` stub applied manually (the
+`prepare-fresh-supabase-test-db.ts` script refuses non-loopback hosts by
+design), and `map_seed.py`'s `employee_identities` INSERT omits
+`auth_provider` (NOT NULL on the web schema) — set a column default on the
+throwaway DB rather than editing the seed. Its worktree
+(`theoracle-model-page`, edge-dev machine temp) is machine-local; the PR is
+the artifact.
 
 ---
 
