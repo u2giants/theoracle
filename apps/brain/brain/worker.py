@@ -16,6 +16,7 @@ from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
 from brain.interview.tick import handle_interview_tick, maybe_queue_interview_tick
 from brain.read.pipeline import handle_read_source
+from brain.recommend.recommend import handle_recommend
 from brain.resolve.resolve import handle_resolve
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ HANDLERS: dict[str, Handler] = {
     "resolve": handle_resolve,
     "project": handle_project,
     "communities": handle_communities,
+    "recommend": handle_recommend,
     "evaluate": handle_evaluate,
     "interview_tick": handle_interview_tick,
 }

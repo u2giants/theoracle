@@ -9,6 +9,7 @@ interpolated into Cypher.
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from typing import Any
@@ -78,9 +79,20 @@ def connect(settings: Settings | None = None) -> Graph:
 
 
 def _client(settings: Settings | None = None) -> FalkorDB:
-    """Return the FalkorDB client from ``FALKORDB_URL``."""
+    """Return the shared FalkorDB client for ``FALKORDB_URL``.
+
+    One client per URL for the process: a client built per call can be
+    garbage-collected while its graph handle still needs the connection
+    (the label/property-key refresh during result parsing), which closes the
+    connection mid-query.
+    """
     cfg = settings if settings is not None else get_settings()
-    return FalkorDB.from_url(cfg.falkordb_url)
+    return _client_for(cfg.falkordb_url)
+
+
+@functools.lru_cache(maxsize=4)
+def _client_for(url: str) -> FalkorDB:
+    return FalkorDB.from_url(url)
 
 
 def _drop(graph_client: FalkorDB) -> Graph:
