@@ -25,7 +25,7 @@ Already settled — do NOT re-ask: model split and Haiku 5.5 as the only Claude 
 
 ## 1. What this application is
 
-The Oracle (https://github.com/u2giants/theoracle) is POP Creations' evidence-backed company adviser. The current program is the Company Map. It reads company documents, diagrams and employee transcripts and shows how work actually flows: where hand-offs break, plus answers that cite many sources. `apps/brain` is a Python FastAPI service plus a worker loop that does all AI and graph work. Postgres (Supabase project `theoracle`, eqccjfbyrywsqkxxpjvg, schema `cmap`) is the durable store; FalkorDB holds the graph `company`. `apps/web` is Next.js on Vercel (production https://oracle.designflow.app), which proxies `/api/brain/*` to the brain.
+The Oracle (https://github.com/u2giants/theoracle) is POP Creations' evidence-backed company adviser. The current program is the Company Map. It reads company documents, diagrams and employee transcripts and shows how work actually flows: where hand-offs break, plus answers that cite many sources. `apps/brain` is a Python FastAPI service plus a worker loop that does all AI and graph work. Postgres (Supabase project `theoracle`, project ref PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d, schema `cmap`) is the durable store; FalkorDB holds the graph `company`. `apps/web` is Next.js on Vercel (production https://oracle.designflow.app), which proxies `/api/brain/*` to the brain.
 
 ## 2. What we set out to do, and why
 
@@ -41,7 +41,7 @@ Landed on main:
 
 Live:
 - Coolify project "Oracle Company Map" (uuid `tpqm0y6dldtqizsrpig17wmd`) holds the docker-compose application `oracle-brain` (uuid `uge6pfm4qapktivto4981mtg`). It builds from GitHub main and runs image tag `6e00de2b…` (env `BRAIN_IMAGE_TAG`). `https://oracle-brain.designflow.app/health` returns `{"ok":true,"db":true,"graph":true}`. Cloudflare DNS: A record `oracle-brain` → 178.156.180.212, DNS only.
-- Coolify env holds all §12 variables, with secrets from 1Password: `BRAIN_MAX_FRONTIER_CALLS_PER_JOB=3000`, `BRAIN_INTERVIEW_ENABLED=false`, `BRAIN_WEB_BASE_URL=https://oracle.designflow.app`, `SUPABASE_URL=https://eqccjfbyrywsqkxxpjvg.supabase.co`. The service-role key was fetched through the Supabase management API using the "Supabase CLI Personal Access Token" item. It was NOT stored as a separate 1Password item.
+- Coolify env holds all §12 variables, with secrets from 1Password: `BRAIN_MAX_FRONTIER_CALLS_PER_JOB=3000`, `BRAIN_INTERVIEW_ENABLED=false`, `BRAIN_WEB_BASE_URL=https://oracle.designflow.app`, `SUPABASE_URL=https://PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d.supabase.co`. The service-role key was fetched through the Supabase management API using the "Supabase CLI Personal Access Token" item. It was NOT stored as a separate 1Password item.
 - Live models (Coolify env): frontier `anthropic/claude-sonnet-4.5`, vision `openai/gpt-4.1`, embeddings `openai/text-embedding-3-large`. `BRAIN_CHAT_MODEL` and `BRAIN_EVAL_MODEL` are not set yet.
 - Vercel production env now has `BRAIN_BASE_URL=https://oracle-brain.designflow.app` and `BRAIN_SHARED_TOKEN`. Production was redeployed (`dpl_EwjXKTgwkMCk5aA5HDX9WTDXDXQX`). `/map` redirects to login (307) and `/api/brain/health` answers 401 when logged out. A logged-in render has NOT been checked yet.
 - `python -m brain.migrate` ran against prod Supabase ("cmap schema applied").
@@ -52,7 +52,7 @@ Not started: `docs/verification/company-map/first-run.md`, STATUS row 14, the sw
 ## 4. Dead ends (do not repeat)
 
 1. Coolify `PATCH docker_compose_domains` with `https://host:8000`: Coolify drops the port, and Traefik then answers 503 "no available server". The fix is `expose: ['8000']` + `EXPOSE 8000` (PR #293).
-2. Copying `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from Vercel's decrypted env API: Vercel returned encrypted blobs (1,000+ chars). The import-bucket call then failed with "Request URL is missing an 'http://' protocol". Use the Supabase management API (`/v1/projects/eqccjfbyrywsqkxxpjvg/api-keys?reveal=true`) instead.
+2. Copying `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from Vercel's decrypted env API: Vercel returned encrypted blobs (1,000+ chars). The import-bucket call then failed with "Request URL is missing an 'http://' protocol". Use the Supabase management API (`/v1/projects/PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d/api-keys?reveal=true`) instead.
 3. Python `urllib` against coolify.designflow.app: Cloudflare error 1010 (bot signature). Send `User-Agent: curl/8.5.0`.
 4. The `op` CLI on edge-dev3 is not signed in. Use the 1Password MCP `op_run` with `op://vibe_coding/<item-id>/<field>` refs. `op_run` times out after 10 minutes, so for long waits write the DB URL to a 0600 file under `$TMPDIR` and run in the background.
 5. Cheap candidates `deepseek/deepseek-v4.1-flash` and `qwen/qwen3.8-flash` crash the relations stage with "frontier relations message content is not text". These reasoning models return empty `content`, most likely because reasoning consumed `max_tokens`. Their eval scores (0.47 and 0.40) were computed on an empty graph and are INVALID.
