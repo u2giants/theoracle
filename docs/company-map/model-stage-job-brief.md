@@ -789,8 +789,8 @@ in one collapsed section (the old app still runs; do not delete its settings).
   column under `md`) — one card per §3 stage, ordered by pipeline position.
   Each card: stage title + one-line role + the current model id (`font-mono
   text-xs`) + the stage's seat status (incumbent / assigned / bake-off
-  pending) + "Copy job brief" button + (when the config source is live) a model
-  picker reusing `model-picker.tsx`. Card padding `px-4 py-3`, `gap-3`; no
+  pending) + its env-var name and the note "set in Coolify app oracle-brain" +
+  "Copy job brief" button. Card padding `px-4 py-3`, `gap-3`; no
   legend boxes repeated per card — one page-level legend.
 - **Model pool block** (secondary): the provider×model matrix collapses behind
   a "Pool editor" toggle; inside, one sticky filter header (not one per
@@ -803,17 +803,17 @@ in one collapsed section (the old app still runs; do not delete its settings).
   left-aligned 672px column.
 
 **Config source for the new stage rows (architecture).**
-The brain reads models from env today (`brain/config.py`; plan §11 "no
-hard-coded model ids in code"). The page needs a persistence story:
-add `cmap.model_setting (stage text primary key, model text, updated_at,
-updated_by)` — the same pattern as `cmap.interview_setting` — read by each
-stage at call time with the env value as fallback. Then a bake-off winner can
-be seated from the page without a Coolify redeploy, and `eval_run.models`
-records what actually ran. Env stays the deploy default; the table is the
-runtime seat. (Implementation note: one small `brain/models.py` resolver; every
-stage swaps `settings.brain_frontier_model` for `resolve_model('relations')`
-etc. — explicit stage keys: `vision, embed, flat_fallback, relations, resolve,
-reports, answer, recommend, grade`.)
+The plan locks "no hard-coded model ids in code. Env only" (plan §11), and the
+Coolify env is where the seats live today (verified 2026-10-30). So the page
+does not invent a second config store: a small brain endpoint `GET /models`
+(service token, mirrors the `eval_run.models` manifest) feeds the cards the
+live env values, each card names its env var (e.g. `BRAIN_FRONTIER_MODEL`) and
+the card says where it is set (Coolify app `oracle-brain`). Seating a bake-off
+winner = the AI operator updates that env (and, once the model split lands, the
+per-stage env vars `BRAIN_HEAVY_MODEL` / `BRAIN_CONVERSATION_MODEL` /
+`BRAIN_GRADE_MODEL`). If the bake-off later proves we change models often
+enough to deserve DB-backed seats, that is a separate, explicitly approved
+change — not smuggled in with the layout.
 
 **Job-brief wiring.** The §4 texts become the page's clipboard briefs
 (same `clipboardBrief` mechanism as today's `model-picker.tsx`), one per new
@@ -830,7 +830,7 @@ stage card.
 3. The eval grader is frozen during the bake-off.
 4. Testing equals production: fixture micro-evals use the production prompts
    verbatim; eval runs record model provenance (PR #297); the winner's exact
-   config is what Coolify/`cmap.model_setting` receives.
+   config is what the Coolify env receives.
 5. The model page lists the new stages first; legacy controls survive in a
    collapsed section.
 
