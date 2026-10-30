@@ -10,15 +10,16 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ModelCatalogEntry } from '@/app/api/admin/model-catalog/route';
 import {
-  CAP_BY_FIELD,
+  CAP_REQ,
+  CTX_REQ,
   CAPS,
   STAGES,
   STAGE_LABELS,
   STAGE_REQUIREMENTS,
   hasEnrichment,
-  missingReqs,
   type CapKey,
   type Stage,
+  type StageRequirement,
 } from '@/lib/stage-requirements';
 import { formatNYDateTime } from '@/lib/time';
 
@@ -101,77 +102,28 @@ type PoolState = Record<PoolKey, Set<string>>;
 type SortKey = 'context' | 'price' | null;
 type SortDir = 'asc' | 'desc';
 
+const POOL_REQUIREMENTS: Record<PoolKey, StageRequirement[]> = {
+  ...STAGE_REQUIREMENTS,
+  vision: [CAP_REQ('vision')],
+  workflow_read: [
+    CAP_REQ('strictJsonSchema'),
+    CAP_REQ('deepSchemaAccepted'),
+    CAP_REQ('adapterParamsSafe'),
+    CTX_REQ(100_000),
+  ],
+  model_merge: [CAP_REQ('strictJsonSchema')],
+  macro: [
+    CAP_REQ('strictJsonSchema'),
+    CAP_REQ('deepSchemaAccepted'),
+    CAP_REQ('adapterParamsSafe'),
+  ],
+  translation: [],
+  transcript_summary: [],
+  general: [],
+};
+
 function missingPoolReqs(m: ModelCatalogEntry, pool: PoolKey) {
-  if (pool === 'vision') {
-    const cap = CAP_BY_FIELD.vision;
-    return hasEnrichment(m) && !m.vision
-      ? [{ label: cap.long, icon: cap.icon, color: cap.color }]
-      : [];
-  }
-  if (pool === 'workflow_read') {
-    const reqs = [
-      {
-        label: CAP_BY_FIELD.strictJsonSchema.long,
-        icon: CAP_BY_FIELD.strictJsonSchema.icon,
-        color: CAP_BY_FIELD.strictJsonSchema.color,
-        missing: !m.strictJsonSchema,
-      },
-      {
-        label: CAP_BY_FIELD.deepSchemaAccepted.long,
-        icon: CAP_BY_FIELD.deepSchemaAccepted.icon,
-        color: CAP_BY_FIELD.deepSchemaAccepted.color,
-        missing: !m.deepSchemaAccepted,
-      },
-      {
-        label: CAP_BY_FIELD.adapterParamsSafe.long,
-        icon: CAP_BY_FIELD.adapterParamsSafe.icon,
-        color: CAP_BY_FIELD.adapterParamsSafe.color,
-        missing: !m.adapterParamsSafe,
-      },
-      {
-        label: 'Context > 100K',
-        icon: STAGE_REQUIREMENTS.extraction[1]!.icon,
-        color: STAGE_REQUIREMENTS.extraction[1]!.color,
-        missing: m.contextLength == null || m.contextLength <= 100_000,
-      },
-    ];
-    return hasEnrichment(m)
-      ? reqs.filter((r) => r.missing).map(({ label, icon, color }) => ({ label, icon, color }))
-      : [];
-  }
-  if (pool === 'model_merge') {
-    const cap = CAP_BY_FIELD.strictJsonSchema;
-    return hasEnrichment(m) && !m.strictJsonSchema
-      ? [{ label: cap.long, icon: cap.icon, color: cap.color }]
-      : [];
-  }
-  if (pool === 'macro') {
-    const reqs = [
-      {
-        label: CAP_BY_FIELD.strictJsonSchema.long,
-        icon: CAP_BY_FIELD.strictJsonSchema.icon,
-        color: CAP_BY_FIELD.strictJsonSchema.color,
-        missing: !m.strictJsonSchema,
-      },
-      {
-        label: CAP_BY_FIELD.deepSchemaAccepted.long,
-        icon: CAP_BY_FIELD.deepSchemaAccepted.icon,
-        color: CAP_BY_FIELD.deepSchemaAccepted.color,
-        missing: !m.deepSchemaAccepted,
-      },
-      {
-        label: CAP_BY_FIELD.adapterParamsSafe.long,
-        icon: CAP_BY_FIELD.adapterParamsSafe.icon,
-        color: CAP_BY_FIELD.adapterParamsSafe.color,
-        missing: !m.adapterParamsSafe,
-      },
-    ];
-    return hasEnrichment(m)
-      ? reqs.filter((r) => r.missing).map(({ label, icon, color }) => ({ label, icon, color }))
-      : [];
-  }
-  if (pool === 'translation' || pool === 'transcript_summary' || pool === 'general') return [];
-  return missingReqs(m, pool);
+  return hasEnrichment(m) ? POOL_REQUIREMENTS[pool].filter((req) => !req.check(m)) : [];
 }
 
 // ---------------------------------------------------------------------------
@@ -322,8 +274,11 @@ export function ModelPoolEditor({
   async function save() {
     setSaveStatus('saving');
     setSaveError(null);
+    const saved: string[] = [];
+    let current: PoolKey = POOL_KEYS[0];
     try {
       for (const stage of POOL_KEYS) {
+        current = stage;
         const res = await fetch('/api/admin/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -335,13 +290,19 @@ export function ModelPoolEditor({
         });
         if (!res.ok) {
           const body = await res.text();
-          throw new Error(`${POOL_LABELS[stage]}: ${res.status}: ${body}`);
+          throw new Error(`${res.status}: ${body}`);
         }
+        saved.push(POOL_LABELS[stage]);
       }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 3000);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : String(err));
+      const unattempted = POOL_KEYS.slice(POOL_KEYS.indexOf(current) + 1).map((key) => POOL_LABELS[key]);
+      setSaveError(
+        `Saved: ${saved.join(', ') || 'none'}. Save not confirmed: ${POOL_LABELS[current]} ` +
+        `(${err instanceof Error ? err.message : String(err)}). ` +
+        `Not attempted: ${unattempted.join(', ') || 'none'}. Retry Save all pools to finish.`,
+      );
       setSaveStatus('error');
     }
   }
@@ -561,37 +522,7 @@ export function ModelPoolEditor({
                   <div className="flex flex-col items-center gap-1">
                     <span>{POOL_LABELS[stage]}</span>
                     <div className="flex items-center gap-0.5">
-                      {(stage === 'vision'
-                        ? [
-                            {
-                              label: CAP_BY_FIELD.vision.long,
-                              icon: CAP_BY_FIELD.vision.icon,
-                              color: CAP_BY_FIELD.vision.color,
-                            },
-                          ]
-                        : stage === 'workflow_read'
-                          ? [
-                              {
-                                label: CAP_BY_FIELD.structuredOutputs.long,
-                                icon: CAP_BY_FIELD.structuredOutputs.icon,
-                                color: CAP_BY_FIELD.structuredOutputs.color,
-                              },
-                              STAGE_REQUIREMENTS.extraction[1]!,
-                            ]
-                          : stage === 'model_merge' || stage === 'macro'
-                        ? [
-                            {
-                              label: CAP_BY_FIELD.structuredOutputs.long,
-                              icon: CAP_BY_FIELD.structuredOutputs.icon,
-                              color: CAP_BY_FIELD.structuredOutputs.color,
-                            },
-                          ]
-                        : stage === 'translation' ||
-                            stage === 'transcript_summary' ||
-                            stage === 'general'
-                          ? []
-                          : STAGE_REQUIREMENTS[stage]
-                      ).map((req, i) => (
+                      {POOL_REQUIREMENTS[stage].map((req, i) => (
                         <req.icon key={i} className={cn('h-3 w-3', req.color)} aria-label={`Requires ${req.label}`} />
                       ))}
                     </div>

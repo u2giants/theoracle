@@ -13,7 +13,7 @@ export function brainServiceConfig(): { base: string; token: string } {
 
 export async function brainService<T>(
   path: string,
-  init: { method?: 'GET' | 'POST'; body?: unknown } = {},
+  init: { method?: 'GET' | 'POST'; body?: unknown; timeoutMs?: number } = {},
 ): Promise<{ status: number; body: T | null }> {
   const { base, token } = brainServiceConfig();
   const headers: Record<string, string> = { 'x-brain-token': token };
@@ -22,7 +22,7 @@ export async function brainService<T>(
     method: init.method ?? 'GET',
     headers,
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(init.timeoutMs ?? 20_000),
     cache: 'no-store',
   });
   const body = (await res.json().catch(() => null)) as T | null;

@@ -763,7 +763,7 @@ export default async function AdminSettingsPage() {
   // seats). Unreachable brain or missing env: cards render "not configured".
   let companyMapModels: CompanyMapModels | null = null;
   try {
-    const { status, body } = await brainService<{ models: CompanyMapModels }>('models');
+    const { status, body } = await brainService<{ models: CompanyMapModels }>('models', { timeoutMs: 2_000 });
     if (status === 200 && body?.models) companyMapModels = body.models;
   } catch {
     companyMapModels = null;
