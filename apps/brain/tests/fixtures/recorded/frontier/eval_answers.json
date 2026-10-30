@@ -1,0 +1,9 @@
+{
+  "answers": {
+    "Where does licensing approval stall and why?": "Approval stalls at the licensor sign-off step while the package waits on the licensor [1]. The procedure expects Jessica, the Licensing Manager, to record the sign-off [2]. The flowchart shows a rework loop when the licensor rejects the package [3].",
+    "Who records the licensor sign-off, and where is it recorded?": "Jessica, the Licensing Manager, records the licensor sign-off [1]. The sign-off is filed in the Artwork Log [2]. The flowchart puts recording the sign-off before Create PO [3].",
+    "What happens when the licensor rejects an artwork package?": "When the licensor rejects a package, design fixes it and resubmits it [1]. The corrected package goes back into the same queue [2]. Every bounce adds about three weeks to the sign-off date [3].",
+    "How long should licensor sign-off take, and how long does it take in practice?": "The procedure says sign-off takes five business days [1]. The Meadow Lane set has already waited ten business days [2]. The procedure also says Jessica escalates on day six [3].",
+    "Why can't buyers raise a purchase order while licensing approval is pending?": "Buyers cannot cut a PO until the sign-off is recorded in the Artwork Log [1]. Without a PO the buyer cannot commit a ship date to the vendor [2]. The buyers end up absorbing the delay [3]."
+  }
+}

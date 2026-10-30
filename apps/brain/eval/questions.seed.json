@@ -1,0 +1,66 @@
+{
+  "questions": [
+    {
+      "question": "Where does licensing approval stall and why?",
+      "expected_points": [
+        "Approval stalls at the licensor sign-off step",
+        "The Licensing Manager (Jessica) has to record the sign-off",
+        "A licensor rejection sends the package back through a rework loop"
+      ],
+      "expected_source_titles": [
+        "licensing-approval-procedure.pdf",
+        "teams-approval-2026-03-14.txt",
+        "licensing-approval-flowchart.png"
+      ]
+    },
+    {
+      "question": "Who records the licensor sign-off, and where is it recorded?",
+      "expected_points": [
+        "Jessica, the Licensing Manager, records the sign-off",
+        "The sign-off is recorded in the Artwork Log",
+        "Recording the sign-off comes before the purchase order is created"
+      ],
+      "expected_source_titles": [
+        "licensing-approval-procedure.pdf",
+        "teams-approval-2026-03-14.txt",
+        "licensing-approval-flowchart.png"
+      ]
+    },
+    {
+      "question": "What happens when the licensor rejects an artwork package?",
+      "expected_points": [
+        "The package is fixed and resubmitted",
+        "The resubmitted package goes back into the same approval queue",
+        "Each rejection adds weeks to the sign-off date"
+      ],
+      "expected_source_titles": [
+        "teams-approval-2026-03-14.txt",
+        "licensing-approval-flowchart.png"
+      ]
+    },
+    {
+      "question": "How long should licensor sign-off take, and how long does it take in practice?",
+      "expected_points": [
+        "The procedure expects sign-off within five business days",
+        "The Meadow Lane set has waited ten business days or more",
+        "The procedure calls for escalation when sign-off is late"
+      ],
+      "expected_source_titles": [
+        "licensing-approval-procedure.pdf",
+        "teams-approval-2026-03-14.txt"
+      ]
+    },
+    {
+      "question": "Why can't buyers raise a purchase order while licensing approval is pending?",
+      "expected_points": [
+        "A purchase order cannot be cut until the sign-off is recorded",
+        "Buyers cannot commit a ship date to the vendor without the purchase order",
+        "Buyers absorb the delay when sign-off is slow"
+      ],
+      "expected_source_titles": [
+        "teams-approval-2026-03-14.txt",
+        "licensing-approval-flowchart.png"
+      ]
+    }
+  ]
+}

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from brain.db import get_pool
+from brain.eval.run import handle_evaluate
 from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
 from brain.graph.communities import handle_communities
@@ -28,6 +29,7 @@ HANDLERS: dict[str, Handler] = {
     "resolve": handle_resolve,
     "project": handle_project,
     "communities": handle_communities,
+    "evaluate": handle_evaluate,
 }
 
 

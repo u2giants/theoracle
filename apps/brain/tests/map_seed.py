@@ -195,10 +195,39 @@ ON CONFLICT (id) DO NOTHING;
 """
 
 
+def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Two replayed eval runs of the seed questions (plan step 11 page test).
+
+    The first run drops every citation (as a broken pipeline would) so the
+    page has a run-over-run change to show; the second is the normal replay.
+    """
+    from test_answer import _point_embeddings, fake_compress
+    from test_eval_fixture import EvalAnswers, KeywordGrader
+
+    from brain.answer import answer as answer_mod
+    from brain.eval import run as eval_mod
+
+    _point_embeddings(db)
+    eval_mod.load_seed()
+    monkeypatch.setattr(answer_mod, "_post_chat", EvalAnswers())
+    monkeypatch.setattr(eval_mod, "_post_chat", KeywordGrader())
+    fake_compress(monkeypatch)
+    real_finalize = answer_mod._finalize_local
+    with monkeypatch.context() as broken:
+        broken.setattr(
+            answer_mod,
+            "_finalize_local",
+            lambda answer_md, raw, chunks: real_finalize(answer_md, raw, []),
+        )
+        first = eval_mod.run_eval()
+    second = eval_mod.run_eval()
+    return {"eval_first_mean": first["mean_score"], "eval_mean": second["mean_score"]}
+
+
 def _reset(db: Any) -> None:
     db.execute(
         "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
-        "cmap.graph_version CASCADE"
+        "cmap.graph_version, cmap.eval_question, cmap.eval_run CASCADE"
     )
     db.commit()
 
@@ -223,6 +252,7 @@ def main() -> None:
         _reset(db)
         with pytest.MonkeyPatch.context() as monkeypatch:
             ids = seed_map(db, monkeypatch)
+            ids.update(seed_eval(db, monkeypatch))
     print(json.dumps(ids))
 
 

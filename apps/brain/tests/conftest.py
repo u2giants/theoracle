@@ -96,7 +96,7 @@ def _clean_cmap() -> None:
     with psycopg.connect(settings.database_url, connect_timeout=5) as conn:
         conn.execute(
             "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
-            "cmap.graph_version CASCADE"
+            "cmap.graph_version, cmap.eval_question, cmap.eval_run CASCADE"
         )
         conn.commit()
 
