@@ -306,6 +306,28 @@ def _store(conn: psycopg.Connection, community_id: str, rec: dict[str, Any]) -> 
     return str(row[0])
 
 
+def _existing_block(problems: list[str]) -> str:
+    """Numbered DATA list of problems already recommended (or ``none``)."""
+    if not problems:
+        return "none"
+    return "\n".join(f"{index}. {text}" for index, text in enumerate(problems, 1))
+
+
+def _duplicate_index(raw: Any, total: int) -> int | None:
+    """The 1-based existing-problem number the model marked, if any is valid."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        index = raw
+    elif isinstance(raw, float) and raw.is_integer():
+        index = int(raw)
+    elif isinstance(raw, str) and raw.strip().isdigit():
+        index = int(raw.strip())
+    else:
+        return None
+    return index if 1 <= index <= total else None
+
+
 def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
     """Write one deduplicated recommendation per qualifying finding."""
     cfg = settings if settings is not None else get_settings()
@@ -331,7 +353,10 @@ def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
             quotes = _quotes(conn, candidate)
             evidence = [str(candidate["finding"].get("text") or "")]
             evidence.extend(item["quote"] for item in quotes)
-            prompt = template.replace("{{context}}", _context(candidate, quotes, titles))
+            prompt = (
+                template.replace("{{context}}", _context(candidate, quotes, titles))
+                .replace("{{existing_problems}}", _existing_block(existing_problems))
+            )
             try:
                 result = frontier.ask(prompt)
             except FrontierCapReached:
@@ -340,6 +365,9 @@ def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
             except Exception as exc:
                 logger.warning("recommendation failed: %s", exc)
                 stats["failed"] += 1
+                continue
+            if _duplicate_index(result.get("duplicate_of"), len(existing_problems)):
+                stats["duplicates"] += 1
                 continue
             rec = _normalise(result, set(titles), _has_numbers(evidence))
             if rec is None:
@@ -351,6 +379,7 @@ def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
                 continue
             _store(conn, candidate["community_id"], rec)
             conn.commit()
+            existing_problems.append(rec["problem"])
             existing_vectors.append(vector)
             stats["recommendations"] += 1
     stats.update(frontier.usage)

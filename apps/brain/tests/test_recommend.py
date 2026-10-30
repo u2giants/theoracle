@@ -53,9 +53,15 @@ def word_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
 class FakeRecommend:
     """Canned frontier recommendation; the problem echoes the finding text."""
 
-    def __init__(self, option_text: str = "Add a backup approver", problem: str | None = None):
+    def __init__(
+        self,
+        option_text: str = "Add a backup approver",
+        problem: str | None = None,
+        duplicate_of: int | None = None,
+    ):
         self.option_text = option_text
         self.problem = problem
+        self.duplicate_of = duplicate_of
         self.prompts: list[str] = []
 
     def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
@@ -66,6 +72,7 @@ class FakeRecommend:
         finding = prompt.split("FINDING:\n", 1)[1].split("\n", 1)[0]
         answer = {
             "problem": self.problem or f"Problem: {finding}",
+            "duplicate_of": self.duplicate_of,
             "explanations": [
                 {
                     "hypothesis": "Only one person can sign off, so work queues behind her.",
@@ -185,7 +192,7 @@ def test_no_numbers_without_metric_source(
     stats = run_recommend()
     assert stats["recommendations"] >= 1, stats
     for prompt in fake.prompts:
-        data = UUID_RE.sub("", prompt.split("<<<", 1)[1])
+        data = UUID_RE.sub("", prompt.split("DATA:\n<<<\n", 1)[1].split("\n>>>", 1)[0])
         evidence = data.split("SOURCES", 1)[0] + data.split("QUOTES:", 1)[1].split(
             "AREA REPORT", 1
         )[0]
@@ -255,6 +262,48 @@ def test_dedupe(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
     )
     third = run_recommend()
     assert third["recommendations"] == 1
+
+
+def test_model_marked_duplicate_skipped(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
+    """A model-flagged duplicate is dropped even when its cosine would keep it.
+
+    Step 13's live run stored five paraphrases of one licensing stall because
+    they scored below the 0.9 cosine gate; the prompt now asks the model to
+    name the existing problem it repeats, and that flag is decisive.
+    """
+    _seed(db, monkeypatch)
+    monkeypatch.setattr(
+        resolve_mod,
+        "_post_chat",
+        FakeRecommend(problem="Licensor sign-off stalls artwork approval"),
+    )
+    first = run_recommend()
+    assert first["recommendations"] == 1
+    fake = FakeRecommend(
+        problem="Purchase orders wait on a single approver's log entry",
+        duplicate_of=1,
+    )
+    monkeypatch.setattr(resolve_mod, "_post_chat", fake)
+    second = run_recommend()
+    assert second["candidates"] >= 2
+    assert second["recommendations"] == 0
+    assert second["duplicates"] == second["candidates"]
+    assert db.execute("SELECT count(*) FROM cmap.recommendation").fetchone()[0] == 1
+    assert "1. Licensor sign-off stalls artwork approval" in fake.prompts[0]
+    assert "EXISTING PROBLEMS" in fake.prompts[0]
+
+
+def test_duplicate_index_accepts_only_valid_numbers() -> None:
+    from brain.recommend.recommend import _duplicate_index
+
+    assert _duplicate_index(1, 2) == 1
+    assert _duplicate_index("2", 2) == 2
+    assert _duplicate_index(2.0, 2) == 2
+    assert _duplicate_index(None, 2) is None
+    assert _duplicate_index(True, 2) is None
+    assert _duplicate_index(0, 2) is None
+    assert _duplicate_index(3, 2) is None
+    assert _duplicate_index(1.5, 2) is None
 
 
 def test_api_sorted_hides_rejected_and_admin_status(
