@@ -21,6 +21,8 @@ SETTINGS_FIELDS = (
     "BRAIN_EVAL_MODEL",
     "BRAIN_VISION_MODEL",
     "BRAIN_EMBED_MODEL",
+    "BRAIN_EMBED_DIMS",
+    "BRAIN_SCALEDOWN_ENABLED",
     "SCALEDOWN_API_KEY",
     "BRAIN_SHARED_TOKEN",
     "BRAIN_INTERVIEW_ENABLED",
@@ -56,7 +58,7 @@ def test_brain_env_comes_from_variables_not_values() -> None:
     env = _env(brain)
     for name in SETTINGS_FIELDS:
         assert name in env, name
-        assert env[name].startswith("${"), name
+        assert re.fullmatch(r"\$\{" + name + r"(?::-[^}]*)?\}", env[name]), name
     assert env["FALKORDB_URL"] == "redis://oracle-falkordb:6379"
     assert env["BRAIN_IMPORT_DIR"] == "/data/import"
     assert any(v.endswith(":/data/import") for v in brain["volumes"])

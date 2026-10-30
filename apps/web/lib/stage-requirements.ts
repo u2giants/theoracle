@@ -97,14 +97,14 @@ export interface StageRequirement {
   color: string;
 }
 
-const CTX_REQ = (threshold: number): StageRequirement => ({
+export const CTX_REQ = (threshold: number): StageRequirement => ({
   check: (m) => m.contextLength != null && m.contextLength > threshold,
   label: `Context > ${threshold >= 1_000_000 ? `${threshold / 1_000_000}M` : `${threshold / 1_000}K`}`,
   icon: Maximize2,
   color: 'text-indigo-600 dark:text-indigo-400',
 });
 
-const CAP_REQ = (field: CapKey): StageRequirement => {
+export const CAP_REQ = (field: CapKey): StageRequirement => {
   const meta = CAP_BY_FIELD[field];
   return {
     check: (m) => !!m[field],
