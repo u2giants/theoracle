@@ -25,3 +25,12 @@ CREATE TABLE IF NOT EXISTS cmap.interview_setting (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO cmap.interview_setting (id, enabled) VALUES (true, true) ON CONFLICT (id) DO NOTHING;
+
+-- Every question actually sent, so the weekly cap counts skipped ones too.
+CREATE TABLE IF NOT EXISTS cmap.interview_send (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id uuid NOT NULL,           -- public.employees.id
+  question_id uuid REFERENCES cmap.open_question(id) ON DELETE SET NULL,
+  sent_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS interview_send_employee_idx ON cmap.interview_send (employee_id, sent_at);

@@ -227,7 +227,8 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
     """Step 12 questions page: one unrouted open question, one answered one,
     and the browser-test admin as an employee who has messaged the bot."""
-    db.execute("TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags")
+    db.execute("TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags, "
+        "cmap.interview_send")
     db.execute(
         "INSERT INTO cmap.teams_conversation (employee_id, conversation_ref) "
         "VALUES ('00000000-0000-4000-8000-0000000000e1', "
@@ -243,6 +244,10 @@ def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
         "'00000000-0000-4000-8000-0000000000e1', 'answered', now() - interval '1 hour', "
         "%s, now())",
         (INTERVIEW_ANSWERED, INTERVIEW_ANSWER),
+    )
+    db.execute(
+        "INSERT INTO cmap.interview_send (employee_id, sent_at) VALUES "
+        "('00000000-0000-4000-8000-0000000000e1', now() - interval '1 hour')"
     )
     db.commit()
     return {"interview_open": INTERVIEW_OPEN, "interview_answer": INTERVIEW_ANSWER}

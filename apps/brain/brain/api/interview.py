@@ -152,9 +152,8 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
                 SELECT e.id::text, COALESCE(e.name, e.email),
                        COALESCE(f.interviews_paused, false),
                        tc.employee_id IS NOT NULL,
-                       (SELECT count(*) FROM cmap.open_question q
-                        WHERE q.target_employee_id = e.id
-                          AND q.asked_at > now() - interval '7 days')
+                       (SELECT count(*) FROM cmap.interview_send s
+               WHERE s.employee_id = e.id AND s.sent_at > now() - interval '7 days')
                 FROM public.employees e
                 LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id
                 LEFT JOIN cmap.teams_conversation tc ON tc.employee_id = e.id

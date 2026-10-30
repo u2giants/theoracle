@@ -28,6 +28,7 @@ EXPECTED_TABLES = {
     "resolve_decision",  # added by step 6 (sql/002_resolve.sql)
     "teams_conversation",  # added by step 12 (sql/003_interviews.sql)
     "interview_setting",  # added by step 12 (sql/003_interviews.sql)
+    "interview_send",  # added by step 12 (sql/003_interviews.sql)
 }
 
 

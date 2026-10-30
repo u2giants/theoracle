@@ -36,7 +36,10 @@ CONVERSATION_REF = {
 
 @pytest.fixture(autouse=True)
 def _clean_interviews(db: Any) -> None:
-    db.execute("TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags")
+    db.execute(
+        "TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags, "
+        "cmap.interview_send"
+    )
     db.execute("UPDATE cmap.interview_setting SET enabled = true")
     db.commit()
 
@@ -152,9 +155,7 @@ def test_weekly_cap(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None
     assert second["asked"] == 0
     assert len(sent) == 2
 
-    db.execute(
-        "UPDATE cmap.open_question SET asked_at = now() - interval '8 days' WHERE state = 'asked'"
-    )
+    db.execute("UPDATE cmap.interview_send SET sent_at = now() - interval '8 days'")
     db.commit()
     third = run_interview_tick()
     assert third["asked"] == 1
@@ -326,3 +327,16 @@ def test_admin_overview_pause_and_route(
     assert client.post(
         "/interview/settings", json={"enabled": False}, headers=admin_headers
     ).json() == {"switch_enabled": False}
+
+
+def test_skipped_questions_still_count_toward_cap(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    person = _person(db, EMPLOYEE_NAME)
+    for n in range(5):
+        _question(db, f"Question {n}?", [person])
+    _connect()
+    for _ in range(5):
+        run_interview_tick()
+        handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip")
+    assert len(sent) == 2

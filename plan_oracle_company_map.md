@@ -681,7 +681,7 @@ Triggers:
 ## 12. Access and environment
 
 Env for `apps/brain` (all read by `brain/config.py`):
-`DATABASE_URL`, `DIRECT_URL` (Supabase; existing), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (storage; existing), `FALKORDB_URL` (new, `redis://oracle-falkordb:6379` on Coolify, `redis://localhost:6379` locally), `OPENROUTER_API_KEY` (1Password item `62ieeyycs4ierflalbbbt5pq5i`), `BRAIN_FRONTIER_MODEL`, `BRAIN_VISION_MODEL`, `BRAIN_EMBED_MODEL`, `BRAIN_EMBED_DIMS=1024`, `SCALEDOWN_API_KEY` (new 1Password item), `BRAIN_SCALEDOWN_ENABLED`, `BRAIN_SHARED_TOKEN` (random 32 bytes, new 1Password item "Oracle Brain shared token"), `BRAIN_MAX_FRONTIER_CALLS_PER_JOB`, `BRAIN_INTERVIEW_ENABLED`, `BRAIN_INTERVIEW_WEEKLY_CAP`, `BRAIN_IMPORT_DIR=/data/import`.
+`DATABASE_URL`, `DIRECT_URL` (Supabase; existing), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (storage; existing), `FALKORDB_URL` (new, `redis://oracle-falkordb:6379` on Coolify, `redis://localhost:6379` locally), `OPENROUTER_API_KEY` (1Password item `62ieeyycs4ierflalbbbt5pq5i`), `BRAIN_FRONTIER_MODEL`, `BRAIN_VISION_MODEL`, `BRAIN_EMBED_MODEL`, `BRAIN_EMBED_DIMS=1024`, `SCALEDOWN_API_KEY` (new 1Password item), `BRAIN_SCALEDOWN_ENABLED`, `BRAIN_SHARED_TOKEN` (random 32 bytes, new 1Password item "Oracle Brain shared token"), `BRAIN_MAX_FRONTIER_CALLS_PER_JOB`, `BRAIN_INTERVIEW_ENABLED`, `BRAIN_INTERVIEW_WEEKLY_CAP`, `BRAIN_WEB_BASE_URL` (step 12: the Vercel app origin the brain calls for `/api/teams/bot/proactive`), `BRAIN_IMPORT_DIR=/data/import`.
 
 Next.js additions: `BRAIN_BASE_URL`, `BRAIN_SHARED_TOKEN`.
 

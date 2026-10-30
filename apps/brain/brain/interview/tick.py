@@ -103,7 +103,8 @@ def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]
     """Employees the bot may write to now, keyed by normalised name.
 
     Reachable = has a stored conversation reference, not paused, and asked
-    fewer than ``cap`` questions in the last 7 days.
+    fewer than ``cap`` questions sent in the last 7 days (skipped
+    ones included, from ``cmap.interview_send``).
     """
     rows = conn.execute(
         """
@@ -113,9 +114,8 @@ def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]
         LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id
         WHERE e.disabled_at IS NULL AND e.name IS NOT NULL
           AND NOT COALESCE(f.interviews_paused, false)
-          AND (SELECT count(*) FROM cmap.open_question q
-               WHERE q.target_employee_id = e.id
-                 AND q.asked_at > now() - interval '7 days') < %s
+          AND (SELECT count(*) FROM cmap.interview_send s
+               WHERE s.employee_id = e.id AND s.sent_at > now() - interval '7 days') < %s
         """,
         (cap,),
     ).fetchall()
@@ -209,6 +209,10 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
             conn.execute(
                 "UPDATE cmap.open_question SET state = 'asked', asked_at = now(), "
                 "target_employee_id = %s WHERE id = %s",
+                (target.employee_id, qid),
+            )
+            conn.execute(
+                "INSERT INTO cmap.interview_send (employee_id, question_id) VALUES (%s, %s)",
                 (target.employee_id, qid),
             )
             conn.commit()
