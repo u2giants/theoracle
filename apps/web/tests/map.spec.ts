@@ -12,6 +12,8 @@ type Seed = {
   jessica_id: string;
   jessica_name: string;
   licensing_community_id: string;
+  eval_first_mean: number;
+  eval_mean: number;
 };
 
 const SHOTS = resolve(WEB_DIR, 'tests', '__screenshots__', 'map');
@@ -123,4 +125,25 @@ test('map → licensing community → Jessica → quote → highlighted transcri
     1,
   );
   await page.screenshot({ path: resolve(SHOTS, '04-transcript-highlighted.png') });
+});
+
+// Plan step 11 done-when: the eval page shows a run on the fixture corpus.
+test('eval page shows runs, the per-question table and the change since last run', async ({
+  page,
+  context,
+}) => {
+  const ids = seed();
+  await signIn(context);
+  await page.goto('/map/eval');
+  const runs = page.getByTestId('eval-runs');
+  await expect(runs).toBeVisible({ timeout: 60_000 });
+  await expect(runs.locator('tbody tr')).toHaveCount(2);
+  const pct = (value: number) => `${Math.round(value * 100)}%`;
+  await expect(page.getByTestId('eval-mean').first()).toHaveText(pct(ids.eval_mean));
+  await expect(page.getByTestId('eval-mean').nth(1)).toHaveText(pct(ids.eval_first_mean));
+  const results = page.getByTestId('eval-results');
+  await expect(results.locator('tbody tr')).toHaveCount(5);
+  await expect(results).toContainText('Where does licensing approval stall and why?');
+  await expect(page.getByTestId('eval-form')).toBeVisible();
+  await page.screenshot({ path: resolve(SHOTS, '05-eval-page.png'), fullPage: true });
 });
