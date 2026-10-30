@@ -202,10 +202,12 @@ Not started / not done:
   exactly-20-lowercase-letter word (Supabase project refs are exactly 20
   letters — `modelcontextprotocol` survives only via the repo allowlist),
   (b) RFC1918 + Tailscale-range IPs (100.64/10), (c) `https?://<bare-IP>`
-  authorities, (d) credential-shaped strings. Dependency versions like
-  `10.4.0.35` are filtered by `tools/public-boundary-version-spans.py` but
-  ONLY when Python is on the bash PATH. The repo under check carries its own
-  `tools/public-boundary-allowlist.txt`.
+  authorities, (d) credential-shaped strings. Dependency versions that LOOK
+  like private IPs (e.g. the nvidia-curand version string) are filtered by
+  `tools/public-boundary-version-spans.py` but ONLY when Python is on the bash
+  PATH — and a bare quoted version in prose is NOT a proven version span, so
+  never quote one literally in a doc. The repo under check carries its own
+  `tools/public-boundary-allowlist.txt` for the exactly-20-letter words.
 - **eval provenance is now the bake-off's audit trail:** `cmap.eval_run.models`
   records the resolved answer/grade models (post-#295 split) + raw slots +
   per-model extraction row counts. The bake-off results table in the job brief
