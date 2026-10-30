@@ -34,7 +34,7 @@ type Result = {
   error: string | null;
 };
 
-type Diff = { question: string; score: number; previous: number | null; delta: number | null };
+type Diff = { question_id?: string | null; question: string; score: number; previous: number | null; delta: number | null };
 
 type Run = {
   id: string;
@@ -150,7 +150,7 @@ function QuestionForm({ onAdded }: { onAdded: () => void }) {
 }
 
 function RunTable({ run }: { run: Run }) {
-  const deltas = new Map(run.diff.map((item) => [item.question, item.delta]));
+  const deltas = new Map(run.diff.map((item) => [item.question_id ?? item.question, item.delta]));
   return (
     <table className="w-full text-left text-sm" data-testid="eval-results">
       <thead>
@@ -171,7 +171,7 @@ function RunTable({ run }: { run: Run }) {
             </td>
             <td className="py-1 pr-2 font-medium">{pct(item.score)}</td>
             <td className="py-1 pr-2">
-              <Delta value={deltas.get(item.question) ?? null} />
+              <Delta value={deltas.get(item.question_id ?? item.question) ?? null} />
             </td>
             <td className="py-1 pr-2 text-xs">
               {[...item.missing, ...item.contradicted].length === 0
@@ -226,6 +226,12 @@ export function EvalClient({ isAdmin }: { isAdmin: boolean }) {
       cancelled = true;
     };
   }, [tick]);
+
+  useEffect(() => {
+    if (!runs || !['queued', 'running'].includes(runs.latest_job?.state ?? '')) return;
+    const timer = window.setTimeout(load, 2000);
+    return () => window.clearTimeout(timer);
+  }, [runs, tick, load]);
 
   async function runNow() {
     setMessage(null);

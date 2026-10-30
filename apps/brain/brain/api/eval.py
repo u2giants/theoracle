@@ -110,6 +110,8 @@ def queue_eval(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
     """Queue one ``evaluate`` job unless one is already queued or running."""
     del user
     with get_pool().connection() as conn:
+        # Serialize queue checks until commit; the insert then sees prior enqueues.
+        conn.execute("SELECT pg_advisory_xact_lock(283, 11)")
         row = conn.execute(
             "INSERT INTO cmap.job (kind, payload) SELECT 'evaluate', '{}'::jsonb "
             "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'evaluate' "
@@ -121,20 +123,28 @@ def queue_eval(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
     return {"queued": True, "job_id": row[0]}
 
 
+def _question_key(item: dict[str, Any]) -> tuple[str, str]:
+    # Legacy runs without ids can only be compared with other legacy runs.
+    if item.get("question_id") is not None:
+        return ("id", str(item["question_id"]))
+    return ("text", str(item.get("question")))
+
+
 def diff_runs(
     current: list[dict[str, Any]], previous: list[dict[str, Any]] | None
 ) -> list[dict[str, Any]]:
-    """Per-question score change against the previous run (matched by question text)."""
-    before: dict[str, float] = {}
+    """Per-question score change against the previous run (matched by question id)."""
+    before: dict[tuple[str, str], float] = {}
     for item in previous or []:
-        before[str(item.get("question"))] = float(item.get("score") or 0.0)
+        before[_question_key(item)] = float(item.get("score") or 0.0)
     out: list[dict[str, Any]] = []
     for item in current:
         question = str(item.get("question"))
         score = float(item.get("score") or 0.0)
-        old = before.get(question)
+        old = before.get(_question_key(item))
         out.append(
             {
+                "question_id": item.get("question_id"),
                 "question": question,
                 "score": score,
                 "previous": old,
