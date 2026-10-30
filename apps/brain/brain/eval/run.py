@@ -28,6 +28,7 @@ from brain.answer import answer as answer_mod
 from brain.answer.answer import AnswerError, answer_question, parse_model_json
 from brain.config import Settings, get_settings
 from brain.db import get_pool
+from brain.embed import EmbedError
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,11 @@ def normalize_grade(raw: dict[str, Any], total: int) -> dict[str, list[int]]:
 
     Contradicted wins over covered; every point the grader skipped is missing.
     """
+    if not any(key in raw for key in ("covered", "missing", "contradicted")):
+        raise EvalError("grade response has no grading fields")
+    if any(not isinstance(value, list) for key, value in raw.items()
+           if key in ("covered", "missing", "contradicted")):
+        raise EvalError("grade fields must be lists")
     contradicted = _indexes(raw.get("contradicted"), total)
     covered = [i for i in _indexes(raw.get("covered"), total) if i not in contradicted]
     missing = [i for i in range(total) if i not in covered and i not in contradicted]
@@ -266,10 +272,15 @@ def evaluate_question(
     }
     try:
         answer = answer_question(item["question"], "auto", [], settings, usage)
-    except AnswerError as exc:
+    except (AnswerError, EmbedError) as exc:
         result["error"] = f"answer failed: {exc}"
         return result
-    titles = [str(cite.get("title") or "") for cite in answer["citations"]]
+    markers = {int(value) for value in re.findall(r"\[(\d+)\]", answer["answer_md"])}
+    titles = [
+        str(cite.get("title") or "")
+        for index, cite in enumerate(answer["citations"], start=1)
+        if index in markers
+    ]
     result["answer_md"] = answer["answer_md"]
     result["mode_used"] = answer["mode_used"]
     result["cited_sources"] = [title for title in dict.fromkeys(titles) if title]
