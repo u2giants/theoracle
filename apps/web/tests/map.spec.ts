@@ -14,6 +14,8 @@ type Seed = {
   licensing_community_id: string;
   eval_first_mean: number;
   eval_mean: number;
+  interview_open: string;
+  interview_answer: string;
 };
 
 const SHOTS = resolve(WEB_DIR, 'tests', '__screenshots__', 'map');
@@ -146,4 +148,25 @@ test('eval page shows runs, the per-question table and the change since last run
   await expect(results).toContainText('Where does licensing approval stall and why?');
   await expect(page.getByTestId('eval-form')).toBeVisible();
   await page.screenshot({ path: resolve(SHOTS, '05-eval-page.png'), fullPage: true });
+});
+
+// Plan step 12: the admin open-question page shows the queue, history, the
+// reachable people with a pause switch, and the global switch.
+test('open-question page shows queue, history and per-person pause', async ({ page, context }) => {
+  const ids = seed();
+  await signIn(context);
+  await page.goto('/map/questions');
+  const open = page.getByTestId('open-questions');
+  await expect(open).toBeVisible({ timeout: 60_000 });
+  await expect(open).toContainText(ids.interview_open);
+  await expect(open).toContainText('nobody reachable yet');
+  await expect(page.getByTestId('question-history')).toContainText(ids.interview_answer);
+  await expect(page.getByTestId('interview-switch')).toContainText('Teams interviews: off');
+  const people = page.getByTestId('interview-employees');
+  await expect(people).toContainText('Map Test Admin');
+  await page.screenshot({ path: resolve(SHOTS, '06-questions-page.png'), fullPage: true });
+  await people.getByRole('button', { name: 'Pause' }).click();
+  await expect(people.getByRole('button', { name: 'Resume' })).toBeVisible();
+  await people.getByRole('button', { name: 'Resume' }).click();
+  await expect(people.getByRole('button', { name: 'Pause' })).toBeVisible();
 });

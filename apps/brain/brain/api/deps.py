@@ -67,3 +67,27 @@ def require_admin(user: Annotated[User, Depends(current_user)]) -> User:
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="admin required")
     return user
+
+
+def require_service(x_brain_token: str = Header(default="")) -> None:
+    """Accept a server-to-server call carrying only the shared token.
+
+    Used by the Teams bot routes, which act for no logged-in employee.
+    """
+    expected = get_settings().brain_shared_token
+    if expected is None:
+        raise HTTPException(status_code=503, detail="BRAIN_SHARED_TOKEN is not set")
+    if x_brain_token != expected:
+        raise HTTPException(status_code=401, detail="invalid x-brain-token")
+
+
+def admin_or_service(
+    x_brain_token: str = Header(default=""),
+    x_user_id: str = Header(default=""),
+) -> User | None:
+    """An admin employee, or ``None`` for a service call with no user header."""
+    if not x_user_id:
+        require_service(x_brain_token)
+        return None
+    user = current_user(x_brain_token=x_brain_token, x_user_id=x_user_id)
+    return require_admin(user)

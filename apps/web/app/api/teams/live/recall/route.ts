@@ -4,10 +4,15 @@
 // `transcript.data` utterances here while the meeting is still in progress.
 // Keep this handler fast: verify the signature, enqueue a worker task, return
 // 202. The worker owns DB writes, LLM calls, and Teams chat replies.
+//
+// Company Map (plan step 12): when Recall reports a finished transcript
+// (`transcript.done` or `bot.done`), the final transcript is also recorded
+// in the brain as a `transcript` source, after the response is sent.
 
-import { NextResponse, type NextRequest } from 'next/server';
+import { after, NextResponse, type NextRequest } from 'next/server';
 import { triggerTask } from '@/lib/trigger';
 import { verifyRecallRequest } from '@/lib/recall';
+import { finishedTranscriptRef, recordFinishedTranscript } from '@/lib/recall-cmap';
 import { requestReplacementMeetingIngress } from '@/lib/replacement-protected-client';
 import { unavailableControl } from '@/lib/replacement-control-window';
 
@@ -37,6 +42,16 @@ export async function POST(req: NextRequest): Promise<Response> {
     body = JSON.parse(raw);
   } catch {
     return NextResponse.json({ error: 'bad_json' }, { status: 400 });
+  }
+
+  if (finishedTranscriptRef(body)) {
+    after(async () => {
+      try {
+        await recordFinishedTranscript(body);
+      } catch (err) {
+        console.warn('[teams/live/recall] company map transcript capture failed', err);
+      }
+    });
   }
 
   void triggerTask('teams-live-recall-utterance', {

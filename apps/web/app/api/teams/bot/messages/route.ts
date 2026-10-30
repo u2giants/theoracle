@@ -9,42 +9,21 @@
 // plain "join" can work there. If Teams does not provide it, we ask for the
 // link. The actual live listener is still Recall.ai; this bot is the Teams UX
 // wrapper that summons Recall into the meeting.
+//
+// Company Map interviews (plan step 12): every message is first offered to
+// the brain, which stores the sender's conversation reference (the only way
+// the bot may later write to them), handles "stop"/"skip", and records a
+// reply to an asked question as a source. Messages the brain does not claim
+// fall through to the join-meeting behaviour below.
 
 import { NextResponse, type NextRequest } from 'next/server';
-import {
-  ActivityTypes,
-  CloudAdapter,
-  ConfigurationBotFrameworkAuthentication,
-  TeamsInfo,
-  TurnContext,
-  type Activity,
-} from 'botbuilder';
+import { ActivityTypes, TeamsInfo, TurnContext, type Activity } from 'botbuilder';
 import { createRecallLiveBot, type RecallSttProvider } from '@/lib/recall';
+import { brainService } from '@/lib/brain-service';
+import { getTeamsBotAdapter } from '@/lib/teams-bot-adapter';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-let adapterSingleton: CloudAdapter | null = null;
-
-function getAdapter(): CloudAdapter {
-  const appId = process.env.MICROSOFT_BOT_APP_ID;
-  const appPassword = process.env.MICROSOFT_BOT_APP_PASSWORD;
-  const appTenantId = process.env.MICROSOFT_BOT_TENANT_ID;
-  if (!appId || !appPassword) {
-    throw new Error('MICROSOFT_BOT_APP_ID / MICROSOFT_BOT_APP_PASSWORD are not configured');
-  }
-  if (!adapterSingleton) {
-    adapterSingleton = new CloudAdapter(
-      new ConfigurationBotFrameworkAuthentication({
-        MicrosoftAppId: appId,
-        MicrosoftAppPassword: appPassword,
-        MicrosoftAppType: appTenantId ? 'SingleTenant' : 'MultiTenant',
-        MicrosoftAppTenantId: appTenantId,
-      }),
-    );
-  }
-  return adapterSingleton;
-}
 
 function removeBotMention(context: TurnContext): string {
   const activity = context.activity;
@@ -87,6 +66,43 @@ async function meetingJoinUrlFromContext(context: TurnContext): Promise<string |
   }
 }
 
+type InboundResult = { handled?: boolean; reply?: string | null };
+
+async function senderEmail(context: TurnContext): Promise<string | null> {
+  const from = context.activity.from;
+  if (!from?.id) return null;
+  try {
+    const member = await TeamsInfo.getMember(context, from.id);
+    return member.email ?? member.userPrincipalName ?? null;
+  } catch (err) {
+    console.warn('[teams/bot] could not load sender profile', err);
+    return null;
+  }
+}
+
+// Returns true when the brain handled the message as an interview reply.
+async function offerToInterviews(context: TurnContext, text: string): Promise<boolean> {
+  if (!process.env.BRAIN_BASE_URL || !process.env.BRAIN_SHARED_TOKEN) return false;
+  const email = await senderEmail(context);
+  if (!email) return false;
+  try {
+    const result = await brainService<InboundResult>('interview/teams/inbound', {
+      method: 'POST',
+      body: {
+        email,
+        conversation_ref: TurnContext.getConversationReference(context.activity),
+        text,
+      },
+    });
+    if (result.status !== 200 || !result.body?.handled) return false;
+    if (result.body.reply) await context.sendActivity(result.body.reply);
+    return true;
+  } catch (err) {
+    console.warn('[teams/bot] interview hand-off failed', err);
+    return false;
+  }
+}
+
 async function handleTurn(context: TurnContext, req: NextRequest): Promise<void> {
   if (context.activity.type !== ActivityTypes.Message) {
     if (context.activity.type === ActivityTypes.ConversationUpdate) {
@@ -96,6 +112,7 @@ async function handleTurn(context: TurnContext, req: NextRequest): Promise<void>
   }
 
   const commandText = removeBotMention(context);
+  if (await offerToInterviews(context, commandText)) return;
   if (!isJoinCommand(commandText)) {
     await context.sendActivity('To bring Oracle into this meeting, type "join" or "join <Teams meeting link>".');
     return;
@@ -143,7 +160,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const adapter = getAdapter();
+    const adapter = getTeamsBotAdapter();
     await adapter.processActivityDirect(req.headers.get('authorization') ?? '', body, async (context) => {
       await handleTurn(context, req);
     });
