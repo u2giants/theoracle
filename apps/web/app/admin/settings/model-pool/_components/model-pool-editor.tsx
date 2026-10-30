@@ -403,7 +403,7 @@ export function ModelPoolEditor({
   const filtersActive = !!(nameFilter || minContext || maxPrice || capFilters.size || sortBy);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Catalog freshness + refresh */}
       <div className="flex items-center gap-3 flex-wrap text-sm">
         <span className="text-muted-foreground">
@@ -454,11 +454,12 @@ export function ModelPoolEditor({
         )}
       </div>
 
-      {/* Per-stage controls row */}
-      <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
+      {/* Per-stage pool controls — one compact menu per stage (replaces the
+          duplicated Clear / "Copy from X" link rows). */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
         {POOL_KEYS.map((stage) => (
-          <div key={stage} className="flex items-center gap-2">
-            <span className="font-medium text-foreground">{POOL_LABELS[stage]}:</span>
+          <div key={stage} className="flex items-center gap-1.5">
+            <span className="font-medium text-foreground">{POOL_LABELS[stage]}</span>
             <button
               type="button"
               onClick={() => clearStage(stage)}
@@ -466,237 +467,248 @@ export function ModelPoolEditor({
             >
               Clear
             </button>
-            {POOL_KEYS.filter((s) => s !== stage).map((src) => (
-              <button
-                key={src}
-                type="button"
-                onClick={() => copyFrom(src, stage)}
-                className="underline underline-offset-2 hover:text-foreground"
-                title={`Replace ${POOL_LABELS[stage]} pool with a copy of ${POOL_LABELS[src]}`}
-              >
-                Copy from {POOL_LABELS[src]}
-              </button>
-            ))}
+            <select
+              value=""
+              onChange={(e) => {
+                const src = e.target.value as PoolKey | '';
+                if (src) {
+                  copyFrom(src, stage);
+                  e.currentTarget.value = '';
+                }
+              }}
+              title={`Replace the ${POOL_LABELS[stage]} pool with a copy of another pool`}
+              className="rounded border border-input bg-background px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="">Copy from…</option>
+              {POOL_KEYS.filter((s) => s !== stage).map((src) => (
+                <option key={src} value={src}>
+                  {POOL_LABELS[src]}
+                </option>
+              ))}
+            </select>
           </div>
         ))}
       </div>
 
-      {/* Provider groups */}
-      <div className="space-y-6">
-        {PROVIDER_ORDER.map((providerKey) => {
-          const providerModels = sortModels(filtered.filter((m) => m.provider === providerKey));
-          if (providerModels.length === 0) return null;
-          return (
-            <section key={providerKey}>
-              <h2 className="text-sm font-semibold text-foreground mb-2">
-                {PROVIDER_LABELS[providerKey]}
-              </h2>
-              <div className="rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/40">
-                    <tr className="align-bottom">
-                      {/* Model column header — name filter */}
-                      <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground">
-                        <div className="flex flex-col gap-1.5">
-                          <span>Model</span>
-                          <input
-                            type="text"
-                            placeholder="filter by name…"
-                            value={nameFilter}
-                            onChange={(e) => setNameFilter(e.target.value)}
-                            className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-44"
-                          />
-                        </div>
-                      </th>
-                      {/* Context column — sort + min-context filter */}
-                      <th className="text-right px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">
-                        <div className="flex flex-col items-end gap-1.5">
-                          <SortLabel label="Context" active={sortBy === 'context'} dir={sortDir} onClick={() => toggleSort('context')} />
-                          <input
-                            type="text"
-                            placeholder="≥ tokens"
-                            value={minContext}
-                            onChange={(e) => setMinContext(e.target.value)}
-                            className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-24 text-right"
-                          />
-                        </div>
-                      </th>
-                      {/* Price column — sort + max-price filter */}
-                      <th className="text-right px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">
-                        <div className="flex flex-col items-end gap-1.5">
-                          <SortLabel label="$/1M (in/out)" active={sortBy === 'price'} dir={sortDir} onClick={() => toggleSort('price')} />
-                          <input
-                            type="text"
-                            placeholder="≤ $/1M in"
-                            value={maxPrice}
-                            onChange={(e) => setMaxPrice(e.target.value)}
-                            className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-24 text-right"
-                          />
-                        </div>
-                      </th>
-                      {/* Capability columns — icon header, click icon to filter on this cap */}
-                      {CAPS.map((cap) => {
-                        const active = capFilters.has(cap.field);
-                        return (
-                          <th key={cap.field} className="text-center px-1.5 py-2 font-medium text-xs text-muted-foreground w-10">
-                            <button
-                              type="button"
-                              title={`${cap.long}\nClick to filter to models with this capability`}
-                              onClick={() => toggleCapFilter(cap.field)}
+      {/* Provider groups — ONE shared sticky filter header for every provider
+          table (previously repeated per provider), inside one horizontally
+          scrollable wrapper. */}
+      <div className="rounded-md border overflow-auto max-h-[80vh]">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40 sticky top-0 z-10">
+            <tr className="align-bottom">
+              {/* Model column header — name filter */}
+              <th className="text-left px-2.5 py-1.5 font-medium text-xs text-muted-foreground">
+                <div className="flex flex-col gap-1.5">
+                  <span>Model</span>
+                  <input
+                    type="text"
+                    placeholder="filter by name…"
+                    value={nameFilter}
+                    onChange={(e) => setNameFilter(e.target.value)}
+                    className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-44"
+                  />
+                </div>
+              </th>
+              {/* Context column — sort + min-context filter */}
+              <th className="text-right px-2.5 py-1.5 font-medium text-xs text-muted-foreground whitespace-nowrap">
+                <div className="flex flex-col items-end gap-1.5">
+                  <SortLabel label="Context" active={sortBy === 'context'} dir={sortDir} onClick={() => toggleSort('context')} />
+                  <input
+                    type="text"
+                    placeholder="≥ tokens"
+                    value={minContext}
+                    onChange={(e) => setMinContext(e.target.value)}
+                    className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-24 text-right"
+                  />
+                </div>
+              </th>
+              {/* Price column — sort + max-price filter */}
+              <th className="text-right px-2.5 py-1.5 font-medium text-xs text-muted-foreground whitespace-nowrap">
+                <div className="flex flex-col items-end gap-1.5">
+                  <SortLabel label="$/1M (in/out)" active={sortBy === 'price'} dir={sortDir} onClick={() => toggleSort('price')} />
+                  <input
+                    type="text"
+                    placeholder="≤ $/1M in"
+                    value={maxPrice}
+                    onChange={(e) => setMaxPrice(e.target.value)}
+                    className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-24 text-right"
+                  />
+                </div>
+              </th>
+              {/* Capability columns — icon header, click icon to filter on this cap */}
+              {CAPS.map((cap) => {
+                const active = capFilters.has(cap.field);
+                return (
+                  <th key={cap.field} className="text-center px-1.5 py-1.5 font-medium text-xs text-muted-foreground w-10">
+                    <button
+                      type="button"
+                      title={`${cap.long}\nClick to filter to models with this capability`}
+                      onClick={() => toggleCapFilter(cap.field)}
+                      className={cn(
+                        'inline-flex items-center justify-center rounded p-1 hover:bg-muted',
+                        active && 'bg-primary/15 ring-1 ring-primary/40',
+                      )}
+                    >
+                      <cap.icon className={cn('h-3.5 w-3.5', cap.color)} />
+                    </button>
+                  </th>
+                );
+              })}
+              {/* Stage columns — label + all required-cap icons */}
+              {POOL_KEYS.map((stage) => (
+                <th key={stage} className="text-center px-2.5 py-1.5 font-medium text-xs text-muted-foreground whitespace-nowrap">
+                  <div className="flex flex-col items-center gap-1">
+                    <span>{POOL_LABELS[stage]}</span>
+                    <div className="flex items-center gap-0.5">
+                      {(stage === 'vision'
+                        ? [
+                            {
+                              label: CAP_BY_FIELD.vision.long,
+                              icon: CAP_BY_FIELD.vision.icon,
+                              color: CAP_BY_FIELD.vision.color,
+                            },
+                          ]
+                        : stage === 'workflow_read'
+                          ? [
+                              {
+                                label: CAP_BY_FIELD.structuredOutputs.long,
+                                icon: CAP_BY_FIELD.structuredOutputs.icon,
+                                color: CAP_BY_FIELD.structuredOutputs.color,
+                              },
+                              STAGE_REQUIREMENTS.extraction[1]!,
+                            ]
+                          : stage === 'model_merge' || stage === 'macro'
+                        ? [
+                            {
+                              label: CAP_BY_FIELD.structuredOutputs.long,
+                              icon: CAP_BY_FIELD.structuredOutputs.icon,
+                              color: CAP_BY_FIELD.structuredOutputs.color,
+                            },
+                          ]
+                        : stage === 'translation' ||
+                            stage === 'transcript_summary' ||
+                            stage === 'general'
+                          ? []
+                          : STAGE_REQUIREMENTS[stage]
+                      ).map((req, i) => (
+                        <req.icon key={i} className={cn('h-3 w-3', req.color)} aria-label={`Requires ${req.label}`} />
+                      ))}
+                    </div>
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          {PROVIDER_ORDER.map((providerKey) => {
+            const providerModels = sortModels(filtered.filter((m) => m.provider === providerKey));
+            if (providerModels.length === 0) return null;
+            return (
+              <tbody key={providerKey} className="divide-y">
+                <tr>
+                  <th
+                    colSpan={3 + CAPS.length + POOL_KEYS.length}
+                    className="bg-muted/60 text-left px-2.5 py-1.5 text-sm font-semibold text-foreground"
+                  >
+                    {PROVIDER_LABELS[providerKey]}
+                  </th>
+                </tr>
+                {providerModels.map((m) => (
+                  <tr key={m.id} className="hover:bg-muted/30">
+                    <td className="px-2.5 py-1.5 align-middle">
+                      <span className="font-mono text-xs text-foreground block">{m.id}</span>
+                      {m.name !== m.id && (
+                        <span className="text-xs text-muted-foreground block mt-0.5">{m.name}</span>
+                      )}
+                    </td>
+                    <td className="px-2.5 py-1.5 align-middle text-right text-xs text-muted-foreground whitespace-nowrap">
+                      {m.contextLength != null ? `${fmtCtx(m.contextLength)} tok` : '—'}
+                    </td>
+                    <td className="px-2.5 py-1.5 align-middle text-right text-xs text-muted-foreground font-mono whitespace-nowrap">
+                      {m.promptPer1M != null
+                        ? (m.promptPer1M === 0 && (m.completionPer1M ?? 0) === 0
+                          ? 'Free'
+                          : `$${fmtPrice(m.promptPer1M)} / $${fmtPrice(m.completionPer1M ?? 0)}`)
+                        : '—'}
+                    </td>
+                    {/* Capability cells */}
+                    {CAPS.map((cap) => (
+                      <td
+                        key={cap.field}
+                        className="text-center px-1.5 py-1.5 align-middle"
+                        title={m[cap.field] ? cap.long : `No ${cap.short.toLowerCase()}`}
+                      >
+                        {m[cap.field] ? (
+                          <cap.icon className={cn('h-3.5 w-3.5 inline-block', cap.color)} />
+                        ) : (
+                          <span className="text-muted-foreground/30">—</span>
+                        )}
+                      </td>
+                    ))}
+                    {/* Stage checkbox cells.
+                        Ineligible models stay SELECTABLE; the checkbox renders red
+                        (border + accent) and the hover tooltip lists missing capabilities.
+                        Admin override is intentional — sometimes a model is good enough
+                        for a stage even when one capability flag is missing. */}
+                    {POOL_KEYS.map((stage) => {
+                      const checked = pools[stage].has(m.id);
+                      const missing = missingPoolReqs(m, stage);
+                      const eligible = missing.length === 0;
+                      const reasonText = !eligible
+                        ? `Override — missing: ${missing.map((r) => r.label).join(', ')}`
+                        : undefined;
+                      return (
+                        <td key={stage} className="px-2.5 py-1.5 text-center align-middle">
+                          <div className="relative inline-block group">
+                            <label
+                              title={reasonText}
                               className={cn(
-                                'inline-flex items-center justify-center rounded p-1 hover:bg-muted',
-                                active && 'bg-primary/15 ring-1 ring-primary/40',
+                                'inline-flex items-center justify-center rounded px-1.5 py-0.5 cursor-pointer',
+                                checked && eligible && 'bg-primary/10',
+                                checked && !eligible && 'bg-red-100 dark:bg-red-950/40',
                               )}
                             >
-                              <cap.icon className={cn('h-3.5 w-3.5', cap.color)} />
-                            </button>
-                          </th>
-                        );
-                      })}
-                      {/* Stage columns — label + all required-cap icons */}
-                      {POOL_KEYS.map((stage) => (
-                        <th key={stage} className="text-center px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">
-                          <div className="flex flex-col items-center gap-1">
-                            <span>{POOL_LABELS[stage]}</span>
-                            <div className="flex items-center gap-0.5">
-                              {(stage === 'vision'
-                                ? [
-                                    {
-                                      label: CAP_BY_FIELD.vision.long,
-                                      icon: CAP_BY_FIELD.vision.icon,
-                                      color: CAP_BY_FIELD.vision.color,
-                                    },
-                                  ]
-                                : stage === 'workflow_read'
-                                  ? [
-                                      {
-                                        label: CAP_BY_FIELD.structuredOutputs.long,
-                                        icon: CAP_BY_FIELD.structuredOutputs.icon,
-                                        color: CAP_BY_FIELD.structuredOutputs.color,
-                                      },
-                                      STAGE_REQUIREMENTS.extraction[1]!,
-                                    ]
-                                  : stage === 'model_merge' || stage === 'macro'
-                                ? [
-                                    {
-                                      label: CAP_BY_FIELD.structuredOutputs.long,
-                                      icon: CAP_BY_FIELD.structuredOutputs.icon,
-                                      color: CAP_BY_FIELD.structuredOutputs.color,
-                                    },
-                                  ]
-                                : stage === 'translation' ||
-                                    stage === 'transcript_summary' ||
-                                    stage === 'general'
-                                  ? []
-                                  : STAGE_REQUIREMENTS[stage]
-                              ).map((req, i) => (
-                                <req.icon key={i} className={cn('h-3 w-3', req.color)} aria-label={`Requires ${req.label}`} />
-                              ))}
-                            </div>
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {providerModels.map((m) => (
-                      <tr key={m.id} className="hover:bg-muted/30">
-                        <td className="px-3 py-2 align-middle">
-                          <span className="font-mono text-xs text-foreground block">{m.id}</span>
-                          {m.name !== m.id && (
-                            <span className="text-xs text-muted-foreground block mt-0.5">{m.name}</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 align-middle text-right text-xs text-muted-foreground whitespace-nowrap">
-                          {m.contextLength != null ? `${fmtCtx(m.contextLength)} tok` : '—'}
-                        </td>
-                        <td className="px-3 py-2 align-middle text-right text-xs text-muted-foreground font-mono whitespace-nowrap">
-                          {m.promptPer1M != null
-                            ? (m.promptPer1M === 0 && (m.completionPer1M ?? 0) === 0
-                              ? 'Free'
-                              : `$${fmtPrice(m.promptPer1M)} / $${fmtPrice(m.completionPer1M ?? 0)}`)
-                            : '—'}
-                        </td>
-                        {/* Capability cells */}
-                        {CAPS.map((cap) => (
-                          <td
-                            key={cap.field}
-                            className="text-center px-1.5 py-2 align-middle"
-                            title={m[cap.field] ? cap.long : `No ${cap.short.toLowerCase()}`}
-                          >
-                            {m[cap.field] ? (
-                              <cap.icon className={cn('h-3.5 w-3.5 inline-block', cap.color)} />
-                            ) : (
-                              <span className="text-muted-foreground/30">—</span>
-                            )}
-                          </td>
-                        ))}
-                        {/* Stage checkbox cells.
-                            Ineligible models stay SELECTABLE; the checkbox renders red
-                            (border + accent) and the hover tooltip lists missing capabilities.
-                            Admin override is intentional — sometimes a model is good enough
-                            for a stage even when one capability flag is missing. */}
-                        {POOL_KEYS.map((stage) => {
-                          const checked = pools[stage].has(m.id);
-                          const missing = missingPoolReqs(m, stage);
-                          const eligible = missing.length === 0;
-                          const reasonText = !eligible
-                            ? `Override — missing: ${missing.map((r) => r.label).join(', ')}`
-                            : undefined;
-                          return (
-                            <td key={stage} className="px-3 py-2 text-center align-middle">
-                              <div className="relative inline-block group">
-                                <label
-                                  title={reasonText}
-                                  className={cn(
-                                    'inline-flex items-center justify-center rounded px-1.5 py-0.5 cursor-pointer',
-                                    checked && eligible && 'bg-primary/10',
-                                    checked && !eligible && 'bg-red-100 dark:bg-red-950/40',
-                                  )}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggle(stage, m.id)}
-                                    className={cn(
-                                      'size-4 rounded',
-                                      eligible
-                                        ? 'border-gray-300 accent-primary'
-                                        : 'border-red-500 accent-red-600 ring-1 ring-red-400/60',
-                                    )}
-                                    aria-label={`Include ${m.id} in ${POOL_LABELS[stage]} pool${eligible ? '' : ' (override — missing required capabilities)'}`}
-                                  />
-                                </label>
-                                {!eligible && (
-                                  <div
-                                    role="tooltip"
-                                    className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-red-300 bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 dark:border-red-800"
-                                  >
-                                    <div className="font-medium text-red-700 dark:text-red-400 mb-1">
-                                      Override — missing for {POOL_LABELS[stage]}:
-                                    </div>
-                                    <ul className="space-y-0.5">
-                                      {missing.map((r, i) => (
-                                        <li key={i} className="flex items-center gap-1.5">
-                                          <r.icon className={cn('h-3 w-3 shrink-0', r.color)} />
-                                          <span>{r.label}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggle(stage, m.id)}
+                                className={cn(
+                                  'size-4 rounded',
+                                  eligible
+                                    ? 'border-gray-300 accent-primary'
+                                    : 'border-red-500 accent-red-600 ring-1 ring-red-400/60',
                                 )}
+                                aria-label={`Include ${m.id} in ${POOL_LABELS[stage]} pool${eligible ? '' : ' (override — missing required capabilities)'}`}
+                              />
+                            </label>
+                            {!eligible && (
+                              <div
+                                role="tooltip"
+                                className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-red-300 bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 dark:border-red-800"
+                              >
+                                <div className="font-medium text-red-700 dark:text-red-400 mb-1">
+                                  Override — missing for {POOL_LABELS[stage]}:
+                                </div>
+                                <ul className="space-y-0.5">
+                                  {missing.map((r, i) => (
+                                    <li key={i} className="flex items-center gap-1.5">
+                                      <r.icon className={cn('h-3 w-3 shrink-0', r.color)} />
+                                      <span>{r.label}</span>
+                                    </li>
+                                  ))}
+                                </ul>
                               </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          );
-        })}
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            );
+          })}
+        </table>
       </div>
 
       {/* Save bar */}

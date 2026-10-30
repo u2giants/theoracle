@@ -24,9 +24,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { brainService } from '@/lib/brain-service';
 import { ModelPicker, type ReasoningEffort } from './_components/model-picker';
 import { DispatchModeToggle, type DispatchMode } from './_components/dispatch-mode-toggle';
 import { TeamsLiveBotCard } from './_components/teams-live-bot-card';
+import { CompanyMapStages } from './_components/company-map-stages';
+import type { CompanyMapModels } from './_components/stage-briefs';
 import { STAGE_REQUIREMENTS, type Stage } from '@/lib/stage-requirements';
 
 const EXTRACTION_DISPATCH_MODE_KEY = 'extraction_dispatch_mode';
@@ -756,22 +759,32 @@ export default async function AdminSettingsPage() {
   const rawDispatchMode = currentValues[EXTRACTION_DISPATCH_MODE_KEY];
   const dispatchMode: DispatchMode = rawDispatchMode === 'batch' ? 'batch' : 'sync';
 
+  // Live Company Map seats from the brain env (plan §11 — env only, no DB
+  // seats). Unreachable brain or missing env: cards render "not configured".
+  let companyMapModels: CompanyMapModels | null = null;
+  try {
+    const { status, body } = await brainService<{ models: CompanyMapModels }>('models');
+    if (status === 200 && body?.models) companyMapModels = body.models;
+  } catch {
+    companyMapModels = null;
+  }
+
   return (
-    <div className="space-y-8">
+    <div className="max-w-5xl space-y-8">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Model configuration for all Oracle tasks. Each role has different
-          capability and performance requirements — see descriptions below.
-          Changes take effect on the next run of that task.
+          Model configuration for the Company Map pipeline (below) and for the
+          legacy Oracle application (collapsed at the bottom). Changes take
+          effect on the next run of that task.
         </p>
         <p className="text-sm text-muted-foreground">
-          The pickers below show models from your{' '}
+          The legacy pickers draw from the{' '}
           <Link
             href="/admin/settings/model-pool"
             className="underline underline-offset-2 text-foreground hover:text-foreground/70"
           >
-            model pool
+            legacy application model pools
           </Link>
           . Stage requirements (capability flags + context-window thresholds)
           are enforced both here and on the pool page — they share the same
@@ -779,7 +792,9 @@ export default async function AdminSettingsPage() {
         </p>
       </header>
 
-      <Card className="max-w-2xl">
+      <CompanyMapStages models={companyMapModels} />
+
+      <Card>
         <CardHeader>
           <CardTitle className="text-base">Live Teams meeting bot</CardTitle>
           <CardDescription className="font-medium text-foreground/70">
@@ -796,84 +811,102 @@ export default async function AdminSettingsPage() {
         </CardContent>
       </Card>
 
-      {MODEL_ROLES.map((role) => {
-        const currentModel =
-          typeof currentValues[role.settingKey] === 'string'
-            ? (currentValues[role.settingKey] as string)
-            : null;
-        const resolved =
-          currentModel && role.stage ? resolveModelRoute(currentModel, role.stage) : null;
-        const currentResolvedModel = resolved
-          ? providerModelId(resolved.provider, resolved.modelId)
-          : null;
-        const rawEffort = role.effortSettingKey ? currentValues[role.effortSettingKey] : null;
-        const currentEffort: ReasoningEffort | null = isReasoningEffort(rawEffort) ? rawEffort : null;
+      <details className="group rounded-lg border bg-card">
+        <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">Legacy application model routes</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Interview, extraction, synthesis and auxiliary model routes for
+              the running legacy application. Behavior unchanged — expand to
+              edit.
+            </p>
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0 group-open:rotate-90 transition-transform">
+            ▸
+          </span>
+        </summary>
 
-        const card = (
-          <Card key={role.settingKey} className="max-w-2xl">
-            <CardHeader>
-              <CardTitle className="text-base">{role.title}</CardTitle>
-              <CardDescription className="font-medium text-foreground/70">
-                {role.subtitle}
-              </CardDescription>
-              <p className="text-sm text-muted-foreground mt-1">
-                {role.description}
-              </p>
-              {role.stage && <StageRequirementIcons stage={role.stage} />}
-            </CardHeader>
-            <CardContent>
-              <ModelPicker
-                currentModel={currentModel}
-                currentResolvedModel={currentResolvedModel}
-                currentEffort={currentEffort}
-                settingKey={role.settingKey}
-                settingDescription={role.settingDescription}
-                effortSettingKey={role.effortSettingKey}
-                effortSettingDescription={role.effortSettingDescription}
-                clipboardBrief={role.clipboardBrief}
-                auxiliary={role.auxiliary}
-              />
-            </CardContent>
-          </Card>
-        );
+        <div className="space-y-8 border-t px-4 py-6">
+          {MODEL_ROLES.map((role) => {
+            const currentModel =
+              typeof currentValues[role.settingKey] === 'string'
+                ? (currentValues[role.settingKey] as string)
+                : null;
+            const resolved =
+              currentModel && role.stage ? resolveModelRoute(currentModel, role.stage) : null;
+            const currentResolvedModel = resolved
+              ? providerModelId(resolved.provider, resolved.modelId)
+              : null;
+            const rawEffort = role.effortSettingKey ? currentValues[role.effortSettingKey] : null;
+            const currentEffort: ReasoningEffort | null = isReasoningEffort(rawEffort) ? rawEffort : null;
 
-        // After the Extraction card, inject the dispatch-mode toggle card —
-        // it controls how the extraction worker dispatches (sync vs Batch API).
-        if (role.stage === 'extraction') {
-          return (
-            <div key={role.settingKey} className="space-y-8">
-              {card}
-              <Card className="max-w-2xl">
+            const card = (
+              <Card key={role.settingKey}>
                 <CardHeader>
-                  <CardTitle className="text-base">Extraction dispatch mode</CardTitle>
+                  <CardTitle className="text-base">{role.title}</CardTitle>
                   <CardDescription className="font-medium text-foreground/70">
-                    Sync API vs provider Batch API
+                    {role.subtitle}
                   </CardDescription>
                   <p className="text-sm text-muted-foreground mt-1">
-                    The Batch API runs claim extraction asynchronously at about 50% off
-                    the sync price with a 24-hour SLA. Within a chat session the Oracle
-                    still reads live message history, so conversation quality is
-                    unchanged — only cross-session knowledge freshness drops by up to
-                    24 hours. See <strong>DECISIONS.md D14</strong> for the full
-                    trade-off analysis.
+                    {role.description}
                   </p>
+                  {role.stage && <StageRequirementIcons stage={role.stage} />}
                 </CardHeader>
                 <CardContent>
-                  <DispatchModeToggle
-                    currentMode={dispatchMode}
-                    extractionProvider={resolved?.provider ?? null}
-                    batchSupported={
-                      resolved ? providerSupportsTrackedBatch(resolved.provider) : false
-                    }
+                  <ModelPicker
+                    currentModel={currentModel}
+                    currentResolvedModel={currentResolvedModel}
+                    currentEffort={currentEffort}
+                    settingKey={role.settingKey}
+                    settingDescription={role.settingDescription}
+                    effortSettingKey={role.effortSettingKey}
+                    effortSettingDescription={role.effortSettingDescription}
+                    clipboardBrief={role.clipboardBrief}
+                    auxiliary={role.auxiliary}
                   />
                 </CardContent>
               </Card>
-            </div>
-          );
-        }
+            );
 
-        return card;
-      })}
+            // After the Extraction card, inject the dispatch-mode toggle card —
+            // it controls how the extraction worker dispatches (sync vs Batch API).
+            if (role.stage === 'extraction') {
+              return (
+                <div key={role.settingKey} className="space-y-8">
+                  {card}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Extraction dispatch mode</CardTitle>
+                      <CardDescription className="font-medium text-foreground/70">
+                        Sync API vs provider Batch API
+                      </CardDescription>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        The Batch API runs claim extraction asynchronously at about 50% off
+                        the sync price with a 24-hour SLA. Within a chat session the Oracle
+                        still reads live message history, so conversation quality is
+                        unchanged — only cross-session knowledge freshness drops by up to
+                        24 hours. See <strong>DECISIONS.md D14</strong> for the full
+                        trade-off analysis.
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <DispatchModeToggle
+                        currentMode={dispatchMode}
+                        extractionProvider={resolved?.provider ?? null}
+                        batchSupported={
+                          resolved ? providerSupportsTrackedBatch(resolved.provider) : false
+                        }
+                      />
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            }
+
+            return card;
+          })}
+        </div>
+      </details>
     </div>
   );
 }
