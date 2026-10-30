@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from starlette.datastructures import UploadFile
 
 from brain import storage as storage_mod
-from brain.api.deps import User, current_user, require_admin
+from brain.api.deps import User, admin_or_service, current_user, require_admin
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
 from brain.read.detect import (
@@ -148,7 +148,7 @@ def _insert_source(
     data_len: int,
     department_hint: str | None,
     effective_date: date | None,
-    uploaded_by: str,
+    uploaded_by: str | None,
 ) -> dict[str, Any]:
     """Insert one ``cmap.source`` row and queue its ``read_source`` job."""
     pool = get_pool()
@@ -209,7 +209,7 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
     }
 
 
-def _ingest_bytes(
+def ingest_bytes(
     *,
     kind: str,
     title: str,
@@ -217,7 +217,7 @@ def _ingest_bytes(
     data: bytes,
     department_hint: str | None,
     effective_date: date | None,
-    uploaded_by: str,
+    uploaded_by: str | None,
 ) -> dict[str, Any]:
     """Store ``data`` as a new source, or report the duplicate sha."""
     sha = hashlib.sha256(data).hexdigest()
@@ -304,7 +304,7 @@ async def create_source(
             return value
         return None
 
-    return _ingest_bytes(
+    return ingest_bytes(
         kind=kind,
         title=(_field("title") or "").strip() or _safe_name(raw_name),
         original_filename=raw_name,
@@ -318,9 +318,13 @@ async def create_source(
 @router.post("/sources/transcript")
 def create_transcript_source(
     body: TranscriptBody,
-    user: Annotated[User, Depends(require_admin)],
+    user: Annotated[User | None, Depends(admin_or_service)],
 ) -> dict[str, Any]:
-    """Ingest a pasted transcript (VTT, Teams JSON, Recall JSON or speaker lines)."""
+    """Ingest a pasted transcript (VTT, Teams JSON, Recall JSON or speaker lines).
+
+    Admins call this from the Sources page; the Recall.ai meeting route calls
+    it as a service (shared token, no user) when a meeting transcript is done.
+    """
     text = body.text or ""
     line_count = text.count("\n") + 1 if text else 0
     if line_count > MAX_TRANSCRIPT_LINES:
@@ -332,14 +336,14 @@ def create_transcript_source(
             ),
         )
     title = (body.title or "").strip() or "Transcript"
-    return _ingest_bytes(
+    return ingest_bytes(
         kind="transcript",
         title=title,
         original_filename=f"{_safe_name(title)}.txt",
         data=text.encode("utf-8"),
         department_hint=(body.department_hint or "").strip() or None,
         effective_date=_parse_effective_date(body.effective_date),
-        uploaded_by=user.auth_user_id,
+        uploaded_by=user.auth_user_id if user is not None else None,
     )
 
 
@@ -362,7 +366,7 @@ def import_bucket(user: Annotated[User, Depends(require_admin)]) -> dict[str, An
         except (DetectError, storage_mod.StorageError) as exc:
             errors.append({"key": key, "error": str(exc)})
             continue
-        result = _ingest_bytes(
+        result = ingest_bytes(
             kind=kind,
             title=name,
             original_filename=name,
@@ -420,7 +424,7 @@ def import_folder(
         except (DetectError, OSError) as exc:
             errors.append({"key": str(relative), "error": str(exc)})
             continue
-        result = _ingest_bytes(
+        result = ingest_bytes(
             kind=kind,
             title=file_path.name,
             original_filename=file_path.name,

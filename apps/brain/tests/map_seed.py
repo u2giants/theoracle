@@ -224,6 +224,35 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return {"eval_first_mean": first["mean_score"], "eval_mean": second["mean_score"]}
 
 
+def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
+    """Step 12 questions page: one unrouted open question, one answered one,
+    and the browser-test admin as an employee who has messaged the bot."""
+    db.execute("TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags")
+    db.execute(
+        "INSERT INTO cmap.teams_conversation (employee_id, conversation_ref) "
+        "VALUES ('00000000-0000-4000-8000-0000000000e1', "
+        "'{\"conversation\": {\"id\": \"a:map-e2e\"}}'::jsonb)"
+    )
+    db.execute(
+        "INSERT INTO cmap.open_question (question, why, entity_ids) VALUES (%s, %s, %s)",
+        (INTERVIEW_OPEN, "Licensing approval", [jessica_id]),
+    )
+    db.execute(
+        "INSERT INTO cmap.open_question (question, why, entity_ids, target_employee_id, "
+        "state, asked_at, answer, answered_at) VALUES (%s, 'Samples', '{}', "
+        "'00000000-0000-4000-8000-0000000000e1', 'answered', now() - interval '1 hour', "
+        "%s, now())",
+        (INTERVIEW_ANSWERED, INTERVIEW_ANSWER),
+    )
+    db.commit()
+    return {"interview_open": INTERVIEW_OPEN, "interview_answer": INTERVIEW_ANSWER}
+
+
+INTERVIEW_OPEN = "Who covers licensor approvals when Jessica is out?"
+INTERVIEW_ANSWERED = "Who books the sample room?"
+INTERVIEW_ANSWER = "Ilona books it every Monday."
+
+
 def _reset(db: Any) -> None:
     db.execute(
         "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
@@ -253,6 +282,7 @@ def main() -> None:
         with pytest.MonkeyPatch.context() as monkeypatch:
             ids = seed_map(db, monkeypatch)
             ids.update(seed_eval(db, monkeypatch))
+        ids.update(seed_interviews(db, ids["jessica_id"]))
     print(json.dumps(ids))
 
 

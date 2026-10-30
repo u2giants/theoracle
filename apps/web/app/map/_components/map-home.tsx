@@ -56,6 +56,9 @@ export function MapHome() {
           <Link className="underline" href="/map/eval">
             Evaluation
           </Link>
+          <Link className="underline" href="/map/questions">
+            Open questions
+          </Link>
         </nav>
       </header>
       <LoadState error={error} loading={loading} />

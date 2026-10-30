@@ -12,11 +12,11 @@ export interface RecallCreateBotArgs {
   metadata?: Record<string, string>;
 }
 
-function recallBaseUrl(): string {
+export function recallBaseUrl(): string {
   return (process.env.RECALL_BASE_URL ?? 'https://us-east-1.recall.ai').replace(/\/+$/, '');
 }
 
-function recallApiKey(): string {
+export function recallApiKey(): string {
   const key = process.env.RECALL_API_KEY;
   if (!key) throw new Error('RECALL_API_KEY is not configured');
   return key;
