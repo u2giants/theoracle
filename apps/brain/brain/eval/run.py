@@ -26,7 +26,7 @@ import httpx
 
 from brain.answer import answer as answer_mod
 from brain.answer.answer import AnswerError, answer_question, parse_model_json
-from brain.config import Settings, get_settings
+from brain.config import Settings, eval_model, get_settings
 from brain.db import get_pool
 
 logger = logging.getLogger(__name__)
@@ -52,13 +52,14 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     """POST one frontier grading request in JSON mode."""
     if settings.openrouter_api_key is None:
         raise EvalError("OPENROUTER_API_KEY is not set")
-    if settings.brain_frontier_model is None:
-        raise EvalError("BRAIN_FRONTIER_MODEL is not set")
+    model = eval_model(settings)
+    if model is None:
+        raise EvalError("BRAIN_EVAL_MODEL or BRAIN_FRONTIER_MODEL is not set")
     response = httpx.post(
         f"{answer_mod.OPENROUTER_BASE_URL}/chat/completions",
         headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
         json={
-            "model": settings.brain_frontier_model,
+            "model": model,
             "messages": messages,
             "temperature": 0,
             "max_tokens": MAX_TOKENS,

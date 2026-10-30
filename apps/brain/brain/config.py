@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     falkordb_url: str = "redis://localhost:6379"
     openrouter_api_key: str | None = None
     brain_frontier_model: str | None = None
+    # Human-facing conversation (question answers). Falls back to the frontier model.
+    brain_chat_model: str | None = None
+    # Eval grader; keep it fixed across runs so scores stay comparable.
+    brain_eval_model: str | None = None
     brain_vision_model: str | None = None
     brain_embed_model: str | None = None
     brain_embed_dims: int = 1024
@@ -42,3 +46,13 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the process-wide settings object."""
     return Settings()
+
+
+def chat_model(settings: Settings) -> str | None:
+    """Model for human-facing conversation: BRAIN_CHAT_MODEL, else the frontier model."""
+    return settings.brain_chat_model or settings.brain_frontier_model
+
+
+def eval_model(settings: Settings) -> str | None:
+    """Model that grades eval answers: BRAIN_EVAL_MODEL, else the frontier model."""
+    return settings.brain_eval_model or settings.brain_frontier_model
