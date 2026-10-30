@@ -1,0 +1,62 @@
+# Coolify (hetz) deployment for the Company Map brain (plan step 14).
+# Coolify creates one docker-compose application from this file in the
+# GitHub repository. Secrets are set as Coolify environment variables from
+# 1Password vault vibe_coding; none are written here. FalkorDB has no
+# published port: only the brain reaches it on the compose network.
+services:
+  oracle-brain:
+    image: 'ghcr.io/u2giants/theoracle-brain:${BRAIN_IMAGE_TAG:-latest}'
+    restart: unless-stopped
+    environment:
+      - SERVICE_FQDN_ORACLE_BRAIN_8000
+      - 'DATABASE_URL=${DATABASE_URL}'
+      - 'DIRECT_URL=${DIRECT_URL}'
+      - 'SUPABASE_URL=${SUPABASE_URL}'
+      - 'SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}'
+      - 'FALKORDB_URL=redis://oracle-falkordb:6379'
+      - 'OPENROUTER_API_KEY=${OPENROUTER_API_KEY}'
+      - 'BRAIN_FRONTIER_MODEL=${BRAIN_FRONTIER_MODEL}'
+      - 'BRAIN_VISION_MODEL=${BRAIN_VISION_MODEL}'
+      - 'BRAIN_EMBED_MODEL=${BRAIN_EMBED_MODEL}'
+      - 'BRAIN_EMBED_DIMS=${BRAIN_EMBED_DIMS:-1024}'
+      - 'SCALEDOWN_API_KEY=${SCALEDOWN_API_KEY}'
+      - 'BRAIN_SCALEDOWN_ENABLED=${BRAIN_SCALEDOWN_ENABLED:-true}'
+      - 'BRAIN_SHARED_TOKEN=${BRAIN_SHARED_TOKEN}'
+      - 'BRAIN_MAX_FRONTIER_CALLS_PER_JOB=${BRAIN_MAX_FRONTIER_CALLS_PER_JOB}'
+      - 'BRAIN_INTERVIEW_ENABLED=${BRAIN_INTERVIEW_ENABLED:-false}'
+      - 'BRAIN_INTERVIEW_WEEKLY_CAP=${BRAIN_INTERVIEW_WEEKLY_CAP:-2}'
+      - 'BRAIN_WEB_BASE_URL=${BRAIN_WEB_BASE_URL}'
+      - BRAIN_IMPORT_DIR=/data/import
+    volumes:
+      - 'oracle-brain-import:/data/import'
+    depends_on:
+      - oracle-falkordb
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - '-c'
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+  oracle-falkordb:
+    image: 'falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d'
+    restart: unless-stopped
+    environment:
+      - 'REDIS_ARGS=--save 60 1 --appendonly no'
+      - FALKORDB_DATA_PATH=/data
+    volumes:
+      - 'oracle-falkordb-data:/data'
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - PING
+      interval: 30s
+      timeout: 5s
+      retries: 5
+volumes:
+  oracle-brain-import: null
+  oracle-falkordb-data: null
