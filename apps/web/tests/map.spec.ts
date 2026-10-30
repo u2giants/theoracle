@@ -16,6 +16,8 @@ type Seed = {
   eval_mean: number;
   interview_open: string;
   interview_answer: string;
+  rec_licensing: string;
+  rec_small: string;
 };
 
 const SHOTS = resolve(WEB_DIR, 'tests', '__screenshots__', 'map');
@@ -169,4 +171,26 @@ test('open-question page shows queue, history and per-person pause', async ({ pa
   await expect(people.getByRole('button', { name: 'Resume' })).toBeVisible();
   await people.getByRole('button', { name: 'Resume' }).click();
   await expect(people.getByRole('button', { name: 'Pause' })).toBeVisible();
+});
+
+// Plan step 13: cards sorted by distinct sources; admin status buttons;
+// Rejected hides the card.
+test('recommendations page sorts by sources and hides rejected cards', async ({
+  page,
+  context,
+}) => {
+  const ids = seed();
+  await signIn(context);
+  await page.goto('/map/recommendations');
+  const cards = page.getByTestId('recommendation');
+  await expect(cards).toHaveCount(2, { timeout: 60_000 });
+  await expect(cards.first()).toContainText(ids.rec_licensing);
+  await expect(cards.first()).toContainText('The data is incomplete');
+  await expect(cards.first().getByTestId('recommendation-options')).toContainText('No change');
+  await page.screenshot({ path: resolve(SHOTS, '07-recommendations-page.png'), fullPage: true });
+  await cards.first().getByRole('button', { name: 'Accept' }).click();
+  await expect(cards.first().getByTestId('recommendation-status')).toContainText('accepted');
+  await cards.nth(1).getByRole('button', { name: 'Reject' }).click();
+  await expect(cards).toHaveCount(1);
+  await expect(page.getByTestId('recommendations')).not.toContainText(ids.rec_small);
 });

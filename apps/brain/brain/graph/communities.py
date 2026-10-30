@@ -22,7 +22,7 @@ import psycopg
 import tiktoken
 
 from brain.config import Settings, get_settings
-from brain.db import get_pool
+from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts
 from brain.graph.project import _load_edges, _load_entities
 from brain.resolve.resolve import FrontierCapReached, _Frontier
@@ -690,3 +690,5 @@ def handle_communities(job: dict[str, Any]) -> None:
             )
             conn.commit()
     logger.info("communities stats=%s", stats)
+    # Step 13: recommendations run after every communities pass.
+    enqueue_job("recommend", {})

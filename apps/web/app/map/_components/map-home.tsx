@@ -53,6 +53,9 @@ export function MapHome() {
           <Link className="underline" href="/map/sources">
             Sources
           </Link>
+          <Link className="underline" href="/map/recommendations">
+            Recommendations
+          </Link>
           <Link className="underline" href="/map/eval">
             Evaluation
           </Link>

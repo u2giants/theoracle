@@ -32,6 +32,7 @@ from brain.migrate import migrate
 from brain.read.chunk import Chunk
 from brain.read.detect import detect_kind
 from brain.read.pipeline import read_chunks
+from brain.recommend.recommend import run_recommend
 from brain.resolve.resolve import run_resolve
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
@@ -349,6 +350,12 @@ def main() -> int:
     print(f"project: {project_stats}")
     community_stats = run_communities(settings)
     print(f"communities: {community_stats}")
+    recommend_stats = run_recommend(settings)
+    _merge(
+        usage_total,
+        {k: v for k, v in recommend_stats.items() if k.startswith("frontier")},
+    )
+    print(f"recommend: {recommend_stats}")
     for mode in ("local", "global"):
         answer_usage: dict[str, int] = {}
         result = answer_question(SMOKE_QUESTION, mode, [], settings, answer_usage)

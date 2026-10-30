@@ -253,6 +253,41 @@ def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
     return {"interview_open": INTERVIEW_OPEN, "interview_answer": INTERVIEW_ANSWER}
 
 
+def seed_recommendations(db: Any) -> dict[str, Any]:
+    """Step 13 page: two cards, the licensing one backed by more sources."""
+    db.execute("TRUNCATE cmap.recommendation")
+    sources = [str(row[0]) for row in db.execute(
+        "SELECT id FROM cmap.source ORDER BY title").fetchall()]
+    for problem, cited in ((REC_SMALL, sources[:1]), (REC_LICENSING, sources)):
+        explanations = [
+            {"hypothesis": "Only one person can record sign-off.", "support": cited,
+             "against": []},
+            {"hypothesis": "The data is incomplete: no timings were recorded.",
+             "support": [], "against": []},
+        ]
+        options = [
+            {"option": "Name a backup approver", "effort": "low", "risk": "Training.",
+             "includes_no_change": False},
+            {"option": "Batch submissions weekly", "effort": "med", "risk": "Delay.",
+             "includes_no_change": False},
+            {"option": "No change: keep the current process.", "effort": "low", "risk": "",
+             "includes_no_change": True},
+        ]
+        experiment = {"change": "Backup approver for four weeks.",
+                      "metric": "Days to sign-off (the metric must be measured first)",
+                      "baseline_needed": True, "review_after_days": 28,
+                      "owner_role": "Licensing Manager"}
+        db.execute(
+            "INSERT INTO cmap.recommendation (problem, explanations, options, experiment) "
+            "VALUES (%s, %s, %s, %s)",
+            (problem, json.dumps(explanations), json.dumps(options), json.dumps(experiment)),
+        )
+    db.commit()
+    return {"rec_licensing": REC_LICENSING, "rec_small": REC_SMALL}
+
+
+REC_LICENSING = "Licensor sign-off stalls artwork release."
+REC_SMALL = "Sample room bookings clash."
 INTERVIEW_OPEN = "Who covers licensor approvals when Jessica is out?"
 INTERVIEW_ANSWERED = "Who books the sample room?"
 INTERVIEW_ANSWER = "Ilona books it every Monday."
@@ -288,6 +323,7 @@ def main() -> None:
             ids = seed_map(db, monkeypatch)
             ids.update(seed_eval(db, monkeypatch))
         ids.update(seed_interviews(db, ids["jessica_id"]))
+        ids.update(seed_recommendations(db))
     print(json.dumps(ids))
 
 
