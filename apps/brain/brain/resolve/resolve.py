@@ -543,7 +543,7 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             result = frontier.ask(prompt)
         except FrontierCapReached:
             raise
-        except ResolveError as exc:
+        except (ResolveError, httpx.HTTPError) as exc:
             # A description is an enhancement over the mention quote; a call
             # the provider keeps failing leaves this entity for the next run
             # (the pass is already resumable, see the docstring).

@@ -73,7 +73,12 @@ def _post_embeddings_once(
         raise EmbedError(
             f"embeddings call failed: {response.status_code} {response.text[:200]}"
         )
-    body = response.json()
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise EmbedError("embeddings response is not JSON") from exc
+    if not isinstance(body, dict):
+        raise EmbedError("embeddings response is not a JSON object")
     data = body.get("data")
     if not isinstance(data, list) or len(data) != len(texts):
         raise EmbedError("embeddings response does not cover every input")
