@@ -46,6 +46,7 @@ services:
     restart: unless-stopped
     environment:
       - 'REDIS_ARGS=--save 60 1 --appendonly no'
+      - FALKORDB_DATA_PATH=/data
     volumes:
       - 'oracle-falkordb-data:/data'
     healthcheck:

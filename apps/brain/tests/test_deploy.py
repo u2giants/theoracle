@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 BRAIN = Path(__file__).resolve().parents[1]
@@ -44,6 +45,7 @@ def test_falkordb_pinned_like_dev_and_internal() -> None:
     assert "@sha256:" in prod["image"]
     assert "ports" not in prod
     assert "--save 60 1" in _env(prod)["REDIS_ARGS"]
+    assert _env(prod)["FALKORDB_DATA_PATH"] == "/data"
     assert any(v.endswith(":/data") for v in prod["volumes"])
 
 
@@ -73,7 +75,23 @@ def test_image_workflow_publishes_sha_and_latest_on_main_only() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "ghcr.io/u2giants/theoracle-brain:${{ github.sha }}" in text
     assert "ghcr.io/u2giants/theoracle-brain:latest" in text
-    assert "push: ${{ github.event_name != 'pull_request' }}" in text
+    assert (
+        "push: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}"
+        in text
+    )
     flow = _load(WORKFLOW)
     on = flow.get("on", flow.get(True))
     assert on["push"]["branches"] == ["main"]
+
+
+def test_unset_compose_variables_do_not_break_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Compose renders an unset ${VAR} as ''; Settings must treat it as unset."""
+    from brain.config import Settings
+
+    monkeypatch.setenv("BRAIN_MAX_FRONTIER_CALLS_PER_JOB", "")
+    monkeypatch.setenv("BRAIN_EMBED_DIMS", "")
+    settings = Settings()
+    assert settings.brain_max_frontier_calls_per_job is None
+    assert settings.brain_embed_dims == 1024

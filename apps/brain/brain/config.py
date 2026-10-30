@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """One settings object per process, filled from the environment."""
+
+    # Compose passes unset variables as empty strings; treat them as unset.
+    model_config = SettingsConfigDict(env_ignore_empty=True)
 
     database_url: str | None = None
     direct_url: str | None = None
