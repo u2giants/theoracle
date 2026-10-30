@@ -22,7 +22,7 @@ import psycopg
 import tiktoken
 
 from brain.config import Settings, get_settings
-from brain.db import enqueue_job, get_pool
+from brain.db import get_pool
 from brain.embed import embed_texts
 from brain.graph.project import _load_edges, _load_entities
 from brain.resolve.resolve import FrontierCapReached, _Frontier
@@ -691,4 +691,11 @@ def handle_communities(job: dict[str, Any]) -> None:
             conn.commit()
     logger.info("communities stats=%s", stats)
     # Step 13: recommendations run after every communities pass.
-    enqueue_job("recommend", {})
+    with get_pool().connection() as conn:
+        # Serialize the check and insert across concurrent communities workers.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('cmap.recommend.queue'))")
+        conn.execute(
+            "INSERT INTO cmap.job (kind, payload) SELECT 'recommend', '{}'::jsonb "
+            "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'recommend' AND state = 'queued')"
+        )
+        conn.commit()
