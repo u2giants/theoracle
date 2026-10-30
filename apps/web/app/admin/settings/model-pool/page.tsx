@@ -61,13 +61,14 @@ export default async function ModelPoolPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-5xl space-y-4">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">Model Pool</h1>
+        <h1 className="text-2xl font-semibold">Legacy application model pools</h1>
         <p className="text-sm text-muted-foreground max-w-prose">
-          Pick which models appear in each model-pass dropdown on the main
-          Settings page. Oracle calls Anthropic, OpenAI, Google Vertex,
-          DeepSeek, and Alibaba Qwen directly (no third-party proxy).
+          Pick which models appear in each legacy model-pass dropdown on the
+          main Settings page. These pools feed the legacy application routes.
+          Oracle calls Anthropic, OpenAI, Google Vertex, DeepSeek, and Alibaba
+          Qwen directly (no third-party proxy).
         </p>
         <p className="text-sm text-muted-foreground">
           Runtime pools should stay non-empty; each pass uses its ordered pool
