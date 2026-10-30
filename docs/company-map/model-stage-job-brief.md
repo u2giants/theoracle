@@ -792,10 +792,12 @@ in one collapsed section (the old app still runs; do not delete its settings).
   pending) + its env-var name and the note "set in Coolify app oracle-brain" +
   "Copy job brief" button. Card padding `px-4 py-3`, `gap-3`; no
   legend boxes repeated per card — one page-level legend.
-- **Model pool block** (secondary): the provider×model matrix collapses behind
-  a "Pool editor" toggle; inside, one sticky filter header (not one per
-  provider table) and pool columns reduced to the NEW stage slots (not 10
-  legacy ones).
+- **Model pool block** (secondary): the provider×model matrix is legacy
+  machinery (its `model_pool_*` columns feed the legacy pickers) — keep its
+  behavior, label it "Legacy application model pools", and fix its layout:
+  wrap the tables in `overflow-x-auto`, use ONE sticky filter header for all
+  provider tables instead of repeating it per table, and keep the route
+  `/admin/settings/model-pool` working.
 - **Legacy block** (bottom, collapsed by default): the existing
   interview/extraction/synthesis/aux cards, unchanged behavior.
 - Max width `max-w-5xl` (not `max-w-2xl`, not full-bleed) — this is the
