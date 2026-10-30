@@ -32,7 +32,7 @@ from typing import Any
 import httpx
 import psycopg
 
-from brain.config import Settings, get_settings
+from brain.config import Settings, chat_model, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract import flat as flat_mod
@@ -98,13 +98,14 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     """POST one frontier chat-completions request in JSON mode."""
     if settings.openrouter_api_key is None:
         raise AnswerError("OPENROUTER_API_KEY is not set")
-    if settings.brain_frontier_model is None:
-        raise AnswerError("BRAIN_FRONTIER_MODEL is not set")
+    model = chat_model(settings)
+    if model is None:
+        raise AnswerError("BRAIN_CHAT_MODEL or BRAIN_FRONTIER_MODEL is not set")
     response = httpx.post(
         f"{OPENROUTER_BASE_URL}/chat/completions",
         headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
         json={
-            "model": settings.brain_frontier_model,
+            "model": model,
             "messages": messages,
             "temperature": 0,
             "max_tokens": MAX_TOKENS,
