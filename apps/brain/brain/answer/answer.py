@@ -28,6 +28,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import httpx
 import psycopg
@@ -128,12 +129,15 @@ def _post_scaledown(
     """POST one ScaleDown call (classify or compress) and return its JSON body."""
     if settings.scaledown_api_key is None:
         raise AnswerError("SCALEDOWN_API_KEY is not set")
-    response = httpx.post(
-        f"{flat_mod.SCALEDOWN_BASE_URL}{path}",
-        headers={"x-api-key": settings.scaledown_api_key},
-        json=body,
-        timeout=120.0,
-    )
+    try:
+        response = httpx.post(
+            f"{flat_mod.SCALEDOWN_BASE_URL}{path}",
+            headers={"x-api-key": settings.scaledown_api_key},
+            json=body,
+            timeout=120.0,
+        )
+    except httpx.HTTPError as exc:
+        raise AnswerError(f"scaledown {path} transport failed") from exc
     if response.status_code != 200:
         raise AnswerError(
             f"scaledown {path} failed: {response.status_code} {response.text[:200]}"
@@ -344,12 +348,14 @@ def _finalize_global(
     wanted: list[tuple[int, str, str]] = []
     for index, cite in enumerate(raw_citations, start=1):
         source_id = str(cite.get("source_id") or "")
-        if not source_id:
+        try:
+            source_id = str(UUID(source_id))
+        except ValueError:
             continue
         paragraph = answer_md
-        marker = f"[{index}]"
+        marker = re.compile(rf"(?<!\[)\[{index}\](?!\])")
         for candidate in paragraphs:
-            if marker in candidate:
+            if marker.search(candidate):
                 paragraph = candidate
                 break
         wanted.append((index, source_id, paragraph))
@@ -386,6 +392,10 @@ def _closest_chunk(
     conn: psycopg.Connection, source_id: str, vector: list[float]
 ) -> dict[str, Any] | None:
     """The chunk of ``source_id`` whose embedding is nearest ``vector``."""
+    try:
+        source_id = str(UUID(source_id))
+    except ValueError:
+        return None
     row = conn.execute(
         "SELECT id::text, text, locator FROM cmap.chunk "
         "WHERE source_id = %s AND embedding IS NOT NULL "
@@ -738,6 +748,7 @@ def _load_reports() -> list[dict[str, Any]]:
         rows = conn.execute(
             "SELECT id::text, level, title, report_md, findings "
             "FROM cmap.community WHERE level IN (1, 2) "
+            "AND graph_version = (SELECT COALESCE(MAX(version), 0) FROM cmap.graph_version) "
             "ORDER BY level, title"
         ).fetchall()
     reports: list[dict[str, Any]] = []

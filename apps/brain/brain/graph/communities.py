@@ -249,7 +249,12 @@ def _context_reports(rows: list[dict[str, Any]]) -> str:
         lines.append(str(row["summary"]))
         for finding in row["findings"]:
             lines.append(f"- [{finding.get('kind')}] {finding.get('text')}")
-        lines.append(f"sources: {', '.join(row.get('source_ids') or [])}")
+        source_ids = row.get("source_ids") or sorted({
+            source_id
+            for finding in row["findings"]
+            for source_id in finding.get("source_ids", [])
+        })
+        lines.append(f"sources: {', '.join(source_ids)}")
     return _fit(lines)
 
 
@@ -384,6 +389,7 @@ def _split_report_md(report_md: str) -> tuple[str, str]:
 
 def _existing_reports(
     conn: psycopg.Connection,
+    graph_version: int,
 ) -> dict[tuple[int, frozenset[str]], dict[str, Any]]:
     """Community rows already stored, keyed by (level, entity set).
 
@@ -392,7 +398,9 @@ def _existing_reports(
     where it died.
     """
     rows = conn.execute(
-        "SELECT id, level, title, report_md, findings, entity_ids FROM cmap.community"
+        "SELECT id, level, title, report_md, findings, entity_ids FROM cmap.community "
+        "WHERE graph_version = %s",
+        (graph_version,),
     ).fetchall()
     out: dict[tuple[int, frozenset[str]], dict[str, Any]] = {}
     for row in rows:
@@ -488,7 +496,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             by_community.setdefault(level0[node["id"]], []).append(node)
         stats["communities_l0"] = len(by_community)
         stats["communities_l1"] = len(set(level1.values()))
-        existing = _existing_reports(conn)
+        existing = _existing_reports(conn, graph_version)
 
         # Contexts first, serially: identical input order to a serial pass.
         l0_items: list[tuple[int, list[str], tuple[int, frozenset[str]], str]] = []
@@ -564,6 +572,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
 
         level1_groups = _group_summaries(level1, summaries)
         level1_rows: dict[int, str] = {}
+        level1_reports: list[dict[str, Any]] = []
         level1_items: list[tuple[int, list[dict[str, Any]], list[str], tuple[int, frozenset[str]], str]] = []
         for level1_id, report_rows in level1_groups.items():
             member_ids = _member_ids(level1, level0, level1_id)
@@ -591,6 +600,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 stats["reports_reused"] += 1
                 stats["reports"] += 1
                 level1_rows[level1_id] = row_id
+                level1_reports.append(existing[key])
                 continue
             report = asked_l1[ask_index]
             ask_index += 1
@@ -601,6 +611,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 conn, 1, None, report, member_ids, graph_version, valid_sources
             )
             level1_rows[level1_id] = row_id
+            level1_reports.append(report)
             stats["findings_dropped"] += dropped
             stats["reports"] += 1
             stats["open_questions"] += _store_open_questions(
@@ -630,7 +641,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 frontier,
                 SCOPE_L2,
                 COMPANY_EXTRA,
-                _context_reports(list(summaries.values())),
+                _context_reports(level1_reports),
             )
             if company is None:
                 raise RuntimeError("company community report failed after retries")
