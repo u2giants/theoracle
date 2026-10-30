@@ -7,6 +7,11 @@ on:
   pull_request:
     paths:
       - 'apps/brain/**'
+      - 'apps/web/app/map/**'
+      - 'apps/web/app/api/brain/**'
+      - 'apps/web/tests/map.spec.ts'
+      - 'apps/web/tests/map/**'
+      - 'apps/web/playwright.map.config.ts'
       - '.github/workflows/brain-ci.yml'
 
 concurrency:
@@ -68,3 +73,80 @@ jobs:
         env:
           DATABASE_URL: postgresql://oracle:oracle@localhost:5432/brain_test
           FALKORDB_URL: redis://localhost:6379
+
+  map-browser:
+    # Step 10 of plan_oracle_company_map.md: the Company Map pages in a real
+    # browser against the brain on the projected fixture map.
+    name: company map browser test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: oracle
+          POSTGRES_PASSWORD: oracle
+          POSTGRES_DB: brain_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oracle -d brain_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      falkordb:
+        image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      BRAIN_E2E_DATABASE_URL: postgresql://oracle:oracle@localhost:5432/brain_e2e
+      BRAIN_E2E_FALKORDB_URL: redis://localhost:6379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.12.19'
+
+      - name: Sync brain dependencies
+        working-directory: apps/brain
+        run: uv sync
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install browser
+        run: pnpm --filter @oracle/web exec playwright install --with-deps chromium
+
+      - name: Playwright map.spec.ts
+        working-directory: apps/web
+        run: pnpm exec playwright test --config playwright.map.config.ts --reporter=line
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: company-map-screenshots
+          path: |
+            apps/web/tests/__screenshots__/map/
+            apps/web/test-results/
+          if-no-files-found: ignore
