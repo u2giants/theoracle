@@ -1,0 +1,216 @@
+{
+ "defaults": {
+  "classify": {
+   "top_label": "chatter",
+   "scores": {
+    "chatter": 0.99
+   }
+  },
+  "extract": {
+   "entities": []
+  }
+ },
+ "classify": [
+  {
+   "match": "Licensing approval flow",
+   "response": {
+    "top_label": "process",
+    "scores": {
+     "chatter": 0.012590447534053278,
+     "decision": 0.007636492448906634,
+     "problem": 0.010437847616652786,
+     "process": 0.9395849590111555,
+     "reference": 0.005947306299127357,
+     "responsibility": 0.007636492448906634,
+     "rule": 0.01616645464119791
+    },
+    "labels": [
+     {
+      "label": "chatter",
+      "score": 0.012590447534053278,
+      "rubric": "Greetings, scheduling, jokes, or content with no business information."
+     },
+     {
+      "label": "decision",
+      "score": 0.007636492448906634,
+      "rubric": "Records a decision made, or a disagreement about what to do."
+     },
+     {
+      "label": "problem",
+      "score": 0.010437847616652786,
+      "rubric": "Describes something going wrong, a delay, workaround, complaint or pain point."
+     },
+     {
+      "label": "process",
+      "score": 0.9395849590111555,
+      "rubric": "Describes ordered work steps, approvals, hand-offs or transitions."
+     },
+     {
+      "label": "reference",
+      "score": 0.005947306299127357,
+      "rubric": "Lists entities, codes, definitions, or lookup data without a flow."
+     },
+     {
+      "label": "responsibility",
+      "score": 0.007636492448906634,
+      "rubric": "States who owns, performs or approves something."
+     },
+     {
+      "label": "rule",
+      "score": 0.01616645464119791,
+      "rubric": "States a requirement, condition, prohibition, threshold or exception."
+     }
+    ],
+    "reasoning": "The text describes a structured licensing approval flow with specific steps, decision points, and transitions between roles.",
+    "results": [
+     {
+      "id": "0",
+      "top_label": "process",
+      "matched_labels": null,
+      "scores": {
+       "chatter": 0.012590447534053278,
+       "decision": 0.007636492448906634,
+       "problem": 0.010437847616652786,
+       "process": 0.9395849590111555,
+       "reference": 0.005947306299127357,
+       "responsibility": 0.007636492448906634,
+       "rule": 0.01616645464119791
+      },
+      "labels": [
+       {
+        "label": "chatter",
+        "score": 0.012590447534053278,
+        "rubric": "Greetings, scheduling, jokes, or content with no business information."
+       },
+       {
+        "label": "decision",
+        "score": 0.007636492448906634,
+        "rubric": "Records a decision made, or a disagreement about what to do."
+       },
+       {
+        "label": "problem",
+        "score": 0.010437847616652786,
+        "rubric": "Describes something going wrong, a delay, workaround, complaint or pain point."
+       },
+       {
+        "label": "process",
+        "score": 0.9395849590111555,
+        "rubric": "Describes ordered work steps, approvals, hand-offs or transitions."
+       },
+       {
+        "label": "reference",
+        "score": 0.005947306299127357,
+        "rubric": "Lists entities, codes, definitions, or lookup data without a flow."
+       },
+       {
+        "label": "responsibility",
+        "score": 0.007636492448906634,
+        "rubric": "States who owns, performs or approves something."
+       },
+       {
+        "label": "rule",
+        "score": 0.01616645464119791,
+        "rubric": "States a requirement, condition, prohibition, threshold or exception."
+       }
+      ]
+     }
+    ],
+    "chunk_count": 1,
+    "ocr_text": null,
+    "input_tokens": 1389
+   }
+  }
+ ],
+ "extract": [
+  {
+   "match": "Licensing approval flow",
+   "response": {
+    "entities": [
+     {
+      "text": "Jessica",
+      "type": "Person",
+      "confidence": 1.0,
+      "start": 258,
+      "end": 265,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "Licensing approval flow",
+      "type": "Process",
+      "confidence": 0.986,
+      "start": 0,
+      "end": 23,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "Submit concept package",
+      "type": "Step",
+      "confidence": 0.978,
+      "start": 110,
+      "end": 132,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "Compliance review",
+      "type": "Step",
+      "confidence": 1.0,
+      "start": 141,
+      "end": 158,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "Licensor approval?",
+      "type": "Step",
+      "confidence": 0.894,
+      "start": 190,
+      "end": 208,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "Record sign-off (Jessica)",
+      "type": "Step",
+      "confidence": 0.529,
+      "start": 241,
+      "end": 266,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "Fix package and resubmit",
+      "type": "Step",
+      "confidence": 1.0,
+      "start": 305,
+      "end": 329,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "Create PO",
+      "type": "Step",
+      "confidence": 1.0,
+      "start": 435,
+      "end": 444,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "Artwork Log entry",
+      "type": "Artifact",
+      "confidence": 0.665,
+      "start": 39,
+      "end": 56,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     },
+     {
+      "text": "FLOWCHART",
+      "type": "Artifact",
+      "confidence": 0.997,
+      "start": 57,
+      "end": 66,
+      "context": "Licensing approval flow (LIC-PROC-004)\nArtwork Log entry\nFLOWCHART (swimlanes: Design, Licensing, Buyer).\nn1 \"Submit concept package\" -> n2 \"Compliance review\"\nn2 \"Compliance review\" -> n3 \"Licensor approval?\"\nn3 \"Licensor approval?\" -> n4 \"Record sign-off (Jessica)\" [yes]\nn3 \"Licensor approval?\" -> n5 \"Fix package and resubmit\" [no]\nn5 \"Fix package and resubmit\" -> n1 \"Submit concept package\"\nn4 \"Record sign-off (Jessica)\" -> n6 \"Create PO\""
+     }
+    ],
+    "structured_result": null,
+    "ocr_text": null,
+    "input_tokens": 571
+   }
+  }
+ ]
+}

@@ -5,12 +5,14 @@ from __future__ import annotations
 from falkordb import FalkorDB
 from fastapi import FastAPI
 
+from brain.api.answer import router as answer_router
 from brain.api.sources import router as sources_router
 from brain.config import Settings, get_settings
 from brain.db import check_database
 
 app = FastAPI(title="brain")
 app.include_router(sources_router)
+app.include_router(answer_router)
 
 
 def check_graph(settings: Settings | None = None) -> bool:
