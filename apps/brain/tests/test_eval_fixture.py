@@ -122,6 +122,8 @@ def eval_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("BRAIN_SCALEDOWN_ENABLED", "true")
     monkeypatch.setenv("SCALEDOWN_API_KEY", "test-scaledown-key")
     monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "test/frontier-model")
+    monkeypatch.setenv("BRAIN_CHAT_MODEL", "test/chat-model")
+    monkeypatch.setenv("BRAIN_EVAL_MODEL", "test/eval-model")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -178,7 +180,8 @@ def test_eval_fixture_mean_at_least_08(
         assert item["mode_used"] == "local"
         assert item["expected_sources_cited"] == item["expected_sources"]
     stored = db.execute(
-        "SELECT mean_score, results, prompt_hashes, graph_version FROM cmap.eval_run"
+        "SELECT mean_score, results, prompt_hashes, graph_version, models "
+        "FROM cmap.eval_run"
     ).fetchall()
     assert len(stored) == 1
     assert stored[0][0] == pytest.approx(run["mean_score"])
@@ -190,6 +193,16 @@ def test_eval_fixture_mean_at_least_08(
         "grade.md",
     }
     assert stored[0][3] == run["graph_version"]
+    models = stored[0][4]
+    assert models == run["models"]
+    assert models["answer"] == "test/chat-model"
+    assert models["grade"] == "test/eval-model"
+    assert models["chat"] == "test/chat-model"
+    assert models["eval"] == "test/eval-model"
+    assert models["frontier"] == "test/frontier-model"
+    assert models["scaledown_enabled"] is True
+    assert isinstance(models["extraction_models"], dict)
+    assert models["extraction_models"]
 
 
 def test_eval_detects_broken_citations(
@@ -303,11 +316,13 @@ def test_eval_endpoints(
     assert second["queued"] is False
     for score in (0.5, 0.75):
         db.execute(
-            "INSERT INTO cmap.eval_run (graph_version, prompt_hashes, results, mean_score) "
-            "VALUES (1, '{}', %s, %s)",
+            "INSERT INTO cmap.eval_run "
+            "(graph_version, prompt_hashes, results, mean_score, models) "
+            "VALUES (1, '{}', %s, %s, %s)",
             (
                 json.dumps([{"question": "Who signs off licensing?", "score": score}]),
                 score,
+                json.dumps({"answer": "test/a", "grade": "test/b"}),
             ),
         )
         db.commit()
@@ -315,6 +330,7 @@ def test_eval_endpoints(
     assert [run["mean_score"] for run in runs["runs"]] == [0.75, 0.5]
     assert runs["runs"][0]["mean_delta"] == 0.25
     assert runs["runs"][0]["diff"][0]["previous"] == 0.5
+    assert runs["runs"][0]["models"] == {"answer": "test/a", "grade": "test/b"}
     assert runs["runs"][1]["previous_mean"] is None
     assert runs["latest_job"]["state"] == "queued"
     question_id = listed[0]["id"]

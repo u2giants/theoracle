@@ -153,7 +153,8 @@ def list_runs(
     del user
     with get_pool().connection() as conn:
         rows = conn.execute(
-            "SELECT id::text, created_at, graph_version, prompt_hashes, results, mean_score "
+            "SELECT id::text, created_at, graph_version, prompt_hashes, results, "
+            "mean_score, models "
             "FROM cmap.eval_run ORDER BY created_at DESC, id DESC LIMIT %s",
             (limit + 1,),
         ).fetchall()
@@ -171,12 +172,16 @@ def list_runs(
             previous = prior[4] if isinstance(prior[4], list) else json.loads(prior[4])
             previous_mean = float(prior[5])
         mean = float(row[5])
+        models = row[6]
+        if isinstance(models, str):
+            models = json.loads(models)
         runs.append(
             {
                 "id": row[0],
                 "created_at": row[1].isoformat(),
                 "graph_version": row[2],
                 "prompt_hashes": row[3],
+                "models": models,
                 "mean_score": mean,
                 "previous_mean": previous_mean,
                 "mean_delta": None
