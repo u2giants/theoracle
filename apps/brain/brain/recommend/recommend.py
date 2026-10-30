@@ -74,9 +74,10 @@ def _has_numbers(texts: list[str]) -> bool:
 
 
 def _scrub(text: str) -> str:
-    """Remove invented percentages and money amounts from one text."""
+    """Remove invented measured quantities from one text."""
     text = _PERCENT.sub(UNMEASURED, text)
-    return _MONEY.sub(UNMEASURED, text)
+    text = _MONEY.sub(UNMEASURED, text)
+    return _QUANTITY.sub(UNMEASURED, text)
 
 
 def _source_ids(raw: Any, valid: set[str]) -> list[str]:
@@ -151,7 +152,9 @@ def _experiment(raw: Any, numbers_in_data: bool) -> dict[str, Any]:
     experiment = raw if isinstance(raw, dict) else {}
     try:
         review_days = int(experiment.get("review_after_days") or DEFAULT_REVIEW_DAYS)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        review_days = DEFAULT_REVIEW_DAYS
+    if not 1 <= review_days <= 365:
         review_days = DEFAULT_REVIEW_DAYS
     metric = str(experiment.get("metric") or "").strip()
     baseline_needed = bool(experiment.get("baseline_needed", True))
@@ -175,7 +178,7 @@ def _normalise(
 
     The plan's shape rules are enforced in code, not only in the prompt: one
     explanation is "the data is incomplete", one option is "no change", and
-    when the evidence has no numbers no percentage or money figure survives
+    when the evidence has no numbers no measured quantity survives
     and the experiment says the metric must be measured first.
     """
     problem = str(result.get("problem") or "").strip()
@@ -325,7 +328,19 @@ def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
             str(row[0])
             for row in conn.execute("SELECT problem FROM cmap.recommendation").fetchall()
         ]
-        existing_vectors = embed_texts(existing_problems, cfg) if existing_problems else []
+        try:
+            existing_vectors = embed_texts(existing_problems, cfg) if existing_problems else []
+            if len(existing_vectors) != len(existing_problems):
+                raise ValueError("missing existing problem embeddings")
+        except FrontierCapReached:
+            stats["capped"] = True
+            stats.update(frontier.usage)
+            return stats
+        except Exception as exc:
+            logger.warning("recommendation embeddings failed: %s", exc)
+            stats["failed"] = len(candidates)
+            stats.update(frontier.usage)
+            return stats
         for candidate in candidates:
             titles = _titles(conn, candidate["source_ids"])
             quotes = _quotes(conn, candidate)
@@ -334,20 +349,20 @@ def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
             prompt = template.replace("{{context}}", _context(candidate, quotes, titles))
             try:
                 result = frontier.ask(prompt)
+                rec = _normalise(result, set(titles), _has_numbers(evidence))
+                if rec is None:
+                    stats["failed"] += 1
+                    continue
+                vector = embed_texts([rec["problem"]], cfg)[0]
+                if any(_cosine(vector, other) >= DEDUPE_COSINE for other in existing_vectors):
+                    stats["duplicates"] += 1
+                    continue
             except FrontierCapReached:
                 stats["capped"] = True
                 break
             except Exception as exc:
                 logger.warning("recommendation failed: %s", exc)
                 stats["failed"] += 1
-                continue
-            rec = _normalise(result, set(titles), _has_numbers(evidence))
-            if rec is None:
-                stats["failed"] += 1
-                continue
-            vector = embed_texts([rec["problem"]], cfg)[0]
-            if any(_cosine(vector, other) >= DEDUPE_COSINE for other in existing_vectors):
-                stats["duplicates"] += 1
                 continue
             _store(conn, candidate["community_id"], rec)
             conn.commit()

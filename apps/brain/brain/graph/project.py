@@ -9,7 +9,6 @@ interpolated into Cypher.
 
 from __future__ import annotations
 
-import functools
 import json
 import logging
 from typing import Any
@@ -75,24 +74,16 @@ class ProjectionError(RuntimeError):
 
 def connect(settings: Settings | None = None) -> Graph:
     """Return the ``company`` graph handle from ``FALKORDB_URL``."""
-    return _client(settings).select_graph(GRAPH_NAME)
+    client = _client(settings)
+    graph = client.select_graph(GRAPH_NAME)
+    graph._oracle_client = client  # Keep the connection owner alive with its graph.
+    return graph
 
 
 def _client(settings: Settings | None = None) -> FalkorDB:
-    """Return the shared FalkorDB client for ``FALKORDB_URL``.
-
-    One client per URL for the process: a client built per call can be
-    garbage-collected while its graph handle still needs the connection
-    (the label/property-key refresh during result parsing), which closes the
-    connection mid-query.
-    """
+    """Create a client for this graph operation, without process-wide caching."""
     cfg = settings if settings is not None else get_settings()
-    return _client_for(cfg.falkordb_url)
-
-
-@functools.lru_cache(maxsize=4)
-def _client_for(url: str) -> FalkorDB:
-    return FalkorDB.from_url(url)
+    return FalkorDB.from_url(cfg.falkordb_url)
 
 
 def _drop(graph_client: FalkorDB) -> Graph:
@@ -268,7 +259,8 @@ def run_project(settings: Settings | None = None) -> dict[str, int]:
     with get_pool().connection() as conn:
         nodes = _load_entities(conn)
         edges = _load_edges(conn)
-    graph = _drop(_client(cfg))
+    client = _client(cfg)
+    graph = _drop(client)
     _create_nodes(graph, nodes)
     _create_edges(graph, edges)
     _create_indexes(graph)
