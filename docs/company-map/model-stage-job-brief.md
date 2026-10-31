@@ -73,19 +73,22 @@ This brief adds two rules the old world lacked:
 All chat calls go through OpenRouter (`https://openrouter.ai/api/v1`,
 `temperature=0`). Model ids come only from env (`apps/brain/brain/config.py`);
 no id is hard-coded. ScaleDown (`https://api.scaledown.xyz`) is the cheap
-classification/extraction service with a frontier fallback.
+classification/extraction service with a frontier fallback. Every OpenRouter
+chat call goes through `brain/llm.py:post_chat_with_rescue`: one retry with
+doubled `max_tokens` and hidden low-effort reasoning when content comes back
+empty (reasoning-flagged models can burn the budget on thinking — PR #307).
 
 | # | Stage | Call site | Model slot | Volumes | JSON mode / max_tokens |
 |---|-------|-----------|------------|---------|------------------------|
-| 1 | Vision transcription | `brain/read/vision.py:74-113` | `BRAIN_VISION_MODEL` | 1 call per image / text-poor PDF page (<200 native chars) | plain chat (JSON-shaped prompt) |
+| 1 | Vision transcription | `brain/read/vision.py:65-105` (POST via `brain/llm.py`) | `BRAIN_VISION_MODEL` | 1 call per image / text-poor PDF page (<200 native chars) | plain chat (JSON-shaped prompt) |
 | 2 | Embeddings | `brain/embed.py:51-92` | `BRAIN_EMBED_MODEL` (`BRAIN_EMBED_DIMS=1024`) | 64 texts/call; per chunk, mention, entity re-describe, question dedupe, paragraph resolve | /embeddings endpoint |
-| 3 | Flat extraction | `brain/extract/flat.py:379-437` | ScaleDown + `BRAIN_FRONTIER_MODEL` fallback | 2 ScaleDown calls (classify+extract) or 1 frontier call per ~400-token chunk | fallback: plain chat |
-| 4 | Relationship extraction | `brain/extract/relations.py:162-187,289-312` | `BRAIN_FRONTIER_MODEL` | 1 call per non-chatter chunk; ~100k calls on the full corpus (plan §11) | JSON mode, 2000 tokens |
-| 5 | Entity resolution | `brain/resolve/resolve.py:103-128` | `BRAIN_FRONTIER_MODEL` | 1 judge call per ambiguous mention (cosine band 0.80–0.92); 1 describe per entity ≥3 mentions | JSON mode, 4000 tokens |
-| 6 | Community reports | `brain/communities.py` (`graph/communities.py:256-278`) | `BRAIN_FRONTIER_MODEL` | 1 call per community (Leiden L0/L1 + 1 company report); 6 workers; 12k-token contexts; reuse on rerun | JSON mode, 4000 tokens |
-| 7 | Question answering | `brain/answer/answer.py:97-122` | `BRAIN_CHAT_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`; split landed PR #295) | 1–2 calls per question (+ map calls, 10 reports/batch); local graph context + ≤30 chunks; global over reports | JSON mode, 8000 tokens |
-| 8 | Recommendations | `brain/recommend/recommend.py:336` | `BRAIN_FRONTIER_MODEL` | 1 call per qualifying finding (≥2 sources); 12k-token context | JSON mode, 4000 tokens |
-| 9 | Eval grading | `brain/eval/run.py:51-76` | `BRAIN_EVAL_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`) | 1 call per eval question (plus the answer calls) | JSON mode, 800 tokens |
+| 3 | Flat extraction | `brain/extract/flat.py:372-430` | ScaleDown + `BRAIN_FRONTIER_MODEL` fallback | 2 ScaleDown calls (classify+extract) or 1 frontier call per ~400-token chunk | fallback: plain chat |
+| 4 | Relationship extraction | `brain/extract/relations.py:163-183,283-308` | `BRAIN_FRONTIER_MODEL` | 1 call per non-chatter chunk; ~100k calls on the full corpus (plan §11) | JSON mode, 2000 tokens |
+| 5 | Entity resolution | `brain/resolve/resolve.py:103-125` | `BRAIN_FRONTIER_MODEL` | 1 judge call per ambiguous mention (cosine band 0.80–0.92, plus name-part/first-name collisions with >1 candidate regardless of band); 1 describe per entity ≥3 mentions | JSON mode, 4000 tokens |
+| 6 | Community reports | `brain/graph/communities.py:256-278` (`_ask_report`) | `BRAIN_FRONTIER_MODEL` | 1 call per community (Leiden L0/L1 + 1 company report); 6 workers; 12k-token contexts; reuse on rerun | JSON mode, 4000 tokens |
+| 7 | Question answering | `brain/answer/answer.py:96-117` | `BRAIN_CHAT_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`; split landed PR #295) | 1–2 calls per question (+ map calls, 10 reports/batch); local graph context + ≤30 chunks; global over reports | JSON mode, 8000 tokens |
+| 8 | Recommendations | `brain/recommend/recommend.py:361` (`frontier.ask`) | `BRAIN_FRONTIER_MODEL` | 1 call per qualifying finding (≥2 sources); 12k-token context | JSON mode, 4000 tokens |
+| 9 | Eval grading | `brain/eval/run.py:51-75` | `BRAIN_EVAL_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`) | 1 call per eval question (plus the answer calls) | JSON mode, 800 tokens |
 
 Production (Coolify, verified live 2026-10-30) runs exactly:
 `BRAIN_FRONTIER_MODEL=anthropic/claude-sonnet-4.5`,
@@ -179,7 +182,8 @@ vectors for retrieval, dedupe and the cosine bands that gate entity resolution.
 
 WHERE IT SITS IN THE PIPELINE
 Every stage that compares text: local answering (top-8 entity retrieval, passage
-selection), resolve rule 5 (cosine ≥0.92 merge / 0.80–0.92 judge band), open-
+selection), resolve rules 4-5 (rule 4 auto-merges at cosine ≥0.92; rule 5
+judges the 0.80–0.92 band), open-
 question dedupe, recommendation dedupe, global citation resolution.
 
 WHAT IT IS FED (input)
@@ -625,9 +629,11 @@ WHAT IT IS FED (input)
 prompts/recommend.md with finding, ≤20 quotes, source list, community report.
 
 WHAT IS EXPECTED (output)
-{"problem","explanations","options","experiment"} — code enforces shape,
-injects the missing "incomplete data" / "No change" items, scrubs
-percentage/money patterns to "an unmeasured amount".
+{"problem","explanations","options","experiment","duplicate_of"} — code
+enforces shape, injects the missing "incomplete data" / "No change" items,
+scrubs percentage/money patterns to "an unmeasured amount", and drops problems
+the model marks `duplicate_of` an earlier one (PR #299) before the cosine
+dedupe gate.
 
 PROCESS IT USES
 JSON mode, temperature 0, max_tokens 4000, 1 call per qualifying finding.
@@ -802,14 +808,14 @@ in one collapsed section (the old app still runs; do not delete its settings).
 - **New stages block** (primary): a responsive 2-column card grid (single
   column under `md`) — one card per §3 stage, ordered by pipeline position.
   Each card: stage title + one-line role + the current model id (`font-mono
-  text-xs`) + the stage's seat status (incumbent / assigned / bake-off
-  pending) + its env-var name and the note "set in Coolify app oracle-brain" +
+  text-xs`) + the stage's seat status (chips: incumbent / assigned / bake-off
+  pending / frozen grader) + its env-var name and the note "set in Coolify app oracle-brain" +
   "Copy job brief" button. Card padding `px-4 py-3`, `gap-3`; no
   legend boxes repeated per card — one page-level legend.
 - **Model pool block** (secondary): the provider×model matrix is legacy
   machinery (its `model_pool_*` columns feed the legacy pickers) — keep its
   behavior, label it "Legacy application model pools", and fix its layout:
-  wrap the tables in `overflow-x-auto`, use ONE sticky filter header for all
+  wrap the tables in an `overflow-auto` scroll container, use ONE sticky filter header for all
   provider tables instead of repeating it per table, and keep the route
   `/admin/settings/model-pool` working.
 - **Legacy block** (bottom, collapsed by default): the existing
@@ -832,9 +838,10 @@ frontier model when unset. If the bake-off later proves we change models often
 enough to deserve DB-backed seats, that is a separate, explicitly approved
 change — not smuggled in with the layout.
 
-**Job-brief wiring.** The §4 texts become the page's clipboard briefs
-(same `clipboardBrief` mechanism as today's `model-picker.tsx`), one per new
-stage card.
+**Job-brief wiring.** The §4 texts become the page's clipboard briefs: each
+stage card copies its brief through the clipboard API
+(`navigator.clipboard.writeText` in `company-map-stages.tsx`), one per new
+stage card. Keep the §4 texts and the page copy in sync when a fact changes.
 
 ## 7. Decisions this brief locks
 
