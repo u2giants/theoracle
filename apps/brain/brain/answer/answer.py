@@ -39,6 +39,7 @@ from brain.extract import flat as flat_mod
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 from brain.graph.communities import _tokens
 from brain.graph.project import connect as connect_graph
+from brain.llm import post_chat_with_rescue
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,6 @@ PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 LOCAL_PROMPT_PATH = PROMPTS_DIR / "answer_local.md"
 GLOBAL_PROMPT_PATH = PROMPTS_DIR / "answer_global.md"
 MAP_PROMPT_PATH = PROMPTS_DIR / "answer_map.md"
-
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 TOP_ENTITIES = 8
 GRAPH_NODE_CAP = 60
@@ -59,7 +58,7 @@ GLOBAL_ONE_SHOT_TOKENS = 60000
 MAP_BATCH = 10
 HISTORY_TURNS = 6
 ROUTE_MIN_SCORE = 0.6
-MAX_TOKENS = 4000
+MAX_TOKENS = 8000
 ASK_ATTEMPTS = 3
 
 ROUTE_LABELS: list[dict[str, str]] = [
@@ -101,26 +100,19 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     model = chat_model(settings)
     if model is None:
         raise AnswerError("BRAIN_CHAT_MODEL or BRAIN_FRONTIER_MODEL is not set")
-    response = httpx.post(
-        f"{OPENROUTER_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-        json={
+    return post_chat_with_rescue(
+        {
             "model": model,
             "messages": messages,
             "temperature": 0,
             "max_tokens": MAX_TOKENS,
             "response_format": {"type": "json_object"},
         },
+        api_key=settings.openrouter_api_key,
         timeout=120.0,
+        error_cls=AnswerError,
+        label="frontier answer",
     )
-    if response.status_code != 200:
-        raise AnswerError(
-            f"frontier answer call failed: {response.status_code} {response.text[:200]}"
-        )
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise AnswerError("frontier answer response is not JSON") from exc
 
 
 def _post_scaledown(

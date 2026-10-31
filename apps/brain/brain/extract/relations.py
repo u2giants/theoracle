@@ -34,8 +34,9 @@ from psycopg.types.json import Json
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
-from brain.extract.flat import ENTITY_TYPES, OPENROUTER_BASE_URL
+from brain.extract.flat import ENTITY_TYPES
 from brain.extract.normalize import normalize_name
+from brain.llm import post_chat_with_rescue
 
 logger = logging.getLogger(__name__)
 
@@ -165,26 +166,19 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
         raise RelationsError("OPENROUTER_API_KEY is not set")
     if settings.brain_frontier_model is None:
         raise RelationsError("BRAIN_FRONTIER_MODEL is not set")
-    response = httpx.post(
-        f"{OPENROUTER_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-        json={
+    return post_chat_with_rescue(
+        {
             "model": settings.brain_frontier_model,
             "messages": messages,
             "temperature": 0,
             "max_tokens": MAX_TOKENS,
             "response_format": {"type": "json_object"},
         },
+        api_key=settings.openrouter_api_key,
         timeout=180.0,
+        error_cls=RelationsError,
+        label="frontier relations",
     )
-    if response.status_code != 200:
-        raise RelationsError(
-            f"frontier relations call failed: {response.status_code} {response.text[:200]}"
-        )
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise RelationsError("frontier relations response is not JSON") from exc
 
 
 def _confidence(value: Any) -> float | None:

@@ -83,7 +83,7 @@ classification/extraction service with a frontier fallback.
 | 4 | Relationship extraction | `brain/extract/relations.py:162-187,289-312` | `BRAIN_FRONTIER_MODEL` | 1 call per non-chatter chunk; ~100k calls on the full corpus (plan §11) | JSON mode, 2000 tokens |
 | 5 | Entity resolution | `brain/resolve/resolve.py:103-128` | `BRAIN_FRONTIER_MODEL` | 1 judge call per ambiguous mention (cosine band 0.80–0.92); 1 describe per entity ≥3 mentions | JSON mode, 4000 tokens |
 | 6 | Community reports | `brain/communities.py` (`graph/communities.py:256-278`) | `BRAIN_FRONTIER_MODEL` | 1 call per community (Leiden L0/L1 + 1 company report); 6 workers; 12k-token contexts; reuse on rerun | JSON mode, 4000 tokens |
-| 7 | Question answering | `brain/answer/answer.py:97-122` | `BRAIN_CHAT_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`; split landed PR #295) | 1–2 calls per question (+ map calls, 10 reports/batch); local graph context + ≤30 chunks; global over reports | JSON mode, 4000 tokens |
+| 7 | Question answering | `brain/answer/answer.py:97-122` | `BRAIN_CHAT_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`; split landed PR #295) | 1–2 calls per question (+ map calls, 10 reports/batch); local graph context + ≤30 chunks; global over reports | JSON mode, 8000 tokens |
 | 8 | Recommendations | `brain/recommend/recommend.py:336` | `BRAIN_FRONTIER_MODEL` | 1 call per qualifying finding (≥2 sources); 12k-token context | JSON mode, 4000 tokens |
 | 9 | Eval grading | `brain/eval/run.py:51-76` | `BRAIN_EVAL_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`) | 1 call per eval question (plus the answer calls) | JSON mode, 800 tokens |
 
@@ -560,13 +560,13 @@ WHAT IS EXPECTED (output)
 fence/comma/salvage tolerant.
 
 PROCESS IT USES
-JSON mode, temperature 0, max_tokens 4000, 3 attempts. The user is waiting —
+JSON mode, temperature 0, max_tokens 8000, 3 attempts. The user is waiting —
 this is the one stage where latency is felt.
 
 WHAT MAKES A MODEL PERFECTLY SUITED
 Verbatim quote copying (citation validation is unforgiving); grounding honesty
 ("unknowns" over invention); stance/nuance reading (policy vs practice);
-natural concise prose (Albert and Ilona read these); reliable JSON at 4000
+natural concise prose (Albert and Ilona read these); reliable JSON at 8000
 tokens; decent latency.
 
 CAPABILITIES IT NEEDS (hard)
@@ -748,6 +748,9 @@ non-reasoning tiers for the JSON stages (or raise max_tokens and retest).
 `anthropic/claude-haiku-5.5` returned empty content on 2 of 5 eval answers —
 must be fixed before it takes the conversation seat. Two eval scores recorded
 that day (0.47 / 0.40) came from an empty graph and are INVALID.
+A rescue now exists at every OpenRouter call site (`brain/llm.py`): one retry
+with doubled max_tokens and hidden low-effort reasoning when content comes
+back empty. A second empty response is still a stage failure.
 
 **Order of runs (cheapest evidence first).**
 1. **Per-stage micro-evals** (§4 recipes) on fixture inputs — hours, dollars.

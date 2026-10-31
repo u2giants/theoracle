@@ -13,11 +13,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from brain.config import Settings, get_settings
+from brain.llm import post_chat_with_rescue
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "read_visual.md"
 
 
@@ -36,24 +34,17 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
         raise VisionError("OPENROUTER_API_KEY is not set")
     if settings.brain_vision_model is None:
         raise VisionError("BRAIN_VISION_MODEL is not set")
-    response = httpx.post(
-        f"{OPENROUTER_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-        json={
+    return post_chat_with_rescue(
+        {
             "model": settings.brain_vision_model,
             "messages": messages,
             "temperature": 0,
         },
+        api_key=settings.openrouter_api_key,
         timeout=120.0,
+        error_cls=VisionError,
+        label="vision",
     )
-    if response.status_code != 200:
-        raise VisionError(
-            f"vision call failed: {response.status_code} {response.text[:200]}"
-        )
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise VisionError("vision response is not JSON") from exc
 
 
 def parse_visual_json(content: str) -> dict[str, Any]:

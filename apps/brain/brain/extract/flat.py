@@ -33,11 +33,11 @@ from brain.config import Settings, get_settings
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.normalize import normalize_name
+from brain.llm import post_chat_with_rescue
 
 logger = logging.getLogger(__name__)
 
 SCALEDOWN_BASE_URL = "https://api.scaledown.xyz"
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "flat_extract.md"
 
 SCALE_DOWN_ATTEMPTS = 3
@@ -204,24 +204,17 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
         raise FlatError("OPENROUTER_API_KEY is not set")
     if settings.brain_frontier_model is None:
         raise FlatError("BRAIN_FRONTIER_MODEL is not set")
-    response = httpx.post(
-        f"{OPENROUTER_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-        json={
+    return post_chat_with_rescue(
+        {
             "model": settings.brain_frontier_model,
             "messages": messages,
             "temperature": 0,
         },
+        api_key=settings.openrouter_api_key,
         timeout=120.0,
+        error_cls=FlatError,
+        label="frontier flat",
     )
-    if response.status_code != 200:
-        raise FlatError(
-            f"frontier flat call failed: {response.status_code} {response.text[:200]}"
-        )
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise FlatError("frontier flat response is not JSON") from exc
 
 
 def parse_model_json(content: str) -> dict[str, Any]:

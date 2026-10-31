@@ -36,8 +36,8 @@ import psycopg
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
-from brain.extract.flat import OPENROUTER_BASE_URL
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
+from brain.llm import post_chat_with_rescue
 
 logger = logging.getLogger(__name__)
 
@@ -106,26 +106,19 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
         raise ResolveError("OPENROUTER_API_KEY is not set")
     if settings.brain_frontier_model is None:
         raise ResolveError("BRAIN_FRONTIER_MODEL is not set")
-    response = httpx.post(
-        f"{OPENROUTER_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-        json={
+    return post_chat_with_rescue(
+        {
             "model": settings.brain_frontier_model,
             "messages": messages,
             "temperature": 0,
             "max_tokens": MAX_TOKENS,
             "response_format": {"type": "json_object"},
         },
+        api_key=settings.openrouter_api_key,
         timeout=120.0,
+        error_cls=ResolveError,
+        label="frontier resolve",
     )
-    if response.status_code != 200:
-        raise ResolveError(
-            f"frontier resolve call failed: {response.status_code} {response.text[:200]}"
-        )
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise ResolveError("frontier resolve response is not JSON") from exc
 
 
 class _Frontier:
