@@ -790,6 +790,19 @@ export default async function AdminSettingsPage() {
           are enforced both here and on the pool page — they share the same
           source of truth.
         </p>
+        <p className="text-sm text-muted-foreground">
+          Each stage card below copies its role brief; the full briefs and the
+          bake-off protocol live in the{' '}
+          <a
+            href="https://github.com/u2giants/theoracle/blob/main/docs/company-map/model-stage-job-brief.md"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 text-foreground hover:text-foreground/70"
+          >
+            model-stage job brief
+          </a>
+          .
+        </p>
       </header>
 
       <CompanyMapStages models={companyMapModels} />
