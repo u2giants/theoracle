@@ -660,3 +660,20 @@ def test_answer_endpoint_round_trip(
         headers=user_headers,
     )
     assert bad_mode.status_code == 400
+
+def test_global_word_source_id_dropped(answer_env: None, db: Any) -> None:
+    """A global citation whose source_id is not a uuid is dropped, not a crash.
+
+    Measured on the bake-off (2026-11-01): a candidate answered with
+    source_id "REPORTS" and the uuid column rejected the lookup.
+    """
+    from brain.config import get_settings
+
+    md, kept = answer_mod._finalize_global(
+        "The process stalls at the review step [1].",
+        [{"source_id": "REPORTS", "quote": "any words"}],
+        get_settings(),
+        {},
+    )
+    assert kept == []
+    assert "(uncited)" in md
