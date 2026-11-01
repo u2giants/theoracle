@@ -4,55 +4,55 @@
   "paths": [
     {
       "glob": "AGENTS.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "CLAUDE.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "HANDOFF.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "HANDOFF.d/**",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "plan_*.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "MACRO_FIRST_IMPLEMENTATION_PLAN.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "MACRO_FIRST_REDESIGN.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "SHAPE_AWARE_READER_DESIGN.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "oracle_master_spec.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "DECISIONS.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "AGENT_ERROR_LOG.md",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": ".ai-devops/**",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": "scripts/test-task-gates.sh",
-      "class": "reviewer-safety"
+      "class": "code"
     },
     {
       "glob": ".github/workflows/**",
