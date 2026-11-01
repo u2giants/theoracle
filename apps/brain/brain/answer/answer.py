@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -337,7 +338,11 @@ def _finalize_global(
     wanted: list[tuple[int, str, str]] = []
     for index, cite in enumerate(raw_citations, start=1):
         source_id = str(cite.get("source_id") or "")
-        if not source_id:
+        try:
+            uuid.UUID(source_id)
+        except ValueError:
+            # Models sometimes cite a word ("REPORTS") instead of a real id;
+            # those citations are dropped like any other invalid one.
             continue
         paragraph = answer_md
         marker = f"[{index}]"
