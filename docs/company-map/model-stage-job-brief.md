@@ -783,15 +783,15 @@ output file under `docs/verification/company-map/bake-off/`.
 
 | Stage | Incumbent | Candidates | Fixture result | Step-11 mean | Winner | Evidence |
 |-------|-----------|------------|----------------|--------------|--------|----------|
-| 1 Vision | openai/gpt-4.1 | | | n/a | | |
-| 2 Embeddings | openai/text-embedding-3-large | | | n/a | | |
-| 3 Flat fallback | claude-sonnet-4.5 | | | | | |
-| 4 Relations | claude-sonnet-4.5 | | | | | |
-| 5 Resolve | claude-sonnet-4.5 | | | | | |
-| 6 Community reports | claude-sonnet-4.5 | | | | | |
-| 7 Answers (conversation) | → claude-haiku-5.5 | | | | | |
-| 8 Recommendations | claude-sonnet-4.5 | | | | | |
-| 9 Grader (frozen) | claude-sonnet-4.5 | | | | | |
+| 1 Vision | openai/gpt-4.1 | not yet run | | n/a | pending | |
+| 2 Embeddings | openai/text-embedding-3-large | not yet run | | n/a | pending | |
+| 3 Flat fallback | claude-sonnet-4.5 | glm-5.3-flash, gemini-3.1-flash-lite, qwen3.7-flash | covered by the heavy-seat runs (0.6 / 0.5333 / FAIL) | pending | pending | micro-evals 2026-11-01 |
+| 4 Relations | claude-sonnet-4.5 | glm-5.3-flash, gemini-3.1-flash-lite, qwen3.7-flash | relations kept: 530 base / 495 glm / 423 gemini; qwen FAIL (empty content) | pending | pending (glm finalist) | `4f88dd04`, `b21c92a6`, `269558df` |
+| 5 Resolve | claude-sonnet-4.5 | glm-5.3-flash, gemini-3.1-flash-lite | 0.6 glm / 0.5333 gemini vs 0.5333 base | pending | pending (glm finalist) | micro-evals 2026-11-01 |
+| 6 Community reports | claude-sonnet-4.5 | glm-5.3-flash (finalist) | not in micro-eval (cost center — §5) | pending | pending | micro-evals 2026-11-01 |
+| 7 Answers (conversation) | → claude-haiku-5.5 | glm-5.3-flash, gemini-3.1-flash-lite | haiku 0.5333 / glm 0.6 / gemini 0.4 (same graph, frozen grader) | pending | claude-haiku-5.5 holds (assigned) | `269558df`, `0b732084`, `eb516e0c` |
+| 8 Recommendations | claude-sonnet-4.5 | glm-5.3-flash (finalist) | not yet run | pending | pending | micro-evals 2026-11-01 |
+| 9 Grader (frozen) | claude-sonnet-4.5 | — (frozen during bake-off) | — | n/a | frozen | §7 decision 3 |
 
 ## 6. Model page rework spec
 
