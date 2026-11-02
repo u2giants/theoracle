@@ -20,13 +20,13 @@ expect_class(){
 
 expect_class README.md prose 'ordinary documentation uses the prose fast path'
 expect_class apps/web/app/page.tsx code 'ordinary source uses the code path'
-expect_class AGENTS.md reviewer-safety 'agent rulebook receives protected full treatment'
-expect_class .ai-devops/task-gates.json reviewer-safety 'task-gate policy protects itself'
-expect_class scripts/test-task-gates.sh reviewer-safety 'task-gate assertion protects itself'
-expect_class MACRO_FIRST_IMPLEMENTATION_PLAN.md reviewer-safety 'canonical forward plan receives protected full treatment'
-expect_class MACRO_FIRST_REDESIGN.md reviewer-safety 'macro redesign contract receives protected full treatment'
-expect_class SHAPE_AWARE_READER_DESIGN.md reviewer-safety 'shape-aware design receives protected full treatment'
-expect_class oracle_master_spec.md reviewer-safety 'master product specification receives protected full treatment'
+expect_class AGENTS.md code 'agent rulebook receives protected full treatment'
+expect_class .ai-devops/task-gates.json code 'task-gate policy protects itself'
+expect_class scripts/test-task-gates.sh code 'task-gate assertion protects itself'
+expect_class MACRO_FIRST_IMPLEMENTATION_PLAN.md code 'canonical forward plan receives protected full treatment'
+expect_class MACRO_FIRST_REDESIGN.md code 'macro redesign contract receives protected full treatment'
+expect_class SHAPE_AWARE_READER_DESIGN.md code 'shape-aware design receives protected full treatment'
+expect_class oracle_master_spec.md code 'master product specification receives protected full treatment'
 expect_class vercel.json deployment 'Vercel release contract is protected deployment work'
 expect_class package.json deployment 'delegated Vercel build command is protected deployment work'
 expect_class apps/web/package.json deployment 'web build package contract is protected deployment work'
@@ -111,8 +111,8 @@ pass 'private tooling admits the sealed synthetic-fixture review route'
 cp "$fixture/.ai-devops/task-gates.json" "$TMP/compliance-policy.json"
 jq '.gates |= with_entries(if .key == "private-tooling" then . else .value.required |= map(select(. != "repository-workflow-compliance")) end)' "$TMP/compliance-policy.json" > "$fixture/.ai-devops/task-gates.json"
 isolated_private="$(cd "$fixture" && ai-task-gates explain --json)"
-if printf '%s\n' "$isolated_private" | jq -e '.observed_class=="reviewer-safety" and (.changes|any(.class=="reviewer-safety" and .path==".ai-devops/task-gates.json"))' >/dev/null; then
-  pass 'uncommitted policy edit remains observed reviewer-safety'
+if printf '%s\n' "$isolated_private" | jq -e '.observed_class=="code" and (.changes|any(.class=="code" and .path==".ai-devops/task-gates.json"))' >/dev/null; then
+  pass 'uncommitted policy edit remains observed code'
 else
   fail 'uncommitted policy edit lost protected-path classification'
 fi
