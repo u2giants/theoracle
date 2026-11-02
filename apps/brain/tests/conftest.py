@@ -40,8 +40,10 @@ CREATE TABLE IF NOT EXISTS public.employees (
 CREATE TABLE IF NOT EXISTS public.employee_identities (
   id uuid PRIMARY KEY,
   employee_id uuid NOT NULL,
-  auth_user_id uuid NOT NULL UNIQUE
+  auth_user_id uuid NOT NULL UNIQUE,
+  email text
 );
+ALTER TABLE public.employee_identities ADD COLUMN IF NOT EXISTS email text;
 INSERT INTO public.employees (id, email, name, role, is_admin) VALUES
   ('00000000-0000-4000-8000-0000000000a1', 'admin@test.invalid', 'Test Admin', 'Operations', true),
   ('00000000-0000-4000-8000-0000000000b1', 'employee@test.invalid', 'Test Employee', 'Design', false)

@@ -39,13 +39,22 @@ def _command(text: str) -> str:
 
 
 def _find_employee(conn: Any, email: str | None) -> tuple[str, str] | None:
-    """Return ``(employee_id, name)`` for an active employee with this email."""
+    """Return ``(employee_id, name)`` for an active employee with this email.
+
+    Teams signs people in with their work address while ``employees.email``
+    may hold another one, so every linked identity email also matches
+    (measured 2026-11-02: an owner "hi" from Teams matched no employee and
+    the interview intake recorded nothing).
+    """
     if not email:
         return None
     row = conn.execute(
-        "SELECT id::text, COALESCE(name, email) FROM public.employees "
-        "WHERE lower(email) = lower(%s) AND disabled_at IS NULL LIMIT 1",
-        (email.strip(),),
+        "SELECT e.id::text, COALESCE(e.name, e.email) FROM public.employees e "
+        "LEFT JOIN public.employee_identities ei ON ei.employee_id = e.id "
+        "WHERE e.disabled_at IS NULL AND ("
+        "lower(e.email) = lower(%s) OR lower(ei.email) = lower(%s)) "
+        "LIMIT 1",
+        (email.strip(), email.strip()),
     ).fetchone()
     if row is None:
         return None
