@@ -30,7 +30,8 @@ kept the 440 L0 reports already written.
 `BRAIN_FRONTIER_MODEL=anthropic/claude-sonnet-4.5`,
 `BRAIN_CHAT_MODEL=anthropic/claude-haiku-5.5` (seated 2026-10-31 after the
 PR #307 empty-content fix; gate: 5/5 seed answers non-empty),
-`BRAIN_EVAL_MODEL` unset → frozen grader falls back to the frontier model,
+`BRAIN_EVAL_MODEL` unset → grader falls back to the current frontier model
+(not independently frozen; changing the frontier model also changes the grader),
 `BRAIN_VISION_MODEL=openai/gpt-4.1`,
 `BRAIN_EMBED_MODEL=openai/text-embedding-3-large` (1024 dims),
 ScaleDown enabled, `BRAIN_MAX_FRONTIER_CALLS_PER_JOB=3000`.
@@ -38,8 +39,8 @@ Migration `004_eval_models.sql` applied to prod (`cmap.eval_run.models`).
 
 ## Eval (step-11 seed questions, real corpus)
 
-Five seed questions loaded to prod; eval run `b4cbe36b-f7ba-4b88-aa61-afdebfa43c9e`
-completed as **eval_run `5cd3a206-de53-4611-8732-cf047491572e`, mean 0.2**
+Five seed questions loaded to prod; evaluate job `b4cbe36b-f7ba-4b88-aa61-afdebfa43c9e`
+wrote **eval_run `5cd3a206-de53-4611-8732-cf047491572e`, mean 0.2**
 (grader `anthropic/claude-sonnet-4.5`, answers `anthropic/claude-haiku-5.5`;
 `cmap.eval_run.models` records the full manifest).
 
@@ -52,9 +53,9 @@ even when the answers are sound. Per-question scores: 0.667 / 0.333 / 0 / 0 / 0
 ones do not. The same five questions scored **0.5333** on the fixture corpus
 under identical seating (eval_run `269558df-9300-48e5-91f3-241505c257d4`).
 
-The real-corpus instrument is the 20 owner questions
-(`eval-questions-draft-20.md`, drafted for Albert and Ilona, each needing 3+
-sources). The eval page is ready for them.
+The 20 real-corpus evaluation questions are still to be written by Albert and
+Ilona on the eval page; each must need three or more sources. Until then, only
+the five fixture seed questions are available.
 
 ## Cost and spend controls
 
@@ -70,6 +71,6 @@ Sonnet's input price — seating waits for the real-corpus swap pass.
 1. Albert and Ilona: mark wrong items on the first Map (30 minutes).
 2. Albert: message the Teams bot "hi" from his own account (interviews to
    employees stay OFF).
-3. Albert and Ilona: approve/edit the 20 draft eval questions.
+3. Albert and Ilona: write the 20 real-corpus eval questions on the eval page.
 
 Verdict goes verbatim into the plan STATUS row when given.
