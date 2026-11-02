@@ -2,9 +2,9 @@
 //
 // Called only by the brain's interview tick with the shared token:
 // { employee_id, text }. Looks up the conversation reference the employee
-// created by messaging the bot first and sends the question into that chat.
-// The brain refuses the lookup (409/404) while interviews are off or the
-// employee never wrote to the bot, so nothing can be sent in those cases.
+// created by messaging the bot first and sends the message into that chat.
+// 404 when the employee never wrote to the bot; the outbound interview tick
+// itself stays gated on the interviews switch.
 
 import { NextResponse, type NextRequest } from 'next/server';
 import type { ConversationReference } from 'botbuilder';
