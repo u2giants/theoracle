@@ -68,12 +68,16 @@ async function meetingJoinUrlFromContext(context: TurnContext): Promise<string |
 
 type InboundResult = { handled?: boolean; reply?: string | null };
 
-async function senderEmail(context: TurnContext): Promise<string | null> {
+type SenderProfile = { email: string; name?: string };
+
+async function senderProfile(context: TurnContext): Promise<SenderProfile | null> {
   const from = context.activity.from;
   if (!from?.id) return null;
   try {
     const member = await TeamsInfo.getMember(context, from.id);
-    return member.email ?? member.userPrincipalName ?? null;
+    const email = member.email ?? member.userPrincipalName ?? null;
+    if (!email) return null;
+    return { email, name: member.name ?? undefined };
   } catch (err) {
     console.warn('[teams/bot] could not load sender profile', err);
     return null;
@@ -83,13 +87,14 @@ async function senderEmail(context: TurnContext): Promise<string | null> {
 // Returns true when the brain handled the message as an interview reply.
 async function offerToInterviews(context: TurnContext, text: string): Promise<boolean> {
   if (!process.env.BRAIN_BASE_URL || !process.env.BRAIN_SHARED_TOKEN) return false;
-  const email = await senderEmail(context);
-  if (!email) return false;
+  const sender = await senderProfile(context);
+  if (!sender) return false;
   try {
     const result = await brainService<InboundResult>('interview/teams/inbound', {
       method: 'POST',
       body: {
-        email,
+        email: sender.email,
+        name: sender.name,
         conversation_ref: TurnContext.getConversationReference(context.activity),
         text,
       },

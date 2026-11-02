@@ -10,6 +10,7 @@ it does not handle falls through to the bot's existing join-meeting command.
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -22,6 +23,9 @@ from brain.db import get_pool
 ANSWER_WINDOW_DAYS = 7
 ORACLE_SPEAKER = "The Oracle"
 EASTERN = ZoneInfo("America/New_York")
+# Owner ruling 2026-11-02: every employee in the M365 tenant can reach The
+# Oracle and feed information in; canonical emails are @popcre.com.
+TENANT_EMAIL_DOMAIN = "popcre.com"
 
 REPLY_STOPPED = (
     "Got it, The Oracle will not send you more questions. "
@@ -61,6 +65,28 @@ def _find_employee(conn: Any, email: str | None) -> tuple[str, str] | None:
     return str(row[0]), str(row[1])
 
 
+def _ensure_employee(conn: Any, email: str | None, name: str | None) -> tuple[str, str] | None:
+    """Create a minimal employee row for a tenant address that has none.
+
+    Owner ruling 2026-11-02: all employees in the M365 tenant can feed
+    information in — a first Teams message from an unknown @popcre.com
+    sender registers them. Non-tenant addresses are never auto-registered.
+    """
+    if not email:
+        return None
+    address = email.strip()
+    if address.casefold().split("@")[-1:] != [TENANT_EMAIL_DOMAIN]:
+        return None
+    display = (name or "").strip() or address.split("@")[0]
+    row = conn.execute(
+        "INSERT INTO public.employees (id, email, name) VALUES (%s, %s, %s) "
+        "RETURNING id::text",
+        (str(uuid.uuid4()), address, display),
+    ).fetchone()
+    conn.commit()
+    return str(row[0]), display
+
+
 def _transcript_text(question: str, employee_name: str, answer: str) -> str:
     """The Q and A as two speaker turns the transcript reader understands."""
     question_line = " ".join(question.split())
@@ -74,11 +100,14 @@ def handle_inbound(
     email: str | None,
     conversation_ref: dict[str, Any] | None,
     text: str,
+    name: str | None = None,
 ) -> dict[str, Any]:
     """Process one incoming Teams message; return ``{handled, reply, ...}``."""
     pool = get_pool()
     with pool.connection() as conn:
         employee = _find_employee(conn, email)
+        if employee is None:
+            employee = _ensure_employee(conn, email, name)
         if employee is None:
             return {"handled": False, "reply": None, "employee_id": None}
         employee_id, employee_name = employee
