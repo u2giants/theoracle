@@ -371,3 +371,45 @@ def test_work_email_matches_identity_row(db: Any) -> None:
     assert result["employee_id"] == employee_id
     stored = db.execute("SELECT count(*) FROM cmap.teams_conversation").fetchone()[0]
     assert stored == 1
+
+def test_tenant_sender_auto_registers(db: Any) -> None:
+    """A first Teams message from an unknown @popcre.com sender registers them.
+
+    Owner ruling 2026-11-02: every employee in the M365 tenant can feed
+    information in.
+    """
+    result = handle_inbound(
+        email="new.person@popcre.com",
+        name="New Person",
+        conversation_ref=CONVERSATION_REF,
+        text="hi",
+    )
+    assert result["handled"] is False
+    row = db.execute(
+        "SELECT id::text, name FROM public.employees WHERE lower(email) = %s",
+        ("new.person@popcre.com",),
+    ).fetchone()
+    assert row is not None
+    assert result["employee_id"] == str(row[0])
+    assert row[1] == "New Person"
+    stored = db.execute(
+        "SELECT count(*) FROM cmap.teams_conversation WHERE employee_id = %s",
+        (row[0],),
+    ).fetchone()[0]
+    assert stored == 1
+
+
+def test_personal_sender_is_not_auto_registered(db: Any) -> None:
+    """Non-tenant addresses never auto-register (identity hygiene, not auth)."""
+    result = handle_inbound(
+        email="someone@gmail.com",
+        conversation_ref=CONVERSATION_REF,
+        text="hi",
+    )
+    assert result["handled"] is False
+    assert result["employee_id"] is None
+    stored = db.execute(
+        "SELECT count(*) FROM public.employees WHERE lower(email) = %s",
+        ("someone@gmail.com",),
+    ).fetchone()[0]
+    assert stored == 0

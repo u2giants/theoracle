@@ -27,6 +27,7 @@ class InboundBody(BaseModel):
     """One Teams message forwarded by the bot route."""
 
     email: str | None = None
+    name: str | None = None
     conversation_ref: dict[str, Any] | None = None
     text: str = ""
 
@@ -63,6 +64,7 @@ def teams_inbound(body: InboundBody) -> dict[str, Any]:
         email=body.email,
         conversation_ref=body.conversation_ref,
         text=body.text,
+        name=body.name,
     )
 
 
