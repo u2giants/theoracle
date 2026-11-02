@@ -340,3 +340,34 @@ def test_skipped_questions_still_count_toward_cap(
         run_interview_tick()
         handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip")
     assert len(sent) == 2
+
+
+def test_work_email_matches_identity_row(db: Any) -> None:
+    """A Teams message from the work address matches via employee_identities.
+
+    Measured 2026-11-02: the owner's "hi" from Teams carried the work
+    address while employees.email held a personal one, so the intake
+    matched nobody and recorded nothing.
+    """
+    row = db.execute(
+        "SELECT id::text FROM public.employees WHERE email = %s",
+        (EMPLOYEE_EMAIL,),
+    ).fetchone()
+    employee_id = str(row[0])
+    db.execute(
+        "INSERT INTO public.employee_identities (id, employee_id, auth_user_id, email) "
+        "VALUES ('00000000-0000-4000-8000-0000000000c3', %s, "
+        "'00000000-0000-4000-8000-0000000000c2', 'Work.User@corp.test') "
+        "ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email",
+        (employee_id,),
+    )
+    db.execute("DELETE FROM cmap.teams_conversation")
+    db.commit()
+
+    result = handle_inbound(
+        email="work.user@corp.test", conversation_ref=CONVERSATION_REF, text="hi"
+    )
+    assert result["handled"] is False
+    assert result["employee_id"] == employee_id
+    stored = db.execute("SELECT count(*) FROM cmap.teams_conversation").fetchone()[0]
+    assert stored == 1
