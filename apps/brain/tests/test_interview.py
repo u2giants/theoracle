@@ -413,3 +413,23 @@ def test_personal_sender_is_not_auto_registered(db: Any) -> None:
         ("someone@gmail.com",),
     ).fetchone()[0]
     assert stored == 0
+
+
+def test_conversation_lookup_works_while_interviews_off(
+    db: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The write-back lookup is not gated on the interviews switch.
+
+    The owner's two-way Teams test (2026-11-02) needed the bot to answer
+    while outbound interviews stay off; the ask tick gates itself.
+    """
+    from conftest import TEST_TOKEN
+
+    monkeypatch.setattr(get_settings(), "brain_interview_enabled", False)
+    _connect()
+    response = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}",
+        headers={"x-brain-token": TEST_TOKEN},
+    )
+    assert response.status_code == 200
+    assert response.json()["conversation_ref"]

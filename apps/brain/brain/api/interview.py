@@ -18,7 +18,7 @@ from brain.api.deps import User, require_admin, require_service
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
 from brain.interview.inbound import handle_inbound
-from brain.interview.tick import interviews_enabled, reachable_employees, select_target
+from brain.interview.tick import reachable_employees, select_target
 
 router = APIRouter()
 
@@ -73,7 +73,12 @@ def teams_inbound(body: InboundBody) -> dict[str, Any]:
     dependencies=[Depends(require_service)],
 )
 def teams_conversation(employee_id: str) -> dict[str, Any]:
-    """Stored conversation reference; 404 when the employee never wrote first."""
+    """Stored conversation reference; 404 when the employee never wrote first.
+
+    Always readable: this lookup is what lets the web layer write back into a
+    Teams chat (two-way communication, owner test 2026-11-02). The outbound
+    interview tick gates itself on ``interviews_enabled``; the lookup does not.
+    """
     employee_id = _uuid(employee_id, "employee_id")
     pool = get_pool()
     with pool.connection() as conn:
@@ -81,9 +86,6 @@ def teams_conversation(employee_id: str) -> dict[str, Any]:
             "SELECT conversation_ref FROM cmap.teams_conversation WHERE employee_id = %s",
             (employee_id,),
         ).fetchone()
-        enabled = interviews_enabled(conn, get_settings())
-    if not enabled:
-        raise HTTPException(status_code=409, detail="interviews are turned off")
     if row is None:
         raise HTTPException(status_code=404, detail="employee has not messaged the bot")
     return {"employee_id": employee_id, "conversation_ref": row[0]}
