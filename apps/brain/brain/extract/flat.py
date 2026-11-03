@@ -48,31 +48,54 @@ MIN_MENTION_CONFIDENCE = 0.5
 CLASSIFY_LABELS: list[dict[str, str]] = [
     {
         "name": "process",
-        "rubric": "Describes ordered work steps, approvals, hand-offs or transitions.",
+        "rubric": (
+            "Describes how work moves: ordered steps, approvals, hand-offs, "
+            "submissions, reviews or status changes, even when told "
+            "conversationally."
+        ),
     },
     {
         "name": "responsibility",
-        "rubric": "States who owns, performs or approves something.",
+        "rubric": (
+            "States who owns, performs, approves, or is the go-to person or team "
+            "for something."
+        ),
     },
     {
         "name": "rule",
-        "rubric": "States a requirement, condition, prohibition, threshold or exception.",
+        "rubric": (
+            "States a requirement, policy, condition, prohibition, deadline, "
+            "threshold, minimum, or an exception to the usual way."
+        ),
     },
     {
         "name": "reference",
-        "rubric": "Lists entities, codes, definitions, or lookup data without a flow.",
+        "rubric": (
+            "Lists or explains systems, files, codes, accounts, brands, products or "
+            "definitions, including someone describing what a tool holds or is used "
+            "for."
+        ),
     },
     {
         "name": "problem",
-        "rubric": "Describes something going wrong, a delay, workaround, complaint or pain point.",
+        "rubric": (
+            "Describes something going wrong: a delay, error, rework, missing "
+            "information, workaround, frustration or pain point."
+        ),
     },
     {
         "name": "decision",
-        "rubric": "Records a decision made, or a disagreement about what to do.",
+        "rubric": (
+            "Records a decision made or pending, an agreement on what to do, or a "
+            "disagreement about it."
+        ),
     },
     {
         "name": "chatter",
-        "rubric": "Greetings, scheduling, jokes, or content with no business information.",
+        "rubric": (
+            "Only greetings, small talk, scheduling or jokes. NOT chatter if it "
+            "names any system, document, brand, customer, team, rule or work step."
+        ),
     },
 ]
 
