@@ -4,7 +4,9 @@ Every chunk of a source is classified with ScaleDown ``/classify`` and its flat
 mentions are extracted with ScaleDown ``/extract``, 8 chunks at a time. When
 ``BRAIN_SCALEDOWN_ENABLED=false`` or a ScaleDown call returns non-200 three
 times, the frontier model answers ``prompts/flat_extract.md`` instead, in the
-same result shape, so the pipeline completes either way (plan §8, §11). Model
+same result shape, so the pipeline completes either way (plan §8, §11). When
+``BRAIN_FLAT_MODEL`` is set, that model extracts every chunk while ScaleDown
+keeps classifying (2026-11-03 bake-off: it finds more than ScaleDown). Model
 ids come from the environment only and never from this code.
 
 Each raw response is recorded in ``cmap.extraction(stage='flat')``; mentions
@@ -34,7 +36,7 @@ from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.normalize import normalize_name
 from brain.llm import post_chat_with_rescue
-from brain.seats import stage_model
+from brain.seats import flat_model_chosen, stage_model
 
 logger = logging.getLogger(__name__)
 
@@ -486,9 +488,11 @@ def _process_chunk(
         outcome.skipped_chatter = True
         return outcome
 
-    response = _call_scaledown(
-        "/extract", extract_body(text), counters, "scaledown_extract_calls"
-    )
+    response = None
+    if not flat_model_chosen(counters.settings):
+        response = _call_scaledown(
+            "/extract", extract_body(text), counters, "scaledown_extract_calls"
+        )
     if response is not None:
         outcome.records.append(
             ModelRecord(

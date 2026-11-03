@@ -71,6 +71,8 @@ def env_model(settings: Settings, stage: str) -> str | None:
         return settings.brain_chat_model or settings.brain_frontier_model
     if stage == "grade":
         return settings.brain_eval_model or settings.brain_frontier_model
+    if stage == "flat":
+        return settings.brain_flat_model or settings.brain_frontier_model
     return settings.brain_frontier_model
 
 
@@ -79,6 +81,15 @@ def stage_model(settings: Settings, stage: str) -> str | None:
     if stage not in STAGES:
         raise ValueError(f"unknown model stage {stage!r}")
     return _db_seats().get(stage) or env_model(settings, stage)
+
+
+def flat_model_chosen(settings: Settings) -> bool:
+    """Whether a model (not ScaleDown /extract) picks up every chunk's entities.
+
+    Set by a page seat for the flat stage or by ``BRAIN_FLAT_MODEL``; without
+    either, ScaleDown extracts and the frontier model is only the fallback.
+    """
+    return "flat" in _db_seats() or settings.brain_flat_model is not None
 
 
 def seat_report(settings: Settings) -> dict[str, dict[str, Any]]:
