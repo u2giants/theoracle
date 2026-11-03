@@ -59,3 +59,24 @@ Question from the owner: can better instructions lift ScaleDown? Variant: every 
 | z-ai/glm-5.3-flash (re-scored) | 0.855 | 0.650 | 0.739 | 0.849 | 0.68 | 1 |
 
 Finding: richer entity descriptions made ScaleDown extraction worse (longer descriptions appear to dilute its matching), but the richer passage-kind descriptions made its labelling the best of every path tested (0.76 vs 0.60), with no false chatter skips. Extraction does not depend on the label here (no chunk was chatter-skipped in either run), so the hybrid — richer classify labels + production entity descriptions — would score 0.635 F1 / 0.76 kind accuracy. Recommendation: adopt the richer classify labels only; keep the entity descriptions as they are. Not yet applied to the code.
+
+## Follow-up 2: entity-description variants to close the gap with GLM (1:20 PM EST)
+
+Richer passage-kind rubrics are now the production ScaleDown classify labels (this PR). Entity descriptions were left as they are; variants were tested to see whether ScaleDown extraction can match z-ai/glm-5.3-flash. Tuning set = the original 25 chunks; confirmation on a fresh held-out set of 24 different chunks (every 4th chunk from offset 2), judged the same way (pooled, anthropic/claude-sonnet-5.5). New mentions were judged before scoring, so scores below supersede earlier rows for the tuning set.
+
+Variants (ScaleDown `/extract` calls per chunk in brackets): base = production descriptions [1]; short = 3–6 word descriptions [1]; split3 = the 16 types in three groups (actors / things / process-language) [3]; single = one type per call [16]. Ensembles merge passes by surface, type by vote (base weighted).
+
+| Path | Calls/chunk | F1 tuning | F1 held-out | Precision held-out | Recall held-out | Type acc held-out |
+|---|---|---|---|---|---|---|
+| ScaleDown base | 1 | 0.608 | 0.647 | 0.718 | 0.589 | 0.862 |
+| short | 1 | 0.614 | 0.659 | 0.692 | 0.628 | 0.750 |
+| split3 | 3 | 0.586 | 0.653 | 0.710 | 0.605 | 0.781 |
+| single | 16 | 0.637 | 0.650 | 0.716 | 0.596 | 0.654 |
+| base + short | 2 | 0.681 | 0.687 | 0.645 | 0.736 | 0.779 |
+| base + short + split3 | 5 | 0.705 | 0.698 | 0.619 | 0.799 | 0.778 |
+| base + (≥2 of short/split3/single) | 21 | 0.695 | 0.711 | 0.689 | 0.734 | — |
+| **z-ai/glm-5.3-flash** | 1 (frontier) | **0.708** | **0.754** | 0.750 | 0.758 | 0.881 |
+
+Held-out passage-kind accuracy with the new labels: ScaleDown 0.79, GLM 0.92; no chatter false-skips by either on the held-out set.
+
+Findings: no single description change closes the gap; description wording moves ScaleDown F1 by only ±0.03. Running several ScaleDown passes and merging them raises recall past GLM's but lowers precision, ending ~0.05 F1 below GLM on unseen chunks (0.698 vs 0.754) at 5x the ScaleDown calls. Best value option if ScaleDown stays primary: base + short (2 calls, +0.04 F1). Not applied to the code — it doubles ScaleDown spend and adds more incorrect items; that trade-off is the owner's call.
