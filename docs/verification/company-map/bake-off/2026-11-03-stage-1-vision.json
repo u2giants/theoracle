@@ -1,0 +1,927 @@
+{
+ "stage": 1,
+ "slug": "vision",
+ "date": "2026-11-03",
+ "judge": "none (deterministic scoring vs hand-built reference)",
+ "candidates": [
+  {
+   "model": "anthropic/claude-haiku-5.5",
+   "available": true,
+   "quality_score_0_1": 0.94,
+   "key_metrics": {
+    "flow": {
+     "node_recall": 1.0,
+     "verbatim": 1.0,
+     "lane_recall": 1.0,
+     "edge_recall": 0.955,
+     "edge_label_recall": 0.909,
+     "edges_returned": 71,
+     "unmatched_edges": 4,
+     "invented_nodes": 0,
+     "nodes_returned": 63,
+     "unreadable": "Edge routing for several long connectors is approximate; some node text is clipped at box borders (e.g., 'Licensor's revisions review' shows a partial first letter, SKUs and Files for Factory boxes cu"
+    },
+    "flow_downscaled_2600px": {
+     "node_recall": 1.0,
+     "verbatim": 1.0,
+     "lane_recall": 1.0,
+     "edge_recall": 0.881,
+     "edge_label_recall": 0.909,
+     "edges_returned": 65,
+     "unmatched_edges": 4,
+     "invented_nodes": 0,
+     "nodes_returned": 63,
+     "unreadable": "Small text in some boxes is cut off (e.g., 'Licensor's revisions review' first letter, 'Files for Factory' and 'SKUs creation' last lines). Edge routing is dense; the edge list is a best reading and m"
+    },
+    "fixture": {
+     "node_recall": 1.0,
+     "edge_recall": 1.0,
+     "unmatched_edges": 0,
+     "lanes": [
+      "Design",
+      "Licensing",
+      "Buyer"
+     ]
+    },
+    "text_page": {
+     "word_recall": 1.0,
+     "extra_words": 0,
+     "diagram_returned": false
+    }
+   },
+   "failures": [],
+   "latency_s": {
+    "fixture.png": 4.9,
+    "flow.png": 30.2,
+    "licensing_p2-2.png": 2.2
+   },
+   "tokens": {
+    "fixture.png": [
+     2357,
+     1088
+    ],
+    "flow.png": [
+     4994,
+     8162
+    ],
+    "licensing_p2-2.png": [
+     2983,
+     407
+    ]
+   },
+   "price_per_mtok_in_out": [
+    0.09999999999999999,
+    0.5
+   ],
+   "cost_usd_sample": 0.0058,
+   "cost_usd_corpus": 0.0115,
+   "cost_usd_100x": 1.15,
+   "notes": "Best edge topology (64/67) and only model to flag clipped labels in unreadable_regions; 4 wrong edges.",
+   "generation_ids": [
+    "gen-1793724176-0BXYo7JO4PzZrPgsitBx",
+    "gen-1793724226-G9awGLupzWWuNYV4GAsB",
+    "gen-1793724329-CcpVEavLjRPMagC7y0iD",
+    "gen-1793724256-vdPYOfpjNeHtG4I7uBwn"
+   ]
+  },
+  {
+   "model": "openai/gpt-6-luna",
+   "available": true,
+   "quality_score_0_1": 0.876,
+   "key_metrics": {
+    "flow": {
+     "node_recall": 0.968,
+     "verbatim": 0.968,
+     "lane_recall": 1.0,
+     "edge_recall": 0.806,
+     "edge_label_recall": 0.727,
+     "edges_returned": 60,
+     "unmatched_edges": 4,
+     "invented_nodes": 0,
+     "nodes_returned": 61,
+     "unreadable": ""
+    },
+    "flow_downscaled_2600px": {
+     "node_recall": 1.0,
+     "verbatim": 1.0,
+     "lane_recall": 1.0,
+     "edge_recall": 0.851,
+     "edge_label_recall": 0.909,
+     "edges_returned": 64,
+     "unmatched_edges": 4,
+     "invented_nodes": 0,
+     "nodes_returned": 63,
+     "unreadable": ""
+    },
+    "fixture": {
+     "node_recall": 1.0,
+     "edge_recall": 1.0,
+     "unmatched_edges": 0,
+     "lanes": [
+      "Design",
+      "Licensing",
+      "Buyer"
+     ]
+    },
+    "text_page": {
+     "word_recall": 1.0,
+     "extra_words": 0,
+     "diagram_returned": false
+    }
+   },
+   "failures": [],
+   "latency_s": {
+    "fixture.png": 7.0,
+    "flow.png": 29.4,
+    "licensing_p2-2.png": 3.0
+   },
+   "tokens": {
+    "fixture.png": [
+     2108,
+     644
+    ],
+    "flow.png": [
+     10249,
+     3497
+    ],
+    "licensing_p2-2.png": [
+     2410,
+     315
+    ]
+   },
+   "price_per_mtok_in_out": [
+    0.09999999999999999,
+    0.5
+   ],
+   "cost_usd_sample": 0.00288,
+   "cost_usd_corpus": 0.0082,
+   "cost_usd_100x": 0.82,
+   "notes": "Close second; missed 2 node labels and 3 edge conditions at full size, perfect nodes on the downscaled copy. Cheapest flowchart call.",
+   "generation_ids": [
+    "gen-1793724176-BFtZF5RYjxqq3qxckNpN",
+    "gen-1793724226-HIDxXhOs5wfJt0fCuK6Z",
+    "gen-1793724329-Fmmfh8uH8pYWV7QnHI6F",
+    "gen-1793724255-BuZQTBKPGtGmF0O9Ogw0"
+   ]
+  },
+  {
+   "model": "google/gemini-3.8-flash",
+   "available": true,
+   "quality_score_0_1": 0.824,
+   "key_metrics": {
+    "flow": {
+     "node_recall": 1.0,
+     "verbatim": 1.0,
+     "lane_recall": 1.0,
+     "edge_recall": 0.731,
+     "edge_label_recall": 0.909,
+     "edges_returned": 71,
+     "unmatched_edges": 16,
+     "invented_nodes": 0,
+     "nodes_returned": 63,
+     "unreadable": ""
+    },
+    "flow_downscaled_2600px": null,
+    "fixture": {
+     "node_recall": 1.0,
+     "edge_recall": 1.0,
+     "unmatched_edges": 0,
+     "lanes": [
+      "Design",
+      "Licensing",
+      "Buyer"
+     ]
+    },
+    "text_page": {
+     "word_recall": 1.0,
+     "extra_words": 0,
+     "diagram_returned": false
+    }
+   },
+   "failures": [],
+   "latency_s": {
+    "fixture.png": 10.1,
+    "flow.png": 30.9,
+    "licensing_p2-2.png": 7.6
+   },
+   "tokens": {
+    "fixture.png": [
+     1281,
+     1106
+    ],
+    "flow.png": [
+     1269,
+     4874
+    ],
+    "licensing_p2-2.png": [
+     1291,
+     832
+    ]
+   },
+   "price_per_mtok_in_out": [
+    0.8250000000000001,
+    4.125
+   ],
+   "cost_usd_sample": 0.02814,
+   "cost_usd_corpus": 0.0757,
+   "cost_usd_100x": 7.57,
+   "notes": "Perfect labels and lanes but 16 wrong edges (chains boxes by position instead of following arrows). Most expensive candidate.",
+   "generation_ids": [
+    "gen-1793724176-qO0EhTlHJXKf9Pw3dRRp",
+    "gen-1793724226-OcxWKdv7a8M9bG8x0o03",
+    "gen-1793724257-JItsNzXoa8QJkVEszq03"
+   ]
+  },
+  {
+   "model": "openai/gpt-4.1",
+   "available": true,
+   "quality_score_0_1": 0.494,
+   "key_metrics": {
+    "flow": {
+     "node_recall": 0.403,
+     "verbatim": 0.306,
+     "lane_recall": 0.929,
+     "edge_recall": 0.0,
+     "edge_label_recall": 0.0,
+     "edges_returned": 0,
+     "unmatched_edges": 0,
+     "invented_nodes": 23,
+     "nodes_returned": 64,
+     "unreadable": ""
+    },
+    "flow_downscaled_2600px": null,
+    "fixture": {
+     "node_recall": 1.0,
+     "edge_recall": 1.0,
+     "unmatched_edges": 0,
+     "lanes": [
+      "Design",
+      "Licensing",
+      "Buyer"
+     ]
+    },
+    "text_page": {
+     "word_recall": 1.0,
+     "extra_words": 0,
+     "diagram_returned": false
+    }
+   },
+   "failures": [
+    "flow.png: no edges returned"
+   ],
+   "latency_s": {
+    "fixture.png": 3.3,
+    "flow.png": 20.8,
+    "licensing_p2-2.png": 2.4
+   },
+   "tokens": {
+    "fixture.png": [
+     1293,
+     389
+    ],
+    "flow.png": [
+     953,
+     1994
+    ],
+    "licensing_p2-2.png": [
+     953,
+     220
+    ]
+   },
+   "price_per_mtok_in_out": [
+    2.0,
+    8.0
+   ],
+   "cost_usd_sample": 0.02695,
+   "cost_usd_corpus": 0.0685,
+   "cost_usd_100x": 6.85,
+   "notes": "Incumbent: returned 64 nodes but 0 edges on the real flowchart and invented 23 labels (e.g. 'Meeting Assembly', 'Jewelry versions'). Fails the stage on dense diagrams.",
+   "generation_ids": [
+    "gen-1793724176-JhbN2WxjdWS85maKSBrd",
+    "gen-1793724226-jOvmhBspONBoawwynUcs",
+    "gen-1793724246-M5MxMCgEVFW9R9cAqqE5"
+   ]
+  },
+  {
+   "model": "qwen/qwen2.5-vl-72b-instruct",
+   "available": true,
+   "quality_score_0_1": 0.472,
+   "key_metrics": {
+    "flow": {
+     "node_recall": 0.823,
+     "verbatim": 0.806,
+     "lane_recall": 0.286,
+     "edge_recall": 0.149,
+     "edge_label_recall": 0.0,
+     "edges_returned": 54,
+     "unmatched_edges": 41,
+     "invented_nodes": 0,
+     "nodes_returned": 58,
+     "unreadable": ""
+    },
+    "flow_downscaled_2600px": null,
+    "fixture": {
+     "node_recall": 1.0,
+     "edge_recall": 1.0,
+     "unmatched_edges": 0,
+     "lanes": [
+      "Design",
+      "Licensing",
+      "Buyer"
+     ]
+    },
+    "text_page": {
+     "word_recall": 1.0,
+     "extra_words": 0,
+     "diagram_returned": false
+    }
+   },
+   "failures": [],
+   "latency_s": {
+    "fixture.png": 9.3,
+    "flow.png": 69.2,
+    "licensing_p2-2.png": 7.1
+   },
+   "tokens": {
+    "fixture.png": [
+     2249,
+     418
+    ],
+    "flow.png": [
+     16577,
+     3011
+    ],
+    "licensing_p2-2.png": [
+     2911,
+     230
+    ]
+   },
+   "price_per_mtok_in_out": [
+    0.7999999999999999,
+    1.0
+   ],
+   "cost_usd_sample": 0.0142,
+   "cost_usd_corpus": 0.0439,
+   "cost_usd_100x": 4.39,
+   "notes": "Lanes mostly missed (4/14), 41 wrong edges, 69 s latency.",
+   "generation_ids": [
+    "gen-1793724176-RkzGcVWy81aoRV36USjl",
+    "gen-1793724226-LcTQIn9Xm5aRntmvWykr",
+    "gen-1793724295-dEEoRMTo7qV7Q5H4xLu3"
+   ]
+  },
+  {
+   "model": "meta/muse-spark-1.3-contributor",
+   "available": true,
+   "quality_score_0_1": 0.3,
+   "key_metrics": {
+    "flow": null,
+    "flow_downscaled_2600px": {
+     "node_recall": 1.0,
+     "verbatim": 1.0,
+     "lane_recall": 1.0,
+     "edge_recall": 0.493,
+     "edge_label_recall": 0.818,
+     "edges_returned": 42,
+     "unmatched_edges": 7,
+     "invented_nodes": 0,
+     "nodes_returned": 63,
+     "unreadable": ""
+    },
+    "fixture": {
+     "node_recall": 1.0,
+     "edge_recall": 1.0,
+     "unmatched_edges": 0,
+     "lanes": [
+      "Design",
+      "Licensing",
+      "Buyer"
+     ]
+    },
+    "text_page": {
+     "word_recall": 1.0,
+     "extra_words": 0,
+     "diagram_returned": false
+    }
+   },
+   "failures": [
+    "flow.png: VisionError: vision call failed: 400 {\"error\":{\"message\":\"Provider returned error\",\"code\":"
+   ],
+   "latency_s": {
+    "fixture.png": 11.8,
+    "flow.png": 0.3,
+    "licensing_p2-2.png": 8.0
+   },
+   "tokens": {
+    "fixture.png": [
+     2277,
+     1708
+    ],
+    "flow.png": [
+     0,
+     0
+    ],
+    "licensing_p2-2.png": [
+     2799,
+     1117
+    ]
+   },
+   "price_per_mtok_in_out": [
+    0.09999999999999999,
+    0.19999999999999998
+   ],
+   "cost_usd_sample": 0.00106,
+   "cost_usd_corpus": 0.007,
+   "cost_usd_100x": 0.7,
+   "notes": "Provider rejects the real 6359x7610 flowchart PNG (HTTP 400 'image decode limit exceeded'); stage failure in production. On a 2590x3100 copy: perfect labels but only 33/67 edges.",
+   "generation_ids": [
+    "gen-1793724176-1KIR1VDtWd9IO8Ac76Y2",
+    null,
+    "gen-1793724329-bCnEhQu9oZ6WnDCMskM1",
+    "gen-1793724188-9BhnwFD0BmlmVJaGnJbW"
+   ]
+  }
+ ],
+ "winner": "anthropic/claude-haiku-5.5",
+ "runner_up": "openai/gpt-6-luna",
+ "reference": {
+  "lanes": [
+   "Albert :)",
+   "Buyer",
+   "Sales",
+   "Creative direction",
+   "Junior designer",
+   "Technical designers",
+   "Creative designers",
+   "Sourcing",
+   "Production",
+   "Carlos",
+   "Gina",
+   "Licensing Team",
+   "Licensor",
+   "Factories"
+  ],
+  "nodes": [
+   "Meeting Scheduled",
+   "Agenda template/ Kick off Meeting",
+   "Create card: Style guides - input for designers",
+   "Assets/ compositions selection",
+   "Meeting w Buyer / Trendboards",
+   "Design Request Format",
+   "Pre-brief design notes + Confirming size",
+   "Asking the factories about limitations",
+   "Details and Limitations",
+   "Call/email from the buyer",
+   "Brief",
+   "Provide details in Click Up",
+   "Debriefing",
+   "Costing sheets elaboration",
+   "Costing sheets/Tech Pack elaboration",
+   "Costing sheets approval",
+   "Upload to DFlow RFQ code",
+   "RFQ to Factories",
+   "Price",
+   "Designs Approval",
+   "Design in Progress",
+   "Buyer's Approval",
+   "DFlow Library + Reference number in PPT",
+   "Picks confirmation to PM",
+   "Art files in the right format + Packaging",
+   "SKUs creation (DFlow, ColdLion, MasterData, ClickUp)",
+   "Tech Packing",
+   "Tech Pack Submit Authorization",
+   "Tech Pack Approval",
+   "Concept Submit to Licensor",
+   "Licensor's revisions review",
+   "Concept Revisions",
+   "Tech Pack Update",
+   "Revisions implementation",
+   "Resubmit",
+   "Licensor's comment",
+   "Concept Approved w comments",
+   "If comment is legal line or packaging",
+   "If comment is about creative design",
+   "Comments approval",
+   "Sample request",
+   "Factory selection",
+   "Include in Task List",
+   "Concept image to ColdLion and ClickUp",
+   "Concept Approved",
+   "Samples Order / TechPack request",
+   "Files for Factory: Art Files + Mock ups+ Packaging + Legal",
+   "Sampling",
+   "PPS Audit",
+   "Review Audit and send to factory",
+   "Re-sampling",
+   "PPS Submit to licensor",
+   "PPS Approved",
+   "Samples Buyer's approval",
+   "Samples Internal Approval",
+   "Samples shipped to US",
+   "Buyer places an order",
+   "Production order",
+   "Mass Production",
+   "Professional Photos Approval",
+   "Professional Photos",
+   "Ship to US"
+  ],
+  "edge_conditions": [
+   "New Product Type",
+   "Existing Product",
+   "For Customer Refresh",
+   "If Sales confirms buyer approves the Price",
+   "With an Order",
+   "Before an Order",
+   "If Audit: Fail",
+   "If Audit: Pass",
+   "For existing products",
+   "For New Products",
+   "For New Items",
+   "For Existing Items"
+  ],
+  "edges": [
+   [
+    "Meeting Scheduled",
+    "Agenda template/ Kick off Meeting",
+    ""
+   ],
+   [
+    "Agenda template/ Kick off Meeting",
+    "Create card: Style guides - input for designers",
+    ""
+   ],
+   [
+    "Create card: Style guides - input for designers",
+    "Assets/ compositions selection",
+    ""
+   ],
+   [
+    "Assets/ compositions selection",
+    "Meeting w Buyer / Trendboards",
+    ""
+   ],
+   [
+    "Meeting w Buyer / Trendboards",
+    "Design Request Format",
+    ""
+   ],
+   [
+    "Call/email from the buyer",
+    "Design Request Format",
+    ""
+   ],
+   [
+    "Design Request Format",
+    "Pre-brief design notes + Confirming size",
+    ""
+   ],
+   [
+    "Pre-brief design notes + Confirming size",
+    "Asking the factories about limitations",
+    ""
+   ],
+   [
+    "Asking the factories about limitations",
+    "Details and Limitations",
+    ""
+   ],
+   [
+    "Details and Limitations",
+    "Provide details in Click Up",
+    ""
+   ],
+   [
+    "Provide details in Click Up",
+    "Brief",
+    ""
+   ],
+   [
+    "Brief",
+    "Debriefing",
+    ""
+   ],
+   [
+    "Debriefing",
+    "Costing sheets elaboration",
+    "Existing Product"
+   ],
+   [
+    "Debriefing",
+    "Costing sheets/Tech Pack elaboration",
+    "New Product Type"
+   ],
+   [
+    "Costing sheets elaboration",
+    "Costing sheets approval",
+    ""
+   ],
+   [
+    "Costing sheets/Tech Pack elaboration",
+    "Costing sheets approval",
+    ""
+   ],
+   [
+    "Costing sheets approval",
+    "Upload to DFlow RFQ code",
+    ""
+   ],
+   [
+    "Upload to DFlow RFQ code",
+    "RFQ to Factories",
+    ""
+   ],
+   [
+    "RFQ to Factories",
+    "Price",
+    ""
+   ],
+   [
+    "Price",
+    "Design in Progress",
+    "If Sales confirms buyer approves the Price"
+   ],
+   [
+    "Debriefing",
+    "Design in Progress",
+    "For Customer Refresh"
+   ],
+   [
+    "Design in Progress",
+    "Designs Approval",
+    ""
+   ],
+   [
+    "Designs Approval",
+    "DFlow Library + Reference number in PPT",
+    ""
+   ],
+   [
+    "DFlow Library + Reference number in PPT",
+    "Buyer's Approval",
+    ""
+   ],
+   [
+    "Buyer's Approval",
+    "Picks confirmation to PM",
+    ""
+   ],
+   [
+    "Picks confirmation to PM",
+    "Art files in the right format + Packaging",
+    ""
+   ],
+   [
+    "Art files in the right format + Packaging",
+    "SKUs creation (DFlow, ColdLion, MasterData, ClickUp)",
+    ""
+   ],
+   [
+    "SKUs creation (DFlow, ColdLion, MasterData, ClickUp)",
+    "Tech Packing",
+    ""
+   ],
+   [
+    "Tech Packing",
+    "Tech Pack Approval",
+    ""
+   ],
+   [
+    "Tech Pack Approval",
+    "Tech Pack Submit Authorization",
+    ""
+   ],
+   [
+    "Tech Pack Submit Authorization",
+    "Concept Submit to Licensor",
+    ""
+   ],
+   [
+    "Concept Revisions",
+    "Licensor's revisions review",
+    ""
+   ],
+   [
+    "Licensor's revisions review",
+    "Revisions implementation",
+    ""
+   ],
+   [
+    "Revisions implementation",
+    "Tech Pack Update",
+    ""
+   ],
+   [
+    "Tech Pack Update",
+    "Tech Pack Submit Authorization",
+    ""
+   ],
+   [
+    "Tech Pack Submit Authorization",
+    "Resubmit",
+    ""
+   ],
+   [
+    "Concept Approved w comments",
+    "Licensor's comment",
+    ""
+   ],
+   [
+    "Licensor's comment",
+    "If comment is legal line or packaging",
+    ""
+   ],
+   [
+    "Licensor's comment",
+    "If comment is about creative design",
+    ""
+   ],
+   [
+    "If comment is legal line or packaging",
+    "Comments approval",
+    ""
+   ],
+   [
+    "If comment is about creative design",
+    "Comments approval",
+    ""
+   ],
+   [
+    "Comments approval",
+    "Concept image to ColdLion and ClickUp",
+    ""
+   ],
+   [
+    "Concept Approved",
+    "Concept image to ColdLion and ClickUp",
+    ""
+   ],
+   [
+    "Resubmit",
+    "Concept Approved",
+    ""
+   ],
+   [
+    "Picks confirmation to PM",
+    "Sample request",
+    ""
+   ],
+   [
+    "Sample request",
+    "Include in Task List",
+    ""
+   ],
+   [
+    "Include in Task List",
+    "Factory selection",
+    ""
+   ],
+   [
+    "Factory selection",
+    "Samples Order / TechPack request",
+    "With an Order"
+   ],
+   [
+    "Samples Order / TechPack request",
+    "Files for Factory: Art Files + Mock ups+ Packaging + Legal",
+    ""
+   ],
+   [
+    "Files for Factory: Art Files + Mock ups+ Packaging + Legal",
+    "Sampling",
+    ""
+   ],
+   [
+    "Sampling",
+    "PPS Audit",
+    ""
+   ],
+   [
+    "PPS Audit",
+    "Review Audit and send to factory",
+    ""
+   ],
+   [
+    "Review Audit and send to factory",
+    "Re-sampling",
+    "If Audit: Fail"
+   ],
+   [
+    "Re-sampling",
+    "PPS Audit",
+    ""
+   ],
+   [
+    "Review Audit and send to factory",
+    "PPS Submit to licensor",
+    "If Audit: Pass"
+   ],
+   [
+    "PPS Submit to licensor",
+    "PPS Approved",
+    ""
+   ],
+   [
+    "PPS Approved",
+    "Mass Production",
+    "For existing products"
+   ],
+   [
+    "PPS Approved",
+    "Samples shipped to US",
+    "For New Products"
+   ],
+   [
+    "Samples shipped to US",
+    "Samples Internal Approval",
+    ""
+   ],
+   [
+    "Samples Internal Approval",
+    "Samples Buyer's approval",
+    ""
+   ],
+   [
+    "Samples Buyer's approval",
+    "Buyer places an order",
+    ""
+   ],
+   [
+    "Buyer places an order",
+    "Production order",
+    ""
+   ],
+   [
+    "Production order",
+    "Mass Production",
+    ""
+   ],
+   [
+    "Mass Production",
+    "Professional Photos",
+    "For New Items"
+   ],
+   [
+    "Professional Photos",
+    "Professional Photos Approval",
+    ""
+   ],
+   [
+    "Professional Photos Approval",
+    "Ship to US",
+    ""
+   ],
+   [
+    "Mass Production",
+    "Ship to US",
+    "For Existing Items"
+   ]
+  ],
+  "ambiguous_accepted": [
+   [
+    "Concept Submit to Licensor",
+    "Concept Revisions"
+   ],
+   [
+    "Concept Submit to Licensor",
+    "Concept Approved w comments"
+   ],
+   [
+    "Concept Submit to Licensor",
+    "Concept Approved"
+   ],
+   [
+    "Factory selection",
+    "Files for Factory: Art Files + Mock ups+ Packaging + Legal"
+   ],
+   [
+    "Factory selection",
+    "Sampling"
+   ],
+   [
+    "Debriefing",
+    "Costing sheets approval"
+   ],
+   [
+    "Costing sheets elaboration",
+    "Costing sheets/Tech Pack elaboration"
+   ],
+   [
+    "Concept Approved",
+    "Factory selection"
+   ],
+   [
+    "Include in Task List",
+    "Samples Order / TechPack request"
+   ],
+   [
+    "Concept image to ColdLion and ClickUp",
+    "Concept Approved"
+   ],
+   [
+    "Comments approval",
+    "Concept Approved"
+   ]
+  ],
+  "sop_page_text": "02 \u2014 Purpose This document describes the complete workflow followed by the Techpack Automation system to automatically generate a Licensing Sheet. It explains both the user interaction and the internal system processes required to retrieve production information, validate production assets, and generate the Licensing Sheet. Every production standard described in this document is required for the automation to function correctly. 03 \u2014 Automation Overview The Licensing Sheet is generated automatically by combining information from multiple standardized production sources. The system retrieves information from: Master Data Product Library Production Server SKU Folder Artwork Mockup Packaging Every asset must follow the approved Production Standards. 04 \u2014 Step 1: Open the Application User Action \u2014 The Technical Designer opens the Techpack Automation application. System Process \u2014 The application loads Master Data, Product Library, System Configuration, and the Production Server Path. The system verifies that all required databases are available. If one of them cannot be accessed, the process stops."
+ }
+}
