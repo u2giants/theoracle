@@ -330,5 +330,108 @@
  ],
  "winner": "meta/muse-spark-1.3-contributor",
  "runner_up": "z-ai/glm-5.3",
- "regraded": "2026-11-03 ~1:05 PM EST, all seven models graded in one pass"
+ "regraded": "2026-11-03 ~1:05 PM EST, all seven models graded in one pass",
+ "addendum_scaledown_extract": {
+  "model": "scaledown/extract",
+  "available": true,
+  "api": "ScaleDown chat-completions with json_schema (not OpenRouter)",
+  "best_variant": "v6",
+  "variants_tried": [
+   "v1",
+   "v2",
+   "v3",
+   "v4",
+   "v5",
+   "v6"
+  ],
+  "results": {
+   "scaledown/extract[v5]": {
+    "kept": 483,
+    "precision": 0.15,
+    "recall": 0.476,
+    "types": {
+     "PERFORMS": 84,
+     "PART_OF": 40,
+     "PRECEDES": 38,
+     "DEPENDS_ON": 109,
+     "USES": 26,
+     "OWNS": 32,
+     "APPLIES_TO": 15,
+     "BLOCKED_BY": 7,
+     "MENTIONS": 71,
+     "PRODUCES": 24,
+     "HANDS_OFF_TO": 34,
+     "EXCEPT_WHEN": 2,
+     "CONTRADICTS": 1
+    },
+    "tok_in": 60706
+   },
+   "scaledown/extract[v6]": {
+    "kept": 321,
+    "precision": 0.5,
+    "recall": 0.416,
+    "types": {
+     "PERFORMS": 84,
+     "PART_OF": 44,
+     "PRECEDES": 37,
+     "DEPENDS_ON": 18,
+     "USES": 25,
+     "APPLIES_TO": 13,
+     "BLOCKED_BY": 6,
+     "OWNS": 11,
+     "HANDS_OFF_TO": 26,
+     "PRODUCES": 18,
+     "MENTIONS": 39
+    },
+    "tok_in": 64206
+   },
+   "meta/muse-spark-1.3-contributor": {
+    "kept": 210,
+    "precision": 0.725,
+    "recall": 0.482,
+    "types": {
+     "PRECEDES": 31,
+     "MENTIONS": 21,
+     "EXCEPT_WHEN": 3,
+     "DEPENDS_ON": 7,
+     "APPLIES_TO": 30,
+     "BLOCKED_BY": 10,
+     "USES": 21,
+     "PART_OF": 3,
+     "PERFORMS": 40,
+     "OWNS": 10,
+     "PRODUCES": 10,
+     "HANDS_OFF_TO": 18,
+     "CAUSES": 6
+    },
+    "tok_in": 29112
+   },
+   "z-ai/glm-5.3": {
+    "kept": 281,
+    "precision": 0.8,
+    "recall": 0.512,
+    "types": {
+     "PERFORMS": 55,
+     "PRECEDES": 46,
+     "MENTIONS": 31,
+     "PART_OF": 13,
+     "APPLIES_TO": 44,
+     "DEPENDS_ON": 7,
+     "BLOCKED_BY": 6,
+     "CAUSES": 6,
+     "USES": 16,
+     "PRODUCES": 19,
+     "EXCEPT_WHEN": 2,
+     "CONTRADICTS": 6,
+     "HANDS_OFF_TO": 22,
+     "OWNS": 8
+    },
+    "tok_in": 29257
+   }
+  },
+  "cost_usd_sample": 0.0032,
+  "cost_usd_corpus": 0.012,
+  "cost_usd_100x": 1.28,
+  "verdict": "does not match Muse; winner unchanged"
+ }
 }

@@ -51,3 +51,32 @@ Historical reference only (full 97-chunk corpus, earlier rounds): GLM 946 relati
 ## Reproduce
 
 The harness and grading scripts were session scratch on the test services host and are not committed. To reproduce, rerun the method above against a fresh `cmap_bake_5` clone. Per-model raw outputs are not kept in the repo. Precision is based on 40 relations per model, so each value has about ±0.15 sampling noise. Muse and GLM-5.3 cannot be separated on quality. Both clearly beat the rest on recall.
+
+
+## Addendum — ScaleDown Extract trial (2026-11-03, 1:21–1:50 PM EST)
+
+Albert asked (verbatim): "since this is an extraction task, see if scaledown's Extract model can match Muse. try several different prompts/instructions to score as high as possible".
+
+**Result: Extract does not match Muse.** Its best version scored F1 0.45, against Muse's 0.58 and GLM-5.3's 0.62. Extract is very cheap, about $1.30 per 10,000 chunks, but more than half of the links it keeps are wrong. It also never uses the exception and conflict link types, which the brief ranks as the second priority. The winner and runner-up are unchanged.
+
+How it was run: Extract (ScaleDown `extract` model, its own API) is a span finder driven by a JSON schema, not a chat model. So the `prompts/relations.md` prompt cannot be used as-is. Each design asked for arrays of links and was then passed through the production validator unchanged (exact quote, known entity keys, ontology types). Six designs were tried on 4 chunks first:
+
+- v1: one array of links, type as free text, with the full instruction. Kept 5 of 19 raw.
+- v2: same with minimal instruction. Kept 1 of 22.
+- v3: one array per link type. Kept 18 of 77.
+- v4: v3 plus direction and "prefer specific types" guidance. Kept 34 of 107.
+- v5: v4 plus a small adapter that repairs near-miss quotes and entity names (a real Extract integration would need this). Kept 50 of 91.
+- v6: v5 plus "copy entity names exactly from the list". Kept 49 of 74.
+
+Muse kept 30 links on the same 4 chunks. v5 and v6 then ran on all 25 chunks and were graded in one fresh pass together with all seven models. The judge was `anthropic/claude-sonnet-5.5`, with a 40-link sample per model and 166 union pairs.
+
+| Model (same grading pass) | Kept | Precision | Recall | F1 |
+|---|---|---|---|---|
+| GLM-5.3 | 281 | 0.80 | 0.51 | 0.62 |
+| Muse Spark 1.3 Contributor | 210 | 0.72 | 0.48 | 0.58 |
+| ScaleDown Extract v6 (best) | 321 | 0.50 | 0.42 | 0.45 |
+| ScaleDown Extract v5 | 483 | 0.15 | 0.48 | 0.23 |
+
+v5 found many links, so its recall equals Muse's, but most of them were noise (precision 0.15). v6's links were mostly PERFORMS/PART_OF/MENTIONS, with zero EXCEPT_WHEN or CONTRADICTS. Extract cost: $0.05 per M input tokens, and output is free. v6 used 64,206 input tokens over 25 chunks, about $0.0032, which projects to about $0.012 for the 97-chunk corpus and $1.28 at 10,000 chunks. Latency was about 34 s wall time for 25 chunks, with zero failures.
+
+Precision moves by about ±0.05 between grading passes, as sampling noise. In this pass GLM-5.3 edged Muse (0.80 vs 0.73 precision). In the earlier pass Muse edged GLM-5.3. The two stay tied on quality, and Muse stays the pick because it costs about 5.5x less.
