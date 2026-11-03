@@ -4,8 +4,8 @@ Run 11:41 AM – 12:24 PM EST on 2026-11-03 on the test services host. Owner req
 
 ## Winner
 
-**Winner: `meta/muse-spark-1.3-contributor`** — tied for best quality (recall 0.52, precision 0.78, F1 0.63), with zero failed chunks and the widest type spread, at about $7 per 10k chunks.
-**Runner-up: `z-ai/glm-5.3`** (full GLM, added at Albert's request) — equal quality (recall 0.54, precision 0.75, F1 0.62), the most links kept (281), zero failures, and about 3x faster than Muse. Output tokens cost far more, so it runs about $39 per 10k chunks, roughly 5.5x Muse. Pick GLM-5.3 if speed matters more than cost.
+**Winner: `meta/muse-spark-1.3-contributor`** — tied for best quality (recall 0.52, precision 0.78, F1 0.62), with zero failed chunks and the widest type spread, at about $7 per 10k chunks.
+**Runner-up: `z-ai/glm-5.3`** (full GLM, added at Albert's request) — equal quality (recall 0.54, precision 0.75, F1 0.63), the most links kept (281), zero failures, and about 3x faster than Muse. Output tokens cost far more, so it runs about $39 per 10k chunks, roughly 5.5x Muse. Pick GLM-5.3 if speed matters more than cost.
 `z-ai/glm-5.3-flash` is cheapest and fast, but has the lowest precision (0.58) of the reliable models.
 
 Disqualified for now: `anthropic/claude-haiku-5.5` (truncated on 56% of chunks, and the brief allows under 2%), `deepseek/deepseek-v4.1-flash-1017` (40% of chunks empty even after the rescue retry), `inclusionai/ling-3.1-flash` (88% of chunks failed from empty content and provider 429s).
