@@ -1,0 +1,145 @@
+{
+ "stage": 3,
+ "slug": "flat-extraction",
+ "date": "2026-11-03",
+ "sample_chunks": 25,
+ "judge": "anthropic/claude-sonnet-5.5",
+ "judge_cost_usd": 0.525,
+ "id_note": "qwen/qwen-3.8-27b is not an OpenRouter id; the listed id qwen/qwen3.8-27b was tested (same model, catalog spelling).",
+ "candidates": [
+  {
+   "model": "anthropic/claude-haiku-5.5",
+   "available": true,
+   "quality_score_0_1": 0.612,
+   "key_metrics": {
+    "precision": 0.896,
+    "recall": 0.465,
+    "f1": 0.612,
+    "type_acc": 0.839,
+    "kind_acc": 0.68,
+    "chatter_false_skips": 0,
+    "mentions": 354,
+    "tokens_in": 37535,
+    "tokens_out": 191601
+   },
+   "failures": 0,
+   "latency_s": 30.25,
+   "cost_usd_sample": 0.0996,
+   "cost_usd_corpus": 0.3863,
+   "cost_usd_100x": 39.82,
+   "notes": "Most precise, lowest recall (0.47) - shallow."
+  },
+  {
+   "model": "deepseek/deepseek-v4.1-flash",
+   "available": true,
+   "quality_score_0_1": 0.752,
+   "key_metrics": {
+    "precision": 0.703,
+    "recall": 0.809,
+    "f1": 0.752,
+    "type_acc": 0.872,
+    "kind_acc": 0.68,
+    "chatter_false_skips": 0,
+    "mentions": 790,
+    "tokens_in": 26010,
+    "tokens_out": 712401
+   },
+   "failures": 0,
+   "latency_s": 133.94,
+   "cost_usd_sample": 0.3574,
+   "cost_usd_corpus": 1.3866,
+   "cost_usd_100x": 142.95,
+   "notes": "Top F1 by a hair; reasoning burns ~28k output tokens/chunk, 12x GLM cost, slow."
+  },
+  {
+   "model": "openai/gpt-6-luna",
+   "available": true,
+   "quality_score_0_1": 0.62,
+   "key_metrics": {
+    "precision": 0.79,
+    "recall": 0.51,
+    "f1": 0.62,
+    "type_acc": 0.897,
+    "kind_acc": 0.64,
+    "chatter_false_skips": 0,
+    "mentions": 454,
+    "tokens_in": 24651,
+    "tokens_out": 168400
+   },
+   "failures": 0,
+   "latency_s": 62.49,
+   "cost_usd_sample": 0.0867,
+   "cost_usd_corpus": 0.3363,
+   "cost_usd_100x": 34.67,
+   "notes": "Precise but shallow (recall 0.51) - the 'high-confidence shallow extraction' pitfall."
+  },
+  {
+   "model": "qwen/qwen3.8-27b",
+   "available": true,
+   "quality_score_0_1": 0.729,
+   "key_metrics": {
+    "precision": 0.659,
+    "recall": 0.815,
+    "f1": 0.729,
+    "type_acc": 0.826,
+    "kind_acc": 0.6,
+    "chatter_false_skips": 0,
+    "mentions": 916,
+    "tokens_in": 27403,
+    "tokens_out": 853458
+   },
+   "failures": 0,
+   "latency_s": 248.74,
+   "cost_usd_sample": 1.6043,
+   "cost_usd_corpus": 6.2249,
+   "cost_usd_100x": 641.74,
+   "notes": "Highest recall but lowest precision; slowest and most expensive (~$642 per 10k chunks)."
+  },
+  {
+   "model": "scaledown (reference)",
+   "available": true,
+   "quality_score_0_1": 0.644,
+   "key_metrics": {
+    "precision": 0.785,
+    "recall": 0.546,
+    "f1": 0.644,
+    "type_acc": 0.813,
+    "kind_acc": 0.6,
+    "chatter_false_skips": 0,
+    "mentions": 446,
+    "tokens_in": 0,
+    "tokens_out": 0
+   },
+   "failures": 0,
+   "latency_s": 4.37,
+   "cost_usd_sample": null,
+   "cost_usd_corpus": null,
+   "cost_usd_100x": null,
+   "notes": "Reference (primary path, BRAIN_SCALEDOWN_ENABLED=true); billed by ScaleDown plan, not OpenRouter."
+  },
+  {
+   "model": "z-ai/glm-5.3-flash",
+   "available": true,
+   "quality_score_0_1": 0.748,
+   "key_metrics": {
+    "precision": 0.855,
+    "recall": 0.666,
+    "f1": 0.748,
+    "type_acc": 0.849,
+    "kind_acc": 0.68,
+    "chatter_false_skips": 1,
+    "mentions": 626,
+    "tokens_in": 25327,
+    "tokens_out": 340618
+   },
+   "failures": 0,
+   "latency_s": 96.37,
+   "cost_usd_sample": 0.0296,
+   "cost_usd_corpus": 0.1149,
+   "cost_usd_100x": 11.84,
+   "notes": "Best cost/quality; 1 chatter false-skip (a judged 'reference' chunk with ~10 entities scored chatter 0.85)."
+  }
+ ],
+ "winner": "z-ai/glm-5.3-flash",
+ "runner_up": "deepseek/deepseek-v4.1-flash"
+}
