@@ -1,0 +1,285 @@
+{
+ "stage": 4,
+ "slug": "relations",
+ "date": "2026-11-03",
+ "judge": "anthropic/claude-sonnet-5.5",
+ "sample": "25 non-chatter chunks of cmap_bake_5 clone, ordered by md5(chunk id)",
+ "union_correct_pairs": 126,
+ "judge_cost_usd": 0.1803,
+ "candidates": [
+  {
+   "model": "meta/muse-spark-1.3-contributor",
+   "available": true,
+   "quality_score_0_1": 0.688,
+   "key_metrics": {
+    "relations_kept": 210,
+    "raw_relations": 240,
+    "judged_sample": 40,
+    "precision": 0.8,
+    "recall_vs_union": 0.603,
+    "truncated_chunks": 4,
+    "type_counts": {
+     "PRECEDES": 31,
+     "MENTIONS": 21,
+     "EXCEPT_WHEN": 3,
+     "DEPENDS_ON": 7,
+     "APPLIES_TO": 30,
+     "BLOCKED_BY": 10,
+     "USES": 21,
+     "PART_OF": 3,
+     "PERFORMS": 40,
+     "OWNS": 10,
+     "PRODUCES": 10,
+     "HANDS_OFF_TO": 18,
+     "CAUSES": 6
+    },
+    "new_mentions": 7,
+    "tokens_in": 29112,
+    "tokens_out": 74188,
+    "price_usd_per_M_in_out": [
+     0.1,
+     0.2
+    ]
+   },
+   "failures": {
+    "failed_chunks": 0,
+    "retries": 0
+   },
+   "latency_s": {
+    "wall_25_chunks": 150.8,
+    "median_per_chunk": 37.9
+   },
+   "cost_usd_sample": 0.01757,
+   "cost_usd_corpus": 0.0682,
+   "cost_usd_100x": 7.03,
+   "notes": "Zero failures; best recall and second-best precision; richest type spread incl. HANDS_OFF_TO and EXCEPT_WHEN; slower (median 38 s/chunk)."
+  },
+  {
+   "model": "z-ai/glm-5.3-flash",
+   "available": true,
+   "quality_score_0_1": 0.59,
+   "key_metrics": {
+    "relations_kept": 218,
+    "raw_relations": 267,
+    "judged_sample": 40,
+    "precision": 0.65,
+    "recall_vs_union": 0.54,
+    "truncated_chunks": 6,
+    "type_counts": {
+     "PERFORMS": 54,
+     "PRECEDES": 34,
+     "APPLIES_TO": 50,
+     "CAUSES": 9,
+     "BLOCKED_BY": 4,
+     "USES": 17,
+     "PART_OF": 10,
+     "PRODUCES": 5,
+     "EXCEPT_WHEN": 4,
+     "CONTRADICTS": 2,
+     "HANDS_OFF_TO": 11,
+     "DEPENDS_ON": 3,
+     "OWNS": 10,
+     "MENTIONS": 5
+    },
+    "new_mentions": 15,
+    "tokens_in": 29267,
+    "tokens_out": 29837,
+    "price_usd_per_M_in_out": [
+     0.0313,
+     0.0846
+    ]
+   },
+   "failures": {
+    "failed_chunks": 0,
+    "retries": 0
+   },
+   "latency_s": {
+    "wall_25_chunks": 67.6,
+    "median_per_chunk": 14.3
+   },
+   "cost_usd_sample": 0.01503,
+   "cost_usd_corpus": 0.0583,
+   "cost_usd_100x": 6.01,
+   "notes": "Zero failures, fastest and cheapest; lower precision (0.65), most over-generalised PERFORMS/APPLIES_TO."
+  },
+  {
+   "model": "anthropic/claude-haiku-5.5",
+   "available": true,
+   "quality_score_0_1": 0.578,
+   "key_metrics": {
+    "relations_kept": 139,
+    "raw_relations": 145,
+    "judged_sample": 40,
+    "precision": 0.7,
+    "recall_vs_union": 0.492,
+    "truncated_chunks": 14,
+    "type_counts": {
+     "APPLIES_TO": 27,
+     "PRECEDES": 28,
+     "PART_OF": 6,
+     "BLOCKED_BY": 9,
+     "USES": 9,
+     "PERFORMS": 28,
+     "EXCEPT_WHEN": 1,
+     "HANDS_OFF_TO": 4,
+     "PRODUCES": 7,
+     "CAUSES": 2,
+     "OWNS": 7,
+     "MENTIONS": 6,
+     "DEPENDS_ON": 3,
+     "CONTRADICTS": 2
+    },
+    "new_mentions": 1,
+    "tokens_in": 44067,
+    "tokens_out": 44697,
+    "price_usd_per_M_in_out": [
+     0.1,
+     0.5
+    ]
+   },
+   "failures": {
+    "failed_chunks": 0,
+    "retries": 0
+   },
+   "latency_s": {
+    "wall_25_chunks": 29.9,
+    "median_per_chunk": 8.2
+   },
+   "cost_usd_sample": 0.02649,
+   "cost_usd_corpus": 0.1028,
+   "cost_usd_100x": 10.6,
+   "notes": "Truncated at 2000 tokens on 14/25 chunks (56%, brief requires <2%); tail relations lost."
+  },
+  {
+   "model": "openai/gpt-6-luna",
+   "available": true,
+   "quality_score_0_1": 0.533,
+   "key_metrics": {
+    "relations_kept": 188,
+    "raw_relations": 220,
+    "judged_sample": 40,
+    "precision": 0.65,
+    "recall_vs_union": 0.452,
+    "truncated_chunks": 6,
+    "type_counts": {
+     "PRECEDES": 21,
+     "BLOCKED_BY": 5,
+     "USES": 7,
+     "APPLIES_TO": 32,
+     "OWNS": 10,
+     "EXCEPT_WHEN": 3,
+     "HANDS_OFF_TO": 15,
+     "DEPENDS_ON": 17,
+     "CONTRADICTS": 3,
+     "PERFORMS": 48,
+     "CAUSES": 6,
+     "PRODUCES": 9,
+     "PART_OF": 7,
+     "MENTIONS": 5
+    },
+    "new_mentions": 22,
+    "tokens_in": 32764,
+    "tokens_out": 43519,
+    "price_usd_per_M_in_out": [
+     0.1,
+     0.5
+    ]
+   },
+   "failures": {
+    "failed_chunks": 1,
+    "retries": 3
+   },
+   "latency_s": {
+    "wall_25_chunks": 94.3,
+    "median_per_chunk": 20.7
+   },
+   "cost_usd_sample": 0.02518,
+   "cost_usd_corpus": 0.0977,
+   "cost_usd_100x": 10.07,
+   "notes": "1 failed chunk; precision 0.65; most new mentions (22)."
+  },
+  {
+   "model": "deepseek/deepseek-v4.1-flash-1017",
+   "available": true,
+   "quality_score_0_1": 0.47,
+   "key_metrics": {
+    "relations_kept": 70,
+    "raw_relations": 93,
+    "judged_sample": 40,
+    "precision": 0.85,
+    "recall_vs_union": 0.325,
+    "truncated_chunks": 5,
+    "type_counts": {
+     "APPLIES_TO": 21,
+     "EXCEPT_WHEN": 2,
+     "USES": 13,
+     "BLOCKED_BY": 8,
+     "PRODUCES": 3,
+     "PRECEDES": 6,
+     "DEPENDS_ON": 1,
+     "OWNS": 2,
+     "MENTIONS": 12,
+     "CONTRADICTS": 1,
+     "PART_OF": 1
+    },
+    "new_mentions": 12,
+    "tokens_in": 15999,
+    "tokens_out": 44669,
+    "price_usd_per_M_in_out": [
+     0.15,
+     0.6
+    ]
+   },
+   "failures": {
+    "failed_chunks": 10,
+    "retries": 25
+   },
+   "latency_s": {
+    "wall_25_chunks": 309.9,
+    "median_per_chunk": 51.1
+   },
+   "cost_usd_sample": 0.0261,
+   "cost_usd_corpus": 0.1013,
+   "cost_usd_100x": 10.44,
+   "notes": "10/25 chunks empty content even after the rescue retry (stage failure); slow (median 51 s/chunk)."
+  },
+  {
+   "model": "inclusionai/ling-3.1-flash",
+   "available": true,
+   "quality_score_0_1": 0.104,
+   "key_metrics": {
+    "relations_kept": 10,
+    "raw_relations": 17,
+    "judged_sample": 10,
+    "precision": 0.7,
+    "recall_vs_union": 0.056,
+    "truncated_chunks": 1,
+    "type_counts": {
+     "PRECEDES": 8,
+     "PRODUCES": 2
+    },
+    "new_mentions": 7,
+    "tokens_in": 3204,
+    "tokens_out": 11610,
+    "price_usd_per_M_in_out": [
+     0.075,
+     0.225
+    ]
+   },
+   "failures": {
+    "failed_chunks": 22,
+    "retries": 47
+   },
+   "latency_s": {
+    "wall_25_chunks": 1723.2,
+    "median_per_chunk": 713.5
+   },
+   "cost_usd_sample": 0.00268,
+   "cost_usd_corpus": 0.0104,
+   "cost_usd_100x": 1.07,
+   "notes": "22/25 chunks failed: empty content (47 attempts) and provider 429s (21); 29 min wall time. Unusable today."
+  }
+ ],
+ "winner": "meta/muse-spark-1.3-contributor",
+ "runner_up": "z-ai/glm-5.3-flash"
+}
