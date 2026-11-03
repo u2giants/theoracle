@@ -1,0 +1,121 @@
+{
+ "stage": 2,
+ "stage_name": "embeddings",
+ "date": "2026-11-03",
+ "candidates": [
+  {
+   "model": "openai/text-embedding-3-large",
+   "available": true,
+   "quality_score_0_1": 0.877,
+   "key_metrics": {
+    "recall_at_5": 0.943,
+    "recall_at_10": 0.969,
+    "mrr": 0.899,
+    "alias_auc": 0.706,
+    "alias_pos_mean": 0.623,
+    "alias_neg_mean": 0.475,
+    "pos_ge_080": 0.28,
+    "pos_ge_092": 0.0,
+    "neg_lt_080": 0.96,
+    "neg_ge_092": 0.0,
+    "dims_returned": [
+     1024
+    ],
+    "price_usd_per_m_tokens": 0.13,
+    "tokens_total": 30564
+   },
+   "failures": 0,
+   "latency_s": 4.48,
+   "cost_usd_sample": 0.00397,
+   "cost_usd_corpus": 0.0039,
+   "cost_usd_100x": 0.39,
+   "notes": "Incumbent. Best MRR; 0 of 25 true alias pairs reach the 0.92 auto-merge band; 1 different-entity pair above 0.80."
+  },
+  {
+   "model": "voyageai/voyage-4-lite",
+   "available": true,
+   "quality_score_0_1": 0.888,
+   "key_metrics": {
+    "recall_at_5": 0.953,
+    "recall_at_10": 0.969,
+    "mrr": 0.85,
+    "alias_auc": 0.749,
+    "alias_pos_mean": 0.706,
+    "alias_neg_mean": 0.537,
+    "pos_ge_080": 0.4,
+    "pos_ge_092": 0.2,
+    "neg_lt_080": 1.0,
+    "neg_ge_092": 0.0,
+    "dims_returned": [
+     1024
+    ],
+    "price_usd_per_m_tokens": 0.02,
+    "tokens_total": 31707
+   },
+   "failures": 0,
+   "latency_s": 2.99,
+   "cost_usd_sample": 0.00063,
+   "cost_usd_corpus": 0.00062,
+   "cost_usd_100x": 0.062,
+   "notes": "Best alias separation; all different-entity pairs under 0.80; 5 of 25 true pairs in auto-merge band; MRR 0.05 below incumbent."
+  },
+  {
+   "model": "openai/text-embedding-3-small",
+   "available": true,
+   "quality_score_0_1": 0.835,
+   "key_metrics": {
+    "recall_at_5": 0.833,
+    "recall_at_10": 0.891,
+    "mrr": 0.778,
+    "alias_auc": 0.73,
+    "alias_pos_mean": 0.623,
+    "alias_neg_mean": 0.428,
+    "pos_ge_080": 0.32,
+    "pos_ge_092": 0.0,
+    "neg_lt_080": 1.0,
+    "neg_ge_092": 0.0,
+    "dims_returned": [
+     1024
+    ],
+    "price_usd_per_m_tokens": 0.02,
+    "tokens_total": 30564
+   },
+   "failures": 0,
+   "latency_s": 4.4,
+   "cost_usd_sample": 0.00061,
+   "cost_usd_corpus": 0.0006,
+   "cost_usd_100x": 0.06,
+   "notes": "Clearly weaker retrieval (R@5 0.83)."
+  },
+  {
+   "model": "qwen/qwen3-embedding-8b",
+   "available": true,
+   "quality_score_0_1": 0.77,
+   "key_metrics": {
+    "recall_at_5": 0.938,
+    "recall_at_10": 0.953,
+    "mrr": 0.76,
+    "alias_auc": 0.742,
+    "alias_pos_mean": 0.826,
+    "alias_neg_mean": 0.735,
+    "pos_ge_080": 0.68,
+    "pos_ge_092": 0.2,
+    "neg_lt_080": 0.64,
+    "neg_ge_092": 0.0,
+    "dims_returned": [
+     1024
+    ],
+    "price_usd_per_m_tokens": 0.01,
+    "tokens_total": 31920
+   },
+   "failures": 0,
+   "latency_s": 30.9,
+   "cost_usd_sample": 0.00032,
+   "cost_usd_corpus": 0.00031,
+   "cost_usd_100x": 0.031,
+   "notes": "Scores everything high: 36% of different-entity pairs land at or above 0.80, which would flood the resolve judge band; chunk embedding 8x slower."
+  }
+ ],
+ "winner": "voyageai/voyage-4-lite",
+ "runner_up": "openai/text-embedding-3-large"
+}
