@@ -4,19 +4,67 @@
  "date": "2026-11-03",
  "judge": "anthropic/claude-sonnet-5.5",
  "sample": "25 non-chatter chunks of cmap_bake_5 clone, ordered by md5(chunk id)",
- "union_correct_pairs": 126,
- "judge_cost_usd": 0.1803,
+ "union_correct_pairs": 149,
+ "judge_cost_usd": 0.1709,
  "candidates": [
+  {
+   "model": "z-ai/glm-5.3",
+   "available": true,
+   "quality_score_0_1": 0.626,
+   "key_metrics": {
+    "relations_kept": 281,
+    "raw_relations": 306,
+    "judged_sample": 40,
+    "precision": 0.75,
+    "recall_vs_union": 0.537,
+    "truncated_chunks": 8,
+    "type_counts": {
+     "PERFORMS": 55,
+     "PRECEDES": 46,
+     "MENTIONS": 31,
+     "PART_OF": 13,
+     "APPLIES_TO": 44,
+     "DEPENDS_ON": 7,
+     "BLOCKED_BY": 6,
+     "CAUSES": 6,
+     "USES": 16,
+     "PRODUCES": 19,
+     "EXCEPT_WHEN": 2,
+     "CONTRADICTS": 6,
+     "HANDS_OFF_TO": 22,
+     "OWNS": 8
+    },
+    "new_mentions": 20,
+    "tokens_in": 29257,
+    "tokens_out": 35184,
+    "price_usd_per_M_in_out": [
+     0.08,
+     3.6
+    ]
+   },
+   "failures": {
+    "failed_chunks": 0,
+    "retries": 0
+   },
+   "latency_s": {
+    "wall_25_chunks": 64.4,
+    "median_per_chunk": 11.5
+   },
+   "cost_usd_sample": 0.09663,
+   "cost_usd_corpus": 0.3749,
+   "cost_usd_100x": 38.65,
+   "notes": "Added 2026-11-03 1:01 PM EST at Albert's request (\"test glm 5.3 (not flash)\"). Zero failures, most links kept (281), best recall, fastest after Haiku (11.5 s median); output tokens cost 42x Flash, so about 5.5x Muse's bill."
+  },
   {
    "model": "meta/muse-spark-1.3-contributor",
    "available": true,
-   "quality_score_0_1": 0.688,
+   "quality_score_0_1": 0.625,
    "key_metrics": {
     "relations_kept": 210,
     "raw_relations": 240,
     "judged_sample": 40,
-    "precision": 0.8,
-    "recall_vs_union": 0.603,
+    "precision": 0.775,
+    "recall_vs_union": 0.523,
     "truncated_chunks": 4,
     "type_counts": {
      "PRECEDES": 31,
@@ -52,66 +100,18 @@
    "cost_usd_sample": 0.01757,
    "cost_usd_corpus": 0.0682,
    "cost_usd_100x": 7.03,
-   "notes": "Zero failures; best recall and second-best precision; richest type spread incl. HANDS_OFF_TO and EXCEPT_WHEN; slower (median 38 s/chunk)."
-  },
-  {
-   "model": "z-ai/glm-5.3-flash",
-   "available": true,
-   "quality_score_0_1": 0.59,
-   "key_metrics": {
-    "relations_kept": 218,
-    "raw_relations": 267,
-    "judged_sample": 40,
-    "precision": 0.65,
-    "recall_vs_union": 0.54,
-    "truncated_chunks": 6,
-    "type_counts": {
-     "PERFORMS": 54,
-     "PRECEDES": 34,
-     "APPLIES_TO": 50,
-     "CAUSES": 9,
-     "BLOCKED_BY": 4,
-     "USES": 17,
-     "PART_OF": 10,
-     "PRODUCES": 5,
-     "EXCEPT_WHEN": 4,
-     "CONTRADICTS": 2,
-     "HANDS_OFF_TO": 11,
-     "DEPENDS_ON": 3,
-     "OWNS": 10,
-     "MENTIONS": 5
-    },
-    "new_mentions": 15,
-    "tokens_in": 29267,
-    "tokens_out": 29837,
-    "price_usd_per_M_in_out": [
-     0.0313,
-     0.0846
-    ]
-   },
-   "failures": {
-    "failed_chunks": 0,
-    "retries": 0
-   },
-   "latency_s": {
-    "wall_25_chunks": 67.6,
-    "median_per_chunk": 14.3
-   },
-   "cost_usd_sample": 0.01503,
-   "cost_usd_corpus": 0.0583,
-   "cost_usd_100x": 6.01,
-   "notes": "Zero failures, fastest and cheapest; lower precision (0.65), most over-generalised PERFORMS/APPLIES_TO."
+   "notes": "Zero failures; recall and precision tied with GLM-5.3 within sampling noise; widest type spread incl. HANDS_OFF_TO and EXCEPT_WHEN; slower (median 38 s/chunk) but cheapest of the top tier."
   },
   {
    "model": "anthropic/claude-haiku-5.5",
    "available": true,
-   "quality_score_0_1": 0.578,
+   "quality_score_0_1": 0.592,
    "key_metrics": {
     "relations_kept": 139,
     "raw_relations": 145,
     "judged_sample": 40,
-    "precision": 0.7,
-    "recall_vs_union": 0.492,
+    "precision": 0.8,
+    "recall_vs_union": 0.47,
     "truncated_chunks": 14,
     "type_counts": {
      "APPLIES_TO": 27,
@@ -153,13 +153,13 @@
   {
    "model": "openai/gpt-6-luna",
    "available": true,
-   "quality_score_0_1": 0.533,
+   "quality_score_0_1": 0.527,
    "key_metrics": {
     "relations_kept": 188,
     "raw_relations": 220,
     "judged_sample": 40,
-    "precision": 0.65,
-    "recall_vs_union": 0.452,
+    "precision": 0.7,
+    "recall_vs_union": 0.423,
     "truncated_chunks": 6,
     "type_counts": {
      "PRECEDES": 21,
@@ -199,15 +199,63 @@
    "notes": "1 failed chunk; precision 0.65; most new mentions (22)."
   },
   {
+   "model": "z-ai/glm-5.3-flash",
+   "available": true,
+   "quality_score_0_1": 0.525,
+   "key_metrics": {
+    "relations_kept": 218,
+    "raw_relations": 267,
+    "judged_sample": 40,
+    "precision": 0.575,
+    "recall_vs_union": 0.483,
+    "truncated_chunks": 6,
+    "type_counts": {
+     "PERFORMS": 54,
+     "PRECEDES": 34,
+     "APPLIES_TO": 50,
+     "CAUSES": 9,
+     "BLOCKED_BY": 4,
+     "USES": 17,
+     "PART_OF": 10,
+     "PRODUCES": 5,
+     "EXCEPT_WHEN": 4,
+     "CONTRADICTS": 2,
+     "HANDS_OFF_TO": 11,
+     "DEPENDS_ON": 3,
+     "OWNS": 10,
+     "MENTIONS": 5
+    },
+    "new_mentions": 15,
+    "tokens_in": 29267,
+    "tokens_out": 29837,
+    "price_usd_per_M_in_out": [
+     0.0313,
+     0.0846
+    ]
+   },
+   "failures": {
+    "failed_chunks": 0,
+    "retries": 0
+   },
+   "latency_s": {
+    "wall_25_chunks": 67.6,
+    "median_per_chunk": 14.3
+   },
+   "cost_usd_sample": 0.01503,
+   "cost_usd_corpus": 0.0583,
+   "cost_usd_100x": 6.01,
+   "notes": "Zero failures, fast and cheapest; lowest precision of the reliable models."
+  },
+  {
    "model": "deepseek/deepseek-v4.1-flash-1017",
    "available": true,
-   "quality_score_0_1": 0.47,
+   "quality_score_0_1": 0.427,
    "key_metrics": {
     "relations_kept": 70,
     "raw_relations": 93,
     "judged_sample": 40,
-    "precision": 0.85,
-    "recall_vs_union": 0.325,
+    "precision": 0.875,
+    "recall_vs_union": 0.282,
     "truncated_chunks": 5,
     "type_counts": {
      "APPLIES_TO": 21,
@@ -246,13 +294,13 @@
   {
    "model": "inclusionai/ling-3.1-flash",
    "available": true,
-   "quality_score_0_1": 0.104,
+   "quality_score_0_1": 0.088,
    "key_metrics": {
     "relations_kept": 10,
     "raw_relations": 17,
     "judged_sample": 10,
     "precision": 0.7,
-    "recall_vs_union": 0.056,
+    "recall_vs_union": 0.047,
     "truncated_chunks": 1,
     "type_counts": {
      "PRECEDES": 8,
@@ -281,5 +329,6 @@
   }
  ],
  "winner": "meta/muse-spark-1.3-contributor",
- "runner_up": "z-ai/glm-5.3-flash"
+ "runner_up": "z-ai/glm-5.3",
+ "regraded": "2026-11-03 ~1:05 PM EST, all seven models graded in one pass"
 }
