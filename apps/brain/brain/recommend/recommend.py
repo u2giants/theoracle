@@ -331,7 +331,7 @@ def _duplicate_index(raw: Any, total: int) -> int | None:
 def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
     """Write one deduplicated recommendation per qualifying finding."""
     cfg = settings if settings is not None else get_settings()
-    frontier = _Frontier(cfg)
+    frontier = _Frontier(cfg, "recommend")
     template = PROMPT_PATH.read_text(encoding="utf-8")
     stats: dict[str, Any] = {
         "candidates": 0,

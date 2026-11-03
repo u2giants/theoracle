@@ -38,6 +38,7 @@ from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 from brain.llm import post_chat_with_rescue
+from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +130,12 @@ class _Frontier:
     a per-job limit while the HTTP calls run in parallel.
     """
 
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+    def __init__(self, settings: Settings, stage: str = "resolve") -> None:
+        # Resolve, community reports and recommendations share this client;
+        # each gets its own seat, carried as the frontier model of a copy.
+        self.settings = settings.model_copy(
+            update={"brain_frontier_model": stage_model(settings, stage)}
+        )
         self.usage: dict[str, int] = {}
         self._lock = threading.Lock()
 

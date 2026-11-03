@@ -37,6 +37,7 @@ from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import ENTITY_TYPES
 from brain.extract.normalize import normalize_name
 from brain.llm import post_chat_with_rescue
+from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
 
@@ -164,11 +165,12 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     """POST one frontier chat-completions request in JSON mode."""
     if settings.openrouter_api_key is None:
         raise RelationsError("OPENROUTER_API_KEY is not set")
-    if settings.brain_frontier_model is None:
+    model = stage_model(settings, "relations")
+    if model is None:
         raise RelationsError("BRAIN_FRONTIER_MODEL is not set")
     return post_chat_with_rescue(
         {
-            "model": settings.brain_frontier_model,
+            "model": model,
             "messages": messages,
             "temperature": 0,
             "max_tokens": MAX_TOKENS,
@@ -522,7 +524,8 @@ def handle_relations(job: dict[str, Any]) -> None:
     if not source_id:
         raise ValueError("relations job has no source_id")
     settings = get_settings()
-    if settings.brain_frontier_model is None:
+    model = stage_model(settings, "relations")
+    if model is None:
         raise RelationsError("BRAIN_FRONTIER_MODEL is not set")
     prompt_hash = relations_prompt_hash()
     chunks = _load_chunks(source_id)
@@ -548,7 +551,7 @@ def handle_relations(job: dict[str, Any]) -> None:
             try:
                 result = future.result()
                 _embed_new_mentions(result, counters)
-                _write_result(result, prompt_hash, settings.brain_frontier_model)
+                _write_result(result, prompt_hash, stage_model(settings, "relations"))
             except Exception as exc:  # keep finished chunks; fail the job after
                 if first_error is None:
                     first_error = exc

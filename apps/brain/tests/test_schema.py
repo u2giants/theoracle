@@ -24,6 +24,7 @@ EXPECTED_TABLES = {
     "eval_question",
     "eval_run",
     "recommendation",
+    "model_seat",
     "employee_flags",
     "resolve_decision",  # added by step 6 (sql/002_resolve.sql)
     "teams_conversation",  # added by step 12 (sql/003_interviews.sql)

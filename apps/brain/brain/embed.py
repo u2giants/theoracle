@@ -16,6 +16,7 @@ import httpx
 
 from brain.config import Settings, get_settings
 from brain.db import get_pool
+from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +56,14 @@ def _post_embeddings_once(
     """POST one embeddings batch and return vectors plus token usage."""
     if settings.openrouter_api_key is None:
         raise EmbedError("OPENROUTER_API_KEY is not set")
-    if settings.brain_embed_model is None:
+    model = stage_model(settings, "embed")
+    if model is None:
         raise EmbedError("BRAIN_EMBED_MODEL is not set")
     response = httpx.post(
         f"{OPENROUTER_BASE_URL}/embeddings",
         headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
         json={
-            "model": settings.brain_embed_model,
+            "model": model,
             "input": texts,
             # text-embedding-3-large defaults to 3072 dims; the schema and
             # BRAIN_EMBED_DIMS contract is 1024, so it must be asked for.

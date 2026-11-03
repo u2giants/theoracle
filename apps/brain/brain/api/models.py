@@ -1,39 +1,78 @@
-"""Model-seat reporting for the admin model page (plan §11).
+"""Model seats for the admin model page.
 
-Seating lives in the Coolify env for app ``oracle-brain``; this endpoint
-mirrors those values so the admin page can show the live seats without
-inventing a second config store. No model id is hard-coded here.
+Each stage's live model is the seat chosen on the page (``cmap.model_seat``)
+or, without one, the env seat in the Coolify app ``oracle-brain`` (plan §11).
+No model id is hard-coded here.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from psycopg.types.json import Json
+from pydantic import BaseModel
 
-from brain.api.deps import require_service
-from brain.config import chat_model, eval_model, get_settings
+from brain.api.deps import User, require_admin, require_service
+from brain.config import get_settings
+from brain.db import get_pool
+from brain.seats import STAGES, seat_report, set_seat, stage_model
 
 router = APIRouter()
 
 
 @router.get("/models", dependencies=[Depends(require_service)])
-def get_models() -> dict[str, dict[str, Any]]:
-    """Report the env-configured model seats for the nine pipeline stages."""
+def get_models() -> dict[str, Any]:
+    """Report the live model for each of the nine pipeline stages."""
     settings = get_settings()
-    frontier = settings.brain_frontier_model
+    seats = seat_report(settings)
     return {
         "models": {
-            "vision": settings.brain_vision_model,
-            "embed": settings.brain_embed_model,
+            "vision": seats["vision"]["model"],
+            "embed": seats["embed"]["model"],
             "embed_dims": settings.brain_embed_dims,
-            "flat_fallback": frontier,
-            "relations": frontier,
-            "resolve": frontier,
-            "reports": frontier,
-            "answer": chat_model(settings),
-            "recommend": frontier,
-            "grade": eval_model(settings),
+            "flat_fallback": seats["flat"]["model"],
+            "relations": seats["relations"]["model"],
+            "resolve": seats["resolve"]["model"],
+            "reports": seats["reports"]["model"],
+            "answer": seats["answer"]["model"],
+            "recommend": seats["recommend"]["model"],
+            "grade": seats["grade"]["model"],
             "scaledown_enabled": settings.brain_scaledown_enabled,
-        }
+        },
+        "seats": seats,
     }
+
+
+class SeatBody(BaseModel):
+    model: str
+
+
+@router.put("/models/{stage}")
+def put_model(
+    stage: str,
+    body: SeatBody,
+    user: Annotated[User, Depends(require_admin)],
+) -> dict[str, Any]:
+    """Seat one stage's model from the admin page.
+
+    Changing the embeddings model re-embeds every stored vector (a queued
+    ``reembed`` job): vectors from two models cannot be compared.
+    """
+    if stage not in STAGES:
+        raise HTTPException(status_code=404, detail=f"unknown stage {stage!r}")
+    model = body.model.strip()
+    if not model:
+        raise HTTPException(status_code=422, detail="model is required")
+    settings = get_settings()
+    before = stage_model(settings, stage)
+    set_seat(stage, model, user.auth_user_id)
+    reembed = stage == "embed" and model != before
+    if reembed:
+        with get_pool().connection() as conn:
+            conn.execute(
+                "INSERT INTO cmap.job (kind, payload) VALUES ('reembed', %s)",
+                (Json({"model": model}),),
+            )
+            conn.commit()
+    return {"stage": stage, "model": model, "reembed_queued": reembed}

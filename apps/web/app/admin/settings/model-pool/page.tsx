@@ -21,6 +21,9 @@ import {
   MODEL_POOL_WORKFLOW_READ_SETTING_KEY,
 } from '@oracle/ai';
 import { ModelPoolEditor } from './_components/model-pool-editor';
+import { brainService } from '@/lib/brain-service';
+import { CompanyMapStages } from '../_components/company-map-stages';
+import type { CompanyMapModels } from '../_components/stage-briefs';
 
 export default async function ModelPoolPage() {
   const db = getDirectDb();
@@ -60,31 +63,52 @@ export default async function ModelPoolPage() {
     general: poolFor(MODEL_POOL_GENERAL_SETTING_KEY),
   };
 
+  // Live Company Map seats (page choice, else the brain's env seat).
+  let companyMapModels: CompanyMapModels | null = null;
+  try {
+    const { status, body } = await brainService<{ models: CompanyMapModels }>('models');
+    if (status === 200 && body?.models) companyMapModels = body.models;
+  } catch {
+    companyMapModels = null;
+  }
+
   return (
-    <div className="max-w-5xl space-y-4">
+    <div className="max-w-5xl space-y-8">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">Legacy application model pools</h1>
-        <p className="text-sm text-muted-foreground max-w-prose">
-          Pick which models appear in each legacy model-pass dropdown on the
-          main Settings page. These pools feed the legacy application routes.
-          Oracle calls Anthropic, OpenAI, Google Vertex, DeepSeek, and Alibaba
-          Qwen directly (no third-party proxy).
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Runtime pools should stay non-empty; each pass uses its ordered pool
-          as the fallback chain after the selected primary.
-          Changes take effect immediately in the pickers on the main{' '}
-          <a
-            href="/admin/settings"
-            className="underline underline-offset-2 text-foreground hover:text-foreground/70"
-          >
-            Settings page
-          </a>
-          .
-        </p>
+        <h1 className="text-2xl font-semibold">Model pool</h1>
       </header>
 
-      <ModelPoolEditor initial={initial} />
+      <CompanyMapStages models={companyMapModels} />
+
+      <details className="rounded-lg border px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium">
+          Legacy application model pools
+        </summary>
+        <div className="max-w-5xl space-y-4 mt-4">
+          <header className="space-y-1">
+            <h2 className="text-lg font-semibold">Legacy application model pools</h2>
+            <p className="text-sm text-muted-foreground max-w-prose">
+              Pick which models appear in each legacy model-pass dropdown on the main Settings page.
+              These pools feed the legacy application routes. Oracle calls Anthropic, OpenAI, Google
+              Vertex, DeepSeek, and Alibaba Qwen directly (no third-party proxy).
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Runtime pools should stay non-empty; each pass uses its ordered pool as the fallback
+              chain after the selected primary. Changes take effect immediately in the pickers on
+              the main{' '}
+              <a
+                href="/admin/settings"
+                className="underline underline-offset-2 text-foreground hover:text-foreground/70"
+              >
+                Settings page
+              </a>
+              .
+            </p>
+          </header>
+
+          <ModelPoolEditor initial={initial} />
+        </div>
+      </details>
     </div>
   );
 }

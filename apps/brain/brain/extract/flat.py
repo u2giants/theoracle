@@ -34,6 +34,7 @@ from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.normalize import normalize_name
 from brain.llm import post_chat_with_rescue
+from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
 
@@ -225,11 +226,12 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     """POST one frontier chat-completions request and return the response body."""
     if settings.openrouter_api_key is None:
         raise FlatError("OPENROUTER_API_KEY is not set")
-    if settings.brain_frontier_model is None:
+    model = stage_model(settings, "flat")
+    if model is None:
         raise FlatError("BRAIN_FRONTIER_MODEL is not set")
     return post_chat_with_rescue(
         {
-            "model": settings.brain_frontier_model,
+            "model": model,
             "messages": messages,
             "temperature": 0,
         },
@@ -473,7 +475,7 @@ def _process_chunk(
             top_label, scores = _classify_half(fallback)
             outcome.records.append(
                 ModelRecord(
-                    model=counters.settings.brain_frontier_model or "frontier",
+                    model=stage_model(counters.settings, "flat") or "frontier",
                     prompt_hash=frontier_prompt_hash(),
                     payload=fallback,
                 )
@@ -501,7 +503,7 @@ def _process_chunk(
         if not any(record.prompt_hash == frontier_prompt_hash() for record in outcome.records):
             outcome.records.append(
                 ModelRecord(
-                    model=counters.settings.brain_frontier_model or "frontier",
+                    model=stage_model(counters.settings, "flat") or "frontier",
                     prompt_hash=frontier_prompt_hash(),
                     payload=fallback,
                 )
