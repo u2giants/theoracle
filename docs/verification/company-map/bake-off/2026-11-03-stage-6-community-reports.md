@@ -84,5 +84,5 @@ Judge cost for the whole bake-off: $0.98. Total spend ≈ $1.25.
 
 ## Reproducibility
 
-- Run 2026-11-03 ~11:50 AM–12:05 PM EST on the test services host, DB clone `cmap_s6_reports` (left in place, read-only use). Script: one process per model calling the production context builders and prompt, then the judge; outputs kept in the session scratchpad (not committed: they contain employee names).
+- Run 2026-11-03 ~11:50 AM–12:05 PM EST on the test services host, DB clone `cmap_s6_reports` (dropped after the run). Script: one process per model calling the production context builders and prompt, then the judge; outputs kept in the session scratchpad (not committed: they contain employee names).
 - Sample L0 community ids (seed-0 Leiden order): 0, 4, 8, 12, 16, 20, 24, 28, 32; L1 groups: {'0': [0, 4, 8, 12, 16], '3': [20]}.
