@@ -4,7 +4,7 @@ Run 11:40 AM – 12:10 PM EST on the test services host. Owner request (2026-11-
 
 ## Candidates and availability
 
-All five verified on the OpenRouter catalog (, 2026-11-03).  as written is not a catalog id; the catalog's  (same model) was tested. Reference: ScaleDown primary path ( + ) on the same chunks.
+All five verified on the OpenRouter catalog (`/api/v1/models`, 2026-11-03). `qwen/qwen-3.8-27b` as written is not a catalog id; the catalog's `qwen/qwen3.8-27b` (same model) was tested. Reference: ScaleDown primary path (`/classify` + `/extract`) on the same chunks.
 
 Pricing as of 2026-11-03 (OpenRouter):
 - deepseek/deepseek-v4.1-flash: $0.045/M in, $0.5/M out
@@ -16,9 +16,9 @@ Pricing as of 2026-11-03 (OpenRouter):
 
 ## Method
 
-- DB: clone  of  (97 chunks); flat mentions (2,077) and flat extractions (193) wiped in the clone only.
+- DB: clone `cmap_s3_flat` of `cmap_bake_5` (97 chunks); flat mentions (2,077) and flat extractions (193) wiped in the clone only.
 - Sample: every 4th chunk ordered by source/ordinal, first 25 (same 25 for every run).
-- Each candidate ran the production code path unchanged:  (with the  empty-content rescue) on , then , ,  (type/confidence ≥0.5/span-repair filter), . , , 8 threads.
+- Each candidate ran the production code path unchanged: `brain.extract.flat._post_chat` (with the `brain/llm.py` empty-content rescue) on `prompts/flat_extract.md`, then `parse_model_json`, `_classify_half`, `mentions_from_entities` (type / confidence ≥0.5 / span-repair filter), `is_chatter`. `BRAIN_SCALEDOWN_ENABLED=false`, `BRAIN_FRONTIER_MODEL=<candidate>`, 8 threads.
 - Reference set: pooled judging. Per chunk, the judge saw the passage plus the union of every run's accepted mentions, marked each valid/invalid with its best type, added missed entities, and gave the correct passage kind (25 judge calls, 0 errors, ≈$0.525).
 - Precision = accepted mentions the judge marked valid / accepted. Recall = judged-valid ∪ missed entities found / all. Type acc = correct type among valid hits. Kind acc = top_label matches judge's kind. Chatter false-skip = chunk skipped (chatter ≥0.8) that the judge called non-chatter.
 - Cost: sample $ = tokens_in × in price + tokens_out × out price. Corpus $ = sample $ / 25 × 97. 100x $ = sample $ / 25 × 10,000.
