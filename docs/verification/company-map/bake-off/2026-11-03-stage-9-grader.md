@@ -51,3 +51,16 @@ Projection formulas: grading cost scales with the number of questions, not chunk
 - Harness, item set, reference labels and raw replies were kept in the session scratch area (not committed: they contain full answer text). Harness = production `grade_answer` with `BRAIN_EVAL_MODEL` set per process; corrupted answers and reference overrides are described above.
 - Spend: ~$0.21 total across all runs (OpenRouter key limit_remaining was $24.57 before starting).
 - Run window: 2026-11-03, 11:43 AM – 11:51 AM EST.
+
+## Follow-up: grade prompt revision (adopted 2026-11-03, 12:30 PM EST)
+
+Luna's 11 disagreements with the reference fell into two patterns: (a) calling a point *contradicted* when the answer only said the data does not show or confirm it, or listed other causes; (b) refusing *covered* when a cited sentence stated the fact with a hedge (person in one source, role in another). `prompts/grade.md` now defines contradicted as a positive conflicting assertion, says "data does not show" is missing, and says hedged-but-stated cited facts are covered. Albert approved adoption ("yes").
+
+Same 35 items, same reference, revised prompt:
+
+| Model | Agreement | Corr | Contra. found | False contra. | Bias | Stable |
+|---|---|---|---|---|---|---|
+| openai/gpt-6-luna (old → new) | 0.895 → 0.933 | 0.91 → 0.925 | 9/9 → 9/9 | 4 → 3 | −0.053 → −0.044 | 9/10 → 8/10 |
+| anthropic/claude-sonnet-5.5 (old → new) | 0.981 → 0.99 | 0.972 → 0.986 | 9/9 → 9/9 | 0 → 0 | −0.019 → −0.010 | 9/10 → 8/10 |
+
+Luna and Sonnet agree on 92% of point labels when both use the revised prompt. The stability dip appears in both models at n=10 and is within noise. Extra spend ≈ $0.17. Because this changes the grading instrument, eval scores recorded before this change (prompt hash differs in `cmap.eval_run.prompt_hashes`) are not directly comparable with later ones.
