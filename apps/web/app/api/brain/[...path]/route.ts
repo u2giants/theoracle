@@ -102,3 +102,8 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const { path } = await ctx.params;
   return handle(req, path ?? []);
 }
+
+export async function PUT(req: NextRequest, ctx: RouteContext) {
+  const { path } = await ctx.params;
+  return handle(req, path ?? []);
+}
