@@ -25,9 +25,10 @@ from typing import Any
 import httpx
 
 from brain.answer.answer import AnswerError, answer_question, parse_model_json
-from brain.config import Settings, chat_model, eval_model, get_settings
+from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.llm import post_chat_with_rescue
+from brain.seats import seat_report, stage_model
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     """POST one frontier grading request in JSON mode."""
     if settings.openrouter_api_key is None:
         raise EvalError("OPENROUTER_API_KEY is not set")
-    model = eval_model(settings)
+    model = stage_model(settings, "grade")
     if model is None:
         raise EvalError("BRAIN_EVAL_MODEL or BRAIN_FRONTIER_MODEL is not set")
     return post_chat_with_rescue(
@@ -84,8 +85,9 @@ def prompt_hashes() -> dict[str, str]:
 def model_manifest(settings: Settings) -> dict[str, Any]:
     """Which models produce an eval run, kept so bake-off runs compare honestly."""
     return {
-        "answer": chat_model(settings),
-        "grade": eval_model(settings),
+        "answer": stage_model(settings, "answer"),
+        "grade": stage_model(settings, "grade"),
+        "stages": {stage: seat["model"] for stage, seat in seat_report(settings).items()},
         "chat": settings.brain_chat_model,
         "eval": settings.brain_eval_model,
         "frontier": settings.brain_frontier_model,

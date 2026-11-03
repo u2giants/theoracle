@@ -457,7 +457,7 @@ def _ask_many(
 def run_communities(settings: Settings | None = None) -> dict[str, Any]:
     """Detect communities and write their reports at levels 0, 1 and 2."""
     cfg = settings if settings is not None else get_settings()
-    frontier = _Frontier(cfg)
+    frontier = _Frontier(cfg, "reports")
     stats: dict[str, Any] = {
         "communities_l0": 0,
         "communities_l1": 0,

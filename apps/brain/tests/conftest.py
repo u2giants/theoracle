@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from brain import storage as storage_mod
 from brain.config import get_settings
+from brain.seats import clear_cache as clear_seat_cache
 
 TEST_TOKEN = "brain-test-token"
 ADMIN_AUTH_USER_ID = "00000000-0000-4000-8000-0000000000a2"
@@ -98,9 +99,10 @@ def _clean_cmap() -> None:
     with psycopg.connect(settings.database_url, connect_timeout=5) as conn:
         conn.execute(
             "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
-            "cmap.graph_version, cmap.eval_question, cmap.eval_run CASCADE"
+            "cmap.graph_version, cmap.eval_question, cmap.eval_run, cmap.model_seat CASCADE"
         )
         conn.commit()
+    clear_seat_cache()
 
 
 @pytest.fixture()

@@ -33,7 +33,7 @@ from typing import Any
 import httpx
 import psycopg
 
-from brain.config import Settings, chat_model, get_settings
+from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract import flat as flat_mod
@@ -41,6 +41,7 @@ from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 from brain.graph.communities import _tokens
 from brain.graph.project import connect as connect_graph
 from brain.llm import post_chat_with_rescue
+from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     """POST one frontier chat-completions request in JSON mode."""
     if settings.openrouter_api_key is None:
         raise AnswerError("OPENROUTER_API_KEY is not set")
-    model = chat_model(settings)
+    model = stage_model(settings, "answer")
     if model is None:
         raise AnswerError("BRAIN_CHAT_MODEL or BRAIN_FRONTIER_MODEL is not set")
     return post_chat_with_rescue(

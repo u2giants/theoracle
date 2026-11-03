@@ -15,6 +15,7 @@ from typing import Any
 
 from brain.config import Settings, get_settings
 from brain.llm import post_chat_with_rescue
+from brain.seats import stage_model
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "read_visual.md"
 
@@ -32,11 +33,12 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     """POST one chat-completions request and return the response body."""
     if settings.openrouter_api_key is None:
         raise VisionError("OPENROUTER_API_KEY is not set")
-    if settings.brain_vision_model is None:
+    model = stage_model(settings, "vision")
+    if model is None:
         raise VisionError("BRAIN_VISION_MODEL is not set")
     return post_chat_with_rescue(
         {
-            "model": settings.brain_vision_model,
+            "model": model,
             "messages": messages,
             "temperature": 0,
         },
