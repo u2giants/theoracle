@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from brain.api.deps import require_service
-from brain.config import chat_model, eval_model, get_settings
+from brain.config import chat_model, eval_model, flat_model, get_settings
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ def get_models() -> dict[str, dict[str, Any]]:
             "vision": settings.brain_vision_model,
             "embed": settings.brain_embed_model,
             "embed_dims": settings.brain_embed_dims,
-            "flat_fallback": frontier,
+            "flat_fallback": flat_model(settings),
             "relations": frontier,
             "resolve": frontier,
             "reports": frontier,
