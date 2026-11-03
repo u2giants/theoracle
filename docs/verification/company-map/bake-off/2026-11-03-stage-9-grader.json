@@ -1,0 +1,156 @@
+{
+ "stage": 9,
+ "slug": "grader",
+ "date": "2026-11-03",
+ "judge": {
+  "model": "anthropic/claude-sonnet-5.5",
+  "point_agreement_after_review": 0.981,
+  "stability": "9/10",
+  "cost_20q_run": 0.06682
+ },
+ "candidates": [
+  {
+   "model": "openai/gpt-6-luna",
+   "available": true,
+   "quality_score_0_1": 0.88,
+   "key_metrics": {
+    "point_agreement": 0.895,
+    "score_corr": 0.91,
+    "contradiction_recall": "9/9",
+    "false_contradictions": 4,
+    "mean_score_bias": -0.053,
+    "stability": "9/10",
+    "json_invalid_raw": 1,
+    "tokens_in": 25711,
+    "tokens_out": 12164
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 3.39,
+    "p90": 9.52
+   },
+   "cost_usd_sample": 0.00865,
+   "cost_usd_corpus": 0.00385,
+   "cost_usd_100x": 0.3846,
+   "notes": "Best balance: top agreement (tie), best correlation, 9/10 stable, all contradictions caught, fewest false contradictions among strong candidates."
+  },
+  {
+   "model": "anthropic/claude-haiku-5.5",
+   "available": true,
+   "quality_score_0_1": 0.796,
+   "key_metrics": {
+    "point_agreement": 0.876,
+    "score_corr": 0.849,
+    "contradiction_recall": "7/9",
+    "false_contradictions": 6,
+    "mean_score_bias": 0.008,
+    "stability": "9/10",
+    "json_invalid_raw": 2,
+    "tokens_in": 38236,
+    "tokens_out": 13999
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 1.82,
+    "p90": 2.61
+   },
+   "cost_usd_sample": 0.01082,
+   "cost_usd_corpus": 0.00481,
+   "cost_usd_100x": 0.481,
+   "notes": "Fast and stable, no score bias, but missed 2/9 planted contradictions (generosity risk)."
+  },
+  {
+   "model": "deepseek/deepseek-v4.1-flash",
+   "available": true,
+   "quality_score_0_1": 0.796,
+   "key_metrics": {
+    "point_agreement": 0.895,
+    "score_corr": 0.892,
+    "contradiction_recall": "9/9",
+    "false_contradictions": 8,
+    "mean_score_bias": -0.036,
+    "stability": "7/10",
+    "json_invalid_raw": 0,
+    "tokens_in": 26595,
+    "tokens_out": 50118
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 6.19,
+    "p90": 21.78
+   },
+   "cost_usd_sample": 0.02626,
+   "cost_usd_corpus": 0.01167,
+   "cost_usd_100x": 1.1669,
+   "notes": "Good agreement but least stable (7/10) and slow (p90 22 s, heavy reasoning output)."
+  },
+  {
+   "model": "meta/muse-spark-1.3-contributor",
+   "available": true,
+   "quality_score_0_1": 0.794,
+   "key_metrics": {
+    "point_agreement": 0.886,
+    "score_corr": 0.9,
+    "contradiction_recall": "9/9",
+    "false_contradictions": 10,
+    "mean_score_bias": -0.055,
+    "stability": "8/10",
+    "json_invalid_raw": 1,
+    "tokens_in": 24914,
+    "tokens_out": 49131
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 14.54,
+    "p90": 22.42
+   },
+   "cost_usd_sample": 0.01232,
+   "cost_usd_corpus": 0.00547,
+   "cost_usd_100x": 0.5474,
+   "notes": "Catches every contradiction but over-calls them (10 false), slowest (median 15 s)."
+  },
+  {
+   "model": "z-ai/glm-5.3-flash",
+   "available": true,
+   "quality_score_0_1": 0.708,
+   "key_metrics": {
+    "point_agreement": 0.79,
+    "score_corr": 0.644,
+    "contradiction_recall": "6/9",
+    "false_contradictions": 3,
+    "mean_score_bias": 0.152,
+    "stability": "8/10",
+    "json_invalid_raw": 0,
+    "tokens_in": 25355,
+    "tokens_out": 5186
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 1.28,
+    "p90": 5.27
+   },
+   "cost_usd_sample": 0.00123,
+   "cost_usd_corpus": 0.00055,
+   "cost_usd_100x": 0.0548,
+   "notes": "Cheapest and fastest but generous (+0.15 mean score bias), weakest agreement and correlation; misses 3/9 contradictions."
+  },
+  {
+   "model": "qwen/qwen-3.8-27b",
+   "available": false,
+   "quality_score_0_1": null,
+   "key_metrics": {},
+   "failures": null,
+   "latency_s": null,
+   "cost_usd_sample": 0,
+   "cost_usd_corpus": null,
+   "cost_usd_100x": null,
+   "notes": "Not listed in OpenRouter /api/v1/models on 2026-11-03; no qwen-3.8 27b id of any form listed. Not substituted."
+  }
+ ],
+ "winner": "openai/gpt-6-luna",
+ "runner_up": "anthropic/claude-haiku-5.5",
+ "cost_formulas": {
+  "corpus": "20 questions x cost_per_grade (grading cost scales with questions, not chunks)",
+  "x100": "2000 grades x cost_per_grade (assumes the question set grows 100x with the corpus)"
+ }
+}
