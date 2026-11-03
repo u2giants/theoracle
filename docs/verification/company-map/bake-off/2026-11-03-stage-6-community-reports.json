@@ -1,0 +1,181 @@
+{
+  "stage": 6,
+  "candidates": [
+    {
+      "model": "openai/gpt-6-luna",
+      "available": true,
+      "quality_score_0_1": 0.816,
+      "key_metrics": {
+        "json_ok": "11/12",
+        "faith": 8.45,
+        "unsup": 14,
+        "cov": 7.91,
+        "read": 8.0,
+        "cite": 8.27,
+        "findings": 68,
+        "dropped": 0,
+        "tin": 33564,
+        "tout": 21553
+      },
+      "failures": [
+        "L2-company: truncated at 4000 output tokens (invalid JSON)"
+      ],
+      "latency_s": {
+        "median": 15.5,
+        "max": 36.5
+      },
+      "cost_usd_sample": 0.01474,
+      "cost_usd_corpus": 1.065,
+      "cost_usd_100x": 106.53,
+      "notes": "judge anthropic/claude-sonnet-5.5; 12 reports (9 L0, 2 L1, 1 company)"
+    },
+    {
+      "model": "meta/muse-spark-1.3-contributor",
+      "available": true,
+      "quality_score_0_1": 0.759,
+      "key_metrics": {
+        "json_ok": "11/12",
+        "faith": 7.82,
+        "unsup": 24,
+        "cov": 7.18,
+        "read": 7.36,
+        "cite": 8.0,
+        "findings": 79,
+        "dropped": 0,
+        "tin": 32957,
+        "tout": 39573
+      },
+      "failures": [
+        "L2-company: truncated at 4000 output tokens (invalid JSON)"
+      ],
+      "latency_s": {
+        "median": 22.950000000000003,
+        "max": 29.6
+      },
+      "cost_usd_sample": 0.0111,
+      "cost_usd_corpus": 0.802,
+      "cost_usd_100x": 80.18,
+      "notes": "judge anthropic/claude-sonnet-5.5; 12 reports (9 L0, 2 L1, 1 company)"
+    },
+    {
+      "model": "z-ai/glm-5.3-flash",
+      "available": true,
+      "quality_score_0_1": 0.765,
+      "key_metrics": {
+        "json_ok": "12/12",
+        "faith": 7.83,
+        "unsup": 33,
+        "cov": 7.67,
+        "read": 7.17,
+        "cite": 7.92,
+        "findings": 100,
+        "dropped": 1,
+        "tin": 36409,
+        "tout": 21686
+      },
+      "failures": [],
+      "latency_s": {
+        "median": 12.149999999999999,
+        "max": 114.5
+      },
+      "cost_usd_sample": 0.00907,
+      "cost_usd_corpus": 0.655,
+      "cost_usd_100x": 65.51,
+      "notes": "judge anthropic/claude-sonnet-5.5; 12 reports (9 L0, 2 L1, 1 company)"
+    },
+    {
+      "model": "anthropic/claude-haiku-5.5",
+      "available": true,
+      "quality_score_0_1": 0.789,
+      "key_metrics": {
+        "json_ok": "9/12",
+        "faith": 7.67,
+        "unsup": 24,
+        "cov": 8.22,
+        "read": 7.33,
+        "cite": 8.33,
+        "findings": 79,
+        "dropped": 0,
+        "tin": 49242,
+        "tout": 40986
+      },
+      "failures": [
+        "L0-0: truncated at 4000 output tokens (invalid JSON)",
+        "L0-4: truncated at 4000 output tokens (invalid JSON)",
+        "L0-8: truncated at 4000 output tokens (invalid JSON)"
+      ],
+      "latency_s": {
+        "median": 14.45,
+        "max": 43.4
+      },
+      "cost_usd_sample": 0.02516,
+      "cost_usd_corpus": 1.818,
+      "cost_usd_100x": 181.8,
+      "notes": "judge anthropic/claude-sonnet-5.5; 12 reports (9 L0, 2 L1, 1 company)"
+    },
+    {
+      "model": "deepseek/deepseek-v4.1-flash",
+      "available": true,
+      "quality_score_0_1": 0.757,
+      "key_metrics": {
+        "json_ok": "7/12",
+        "faith": 7.86,
+        "unsup": 14,
+        "cov": 7.43,
+        "read": 7.14,
+        "cite": 7.86,
+        "findings": 73,
+        "dropped": 0,
+        "tin": 34713,
+        "tout": 64899
+      },
+      "failures": [
+        "L0-16: truncated at 4000 output tokens (invalid JSON)",
+        "L0-24: truncated at 4000 output tokens (invalid JSON)",
+        "L0-32: truncated at 4000 output tokens (invalid JSON)",
+        "L1-3: truncated at 4000 output tokens (invalid JSON)",
+        "L2-company: truncated at 4000 output tokens (invalid JSON)"
+      ],
+      "latency_s": {
+        "median": 33.15,
+        "max": 90.4
+      },
+      "cost_usd_sample": 0.05957,
+      "cost_usd_corpus": 4.304,
+      "cost_usd_100x": 430.36,
+      "notes": "judge anthropic/claude-sonnet-5.5; 12 reports (9 L0, 2 L1, 1 company)"
+    },
+    {
+      "model": "google/gemini-3.8-flash",
+      "available": true,
+      "quality_score_0_1": 0.745,
+      "key_metrics": {
+        "json_ok": "9/12",
+        "faith": 7.33,
+        "unsup": 30,
+        "cov": 7.56,
+        "read": 7.11,
+        "cite": 7.78,
+        "findings": 53,
+        "dropped": 0,
+        "tin": 34447,
+        "tout": 34475
+      },
+      "failures": [
+        "L0-4: truncated at 4000 output tokens (invalid JSON)",
+        "L1-0: truncated at 4000 output tokens (invalid JSON)",
+        "L2-company: truncated at 4000 output tokens (invalid JSON)"
+      ],
+      "latency_s": {
+        "median": 24.15,
+        "max": 32.6
+      },
+      "cost_usd_sample": 0.15357,
+      "cost_usd_corpus": 11.095,
+      "cost_usd_100x": 1109.51,
+      "notes": "judge anthropic/claude-sonnet-5.5; 12 reports (9 L0, 2 L1, 1 company)"
+    }
+  ],
+  "winner": "openai/gpt-6-luna",
+  "runner_up": "meta/muse-spark-1.3-contributor"
+}
