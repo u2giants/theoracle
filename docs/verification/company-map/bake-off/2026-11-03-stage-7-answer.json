@@ -1,0 +1,164 @@
+{
+  "stage": 7,
+  "slug": "answer",
+  "date": "2026-11-03",
+  "questions": "20 DRAFT real-corpus questions (handoff Appendix A, pending Albert/Ilona edits)",
+  "mode": "local",
+  "judge": "anthropic/claude-sonnet-5.5",
+  "cost_unit_note": "Stage 7 cost is per question, not per corpus: retrieval is capped (8 seed entities, 60 nodes, 150 edges, 30 chunks, ScaleDown compression above 6000 tokens), so cost_usd_corpus and cost_usd_100x are the per-question cost on the 97-chunk corpus and the projected per-question cost at ~10,000 chunks (same caps).",
+  "judge_cost_usd": 1.37,
+  "candidates": [
+    {
+      "model": "z-ai/glm-5.3-flash",
+      "available": true,
+      "quality_score_0_1": 0.682,
+      "key_metrics": {
+        "rubric_means_0_5": {
+          "correctness": 2.95,
+          "synthesis": 3.7,
+          "honesty": 3.65,
+          "citation_validity": 2.85,
+          "readability": 3.9
+        },
+        "answers_with_ge3_sources": 14,
+        "distinct_sources_mean": 3.35,
+        "valid_citations_mean": 14.2,
+        "tokens_in": 2234084,
+        "tokens_out": 204455,
+        "cost_usd_per_1000_questions": 4.36,
+        "latency_p50_s": 45.7
+      },
+      "failures": {
+        "hard_failures": 0,
+        "empty_content_calls_rescued": 20
+      },
+      "latency_s": 44.8,
+      "cost_usd_sample": 0.0872,
+      "cost_usd_corpus": 0.0044,
+      "cost_usd_100x": 0.0044,
+      "notes": "Top mean by a hair and cheapest; but EVERY first call returned empty content (20/20) and depended on the rescue retry."
+    },
+    {
+      "model": "anthropic/claude-haiku-5.5",
+      "available": true,
+      "quality_score_0_1": 0.68,
+      "key_metrics": {
+        "rubric_means_0_5": {
+          "correctness": 3.05,
+          "synthesis": 3.3,
+          "honesty": 4,
+          "citation_validity": 2.85,
+          "readability": 3.8
+        },
+        "answers_with_ge3_sources": 12,
+        "distinct_sources_mean": 2.85,
+        "valid_citations_mean": 11.6,
+        "tokens_in": 2633031,
+        "tokens_out": 265421,
+        "cost_usd_per_1000_questions": 19.8,
+        "latency_p50_s": 61.0
+      },
+      "failures": {
+        "hard_failures": 0,
+        "empty_content_calls_rescued": 11
+      },
+      "latency_s": 58.0,
+      "cost_usd_sample": 0.396,
+      "cost_usd_corpus": 0.0198,
+      "cost_usd_100x": 0.0198,
+      "notes": "Current seat. Best honesty about unknowns; 11 of ~31 calls returned empty content and were saved by the PR #307 rescue."
+    },
+    {
+      "model": "deepseek/deepseek-v4.1-flash",
+      "available": true,
+      "quality_score_0_1": 0.674,
+      "key_metrics": {
+        "rubric_means_0_5": {
+          "correctness": 3.4,
+          "synthesis": 3.75,
+          "honesty": 3.3,
+          "citation_validity": 3.1,
+          "readability": 3.3
+        },
+        "answers_with_ge3_sources": 14,
+        "distinct_sources_mean": 2.95,
+        "valid_citations_mean": 16.9,
+        "tokens_in": 2030972,
+        "tokens_out": 328293,
+        "cost_usd_per_1000_questions": 12.78,
+        "latency_p50_s": 82.6
+      },
+      "failures": {
+        "hard_failures": 0,
+        "empty_content_calls_rescued": 17
+      },
+      "latency_s": 79.6,
+      "cost_usd_sample": 0.2555,
+      "cost_usd_corpus": 0.0128,
+      "cost_usd_100x": 0.0128,
+      "notes": "Most cited quotes and best correctness/synthesis; slowest (p50 83 s); 17 empty-content calls rescued."
+    },
+    {
+      "model": "google/gemini-3.8-flash",
+      "available": true,
+      "quality_score_0_1": 0.574,
+      "key_metrics": {
+        "rubric_means_0_5": {
+          "correctness": 2.95,
+          "synthesis": 3.11,
+          "honesty": 2.74,
+          "citation_validity": 2.74,
+          "readability": 3.58
+        },
+        "answers_with_ge3_sources": 11,
+        "distinct_sources_mean": 2.63,
+        "valid_citations_mean": 11.8,
+        "tokens_in": 1861176,
+        "tokens_out": 190203,
+        "cost_usd_per_1000_questions": 116.0,
+        "latency_p50_s": 57.1
+      },
+      "failures": {
+        "hard_failures": 1,
+        "empty_content_calls_rescued": 0
+      },
+      "latency_s": 76.1,
+      "cost_usd_sample": 2.3201,
+      "cost_usd_corpus": 0.116,
+      "cost_usd_100x": 0.116,
+      "notes": "1 hard failure (q9: invalid JSON x3 retries); weakest honesty; ~6-25x the price of the others."
+    },
+    {
+      "model": "openai/gpt-6-luna",
+      "available": true,
+      "quality_score_0_1": 0.568,
+      "key_metrics": {
+        "rubric_means_0_5": {
+          "correctness": 3,
+          "synthesis": 2.95,
+          "honesty": 4.05,
+          "citation_validity": 1.25,
+          "readability": 2.95
+        },
+        "answers_with_ge3_sources": 12,
+        "distinct_sources_mean": 2.9,
+        "valid_citations_mean": 10.6,
+        "tokens_in": 1055927,
+        "tokens_out": 48296,
+        "cost_usd_per_1000_questions": 6.49,
+        "latency_p50_s": 23.5
+      },
+      "failures": {
+        "hard_failures": 0,
+        "empty_content_calls_rescued": 0
+      },
+      "latency_s": 24.3,
+      "cost_usd_sample": 0.1297,
+      "cost_usd_corpus": 0.0065,
+      "cost_usd_100x": 0.0065,
+      "notes": "Fastest and terse; lowest citation validity (1.25/5): many quotes dropped by validation, leaving (uncited) sentences."
+    }
+  ],
+  "winner": "anthropic/claude-haiku-5.5",
+  "runner_up": "z-ai/glm-5.3-flash"
+}
