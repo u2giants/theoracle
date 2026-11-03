@@ -1,0 +1,171 @@
+{
+ "stage": 8,
+ "slug": "recommend",
+ "date": "2026-11-03",
+ "judge": "anthropic/claude-sonnet-5.5",
+ "candidates": [
+  {
+   "model": "deepseek/deepseek-v4.1-flash",
+   "available": true,
+   "quality_score_0_1": 0.758,
+   "key_metrics": {
+    "grounded": 0.796,
+    "actionable": 0.806,
+    "specific": 0.713,
+    "open_question": 0.717,
+    "json_valid": "20/20",
+    "recommendations_kept": 11,
+    "duplicates_dropped": 9,
+    "calls_incl_retries": 26,
+    "tokens_in": 58647,
+    "tokens_out": 94708
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 23.1,
+    "p90": 45.0
+   },
+   "cost_usd_sample": 0.0493,
+   "cost_usd_corpus": 0.1331,
+   "cost_usd_100x": 13.31,
+   "notes": "6 truncated-JSON answers recovered by the built-in retry (26 calls for 20 findings); slow tail (p90 45 s); output-heavy."
+  },
+  {
+   "model": "z-ai/glm-5.3-flash",
+   "available": true,
+   "quality_score_0_1": 0.76,
+   "key_metrics": {
+    "grounded": 0.722,
+    "actionable": 0.762,
+    "specific": 0.752,
+    "open_question": 0.805,
+    "json_valid": "20/20",
+    "recommendations_kept": 11,
+    "duplicates_dropped": 9,
+    "calls_incl_retries": 20,
+    "tokens_in": 44431,
+    "tokens_out": 28819
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 7.5,
+    "p90": 11.2
+   },
+   "cost_usd_sample": 0.0081,
+   "cost_usd_corpus": 0.0219,
+   "cost_usd_100x": 2.19,
+   "notes": "Cheapest and fastest; best open-question score; slightly weaker evidence citations."
+  },
+  {
+   "model": "qwen/qwen3.8-27b",
+   "available": true,
+   "quality_score_0_1": 0.551,
+   "key_metrics": {
+    "grounded": 0.731,
+    "actionable": 0.772,
+    "specific": 0.7,
+    "open_question": 0.735,
+    "json_valid": "15/20",
+    "recommendations_kept": 8,
+    "duplicates_dropped": 7,
+    "calls_incl_retries": 31,
+    "tokens_in": 68189,
+    "tokens_out": 120882
+   },
+   "failures": 5,
+   "latency_s": {
+    "median": 40.9,
+    "p90": 43.3
+   },
+   "cost_usd_sample": 0.3085,
+   "cost_usd_corpus": 0.8329,
+   "cost_usd_100x": 83.3,
+   "notes": "Requested id qwen/qwen-3.8-27b does not exist on OpenRouter; the same model is listed as qwen/qwen3.8-27b (spelling only) and was used. 5 of 20 findings failed after retries (JSON cut off mid-answer); most expensive by far."
+  },
+  {
+   "model": "openai/gpt-6-luna",
+   "available": true,
+   "quality_score_0_1": 0.797,
+   "key_metrics": {
+    "grounded": 0.84,
+    "actionable": 0.806,
+    "specific": 0.762,
+    "open_question": 0.782,
+    "json_valid": "20/20",
+    "recommendations_kept": 14,
+    "duplicates_dropped": 6,
+    "calls_incl_retries": 20,
+    "tokens_in": 44831,
+    "tokens_out": 29005
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 13.8,
+    "p90": 17.9
+   },
+   "cost_usd_sample": 0.0199,
+   "cost_usd_corpus": 0.0537,
+   "cost_usd_100x": 5.37,
+   "notes": "Best grounding and overall score; zero failures; mid-price."
+  },
+  {
+   "model": "anthropic/claude-haiku-5.5",
+   "available": true,
+   "quality_score_0_1": 0.724,
+   "key_metrics": {
+    "grounded": 0.673,
+    "actionable": 0.821,
+    "specific": 0.765,
+    "open_question": 0.79,
+    "json_valid": "19/20",
+    "recommendations_kept": 10,
+    "duplicates_dropped": 10,
+    "calls_incl_retries": 20,
+    "tokens_in": 64701,
+    "tokens_out": 41860
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 11.3,
+    "p90": 12.1
+   },
+   "cost_usd_sample": 0.0271,
+   "cost_usd_corpus": 0.0732,
+   "cost_usd_100x": 7.32,
+   "notes": "Most actionable but weakest grounding (cites sources less exactly); 1 answer needed the fenced-JSON rescue."
+  },
+  {
+   "model": "meta/muse-spark-1.3-contributor",
+   "available": true,
+   "quality_score_0_1": 0.722,
+   "key_metrics": {
+    "grounded": 0.74,
+    "actionable": 0.742,
+    "specific": 0.683,
+    "open_question": 0.721,
+    "json_valid": "20/20",
+    "recommendations_kept": 18,
+    "duplicates_dropped": 2,
+    "calls_incl_retries": 20,
+    "tokens_in": 43117,
+    "tokens_out": 58123
+   },
+   "failures": 0,
+   "latency_s": {
+    "median": 24.2,
+    "p90": 30.5
+   },
+   "cost_usd_sample": 0.0156,
+   "cost_usd_corpus": 0.0421,
+   "cost_usd_100x": 4.21,
+   "notes": "Marked only 2 of 20 as duplicates (others 6-10), so near-repeat cards would reach Albert; vaguest problem statements."
+  },
+  {
+   "model": "qwen/qwen-3.8-27b (as written)",
+   "available": false,
+   "notes": "Not on OpenRouter /api/v1/models as of 2026-11-03; tested under the listed spelling qwen/qwen3.8-27b."
+  }
+ ],
+ "winner": "openai/gpt-6-luna",
+ "runner_up": "z-ai/glm-5.3-flash"
+}
