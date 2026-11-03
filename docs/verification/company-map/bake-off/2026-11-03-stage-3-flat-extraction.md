@@ -47,3 +47,15 @@ Not recommended: qwen3.8-27b (high recall, lowest precision, $642/10k, slowest);
 ## Reproducibility
 
 Run outputs (raw responses, per-chunk mentions, judge verdicts) kept on the test services host under the session scratchpad; runner/judge/score scripts are the three small scripts described above. Budget: key limit_remaining was ≈$22.46 before the last candidate; this stage spent ≈$2.7 total (candidates ≈$2.18 + judge ≈$0.525).
+
+## Follow-up: richer ScaleDown instructions (12:25 PM EST)
+
+Question from the owner: can better instructions lift ScaleDown? Variant: every passage-kind and entity-type description rewritten with generic consumer-products / licensing examples (no names taken from the sample), and the chatter label tightened to "NOT chatter if it names any system, document, brand, customer, team, rule or work step". Same 25 chunks, same code path otherwise. New mentions not seen by the original judge pass were judged by the same judge and added to the reference; all rows re-scored on the enlarged reference.
+
+| Path | Precision | Recall | F1 | Type acc | Passage-kind acc | Chatter false-skips |
+|---|---|---|---|---|---|---|
+| ScaleDown, production instructions | 0.785 | 0.533 | 0.635 | 0.813 | 0.60 | 0 |
+| ScaleDown, richer instructions | 0.745 | 0.465 | 0.573 | 0.852 | **0.76** | 0 |
+| z-ai/glm-5.3-flash (re-scored) | 0.855 | 0.650 | 0.739 | 0.849 | 0.68 | 1 |
+
+Finding: richer entity descriptions made ScaleDown extraction worse (longer descriptions appear to dilute its matching), but the richer passage-kind descriptions made its labelling the best of every path tested (0.76 vs 0.60), with no false chatter skips. Extraction does not depend on the label here (no chunk was chatter-skipped in either run), so the hybrid — richer classify labels + production entity descriptions — would score 0.635 F1 / 0.76 kind accuracy. Recommendation: adopt the richer classify labels only; keep the entity descriptions as they are. Not yet applied to the code.
