@@ -47,6 +47,6 @@ Cost formula: $ actual is the sum of OpenRouter `usage.cost` over all calls (pri
 ## Reproducibility
 
 - Run dates: 2026-11-03, roughly 12:55 PM–1:50 PM EST (resolve), grading 1:55–3:15 PM EST.
-- Cloned DBs kept on the test services host: `cmap_s5_<slug>` (slugs above); source `cmap_bake_5` untouched.
+- Cloned DBs `cmap_s5_<slug>` on the test services host were dropped after grading; source `cmap_bake_5` untouched. Recreate with the reset steps in Method.
 - Harness: a wrapper script calling `brain.resolve.resolve.run_resolve()` with the env above, and a scoring script (gold pair lists, grader prompts, seed 5). Both are session-local scratch, summarised here; per-call logs recorded tokens, cost and latency per model.
 - A first launch was killed mid-run when its parent shell exited; the clones were reset and all four reruns are the numbers above.
