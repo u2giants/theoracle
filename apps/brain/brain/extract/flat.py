@@ -4,7 +4,9 @@ Every chunk of a source is classified with ScaleDown ``/classify`` and its flat
 mentions are extracted with ScaleDown ``/extract``, 8 chunks at a time. When
 ``BRAIN_SCALEDOWN_ENABLED=false`` or a ScaleDown call returns non-200 three
 times, the frontier model answers ``prompts/flat_extract.md`` instead, in the
-same result shape, so the pipeline completes either way (plan §8, §11). Model
+same result shape, so the pipeline completes either way (plan §8, §11). When
+``BRAIN_FLAT_MODEL`` is set, that model extracts every chunk while ScaleDown
+keeps classifying (2026-11-03 bake-off: it finds more than ScaleDown). Model
 ids come from the environment only and never from this code.
 
 Each raw response is recorded in ``cmap.extraction(stage='flat')``; mentions
@@ -29,7 +31,7 @@ from typing import Any
 import httpx
 from psycopg.types.json import Json
 
-from brain.config import Settings, get_settings
+from brain.config import Settings, flat_model, get_settings
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.normalize import normalize_name
@@ -225,11 +227,12 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
     """POST one frontier chat-completions request and return the response body."""
     if settings.openrouter_api_key is None:
         raise FlatError("OPENROUTER_API_KEY is not set")
-    if settings.brain_frontier_model is None:
-        raise FlatError("BRAIN_FRONTIER_MODEL is not set")
+    model = flat_model(settings)
+    if model is None:
+        raise FlatError("BRAIN_FLAT_MODEL or BRAIN_FRONTIER_MODEL is not set")
     return post_chat_with_rescue(
         {
-            "model": settings.brain_frontier_model,
+            "model": model,
             "messages": messages,
             "temperature": 0,
         },
@@ -473,7 +476,7 @@ def _process_chunk(
             top_label, scores = _classify_half(fallback)
             outcome.records.append(
                 ModelRecord(
-                    model=counters.settings.brain_frontier_model or "frontier",
+                    model=flat_model(counters.settings) or "frontier",
                     prompt_hash=frontier_prompt_hash(),
                     payload=fallback,
                 )
@@ -484,9 +487,11 @@ def _process_chunk(
         outcome.skipped_chatter = True
         return outcome
 
-    response = _call_scaledown(
-        "/extract", extract_body(text), counters, "scaledown_extract_calls"
-    )
+    response = None
+    if counters.settings.brain_flat_model is None:
+        response = _call_scaledown(
+            "/extract", extract_body(text), counters, "scaledown_extract_calls"
+        )
     if response is not None:
         outcome.records.append(
             ModelRecord(
@@ -501,7 +506,7 @@ def _process_chunk(
         if not any(record.prompt_hash == frontier_prompt_hash() for record in outcome.records):
             outcome.records.append(
                 ModelRecord(
-                    model=counters.settings.brain_frontier_model or "frontier",
+                    model=flat_model(counters.settings) or "frontier",
                     prompt_hash=frontier_prompt_hash(),
                     payload=fallback,
                 )
