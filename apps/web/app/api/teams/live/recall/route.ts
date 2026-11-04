@@ -1,28 +1,21 @@
 // POST /api/teams/live/recall
 //
 // Recall.ai real-time transcript endpoint. Recall sends finalized
-// `transcript.data` utterances here while the meeting is still in progress.
-// Keep this handler fast: verify the signature, enqueue a worker task, return
-// 202. The worker owns DB writes, LLM calls, and Teams chat replies.
+// Verify the signature, return 202, and record finished transcripts in the
+// Company Map.
 //
 // Company Map (plan step 12): when Recall reports a finished transcript
 // (`transcript.done` or `bot.done`), the final transcript is also recorded
 // in the brain as a `transcript` source, after the response is sent.
 
 import { after, NextResponse, type NextRequest } from 'next/server';
-import { triggerTask } from '@/lib/trigger';
 import { verifyRecallRequest } from '@/lib/recall';
 import { finishedTranscriptRef, recordFinishedTranscript } from '@/lib/recall-cmap';
-import { requestReplacementMeetingIngress } from '@/lib/replacement-protected-client';
-import { unavailableControl } from '@/lib/replacement-control-window';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest): Promise<Response> {
-  const mode = process.env.ORACLE2_MEETING_ROUTING_MODE;
-  if (mode === 'replacement') return requestReplacementMeetingIngress(req);
-  if (mode !== undefined && mode !== 'legacy') return unavailableControl();
   const raw = await req.text();
   const secret = process.env.RECALL_WEBHOOK_SECRET;
   if (!secret) {
@@ -53,11 +46,6 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     });
   }
-
-  void triggerTask('teams-live-recall-utterance', {
-    receivedAt: new Date().toISOString(),
-    event: body,
-  });
 
   return new NextResponse(null, { status: 202 });
 }

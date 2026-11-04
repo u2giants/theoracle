@@ -26,48 +26,11 @@ interface NavGroup {
 const GROUPS: NavGroup[] = [
   {
     label: 'People',
-    items: [
-      { href: '/admin/employees', label: 'Employees' },
-      { href: '/admin/departments', label: 'Departments' },
-      { href: '/admin/claim-groups', label: 'Review Groups' },
-      { href: '/admin/channels', label: 'Channels' },
-    ],
-  },
-  {
-    label: 'Activity',
-    // Messages + Documents — the raw inputs the Oracle reads from.
-    items: [
-      { href: '/admin/import', label: 'Import' },
-      { href: '/admin/messages', label: 'Messages' },
-      { href: '/admin/transcripts', label: 'Transcripts' },
-      { href: '/admin/documents', label: 'Documents' },
-    ],
-  },
-  {
-    label: 'Knowledge',
-    // The derived knowledge graph — what the system has learned from Activity.
-    items: [
-      { href: '/admin/claims', label: 'Claims' },
-      { href: '/admin/gaps', label: 'Gaps' },
-      { href: '/admin/contradictions', label: 'Contradictions' },
-      { href: '/admin/business-model', label: 'Business Model' },
-      { href: '/admin/macro', label: 'Macro' },
-      { href: '/admin/recommendations', label: 'Recommendations' },
-      { href: '/admin/brain', label: 'Brain' },
-    ],
-  },
-  {
-    label: 'Operations',
-    // Operator tools — observability, taxonomy governance, system settings.
-    items: [
-      { href: '/admin/ai', label: 'AI Observability' },
-      { href: '/admin/taxonomy', label: 'Taxonomy' },
-      { href: '/admin/settings', label: 'Settings' },
-    ],
+    items: [{ href: '/admin/employees', label: 'Employees' }],
   },
 ];
 
-const EXTERNAL_LINK = { href: '/channels', label: '↗ Chat' };
+const EXTERNAL_LINK = { href: '/map', label: '↗ Company Map' };
 
 function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/');

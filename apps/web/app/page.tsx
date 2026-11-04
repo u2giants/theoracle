@@ -1,5 +1,5 @@
 // Root page — landing / sign-in entry.
-// For an authenticated approved employee, redirect to /channels.
+// For an authenticated approved employee, redirect to /map.
 // For an authenticated unapproved user, send to /denied.
 // For everyone else, render the login form.
 
@@ -23,8 +23,7 @@ export default async function HomePage() {
 
   if (userId) {
     const me = await getEmployeeForAuthUser(userId);
-    const target: '/admin' | '/channels' | '/denied' =
-      me && !me.disabledAt ? (me.isAdmin ? '/admin' : '/channels') : '/denied';
+    const target: '/map' | '/denied' = me && !me.disabledAt ? '/map' : '/denied';
     redirect(target);
   }
 

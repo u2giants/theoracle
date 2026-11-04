@@ -7,7 +7,7 @@
 //    employees.email to bootstrap a new identity row. Updates last_login_at.
 //    See DECISIONS.md D2.multi-identity.
 // 4. Redirect:
-//      ok       → /channels  (or /admin if isAdmin)
+//      ok       → /map (or the requested page)
 //      denied   → /denied
 //      hijack   → /denied?reason=hijack_attempt
 
@@ -77,6 +77,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL(`/denied?reason=${link.reason}`, url.origin));
   }
 
-  const target = link.employee.isAdmin ? '/admin' : next === '/' ? '/channels' : next;
+  const target = next === '/' ? '/map' : next;
   return NextResponse.redirect(new URL(target, url.origin));
 }

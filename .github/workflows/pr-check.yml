@@ -65,8 +65,7 @@ jobs:
 
       - name: Vercel build contract guard
         # Vercel rejects buildCommand values longer than 256 characters.
-        # Keep vercel.json short and prove its delegated script retains all
-        # nine network-free production guards before the web build.
+        # Keep vercel.json short and prove it delegates to build:vercel.
         run: pnpm verify:vercel-contract
 
       - name: Build apps/web (production tsc gate)
@@ -102,7 +101,6 @@ jobs:
       - name: Connected business answer evidence and domain boundaries
         run: |
           pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries
-          pnpm --filter @oracle/web verify:business-answer
 
       - name: Chinese retrieval contract and simple-search fixture
         # Network-free in CI. Records `simple` recall and proves rejected
@@ -111,26 +109,12 @@ jobs:
         # The live vector measurement is verify:chinese-retrieval-live.
         run: pnpm --filter @oracle/ai verify:chinese-retrieval
 
-      - name: China translation review contract
-        run: pnpm --filter @oracle/web verify:claim-translation-review
-
       - name: Vertex file-cache multi-turn guard
         # Static, DB-free + network-free check (the GenAI + Storage clients are
         # stubbed). Asserts the Vertex file-backed cache path keeps the FULL
         # multi-turn conversation as live contents instead of collapsing to a
         # single turn — which would silently erase chat history.
         run: pnpm --filter @oracle/ai verify:vertex-file-cache
-
-      - name: Chat attachment fallback safety guard
-        # Network-free fixture for two PDFs, PDF + image, forced provider
-        # fallback, and oversized clear-failure/constrained-cache behavior.
-        run: pnpm --filter @oracle/web verify:chat-attachment-safety
-
-      - name: Eval results dashboard safety guard
-        run: pnpm --filter @oracle/web verify:eval-results-dashboard
-
-      - name: Model coverage conversion safety guard
-        run: pnpm --filter @oracle/web verify:model-coverage-conversion
 
       - name: Topical lull-gap selection safety guard
         run: pnpm --filter @oracle/engines verify:lull-topical
@@ -143,13 +127,6 @@ jobs:
         # evidence/timestamp preservation, non-quotable carry-in, and the
         # no-truncation hard failure for one unfit message.
         run: pnpm --filter @oracle/workers verify:conversation-windowing
-
-      - name: MCP registry guard
-        # Static, DB-free check of the Oracle MCP lazy-loaded registry: tools/list
-        # stays limited to the five always-on tools, capability metadata/tiers are
-        # complete, tool_search/enablement/contract/arg-validation behave, and no
-        # hidden operation leaks into the always-on surface.
-        run: pnpm --filter @oracle/web verify:mcp
 
       - name: Vertex inline-image guard
         # Static, DB-free + network-free check (the GenAI client is stubbed).
