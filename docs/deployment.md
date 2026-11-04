@@ -8,7 +8,7 @@ This file describes the current deploy and release path that exists in the repo 
 | Target | What runs there | Source of truth |
 |---|---|---|
 | Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `apps/web` | `vercel.json`, GitHub integration |
-| Trigger.dev project `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` | `apps/workers`, Node 24 | `apps/workers/trigger.config.ts` |
+| Coolify service `oracle-brain` | `apps/brain` (Company Map brain), image `ghcr.io/u2giants/theoracle-brain` | `.github/workflows/brain-image.yml`, Coolify `BRAIN_IMAGE_TAG` |
 | Supabase project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (`theoracle`, N. Virginia) | Postgres, Auth, Storage, Realtime | `.env.local` / runtime env + Supabase dashboard |
 
 ## Current release flow
@@ -32,44 +32,14 @@ This file describes the current deploy and release path that exists in the repo 
 }
 ```
 
-`build:vercel` delegates to the root `verify:vercel-guards` script and then runs the production web
-build. Keeping `vercel.json` short is required because Vercel rejects `buildCommand` values over 256
-characters. `verify:vercel-contract` enforces that limit and the exact delegated guard list in CI.
+`build:vercel` runs the production web build. Keeping `vercel.json` short is required because Vercel rejects `buildCommand` values over 256
+characters. `verify:vercel-contract` enforces that limit and the delegation in CI.
 
-The ten deploy guards are DB-free and network-free, so they run inside the Vercel build with no
-extra secrets:
+### Brain service
 
-1. `pnpm --filter @oracle/ai verify:retrieval-filter-parity`
-2. `pnpm --filter @oracle/ai verify:chinese-retrieval`
-3. `pnpm --filter @oracle/ai verify:vertex-file-cache`
-4. `pnpm --filter @oracle/web verify:chat-attachment-safety`
-5. `pnpm --filter @oracle/web verify:claim-translation-review`
-6. `pnpm --filter @oracle/web verify:eval-results-dashboard`
-7. `pnpm --filter @oracle/web verify:provider-capability-parity`
-8. `pnpm --filter @oracle/web verify:model-coverage-conversion`
-9. `pnpm --filter @oracle/engines verify:lull-topical`
-10. `pnpm --filter @oracle/web verify:mcp`
-
-The Vertex guard stubs its clients, and the default Chinese fixture never calls the embedding
-service. The credentialed Chinese vector measurement is separate:
-`pnpm --filter @oracle/ai verify:chinese-retrieval-live`. The migration-drift check is intentionally
-NOT in the Vercel build — it needs prod DB credentials and stays in `pr-check.yml` as an advisory check.
-
-### Workers
-
-Workers are not deployed automatically by CI today.
-
-Current deploy command:
-
-```bash
-pnpm --filter @oracle/workers run deploy
-```
-
-The `run` keyword is required: pnpm reserves the bare `pnpm deploy` form for its own
-package-deployment subcommand, so `pnpm --filter @oracle/workers deploy` fails with
-`ERR_PNPM_INVALID_DEPLOY_TARGET`. The script under the hood is pinned to
-`npx trigger.dev@4.5.15 deploy` so the CLI matches the checked-in `@trigger.dev/*`
-package versions.
+Every `apps/brain` change merged to `main` publishes `ghcr.io/u2giants/theoracle-brain:<sha>` and `:latest`
+via `brain-image.yml`. Coolify deploys the tag named in its `BRAIN_IMAGE_TAG` variable; that deploy is a
+separate action. Oracle 2 and the old Trigger.dev workers were removed in #398 (2026-11-04).
 
 ### Database
 
@@ -116,53 +86,23 @@ Use `corepack pnpm --filter @oracle/db migrate` rather than root
 
 ## CI workflows that currently exist
 
-Three verification-only workflows are present (`pr-check.yml`, `task-gates.yml`, `oracle2-contracts.yml`). None deploys:
+None of these deploys:
 
-- `.github/workflows/pr-check.yml` runs the production build and repository
-  verification gates described below.
-- `.github/workflows/task-gates.yml` installs the pinned public task-gate engine
-  and proves Oracle's local classification, no-bypass, valid-flow, and rollback
-  assertions on every pull request and push to `main`.
-- `.github/workflows/oracle2-contracts.yml` runs on the self-hosted `edge-dev3`
-  runner: Oracle 2 contract checks, `@oracle/workers` typecheck, and
-  `scripts/oracle2/verify_worker_bundle.mjs` (the legacy worker bundle must not
-  contain Oracle 2 tasks).
+- `pr-check.yml` — Vercel contract guard, production `@oracle/web` build, DB guards, fresh-database
+  migration gate, and the advisory Drizzle journal drift check (`PROD_DIRECT_URL`; skips if absent).
+- `task-gates.yml` — task-classification policy gate.
+- `brain-ci.yml` — brain service tests.
+- `brain-image.yml` — builds the brain image on PRs; publishes to GHCR on `main`.
+- `ai-review.yml`, `review-fixer.yml` — advisory AI review and its fixer.
 
-What `pr-check.yml` does (in order):
-
-1. Checks out the repo, installs pnpm 9.5.0, uses Node 24, runs `pnpm install --frozen-lockfile=false`.
-2. **Vercel build contract guard** — `pnpm verify:vercel-contract`. Enforces the 256-character limit and exact delegated production guard list.
-3. **Build gate** — `pnpm --filter @oracle/web build`. This is a full production Next.js build (Turbopack); it is the only command that catches Next.js-specific type errors that `pnpm typecheck` alone misses.
-4. **Retrieval filter-parity guard** — `pnpm --filter @oracle/ai verify:retrieval-filter-parity`. DB-free static check that every filter key from `buildPlanMetadataFilters()` is interpolated into both the hybrid and tsvector-fallback SQL branches in `retrieval.ts`.
-5. **Entity-aware retrieval guard** — `pnpm --filter @oracle/ai verify:entity-aware-retrieval`.
-   Connected business answers also run domain-boundary and `@oracle/web verify:business-answer`
-   fixtures in PR CI, including relationship premise eligibility and citation identity.
-6. **Chinese retrieval guard** — `pnpm --filter @oracle/ai verify:chinese-retrieval`. Always network-free; the live vector command is separate.
-7. **China translation review guard** — `pnpm --filter @oracle/web verify:claim-translation-review`.
-8. **Vertex file-cache multi-turn guard** — `pnpm --filter @oracle/ai verify:vertex-file-cache`.
-9. **MCP registry guard** — `pnpm --filter @oracle/web verify:mcp`.
-10. **Vertex inline-image guard** — `pnpm --filter @oracle/ai verify:vertex-inline-image`.
-11. **Auxiliary-model defaults guard** — `pnpm --filter @oracle/ai verify:auxiliary-defaults`.
-12. **R0 reader/validator contract** — `pnpm --filter @oracle/workers verify:r0-reader-validator`.
-13. **R1 cross-shape contract** — `pnpm --filter @oracle/engines verify:r1-cross-shape`.
-14. **Taxonomy reclassification contract** — `pnpm --filter @oracle/workers verify:taxonomy-reclassification`.
-    For a credentialed production closeout, run
-    `pnpm --filter @oracle/workers audit:taxonomy-reclassification-production` with `DIRECT_URL`
-    set to the production session-pooler URL. The audit performs only `SELECT` statements. It
-    reports every proposal's effective state, supported and manual handler types, Trigger run IDs,
-    recent `job_runs`, and fails if production contains an unknown type or a manual split marked
-    applied. It never approves, dispatches, retries, or applies a proposal.
-15. **Fresh-database migration gate** — starts isolated pgvector Postgres and runs the generated-order, full migration twice, raw-rerun, document context/hints, source-workflow, R1 schema, and taxonomy DB guards.
-16. **Drizzle journal drift check** — `pnpm -w run db:check-drift`. Requires `PROD_DIRECT_URL`; skips gracefully if absent.
-
-There is no checked-in workflow for DB migrations or worker deploys.
+There is no checked-in workflow for DB migrations.
 
 ## Environment management
 
 Runtime env vars currently live in:
 
 - Vercel project environment settings
-- Trigger.dev project env/secrets
+- Coolify service environment (brain)
 - local `.env.local`
 
 Use `docs/configuration.md` for the exact variable list.
@@ -171,13 +111,13 @@ Use `docs/configuration.md` for the exact variable list.
 
 The production Supabase project moved on 2026-06-20 from Ohio project `PRIVATE_REFERENCE_SHA256_653f9df957f0c83b86b981047af863c26ed0d6834d758d4d335113fdba99c74b` (`oracle.old`) to N. Virginia project `PRIVATE_REFERENCE_SHA256_9190ea2866aa7bf92e2806946d58e5728957851544cade4e900fa8436872652d` (`theoracle`). For any future Supabase project move, verify all of these surfaces before declaring the cutover complete:
 
-1. Runtime envs: `.env.local`, Vercel Production/Preview/Development, Trigger.dev prod, and GitHub Actions secret `PROD_DIRECT_URL` all point at the new Supabase ref/pooler and use new anon/service-role keys.
+1. Runtime envs: `.env.local`, Vercel Production/Preview/Development, the Coolify brain service, and GitHub Actions secret `PROD_DIRECT_URL` all point at the new Supabase ref/pooler and use new anon/service-role keys.
 2. Supabase Auth: site URL, redirect allow list, Google provider, Azure provider, and SMTP config are present on the new project. For Microsoft SSO, add the new `https://<ref>.supabase.co/auth/v1/callback` redirect URI in Entra and create/update only the Supabase-specific client secret with `az ad app credential reset --append`.
 3. Supabase Storage: copy both Storage metadata rows and object bytes for `company_documents`, then verify downloads from the new project.
 4. Platform integrations: move the Supabase.com Vercel integration and Supabase.com GitHub integration to the new Supabase project in the Supabase dashboard. The Vercel Marketplace integration may inject `SUPABASE_*` and `POSTGRES_*` variables, but this app still reads `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, and `DIRECT_URL`.
-5. Trigger.dev: confirm the deployed prod worker and prod env values reference the new project. There are no staging/preview Trigger environments unless explicitly created.
-6. Recall.ai: dashboard webhooks are not expected for live transcripts; realtime endpoints are configured per bot at create time. Still verify Vercel has `RECALL_API_KEY`, `RECALL_WEBHOOK_SECRET`, `RECALL_BASE_URL=https://us-east-1.recall.ai`, and `RECALL_REALTIME_WEBHOOK_URL=https://oracle.designflow.app/api/teams/live/recall`, and Trigger has `RECALL_API_KEY` + `RECALL_BASE_URL`.
-7. Deploy/redeploy: Vercel env changes require a new production deployment. Trigger env changes require worker redeploy only when code changed, but confirm current worker version and env values.
+5. Brain service: confirm the Coolify `oracle-brain` env references the new project.
+6. Recall.ai: dashboard webhooks are not expected for live transcripts; realtime endpoints are configured per bot at create time. Still verify Vercel has `RECALL_API_KEY`, `RECALL_WEBHOOK_SECRET`, `RECALL_BASE_URL=https://us-east-1.recall.ai`, and `RECALL_REALTIME_WEBHOOK_URL=https://oracle.designflow.app/api/teams/live/recall`.
+7. Deploy/redeploy: Vercel env changes require a new production deployment. Coolify env changes require a brain redeploy.
 
 Unknowns to verify through dashboards when CLI/API cannot expose them: the Supabase.com Vercel integration attachment, Supabase.com GitHub integration settings, and GitHub App installation state.
 
@@ -187,14 +127,9 @@ Unknowns to verify through dashboards when CLI/API cannot expose them: the Supab
 
 - Use the Vercel dashboard to promote a previous deployment.
 
-### Workers
+### Brain
 
-- **Revert the code and deploy forward.** `trigger.dev promote <older-version>` FAILS with
-  "Cannot promote a deployment that is older than the current deployment" — Trigger.dev does not roll
-  backwards. Verified 2026-08-27 while rolling back a bad responsibility-reader prompt: the working
-  rollback was `git revert` + `pnpm --filter @oracle/workers run deploy`, which produced a NEW version
-  carrying the OLD behaviour.
-- Deploy from `apps/workers`; the project ref is committed in `trigger.config.ts`.
+- Set Coolify `BRAIN_IMAGE_TAG` back to the previous image SHA and redeploy.
 
 ### FalkorDB graph stores (hetz / Coolify)
 
@@ -219,62 +154,21 @@ Unknowns to verify through dashboards when CLI/API cannot expose them: the Supab
 
 ## Teams transcript ingestion (Microsoft Graph)
 
-The webhook (`apps/web/app/api/teams/notifications`) ships with the normal `apps/web` Vercel deploy — no separate step. The two workers (`teams-subscription-manager`, `teams-transcript-ingestion`) ship with the normal `pnpm --filter @oracle/workers run deploy`. This post-call Graph ingestion path is **live + validated end-to-end** (2026-06-04/05). Keep these requirements in place for reprovisioning, recovery, or new environments:
-
-1. **Entra permissions (one-time, admin):** grant the app `OnlineMeetingTranscript.Read.All` + `CallTranscripts.Read.All` (Application) and admin-consent. `CallTranscripts.Read.All` is **tenant-wide read of all call transcripts** — a deliberate privacy footprint; it's what the "capture every ad-hoc call" model requires.
-2. **Teams application access policy (one-time, admin, Teams PowerShell):** `New-CsApplicationAccessPolicy -Identity Oracle-Transcripts -AppIds <AZURE_GRAPH_CLIENT_ID>` then `Grant-CsApplicationAccessPolicy -PolicyName Oracle-Transcripts -Global`.
-3. **Vercel env:** `TEAMS_NOTIFICATION_PRIVATE_KEY`, `TEAMS_WEBHOOK_CLIENT_STATE` (Production). Redeploy `apps/web` so the functions pick them up.
-4. **Trigger.dev env:** `AZURE_*`, `TEAMS_NOTIFICATION_URL`, `TEAMS_NOTIFICATION_PUBLIC_CERT`, `TEAMS_NOTIFICATION_CERT_ID`, `TEAMS_WEBHOOK_CLIENT_STATE`. Deploy the workers.
-5. The subscription **cannot be created before the webhook is publicly live** — Graph validates the `notificationUrl` synchronously at create time. Once the worker is deployed, `teams-subscription-manager` creates + renews it automatically (the resource max-lifetime is ~1h; the `*/30` cron keeps it alive — no human re-auth).
-
-Env-var writes to Vercel are done via the Vercel dashboard or the Vercel REST API (the Vercel MCP server is read-only). The Vercel CLI is not installed in this repo's tooling by default.
+The Graph transcript webhook and its workers were removed in #398 (2026-11-04). Meeting transcripts
+now reach the Company Map through Recall (below).
 
 ## Teams live participation (Recall.ai)
 
-This is separate from the Microsoft Graph transcript subscription above. Graph remains the post-call evidence/backfill path. Live spoken participation uses a Recall.ai meeting bot because Graph does not expose live Teams caption/transcript streams.
-
-Status: **live + validated end-to-end (2026-06-08/09).** The worker deployment after that cleanup was `20260609.6`, with the temporary test-only bot-create task removed (for the current prod worker version, read Trigger.dev; see `docs/operations/` release records). After testing, live posting was intentionally clamped off through runtime `settings`; reopen it only for a controlled test or after the retrieval-backed-context work lands.
+Live meetings use a Recall.ai meeting bot.
 
 Deploy pieces:
 
-1. **Recall dashboard (one-time):** obtain `RECALL_API_KEY` from the workspace API keys page. Create a workspace verification secret if one does not yet exist; the value starts with `whsec_`. Optionally add an ElevenLabs API key in the Recall workspace for `elevenlabs_streaming` quality. POP Creations workspace is US East (N. Virginia) — use `https://us-east-1.recall.ai` as the base URL.
+1. **Recall dashboard (one-time):** obtain `RECALL_API_KEY` from the workspace API keys page. Create a workspace verification secret if one does not yet exist; the value starts with `whsec_`. POP Creations workspace is US East (N. Virginia) — use `https://us-east-1.recall.ai` as the base URL.
 2. **Vercel env:** `RECALL_API_KEY`, `RECALL_BASE_URL`, `RECALL_WEBHOOK_SECRET`, `RECALL_REALTIME_WEBHOOK_URL=https://oracle.designflow.app/api/teams/live/recall`.
-3. **Trigger.dev env:** `RECALL_API_KEY`, `RECALL_BASE_URL`.
-4. Deploy web and workers. Then an admin can `POST /api/teams/live/start` with `{ "meetingUrl": "...", "provider": "elevenlabs_streaming" }`. Use `"assembly_ai_v3_streaming"` as the fallback provider if ElevenLabs quality or integration is not acceptable.
+3. Deploy web. An admin can then `POST /api/teams/live/start` with `{ "meetingUrl": "...", "provider": "elevenlabs_streaming" }` (fallback provider `"assembly_ai_v3_streaming"`).
 
-Recall sends finalized `transcript.data` utterances to `/api/teams/live/recall`; that route verifies the Recall signature and triggers `teams-live-recall-utterance`. The worker persists each utterance as a `messages` row (`source='teams_live_recall'`) and only calls the interview model when a cheap keyword gate says the utterance might contain operational knowledge. Oracle questions are rate-limited by the existing interjection settings and posted back with Recall's `send_chat_message` endpoint.
-
-Runtime settings for a controlled live test:
-
-```sql
-INSERT INTO settings (key, value, description, updated_at)
-VALUES
-  ('max_oracle_interjections_per_hour', '3'::jsonb, 'Hard cap per channel per hour.', now()),
-  ('teams_live_recall_min_confidence_to_post', '70'::jsonb, 'Minimum live Recall model confidence required before posting.', now()),
-  ('teams_live_recall_force_model_pass', 'false'::jsonb, 'Test-only: force all live Recall utterances through the model gate.', now()),
-  ('teams_live_recall_force_post', 'false'::jsonb, 'Test-only: force-post Oracle test utterances.', now()),
-  ('teams_live_recall_disable_posting_limits', 'false'::jsonb, 'Test-only: bypass live Recall posting cooldown and rate caps.', now())
-ON CONFLICT (key) DO UPDATE
-SET value = EXCLUDED.value,
-    description = COALESCE(settings.description, EXCLUDED.description),
-    updated_at = now();
-```
-
-Clamp it off again after testing:
-
-```sql
-INSERT INTO settings (key, value, description, updated_at)
-VALUES
-  ('max_oracle_interjections_per_hour', '0'::jsonb, 'Hard cap per channel per hour.', now()),
-  ('teams_live_recall_min_confidence_to_post', '101'::jsonb, 'Minimum live Recall model confidence required before posting.', now()),
-  ('teams_live_recall_force_model_pass', 'false'::jsonb, 'Test-only: force all live Recall utterances through the model gate.', now()),
-  ('teams_live_recall_force_post', 'false'::jsonb, 'Test-only: force-post Oracle test utterances.', now()),
-  ('teams_live_recall_disable_posting_limits', 'false'::jsonb, 'Test-only: bypass live Recall posting cooldown and rate caps.', now())
-ON CONFLICT (key) DO UPDATE
-SET value = EXCLUDED.value,
-    description = COALESCE(settings.description, EXCLUDED.description),
-    updated_at = now();
-```
+`/api/teams/live/recall` verifies the Recall signature and, when Recall reports a finished transcript
+(`transcript.done` or `bot.done`), records it in the Company Map as a `transcript` source.
 
 ### Add Oracle from Teams
 
@@ -301,16 +195,3 @@ If rebuilding from scratch:
 ## Operational notes
 
 - SSH is not part of the normal release workflow.
-- The retained application remains on its managed platforms. W11 now prepares a separate native documentary Docker/GHCR/Coolify app path; exact reviewed source, protected configuration, isolated network denial and live admission remain required. No SSH or host edits.
-- If oversized Vertex file-backed caches are needed in production, provision `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` and related access before expecting that path to activate.
-- If Vertex Batch Prediction is enabled (D14), provision `GOOGLE_VERTEX_BATCH_GCS_BUCKET` in the same region as the Vertex endpoint and grant the worker service account `roles/storage.objectAdmin`. OpenAI and Anthropic batch routes need no extra infrastructure — the provider hosts the input + results. The two-phase worker (`claim-extraction-batch-submit` + `claim-extraction-batch-drain`) is enabled by flipping `extraction_dispatch_mode` to `'batch'` in `/admin/settings`.
-
-## Operating-model replacement progress (October 11, 2026 EDT)
-
-The scoped owner and gates live in plan_oracle_workflow_integrity.md STATUS and #27/#58. New views use actor-owned opaque jobs and a current immutable release manifest; company generation remains paused. The existing dedicated holistic Python bundle retains its old task and adds an isolated operating-model view task; both are excluded from the legacy worker bundle. The new command permits owned synthetic loopback stores only until restricted hosted transport is qualified. PM4Py remains uninstalled after the independent BLOCKED license/deployment verdict.
-
-Oracle 2 CI uses a serialized, per-run Compose project and separate configurable loopback ports (57632/57679/57680/57666) to avoid the protected recovery stores. The original local defaults remain 55432/56379/56380/54566. Additive dedicated SQL004 is bootstrapped only in local/CI stores. A target-checked local migration runner cannot apply hosted SQL. Hosted migration, exact implementation review, merged-main checks, private source acceptance, full restore proof and activation remain open; no new outcome is closed by these local results.
-
-## Proposed isolated native documentary release — October 12, 2026 EDT
-
-See `dev/oracle2/hosting/README.md` and the current workflow plan STATUS. The PR image job builds only; merged-main publishing records a SHA-tagged GHCR digest with provenance and SBOM. Coolify owns the app runtime and all isolated app networks. Only mutually authenticated opaque ingress is exposed; ledger and candidate/confirmed graphs are separate (superseded October 14, 2026: the DRAFT, not-yet-executed plan will publish both FalkorDB roles on a public mTLS port per `docs/implementation/falkordb-coolify-deploy-plan.md`, u2giants/theoracle#27). Provider credentials exist only in the independently admitted broker. Image validation and empty-queue synthetic startup never constitute private corpus, full job delivery or business acceptance. Exact deployment/custody/restore proof is still open on #27/#58. Company questions and grading remain paused.

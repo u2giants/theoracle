@@ -9,7 +9,6 @@
     "verify:vercel-contract": "node scripts/verify-vercel-contract.mjs",
     "dev": "turbo run dev --filter=@oracle/web",
     "dev:all": "turbo run dev",
-    "workers:dev": "pnpm --filter @oracle/workers dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @oracle/db generate",

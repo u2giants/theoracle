@@ -85,74 +85,8 @@ jobs:
           OPENROUTER_API_KEY: ci-placeholder-openrouter-key
           TRIGGER_SECRET_KEY: ci-placeholder-trigger-key
 
-      - name: Retrieval filter-parity guard
-        # Static, DB-free check that every buildPlanMetadataFilters() key is
-        # interpolated into BOTH the hybrid and tsvector-fallback query bodies
-        # in packages/ai/src/retrieval.ts. Catches the recurring "added a
-        # filter to one path, forgot the other" regression.
-        run: pnpm --filter @oracle/ai verify:retrieval-filter-parity
-
-      - name: Entity-aware retrieval guard
-        # DB-free and network-free fixture. Proves registry-only entity
-        # resolution, any-of multi-entity planning, no invented IDs, and a
-        # visible keyword-only fallback when the optional model call fails.
-        run: pnpm --filter @oracle/ai verify:entity-aware-retrieval
-
-      - name: Connected business answer evidence and domain boundaries
-        run: |
-          pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries
-
-      - name: Chinese retrieval contract and simple-search fixture
-        # Network-free in CI. Records `simple` recall and proves rejected
-        # pending, and stale translations are excluded by the serving contract.
-        # SQL parity separately proves both retrieval paths use that contract.
-        # The live vector measurement is verify:chinese-retrieval-live.
-        run: pnpm --filter @oracle/ai verify:chinese-retrieval
-
-      - name: Vertex file-cache multi-turn guard
-        # Static, DB-free + network-free check (the GenAI + Storage clients are
-        # stubbed). Asserts the Vertex file-backed cache path keeps the FULL
-        # multi-turn conversation as live contents instead of collapsing to a
-        # single turn — which would silently erase chat history.
-        run: pnpm --filter @oracle/ai verify:vertex-file-cache
-
-      - name: Topical lull-gap selection safety guard
-        run: pnpm --filter @oracle/engines verify:lull-topical
-
       - name: Topical lull-gap schema parity guard
         run: pnpm --filter @oracle/db verify:gap-topical-schema
-
-      - name: Oversized conversation windowing safety guard
-        # Network-free. Proves model-bounded message windows, overlap dedup,
-        # evidence/timestamp preservation, non-quotable carry-in, and the
-        # no-truncation hard failure for one unfit message.
-        run: pnpm --filter @oracle/workers verify:conversation-windowing
-
-      - name: Vertex inline-image guard
-        # Static, DB-free + network-free check (the GenAI client is stubbed).
-        # Asserts an inline image message part becomes a Gemini inlineData part
-        # (the image vision-transcription path) and string content still works.
-        run: pnpm --filter @oracle/ai verify:vertex-inline-image
-
-      - name: Auxiliary-model default-route guard
-        # Static, DB-free check that every auxiliary model's defaultRouteId
-        # resolves in the curated catalog, and that the image-vision model always
-        # has a vision-capable default. Prevents the worker vision fallback from
-        # throwing "vision route unresolvable" when an admin clears the setting.
-        run: pnpm --filter @oracle/ai verify:auxiliary-defaults
-
-      - name: R0 reader and validator contract guard
-        # DB-free/network-free deterministic gate for source quote policies,
-        # direct map validation, cross-segment/foreign/uncovered citations,
-        # root-vs-cascade diagnostics, active-map refs, coverage, and budgets.
-        run: pnpm --filter @oracle/workers verify:r0-reader-validator
-
-      - name: R1 cross-shape model contract guard
-        run: pnpm --filter @oracle/engines verify:r1-cross-shape
-
-      - name: Taxonomy reclassification contract guard
-        # DB-free guard for payload validation, manual splits, and retry states.
-        run: pnpm --filter @oracle/workers verify:taxonomy-reclassification
 
       - name: Fresh-database source-map migration guard
         # Adds only the auth schema/function and roles that Supabase owns,
@@ -171,7 +105,6 @@ jobs:
           pnpm --filter @oracle/db verify:document-context-schema
           pnpm --filter @oracle/db verify:fresh-source-workflow-schema
           pnpm --filter @oracle/db verify:r1-cross-shape-schema
-          pnpm --filter @oracle/workers verify:taxonomy-reclassification-db
         env:
           DIRECT_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh
           DATABASE_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh

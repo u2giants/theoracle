@@ -136,7 +136,7 @@ Our custom code lives here:
 
 - `apps/web/app/**`
 - `apps/web/lib/**`
-- `apps/workers/src/**`
+- `apps/brain/**`
 - `packages/**`
 - `docs/**`
 - `.github/workflows/**`
@@ -174,7 +174,6 @@ Do not load these into AI context unless a task explicitly requires them:
 - `coverage/`
 - `.claude/`
 - `.playwright-mcp/`
-- `packages/ai/evals/runs/`
 - `pnpm-lock.yaml` unless dependency resolution itself is the task
 - `packages/db/migrations/0*.sql`
 - `packages/db/migrations/meta/`
@@ -184,7 +183,7 @@ Do not load these into AI context unless a task explicitly requires them:
 - `china_imp.md` unless the task is the China bilingual claim layer / claim translation / recertification
 - `docs/oracle/` unless the task touches the AI-retrofit spec directly
 
-For orientation, follow the documentation map near the top of this file. Do not load broad source files such as `packages/db/src/schema.ts` or `packages/ai/src/providers/*.ts` unless the task needs that subsystem.
+For orientation, follow the documentation map near the top of this file. Do not load broad source files such as `packages/db/src/schema.ts` unless the task needs that subsystem.
 
 ## Host / server changes — do NOT make them here
 

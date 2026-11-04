@@ -3,25 +3,7 @@
 
 ## 11. Intentional quirks and non-obvious decisions
 
-### `document-ingestion`'s outer task catch overwrites `documents.processing_error`
-
-Looks like:
-An inner branch in `processDocument()` sets a specific `documents.processing_error`
-(e.g. the workflow-reader strict branch writing `Source workflow read failed: …`),
-so that message is what admins will see on a failed document.
-
-Actually:
-The task-level `run` catch (`apps/workers/src/trigger/document-ingestion.ts`, ~L1604)
-unconditionally re-writes `documents.processing_error` with the THROWN error's
-`.message` on any throw. If an inner branch sets a nice message but then re-throws a
-different (raw) error, the outer catch clobbers the nice message. This silently broke
-the strict workflow-read contract until the 2026-07-07 live gate exposed it.
-
-Why / do not change without care:
-The outer catch is the single loud failure surface for the whole task, which is good.
-The rule for inner branches: if you want a specific `processing_error` to survive,
-`throw new Error(thatSameMessage)` — do not set it and then throw a different error.
-See fix `e6a5e07` for the pattern.
+Oracle 2 and the old workers were removed in #398 (2026-11-04); quirks that described the deleted code were removed.
 
 ### One employee can have many auth identities
 
@@ -128,28 +110,6 @@ and falls back to the next pool candidate. (`DEEPSEEK_API_KEY` was set in the PR
 env on 2026-07-09 via the Trigger management API + the Trigger PAT in 1Password; the
 transcript summary now runs on `deepseek/deepseek-v4-flash`, live-verified worker
 `20260709.1`.)
-
-### `google/*` model settings are real Gemini API routes, not Vertex aliases
-
-What changed:
-`google/*` model IDs now resolve to the `GoogleGeminiAdapter`, while curated `vertex_*` routes continue to use `VertexGeminiAdapter`.
-
-Why:
-Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`) returned `NOT_FOUND` through the configured Vertex project/region, but worked through the Gemini API using the deployed service-account OAuth path. The extraction A/B/C eval route `google_gemini_3_1_flash_lite_extraction_eval` depends on this split.
-
-Future sessions should:
-Do not map `google/*` back to `vertex` in `packages/ai/src/routes/resolve.ts` unless the exact model has been verified in the configured Vertex region. `GEMINI_API_KEY` is optional; `GoogleGeminiAdapter` can also mint Gemini API OAuth tokens from `GOOGLE_APPLICATION_CREDENTIALS_JSON`.
-
-### Trigger.dev schedule slots have one reserved opening
-
-What changed:
-The `extraction-ab-eval` worker is an immediate Trigger.dev task with no cron sweep. A cron fallback was attempted on 2026-06-16, but Trigger.dev deploy failed because the project had 10/10 schedules. The event-driven lull-interjection change later removed its every-minute schedule, leaving 9/10 schedules.
-
-Why:
-The A/B eval page queues rows and dispatches `extraction-ab-eval` immediately from Vercel through `TRIGGER_SECRET_KEY`. The one open schedule slot is operational headroom, not an invitation to restore polling.
-
-Future sessions should:
-Do not add new Trigger schedules casually. Keep the remaining slot available; reuse/consolidate an existing schedule or increase the Trigger.dev schedule limit before adding another `schedules.task()`. Deploy workers with `corepack pnpm --filter @oracle/workers run deploy`.
 
 ### Teams transcript ids + the getAllTranscripts PULL endpoint (don't reintroduce these bugs)
 
@@ -291,20 +251,6 @@ The flag is read every cron tick — flipping it doesn't require a redeploy. The
 Do not change because:
 Removing the always-on drain task would orphan any in-flight Vertex/OpenAI batches if the flag flipped back to sync mid-stream. Removing the gate from the sync task would double-process in batch mode.
 
-### Model catalog quality filter runs at BOTH write and read time
-
-Looks like:
-The same filter logic appears in `packages/ai/src/model-capabilities/index.ts` (`refreshModelCatalog`) AND `apps/web/app/api/admin/model-catalog/route.ts` (`passesQualityFilter`). Looks duplicated.
-
-Actually:
-Intentional defense in depth. The write-time filter prevents new junk from landing in the DB. The read-time filter handles the legacy case: rows written BEFORE the write-time filter shipped (or when OpenRouter enrichment was unavailable) sit in the DB with no pricing and no capability flags. Deleting them would break pool selections that still reference deprecated model IDs. Filtering at read time hides them from admins without losing the FK target.
-
-Why:
-The write-time-only filter let junk creep back into the admin UI whenever an old OpenRouter outage produced unenriched rows. The read-time filter is the catch-all.
-
-Do not change because:
-Removing the read-time filter resurrects the original "junky models reappear" bug. Removing the write-time filter floods the DB with no-data rows that build up over time. Keep both.
-
 ### Design file operations are not product/design workflow
 
 Looks like:
@@ -389,20 +335,6 @@ The team wants explicit review sends, including multi-person and review-group as
 Do not change because:
 Re-enabling domain queues can expose large pending-review surfaces to non-admin employees. If domain review is restored later, update `/claims`, `canReviewClaim()`, and this guide together.
 
-### Claim corrections become prompt lessons, not training or evidence
-
-Looks like:
-Reviewer notes and revised claims should make the model "learn" automatically or become Brain evidence.
-
-Actually:
-Approved replacement claims feed a semi-stable extraction prompt block through `packages/ai/src/prompts/claim-correction-lessons.ts`. The sync extraction worker, batch-submit worker, and document-ingestion worker include that block in future extraction calls; `/admin/ai/claim-lessons` shows the exact block.
-
-Why:
-The project needs an immediate auditable feedback loop from human corrections without pretending to fine-tune the model or treating review commentary as source evidence.
-
-Do not change because:
-Reviewer notes are not evidence. Keep correction lessons as prompt guidance only; the candidate-before-claim validators still decide whether new model output can become a claim.
-
 ### Ineligible models are SELECTABLE (red checkbox), not disabled
 
 Looks like:
@@ -430,20 +362,6 @@ Earlier requirement set forced extraction into reasoning models that produced sl
 
 Do not change because:
 Putting `thinking` back on extraction excludes Gemini Flash and the cheap GPT-4o-mini path from the extraction pool — both proven good for extraction in our wet-tests.
-
-### OpenAI model catalog uses a blocklist, not an allowlist
-
-Looks like:
-A new GPT or o-series model is missing from the admin catalog even though it appears in the OpenAI API response.
-
-Actually:
-The source in `packages/ai/src/model-capabilities/sources/openai.ts` uses a blocklist of non-chat categories. A model whose name hits a blocked prefix or substring (`-tts`, `-transcribe`, `-search-api`, etc.) is excluded. Otherwise it passes through automatically.
-
-Why:
-An allowlist required a code change for every new OpenAI model generation. GPT-5.x was invisible until `gpt-5` was manually added to the prefix list. The blocklist lets new chat models appear without a code change; only genuinely non-chat categories are excluded. See `DECISIONS.md` D13.
-
-Do not change because:
-Reverting to an allowlist means future GPT-6/o-series models will be silently missing from the catalog until someone notices and edits the list. Post-enrichment quality filters (no-data models, ≥$15.01/1M input) provide a second layer of junk removal in `index.ts`.
 
 ### Hand-written SQL migrations are authoritative for constraints, views, and data fixes
 
@@ -496,31 +414,6 @@ Do NOT "fix" a future `generate` by committing its full output if it re-emits
 keep only your new objects, exactly as `0007` does. Re-emitting them breaks
 `pnpm db:migrate` on every already-migrated database.
 
-### Claim retrieval has exactly one path, and the two SQL branches must stay in lockstep
-
-Looks like:
-`searchWithRetrievalPlan()` in `packages/ai/src/retrieval.ts` contains two near-duplicate SQL queries — a hybrid pgvector+tsvector path and a `_searchFallbackTsvector()` path — and a separate `verify:retrieval-filter-parity` script that seems redundant with typecheck.
-
-Actually:
-The fallback runs only when `OPENAI_API_KEY` is unset (dev, no embeddings). Both branches build their WHERE clauses from the same private helper `buildPlanMetadataFilters()`, and the parity guard statically asserts every filter the helper returns is interpolated into BOTH branches. `searchApprovedClaims()` (a weaker, plan-less retrieval) was deleted on 2026-05-28 — there is now exactly one endorsed retrieval entry point.
-
-Why:
-The recurring regression here was adding a narrowing filter to the hybrid path and forgetting the fallback, making dev-mode retrieval silently weaker (or vice versa). Typecheck can't catch it — the fragments are SQL strings. The guard runs in CI (`pr-check.yml`) and via `pnpm --filter @oracle/ai verify:retrieval-filter-parity`.
-
-Do not change because:
-Adding a second retrieval path (or a filter to only one branch) reintroduces the exact silent-divergence class the guard exists to prevent. New narrowing fields go in `buildPlanMetadataFilters()` and get interpolated into both branches — nowhere else.
-
-### Raw-SQL list parameters are bound as JSON strings, not JS arrays
-
-Looks like:
-`buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts` could use the simpler `= ANY(${arr}::text[])` form instead of `IN (SELECT jsonb_array_elements_text(${JSON.stringify(arr)}::jsonb))`.
-
-Actually:
-Two driver pitfalls make the obvious forms fail at runtime (found 2026-06-10, the first day a hinted retrieval ran against an approved+embedded claim): a bare JS array in a drizzle ``sql`` template expands to a placeholder list `($1, $2)`, making `ANY((...)::text[])` a syntax error; and binding the array as one param (`sql.param`) relies on postgres-js serialization of unknown-typed params, which is unreliable. Also, a type modifier such as `vector(1536)` cannot be a bind parameter — `EMBEDDING_DIM` is inlined with `sql.raw`. The static verify guards and typecheck cannot catch any of this; it only fails when the query executes.
-
-Do not change because:
-Reverting to `ANY(${arr}::text[])` reintroduces a runtime-only failure that stays invisible until real data exercises the filter. New list filters in raw SQL should follow the JSON-string + `jsonb_array_elements_text` / `jsonb_to_recordset` pattern.
-
 ### Microsoft Graph Teams transcripts arrive after the call
 
 Looks like:
@@ -536,17 +429,6 @@ Native live spoken awareness would require Microsoft media-bot infrastructure. R
 
 Do not change because:
 Do not confuse the two paths. Graph is post-call evidence/backfill; Recall is live optional participation. Both must still write utterances to `messages` and let candidate-before-claim handle durable knowledge. See `docs/architecture.md` § "Teams transcript ingestion" and § "Teams live participation (Recall.ai)".
-
-### The Graph subscription/transcript helper is duplicated on purpose
-
-Looks like:
-`apps/web/lib/microsoft-graph.ts` and `apps/workers/src/lib/graph-transcripts.ts` both implement the app-only token + subscription/transcript calls. Looks like copy-paste that should be a shared package.
-
-Actually:
-`apps/web` (the webhook) and `apps/workers` (the subscription manager + ingestion) are separate runtime processes, and cross-app imports aren't allowed. Both need the same small Graph surface. The web copy (`microsoft-graph.ts`) is the reference; the worker copy is intentionally self-contained.
-
-Do not change because:
-Forcing a shared package for ~150 lines pulls Graph code into a third location and couples the web and worker builds. If they drift, reconcile toward the web copy rather than introducing a shared dependency.
 
 ### ESLint config imports eslint-config-next natively, not via FlatCompat
 
@@ -662,20 +544,6 @@ Requiring vision on Extraction filters out strong text/JSON extraction models fo
 Do not change because:
 Adding `vision` back to `STAGE_REQUIREMENTS.extraction` in `apps/web/lib/stage-requirements.ts` should only happen if a runtime path starts sending raw image parts directly into the extraction route again. Verify with `document-ingestion.ts` first.
 
-### Auxiliary models are a registry, not a 4th pipeline role
-
-Looks like:
-The image-vision model selection looks like it should be a 4th `OracleModelRole` next to interview/extraction/synthesis.
-
-Actually:
-`OracleModelRole` is intentionally frozen at exactly 3 pipeline stages (each with stage requirements, approved pools, and batch dispatch). Vision, general-purpose, and translation are "auxiliary models" with an explicit primary, an optional approved pool, at most one capability filter, and no baked-in default route. They are defined in `AUXILIARY_MODELS` (`packages/ai/src/routes/auxiliary.ts`) and resolved by `resolveRouteCandidates`. The settings page, picker, and `/api/admin/models` iterate the registry; none of them special-case auxiliary ids by string.
-
-Why:
-Auxiliary models share primary-plus-approved-pool routing but do not share a pipeline role's batch-dispatch and role-map structure. Folding them into `OracleModelRole` would ripple through every `Record<OracleModelRole, …>` map. The registry adds new utility-model selections with zero new branches.
-
-Do not change because:
-Adding `'vision'` to `OracleModelRole` to "unify" things reintroduces exactly the ripple the registry avoids. Add a registry entry instead.
-
 ### One brain, but claims render per-reader-language; evidence and Brain never translate
 
 Looks like:
@@ -711,17 +579,6 @@ Actually:
 
 Do not change because:
 The 2026-07-07 live gate validated the canonical swimlane fixture with `openai/gpt-4.1` and seated it as primary. Gemini 2.5 Pro rejected the workflow schema as too complex. Anthropic Sonnet is still in the pool, and its temperature request-shape is now guarded by `verify:adapter-request-shapes`, but BO-2 must be rerun before promoting it. If `scripts/reevaluate-document.mjs` refuses to wipe the fixture because claims are cited by Brain/gaps, do not force-delete them; run the direct reader gate and record that limitation in the eval log.
-
-### Qwen and DeepSeek are JSON-mode providers, not strict-schema providers
-
-Looks like:
-Qwen and DeepSeek both advertise JSON/object output, so they should be selectable for any stage that says it needs structured output.
-
-Actually:
-For Oracle purposes, Qwen and DeepSeek use provider JSON mode plus local Zod validation. They are useful direct providers, but they do not provide the same strict arbitrary JSON Schema guarantee as OpenAI strict `json_schema`, Anthropic forced tool output, or Vertex/Gemini `responseJsonSchema`. The catalog and runtime resolver normalize both families to `structuredOutputs=false` in `packages/ai/src/model-capabilities/index.ts` and `packages/ai/src/routes/candidates.ts`, so stale OpenRouter-enriched rows cannot make them eligible for strict-schema stages.
-
-Do not change because:
-Repeated runs failed by omitting required arrays or drifting from the exact schema while still returning syntactically valid JSON. Keep Qwen/DeepSeek available for loose/auxiliary uses, but out of `workflow_read`, `macro`, and `model_merge` style slots that require strict schema. DeepSeek's function-calling strict mode is documented only on the beta endpoint and is not implemented in `DeepSeekAdapter`; do not mark DeepSeek strict-schema eligible until the adapter uses the beta tool-call path and `verify:adapter-request-shapes` covers it. Qwen structured calls must keep `enable_thinking: false` because DashScope JSON mode is incompatible with thinking mode. See DECISIONS `D12a.qwen-deepseek-strict-schema-boundary`.
 
 ### Any `*.sql` change classifies as `shared-db` in ai-task-gates — database writes need the class redeclared
 

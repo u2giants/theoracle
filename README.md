@@ -1,6 +1,6 @@
 # The Oracle
 
-The Oracle is an evidence-backed enterprise knowledge graph for POP Creations / Spruce Line. Employees talk to it in chat and upload documents; workers extract operational claims with quote-level evidence; deterministic validators gate promotion; synthesis workers maintain Brain sections; admin screens review the resulting knowledge and AI runs.
+The Oracle is the Company Map for POP Creations / Spruce Line: it reads company sources and meeting transcripts into a map of how the business works, answers questions from it, and interviews employees to fill gaps. Current plan: `plan_oracle_company_map.md` (read STATUS first).
 
 Start here:
 
@@ -20,26 +20,19 @@ Start here:
 
 ## Repo map
 
-- `apps/web/` — Next.js 16 web app, admin UI, chat route, Teams transcript webhook (`/api/teams/notifications`), Recall live Teams webhook (`/api/teams/live/recall`)
-- `apps/workers/` — Trigger.dev workers (claim extraction, document ingestion, source outlines, macro relationships, coverage audits, synthesis, contradiction watcher, Teams transcript ingestion + subscription manager, Recall live Teams utterance processor, China bilingual claim translation)
-- `packages/ai/` — `OracleAIClient`, retrieval, prompts, provider adapters
+- `apps/web/` — Next.js 16 web app: login, `/admin/employees`, Company Map pages (`/map/*`), `/api/brain` proxy, Teams bot (`/api/teams/bot/*`), Recall live Teams endpoints (`/api/teams/live/*`)
+- `apps/brain/` — Python FastAPI Company Map service (Coolify service `oracle-brain`)
 - `packages/db/` — Drizzle schema, migrations, seed, DB client
-- `packages/oracle-engines/` — deterministic validation/promotion/synthesis logic and approved macro-relationship helpers
 - `packages/auth/` — auth linking helpers
 - `packages/shared/` — shared types/constants
+
+Oracle 2 and the old workers were removed in #398 (2026-11-04).
 
 ## Current runtime shape
 
 - Web app: Vercel via `vercel.json`
-- Workers: Trigger.dev Cloud via `apps/workers/trigger.config.ts`
-- Database/Auth/Storage/Realtime: Supabase Cloud
-- AI inference: direct provider adapters only
-  - Anthropic via `@anthropic-ai/sdk`
-  - Vertex via `@google/genai`
-  - OpenAI via `openai`
-  - DeepSeek via `openai` against `api.deepseek.com`
-  - Qwen via `openai` against DashScope OpenAI-compatible endpoints
-- OpenRouter is enrichment-only for the model catalog, not inference
+- Brain service: Coolify, image `ghcr.io/u2giants/theoracle-brain`
+- Database/Auth/Storage: Supabase Cloud
 
 ## Fast start
 
@@ -50,7 +43,7 @@ pnpm --filter @oracle/web build
 pnpm dev
 ```
 
-For a real local setup you also need `.env.local`, Supabase access, and Vertex ADC. Use `docs/development.md` and `docs/configuration.md` for the exact steps.
+For a real local setup you also need `.env.local`, Supabase access. Use `docs/development.md` and `docs/configuration.md` for the exact steps.
 
 ## Notes
 

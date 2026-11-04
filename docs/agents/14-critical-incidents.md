@@ -18,7 +18,7 @@ Recovery:
 The adapters were rewritten to use raw provider SDKs directly.
 
 Rule added to prevent recurrence:
-Do not introduce generic inference wrappers into `packages/ai/src/providers/`.
+Do not introduce generic inference wrappers around provider SDKs. (The original adapter package was removed in #398, 2026-11-04.)
 
 ### 2026-05-27 Missing migration caused auth callback failures
 
