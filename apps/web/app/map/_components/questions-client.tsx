@@ -34,12 +34,25 @@ type Employee = {
   asked_last_7_days: number;
 };
 
+type Contribution = {
+  id: string;
+  employee_id: string;
+  name: string;
+  started_at: string | null;
+  last_at: string | null;
+  state: string;
+  turns: number;
+  preview: string;
+  source_id: string | null;
+};
+
 type Overview = {
   env_enabled: boolean;
   switch_enabled: boolean;
   weekly_cap: number;
   questions: Question[];
   employees: Employee[];
+  contributions?: Contribution[];
 };
 
 function when(iso: string | null): string {
@@ -217,6 +230,32 @@ export function QuestionsClient() {
                 ))}
               </tbody>
             </table>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="font-semibold">Teams contributions ({data.contributions?.length ?? 0})</h2>
+            {(data.contributions?.length ?? 0) === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Nobody has told the bot anything unprompted yet.
+              </p>
+            )}
+            <ul className="space-y-1 text-sm" data-testid="teams-contributions">
+              {(data.contributions ?? []).map((c) => (
+                <li key={c.id} className="border-b pb-1">
+                  <span className="font-medium">{c.name}</span> {when(c.started_at)} · {c.turns}{' '}
+                  {c.turns === 1 ? 'message' : 'messages'} · {c.state}
+                  {c.source_id && (
+                    <>
+                      {' '}
+                      <Link className="underline" href={sourceHref(c.source_id)}>
+                        source
+                      </Link>
+                    </>
+                  )}
+                  <div className="text-muted-foreground">{c.preview}</div>
+                </li>
+              ))}
+            </ul>
           </section>
 
           <section className="space-y-2">
