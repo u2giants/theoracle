@@ -5,11 +5,14 @@ Job ``resolve`` runs over the whole corpus but only touches mentions with
 
 1. the alias table ``(entity_type, normalized_name)``;
 2. an exact match with an already resolved mention (adds the alias);
+2b. an alias equal once spaces and punctuation are dropped (``Click Up``);
 3. for a Person named by a single first name or initials, the one resolved
    Person whose canonical name starts with it (several → the judge);
-4. the nearest entity of the same type by embedding, assigned at cosine ≥ 0.92;
+4. the nearest entity of the same type by embedding, assigned at cosine ≥ 0.92
+   only when the names overlap and the type is not in ``JUDGE_ONLY_TYPES``;
 5. the frontier judge (``prompts/resolve_judge.md``) for up to five candidates
-   with cosine in [0.80, 0.92), assigned when it names one at confidence ≥ 0.7;
+   with a related spelling (any cosine) or cosine ≥ 0.80, assigned when it
+   names one at confidence ≥ 0.7 (#353);
 6. otherwise a new entity.
 
 Every judge verdict lands in ``cmap.resolve_decision`` so a later pass never
@@ -27,6 +30,7 @@ import logging
 import re
 import threading
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +55,15 @@ JUDGE_COSINE = 0.80
 JUDGE_MAX_CANDIDATES = 5
 JUDGE_MIN_CONFIDENCE = 0.7
 EMBED_TOP_K = 5
+# Different retailers, licensors, roles and people often share context, so
+# their mention embeddings sit above ASSIGN_COSINE (Walmart / HomeGoods, Lic
+# Manager / Lic Coordinator, #353); these types always go to the judge.
+JUDGE_ONLY_TYPES = frozenset(
+    {"Customer", "Licensor", "Vendor", "Role", "Department", "Person"}
+)
+LEXICAL_MIN_COMPACT = 3
+LEXICAL_MIN_LEN = 6
+LEXICAL_RATIO = 0.8
 DESCRIBE_MIN_MENTIONS = 3
 DESCRIBE_MAX_QUOTES = 12
 CANDIDATE_SAMPLE_QUOTES = 2
@@ -343,6 +356,85 @@ def _name_part_candidates(
     ]
 
 
+def compact_name(name: str) -> str:
+    """A name with case, spaces and punctuation dropped (``Click Up`` = ``ClickUp``)."""
+    return "".join(char for char in name.casefold() if char.isalnum())
+
+
+def _token_in(short: str, long: str) -> bool:
+    return short == long or (len(short) >= 3 and short in long)
+
+
+def names_overlap(a: str, b: str) -> bool:
+    """Every word of the shorter name sits inside a word of the longer one.
+
+    ``Liz`` / ``Liz Parkin``, ``Lic Manager`` / ``Licensing Manager``,
+    ``Warner Bro`` / ``Warner Brother``; not ``Lic Manager`` / ``Lic Coordinator``.
+    """
+    words_a, words_b = a.casefold().split(), b.casefold().split()
+    if not words_a or not words_b:
+        return False
+
+    def inside(short: list[str], long: list[str]) -> bool:
+        return len(short) <= len(long) and all(
+            any(_token_in(word, other) for other in long) for word in short
+        )
+
+    return inside(words_a, words_b) or inside(words_b, words_a)
+
+
+def is_abbreviation(a: str, b: str) -> bool:
+    """``DFlow`` / ``DesignFlow``: the first letter plus the tail of the longer name."""
+    short, long = sorted((compact_name(a), compact_name(b)), key=len)
+    return (
+        len(short) >= 4
+        and len(short) < len(long)
+        and short[0] == long[0]
+        and long.endswith(short[1:])
+    )
+
+
+def names_related(a: str, b: str) -> bool:
+    """Spellings close enough that the judge should see the pair, whatever the cosine."""
+    ca, cb = compact_name(a), compact_name(b)
+    if not ca or not cb:
+        return False
+    if ca == cb or names_overlap(a, b) or is_abbreviation(a, b):
+        return True
+    return (
+        min(len(ca), len(cb)) >= LEXICAL_MIN_LEN
+        and SequenceMatcher(None, ca, cb).ratio() >= LEXICAL_RATIO
+    )
+
+
+def _alias_rows(conn: psycopg.Connection, entity_type: str) -> list[tuple[str, str]]:
+    rows = conn.execute(
+        "SELECT entity_id, normalized_name FROM cmap.entity_alias WHERE entity_type = %s",
+        (entity_type,),
+    ).fetchall()
+    return [(str(row[0]), str(row[1])) for row in rows]
+
+
+def _by_compact(conn: psycopg.Connection, mention: Mention) -> str | None:
+    """Rule 1b: an alias equal once spaces and punctuation are dropped."""
+    key = compact_name(mention.normalized_name)
+    if len(key) < LEXICAL_MIN_COMPACT:
+        return None
+    for entity_id, name in _alias_rows(conn, mention.entity_type):
+        if compact_name(name) == key:
+            return entity_id
+    return None
+
+
+def _lexical_candidates(conn: psycopg.Connection, mention: Mention) -> list[str]:
+    """Entities of the same type with a related spelling (see ``names_related``)."""
+    seen: list[str] = []
+    for entity_id, name in _alias_rows(conn, mention.entity_type):
+        if entity_id not in seen and names_related(mention.normalized_name, name):
+            seen.append(entity_id)
+    return seen
+
+
 def _nearest(
     conn: psycopg.Connection, mention: Mention, ids: list[str] | None = None
 ) -> list[Candidate]:
@@ -490,6 +582,9 @@ def resolve_mention(
     entity_id = _by_exact(conn, mention)
     if entity_id is not None:
         return "exact", entity_id
+    entity_id = _by_compact(conn, mention)
+    if entity_id is not None:
+        return "compact", entity_id
     name_part = _name_part_candidates(conn, mention)
     if name_part is not None and len(name_part) == 1:
         return "name_part", name_part[0]
@@ -499,9 +594,28 @@ def resolve_mention(
             return "judge", chosen
         return "new", _create_entity(conn, mention)
     nearest = _nearest(conn, mention)
-    if nearest and nearest[0].cosine >= ASSIGN_COSINE:
+    if (
+        nearest
+        and nearest[0].cosine >= ASSIGN_COSINE
+        and mention.entity_type not in JUDGE_ONLY_TYPES
+        and names_overlap(mention.normalized_name, nearest[0].canonical_name)
+    ):
         return "embedding", nearest[0].id
-    band = [item for item in nearest if JUDGE_COSINE <= item.cosine < ASSIGN_COSINE]
+    # Spelling-related entities reach the judge whatever their cosine (mention
+    # embeddings carry the quote, so DFlow / DesignFlow can sit below 0.80);
+    # the embedding band fills the remaining seats.
+    lexical = _lexical_candidates(conn, mention)
+    band = sorted(
+        _nearest(conn, mention, lexical) if lexical else [],
+        key=lambda item: -item.cosine,
+    )
+    band_ids = {item.id for item in band}
+    band += [
+        item
+        for item in nearest
+        if item.cosine >= JUDGE_COSINE and item.id not in band_ids
+    ]
+    band = band[:JUDGE_MAX_CANDIDATES]
     if band:
         chosen = _judge(conn, mention, band, frontier)
         if chosen is not None:
