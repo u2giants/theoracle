@@ -283,6 +283,8 @@ def test_disabled_sends_nothing(
     assert sent == []
 
     # Enabled everywhere, but this employee never messaged the bot: nothing.
+    # Pin the clock to working hours so quiet hours cannot mask routing (#382).
+    monkeypatch.setattr(tick_mod, "in_quiet_hours", lambda now=None: False)
     db.execute("UPDATE cmap.interview_setting SET enabled = true")
     db.execute("TRUNCATE cmap.teams_conversation")
     db.commit()
