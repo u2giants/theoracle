@@ -303,5 +303,264 @@
    "unreadable": "",
    "quality": 0.742
   }
+ },
+ "third_image": {
+  "title": "DHS Organizational Chart 2023",
+  "url": "https://commons.wikimedia.org/wiki/File:DHS_Organizational_Chart_2023.png",
+  "author": "U.S. Department of Homeland Security (source https://www.dhs.gov/organizational-chart)",
+  "license": "Public domain (US federal government work)",
+  "size": "2200x1700 PNG, test-only, never imported",
+  "reference": {
+   "nodes": {
+    "sec": "Secretary Deputy Secretary",
+    "cos": "Chief of Staff",
+    "es": "Executive Secretary",
+    "ma": "Military Advisor",
+    "cfo": "Chief Financial Officer",
+    "cio": "Chief Information Officer",
+    "o0": "Management Directorate",
+    "o1": "Science and Technology Directorate",
+    "o2": "Office of Intelligence and Analysis",
+    "o3": "Office of Strategy, Policy, and Plans",
+    "o4": "Office of the General Counsel",
+    "o5": "Office of Inspector General",
+    "o6": "Office of Homeland Security Situational Awareness",
+    "o7": "Office of Partnership and Engagement",
+    "o8": "Countering Weapons of Mass Destruction Office",
+    "o9": "Office of Legislative Affairs",
+    "o10": "Office of Public Affairs",
+    "o11": "Federal Law Enforcement Training Centers",
+    "o12": "Privacy Office",
+    "o13": "Office of the Immigration Detention Ombudsman",
+    "o14": "Office of the Citizenship and Immigration Services Ombudsman",
+    "o15": "Office for Civil Rights and Civil Liberties",
+    "o16": "Office of Health Security",
+    "o17": "U.S. Immigration and Customs Enforcement",
+    "o18": "U.S. Customs and Border Protection",
+    "o19": "U.S. Citizenship and Immigration Services",
+    "o20": "Federal Emergency Management Agency",
+    "o21": "U.S. Secret Service",
+    "o22": "Cybersecurity and Infrastructure Security Agency",
+    "o23": "Transportation Security Administration",
+    "o24": "U.S. Coast Guard"
+   },
+   "edges": [
+    [
+     "sec",
+     "cos"
+    ],
+    [
+     "cos",
+     "es"
+    ],
+    [
+     "cos",
+     "ma"
+    ],
+    [
+     "o0",
+     "cfo"
+    ],
+    [
+     "o0",
+     "cio"
+    ],
+    [
+     "sec",
+     "o0"
+    ],
+    [
+     "sec",
+     "o1"
+    ],
+    [
+     "sec",
+     "o2"
+    ],
+    [
+     "sec",
+     "o3"
+    ],
+    [
+     "sec",
+     "o4"
+    ],
+    [
+     "sec",
+     "o5"
+    ],
+    [
+     "sec",
+     "o6"
+    ],
+    [
+     "sec",
+     "o7"
+    ],
+    [
+     "sec",
+     "o8"
+    ],
+    [
+     "sec",
+     "o9"
+    ],
+    [
+     "sec",
+     "o10"
+    ],
+    [
+     "sec",
+     "o11"
+    ],
+    [
+     "sec",
+     "o12"
+    ],
+    [
+     "sec",
+     "o13"
+    ],
+    [
+     "sec",
+     "o14"
+    ],
+    [
+     "sec",
+     "o15"
+    ],
+    [
+     "sec",
+     "o16"
+    ],
+    [
+     "sec",
+     "o17"
+    ],
+    [
+     "sec",
+     "o18"
+    ],
+    [
+     "sec",
+     "o19"
+    ],
+    [
+     "sec",
+     "o20"
+    ],
+    [
+     "sec",
+     "o21"
+    ],
+    [
+     "sec",
+     "o22"
+    ],
+    [
+     "sec",
+     "o23"
+    ],
+    [
+     "sec",
+     "o24"
+    ]
+   ],
+   "ambiguous": [
+    [
+     "sec",
+     "cfo"
+    ],
+    [
+     "sec",
+     "cio"
+    ]
+   ],
+   "aliases": {
+    "sec": [
+     "Secretary",
+     "Deputy Secretary"
+    ]
+   },
+   "ok_text": [
+    "Homeland Security",
+    "U.S. Department of Homeland Security",
+    "Department of Homeland Security"
+   ]
+  },
+  "scores": {
+   "anthropic/claude-haiku-5.5": {
+    "boxes_matched": "31/31",
+    "lines_found": "11/30",
+    "edges_returned": 11,
+    "wrong_edges": 0,
+    "invented_labels": [],
+    "quality": 0.789,
+    "sec": 12.9,
+    "cost": 0.002197998,
+    "kind": "org_chart",
+    "unreadable": "Connector lines for the lower tiers are partly ambiguous where horizontal buses cross the central vertical line; only clearly visible connections are "
+   },
+   "google/gemini-3.8-flash": {
+    "boxes_matched": "31/31",
+    "lines_found": "30/30",
+    "edges_returned": 30,
+    "wrong_edges": 0,
+    "invented_labels": [],
+    "quality": 1.0,
+    "sec": 18.4,
+    "cost": 0.0111753675,
+    "kind": "org_chart",
+    "unreadable": ""
+   },
+   "meta/muse-spark-1.3-contributor": {
+    "boxes_matched": "31/31",
+    "lines_found": "30/30",
+    "edges_returned": 30,
+    "wrong_edges": 0,
+    "invented_labels": [],
+    "quality": 1.0,
+    "sec": 25.0,
+    "cost": 0.001140183,
+    "kind": "org_chart",
+    "unreadable": ""
+   },
+   "openai/gpt-4.1": {
+    "boxes_matched": "31/31",
+    "lines_found": "9/30",
+    "edges_returned": 31,
+    "wrong_edges": 21,
+    "invented_labels": [],
+    "quality": 0.533,
+    "sec": 13.0,
+    "cost": 0.01459854,
+    "kind": "org_chart",
+    "unreadable": ""
+   },
+   "openai/gpt-6-luna": {
+    "boxes_matched": "31/31",
+    "lines_found": "28/30",
+    "edges_returned": 30,
+    "wrong_edges": 0,
+    "invented_labels": [],
+    "quality": 0.978,
+    "sec": 20.1,
+    "cost": 0.001841202,
+    "kind": "org_chart",
+    "unreadable": ""
+   },
+   "qwen/qwen2.5-vl-72b-instruct": {
+    "boxes_matched": "31/31",
+    "lines_found": "11/30",
+    "edges_returned": 27,
+    "wrong_edges": 15,
+    "invented_labels": [],
+    "quality": 0.622,
+    "sec": 48.1,
+    "cost": 0.005591322,
+    "kind": "org_chart",
+    "unreadable": ""
+   }
+  }
  }
 }

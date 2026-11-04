@@ -51,3 +51,53 @@ was not committed, and was never imported into the brain or any cmap database.
    harder test, but the ranking now rests on two real diagrams.
 
 Spend: about $0.04.
+
+## Third test image: DHS organization chart (added 2026-11-04, 4:30 PM EST)
+
+On Albert's further instruction ("you pick one busy business diagram from the
+internet and run it", relayed by the coordinator), one more image was tested.
+Like the BPMN diagram, it was used as a test image only.
+
+- **Image:** "DHS Organizational Chart 2023", U.S. Department of Homeland
+  Security, https://commons.wikimedia.org/wiki/File:DHS_Organizational_Chart_2023.png
+  (source https://www.dhs.gov/organizational-chart). License: **public domain**
+  (work of the US federal government). The file is 2200×1700 PNG.
+- **Reference:** 31 boxes. The combined Secretary / Deputy Secretary box counts
+  once. There are 30 reporting lines: the Secretary to the Chief of Staff and
+  25 components, the Chief of Staff to the Executive Secretary and the Military
+  Advisor, and the Management Directorate to the CFO and the CIO. The CFO and
+  CIO links to the Secretary's bus are accepted but not required. The chart has
+  no arrowheads and no line labels, so lines are scored without direction.
+  Arrow-label recall does not apply.
+- **No database was used.** The vision stage reads only the image, so no test
+  database or FalkorDB was needed, and production was not touched.
+
+| Model | Boxes read (of 31) | Lines found (of 30) | Lines returned | Wrong lines | Invented labels | Quality* | Time | Cost |
+|---|---|---|---|---|---|---|---|---|
+| google/gemini-3.8-flash | 31 | **30** | 30 | 0 | none | **1.00** | 18 s | $0.011 |
+| meta/muse-spark-1.3-contributor | 31 | **30** | 30 | 0 | none | **1.00** | 25 s | $0.001 |
+| openai/gpt-6-luna | 31 | 28 | 30 | 0 | none | 0.98 | 20 s | $0.002 |
+| anthropic/claude-haiku-5.5 (seat) | 31 | 11 | 11 | 0 | none | 0.79 | 13 s | $0.002 |
+| qwen/qwen2.5-vl-72b-instruct | 31 | 11 | 27 | 15 | none | 0.62 | 48 s | $0.006 |
+| openai/gpt-4.1 (old seat) | 31 | 9 | 31 | 21 | none | 0.53 | 13 s | $0.015 |
+
+\*Quality here is the mean of box recall, line recall and (1 − wrong ÷ 30).
+
+### Findings from the org chart
+
+1. Every model read all 31 box labels, and none invented one. Org charts are
+   easy to read and hard to connect.
+2. **Haiku 5.5 under-reports org-chart lines.** It returned only the 11 lines it
+   was sure of and said in `unreadable_regions` that the lower bus lines were
+   ambiguous. Nothing it returned was wrong, but 19 reporting lines were lost.
+   On the two flowcharts it was the best model. Gemini, Muse and Luna connected
+   the shared "bus" lines correctly.
+3. GPT-4.1 and Qwen guess: most of their lines link the wrong boxes.
+4. **Consequence:** Haiku stays the stage-1 pick, because flowcharts are what
+   the company corpus contains. But if org charts are uploaded, Haiku's graph
+   will be missing reporting lines. Muse (cheapest, perfect on both normal-size
+   images) or Luna is the fallback to test if that matters. Muse still needs an
+   image-size cap for very large originals. This is a coordinator decision; no
+   seat was changed here.
+
+Spend for the org chart: about $0.04.
