@@ -30,6 +30,7 @@ EXPECTED_TABLES = {
     "teams_conversation",  # added by step 12 (sql/003_interviews.sql)
     "interview_setting",  # added by step 12 (sql/003_interviews.sql)
     "interview_send",  # added by step 12 (sql/003_interviews.sql)
+    "teams_intake",  # added by Teams build-out phase 1 (sql/006_teams_intake.sql)
 }
 
 

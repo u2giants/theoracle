@@ -19,6 +19,7 @@ from psycopg.types.json import Json
 
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
+from brain.interview import intake
 
 ANSWER_WINDOW_DAYS = 7
 ORACLE_SPEAKER = "The Oracle"
@@ -95,6 +96,28 @@ def _transcript_text(question: str, employee_name: str, answer: str) -> str:
     return f"{ORACLE_SPEAKER}: {question_line}\n{speaker}: {answer_line}\n"
 
 
+def _volunteer(
+    conn: Any, employee_id: str, employee_name: str, text: str, command: str, personal: bool
+) -> dict[str, Any]:
+    """No question pending and no open thread: greeting, new thread, or fall through."""
+    unhandled = {"handled": False, "reply": None, "employee_id": employee_id}
+    if not personal or intake.is_join_request(text):
+        return unhandled
+    if intake.is_greeting(command):
+        return {"handled": True, "reply": intake.REPLY_INTRO, "employee_id": employee_id}
+    if intake.is_done(command):
+        return {"handled": True, "reply": intake.REPLY_NOTHING_OPEN, "employee_id": employee_id}
+    if intake.word_count(text) < intake.MIN_CONTRIBUTION_WORDS:
+        return unhandled
+    thread_id = intake.start_thread(conn, employee_id, employee_name, text)
+    return {
+        "handled": True,
+        "reply": intake.REPLY_ACK,
+        "employee_id": employee_id,
+        "intake_id": thread_id,
+    }
+
+
 def handle_inbound(
     *,
     email: str | None,
@@ -129,6 +152,30 @@ def handle_inbound(
             )
             conn.commit()
             return {"handled": True, "reply": REPLY_STOPPED, "employee_id": employee_id}
+        personal = intake.is_personal(conversation_ref)
+        thread = intake.open_thread(conn, employee_id) if personal else None
+        if thread is not None and not thread[1]:
+            thread_id = thread[0]
+            if intake.is_join_request(text):
+                return {"handled": False, "reply": None, "employee_id": employee_id}
+            if intake.is_done(command):
+                source_id = intake.close_thread(thread_id)
+                return {
+                    "handled": True,
+                    "reply": intake.REPLY_DONE,
+                    "employee_id": employee_id,
+                    "intake_id": thread_id,
+                    "source_id": source_id,
+                }
+            intake.append_turn(conn, thread_id, employee_name, text)
+            return {
+                "handled": True,
+                "reply": intake.REPLY_ACK,
+                "employee_id": employee_id,
+                "intake_id": thread_id,
+            }
+        if thread is not None:
+            intake.close_thread(thread[0])
         row = conn.execute(
             "SELECT id::text, question FROM cmap.open_question "
             "WHERE state = 'asked' AND target_employee_id = %s "
@@ -137,7 +184,7 @@ def handle_inbound(
             (employee_id, ANSWER_WINDOW_DAYS),
         ).fetchone()
         if row is None:
-            return {"handled": False, "reply": None, "employee_id": employee_id}
+            return _volunteer(conn, employee_id, employee_name, text, command, personal)
         question_id, question = str(row[0]), str(row[1])
         if command == "skip":
             conn.execute(

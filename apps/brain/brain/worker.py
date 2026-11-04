@@ -14,6 +14,7 @@ from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
 from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
+from brain.interview.intake import close_stale_threads
 from brain.interview.tick import handle_interview_tick, maybe_queue_interview_tick
 from brain.read.pipeline import handle_read_source
 from brain.recommend.recommend import handle_recommend
@@ -100,7 +101,8 @@ def run_worker(stop: threading.Event) -> None:
     """Claim, run and record jobs until ``stop`` is set; sleep 2 s when idle.
 
     About once a minute it also queues the hourly ``interview_tick`` (a no-op
-    while ``BRAIN_INTERVIEW_ENABLED`` is false).
+    while ``BRAIN_INTERVIEW_ENABLED`` is false) and closes Teams intake
+    threads quiet for 20 minutes.
     """
     last_schedule_check = 0.0
     while not stop.is_set():
@@ -111,6 +113,10 @@ def run_worker(stop: threading.Event) -> None:
                 maybe_queue_interview_tick()
             except Exception as exc:
                 logger.warning("interview tick scheduling failed: %s", exc)
+            try:
+                close_stale_threads()
+            except Exception as exc:
+                logger.warning("teams intake sweep failed: %s", exc)
         try:
             job = claim_next_job()
         except Exception as exc:
