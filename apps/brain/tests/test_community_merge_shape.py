@@ -52,3 +52,20 @@ def test_without_sources_old_behaviour_leaves_orphans() -> None:
     edges, ids, _ = _shape()
     sizes = Counter(_level0_membership(edges, ids).values())
     assert sum(1 for size in sizes.values() if size < MIN_COMMUNITY) == 51
+
+
+def test_level1_groups_stay_under_entity_cap() -> None:
+    from brain.graph.communities import MAX_L1_ENTITIES, _level1_membership
+
+    # 30 level-0 communities of 40 entities, chained densely: Leiden alone
+    # would lump them into a few giant level-1 groups.
+    level0 = {f"e{c}_{i}": c for c in range(30) for i in range(40)}
+    edges = [
+        {"from": f"e{c}_0", "to": f"e{d}_0", "weight": 5}
+        for c in range(30)
+        for d in range(c + 1, min(c + 6, 30))
+    ]
+    level1 = _level1_membership(edges, level0)
+    totals = Counter(level1[community] for community in level0.values())
+    assert max(totals.values()) <= MAX_L1_ENTITIES
+    assert len(totals) < 30  # still a real middle level, not one per child
