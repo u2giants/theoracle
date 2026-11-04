@@ -104,6 +104,13 @@ async function getAccessToken(cfg: GraphConfig): Promise<string> {
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
+/** App-only Graph token (client credentials); throws when Graph is not configured. */
+export async function getGraphAccessToken(): Promise<string> {
+  const cfg = getGraphConfigOrNull();
+  if (!cfg) throw new GraphNotConfiguredError();
+  return getAccessToken(cfg);
+}
+
 /**
  * Page through Graph /users and return every active tenant user. For a 49-
  * user tenant this is one round trip; the loop handles tenants up to several

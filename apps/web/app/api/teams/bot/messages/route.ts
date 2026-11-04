@@ -111,6 +111,13 @@ async function offerToInterviews(context: TurnContext, text: string): Promise<bo
 async function handleTurn(context: TurnContext, req: NextRequest): Promise<void> {
   if (context.activity.type !== ActivityTypes.Message) {
     if (context.activity.type === ActivityTypes.ConversationUpdate) {
+      // Phase 4: a personal install (including a tenant-wide proactive one)
+      // stores the conversation and greets the employee with the intro.
+      const personal = context.activity.conversation?.conversationType === 'personal';
+      const botAdded = (context.activity.membersAdded ?? []).some(
+        (m) => m.id === context.activity.recipient?.id,
+      );
+      if (personal && botAdded && (await offerToInterviews(context, 'hi'))) return;
       await context.sendActivity('theoracle is ready. In a meeting chat, type "join" or "join <Teams meeting link>".');
     }
     return;
