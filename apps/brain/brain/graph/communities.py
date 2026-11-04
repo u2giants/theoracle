@@ -77,9 +77,17 @@ def _fit(lines: list[str]) -> str:
 
 
 def _level0_membership(
-    edges: list[dict[str, Any]], entity_ids: list[str]
+    edges: list[dict[str, Any]],
+    entity_ids: list[str],
+    entity_sources: dict[str, set[str]] | None = None,
 ) -> dict[str, int]:
-    """Leiden level 0, then fold communities smaller than MIN_COMMUNITY."""
+    """Leiden level 0, then fold communities smaller than MIN_COMMUNITY.
+
+    A small community merges into its highest-weight edge neighbour; one with
+    no edge to any other community merges into the community sharing the most
+    sources (``entity_sources``: entity id -> source ids). Only a community
+    with neither stays small.
+    """
     index_of = {entity_id: position for position, entity_id in enumerate(entity_ids)}
     pairs: list[tuple[int, int]] = []
     weights: list[float] = []
@@ -127,11 +135,26 @@ def _level0_membership(
                     neighbour_weights[first_comm] = (
                         neighbour_weights.get(first_comm, 0.0) + weight
                     )
+            if not neighbour_weights and entity_sources:
+                # No edge to another community (an isolated entity or a
+                # disconnected pair, most of a real graph: #410). Fall back to
+                # the community sharing the most sources with it.
+                own_sources: set[str] = set()
+                for vertex in members:
+                    own_sources |= entity_sources.get(entity_ids[vertex], set())
+                for vertex, other in enumerate(membership):
+                    if other == community:
+                        continue
+                    shared = own_sources & entity_sources.get(entity_ids[vertex], set())
+                    if shared:
+                        neighbour_weights[other] = neighbour_weights.get(
+                            other, 0.0
+                        ) + len(shared)
             if not neighbour_weights:
-                # No edge to any other community; the plan only defines the
-                # merge into the highest-weight neighbour, so it stays.
                 continue
-            target = max(neighbour_weights, key=lambda key: neighbour_weights[key])
+            target = max(
+                neighbour_weights, key=lambda key: (neighbour_weights[key], -key)
+            )
             for vertex in members:
                 membership[vertex] = target
             changed = True
@@ -139,6 +162,17 @@ def _level0_membership(
     return {
         entity_id: membership[position] for position, entity_id in enumerate(entity_ids)
     }
+
+
+def _entity_sources(conn: psycopg.Connection) -> dict[str, set[str]]:
+    """Entity id -> ids of the sources that mention it."""
+    out: dict[str, set[str]] = {}
+    for entity_id, source_id in conn.execute(
+        "SELECT DISTINCT m.entity_id, ch.source_id FROM cmap.mention m "
+        "JOIN cmap.chunk ch ON ch.id = m.chunk_id WHERE m.entity_id IS NOT NULL"
+    ).fetchall():
+        out.setdefault(str(entity_id), set()).add(str(source_id))
+    return out
 
 
 def _level1_membership(
@@ -494,7 +528,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             .fetchone()[0]
         )
         entity_ids = [node["id"] for node in nodes]
-        level0 = _level0_membership(edges, entity_ids)
+        level0 = _level0_membership(edges, entity_ids, _entity_sources(conn))
         level1 = _level1_membership(edges, level0)
         by_community: dict[int, list[dict[str, Any]]] = {}
         for node in nodes:
