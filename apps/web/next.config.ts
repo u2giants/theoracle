@@ -6,10 +6,8 @@ import { execSync } from 'node:child_process';
 // Load .env.local from the monorepo root so `pnpm --filter @oracle/web dev`
 // picks up secrets without us having to duplicate the file into apps/web/.
 // Next.js's built-in dotenv loader only checks the app's own directory.
-if(process.env.ORACLE2_NATIVE_BROWSER_BUILD!=='1'){
-  loadEnv({ path: resolve(__dirname, '..', '..', '.env.local') });
-  loadEnv({ path: resolve(__dirname, '..', '..', '.env') });
-}
+loadEnv({ path: resolve(__dirname, '..', '..', '.env.local') });
+loadEnv({ path: resolve(__dirname, '..', '..', '.env') });
 
 // Capture git commit info at build time so the running version is visible in
 // the admin header without any runtime git dependency.
@@ -36,11 +34,9 @@ function getGitInfo(): { sha: string; timestamp: string } {
 const git = getGitInfo();
 
 const nextConfig: NextConfig = {
-  ...(process.env.ORACLE2_NATIVE_BROWSER_BUILD==='1'?{output:'standalone' as const}:{}),
   reactStrictMode: true,
-  outputFileTracingIncludes: { "/api/consultant/source": ["./.source-offer/*"], "/api/consultant/native-acceptance/source": ["./.source-offer/*"] },
   // Transpile workspace packages — they ship as TypeScript source.
-  transpilePackages: ['@oracle/shared', '@oracle/db', '@oracle/auth', '@oracle/ai'],
+  transpilePackages: ['@oracle/shared', '@oracle/db', '@oracle/auth'],
   // Next 16 moved this out of `experimental`.
   serverExternalPackages: ['postgres', 'pg'],
   // Build-time git info — baked into the bundle, available on server + client.
