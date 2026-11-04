@@ -109,3 +109,17 @@ def test_models_reports_nulls_when_unset(
     assert models["grade"] is None
     assert models["scaledown_enabled"] is False
     assert models["embed_dims"] == 1024
+
+
+def test_models_reports_flat_model_when_set(
+    client: TestClient, fresh_settings: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "anthropic/test-frontier")
+    monkeypatch.setenv("BRAIN_FLAT_MODEL", "flat/test-flat")
+    get_settings.cache_clear()
+
+    response = client.get("/models", headers={"x-brain-token": TEST_TOKEN})
+    assert response.status_code == 200
+    models = response.json()["models"]
+    assert models["flat_fallback"] == "flat/test-flat"
+    assert models["relations"] == "anthropic/test-frontier"

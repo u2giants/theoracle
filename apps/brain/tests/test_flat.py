@@ -281,3 +281,14 @@ def test_flat_fallback_matches_shape(
     }
     assert len(models) == 1
     assert "scaledown" not in models.pop()
+
+
+def test_frontier_prompt_uses_classify_rubrics() -> None:
+    """Both classify paths read the same rubric text (review finding #339)."""
+    from brain.extract.flat import CLASSIFY_LABELS, load_flat_prompt
+
+    prompt = load_flat_prompt()
+    assert "{{classify_labels}}" not in prompt
+    assert "{{chunk_text}}" in prompt
+    for label in CLASSIFY_LABELS:
+        assert f"- {label['name']}: {label['rubric']}" in prompt
