@@ -166,12 +166,31 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
                 """
             ).fetchall()
         ]
+        contributions = [
+            {
+                "id": tid,
+                "employee_id": eid,
+                "name": names.get(eid, "Employee"),
+                "started_at": _iso(started),
+                "last_at": _iso(last),
+                "state": state,
+                "turns": int(count),
+                "preview": " ".join(str(first or "").split())[:200],
+                "source_id": source_id,
+            }
+            for tid, eid, started, last, state, count, first, source_id in conn.execute(
+                "SELECT id::text, employee_id::text, started_at, last_at, state, "
+                "jsonb_array_length(turns), turns->0->>'text', source_id::text "
+                "FROM cmap.teams_intake ORDER BY started_at DESC LIMIT 200"
+            ).fetchall()
+        ]
     return {
         "env_enabled": settings.brain_interview_enabled,
         "switch_enabled": bool(switch[0]) if switch else False,
         "weekly_cap": settings.brain_interview_weekly_cap,
         "questions": questions,
         "employees": employees,
+        "contributions": contributions,
     }
 
 

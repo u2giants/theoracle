@@ -598,3 +598,21 @@ def test_followup_model_failure_still_acknowledges(
     monkeypatch.setattr(followup, "_call_model", _boom)
     reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
     assert reply["reply"] == intake.REPLY_ACK
+def test_overview_lists_contributions(
+    db: Any, client: Any, storage: Any, admin_headers: dict[str, str]
+) -> None:
+    """Phase 5: the admin page lists Teams contributions with their source link."""
+    text = (
+        "When a licensor sends back artwork comments I log them in the tracker "
+        "and pass the file to production for the revision."
+    )
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=text)
+    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done")
+    body = client.get("/interview/overview", headers=admin_headers).json()
+    [item] = body["contributions"]
+    assert item["id"] == first["intake_id"]
+    assert item["name"] == EMPLOYEE_NAME
+    assert item["state"] == "closed"
+    assert item["turns"] == 1
+    assert item["source_id"] == done["source_id"]
+    assert item["preview"].startswith("When a licensor")
