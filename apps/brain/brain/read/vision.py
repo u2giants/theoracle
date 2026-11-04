@@ -8,10 +8,13 @@ the environment only (plan §8) and never appear in this code.
 from __future__ import annotations
 
 import base64
+import io
 import json
 import re
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 from brain.config import Settings, get_settings
 from brain.llm import post_chat_with_rescue
@@ -64,6 +67,30 @@ def parse_visual_json(content: str) -> dict[str, Any]:
     return value
 
 
+def flatten_alpha(image_bytes: bytes, media_type: str) -> tuple[bytes, str]:
+    """Composite any transparency onto white and return PNG bytes.
+
+    Several vision models read a transparent background as black, so a
+    black-on-transparent diagram arrives as an all-black image (#418).
+    Images without an alpha channel are returned unchanged.
+    """
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            has_alpha = image.mode in ("RGBA", "LA") or (
+                image.mode == "P" and "transparency" in image.info
+            )
+            if not has_alpha:
+                return image_bytes, media_type
+            rgba = image.convert("RGBA")
+    except (OSError, ValueError):
+        return image_bytes, media_type
+    background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    background.alpha_composite(rgba)
+    out = io.BytesIO()
+    background.convert("RGB").save(out, format="PNG")
+    return out.getvalue(), "image/png"
+
+
 def visual_read(
     image_bytes: bytes,
     media_type: str = "image/png",
@@ -77,6 +104,7 @@ def visual_read(
     dict (plan §11: log tokens per job).
     """
     cfg = settings if settings is not None else get_settings()
+    image_bytes, media_type = flatten_alpha(image_bytes, media_type)
     encoded = base64.b64encode(image_bytes).decode("ascii")
     messages: list[dict[str, Any]] = [
         {
