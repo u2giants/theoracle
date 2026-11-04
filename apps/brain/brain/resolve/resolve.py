@@ -8,11 +8,19 @@ Job ``resolve`` runs over the whole corpus but only touches mentions with
 2b. an alias equal once spaces and punctuation are dropped (``Click Up``);
 3. for a Person named by a single first name or initials, the one resolved
    Person whose canonical name starts with it (several → the judge);
-4. the nearest entity of the same type by embedding, assigned at cosine ≥ 0.92
-   only when the names overlap and the type is not in ``JUDGE_ONLY_TYPES``;
+4. the nearest entity of the same type by **name-only** embedding cosine,
+   assigned at ≥ 0.92 only when the names overlap and the type is not in
+   ``JUDGE_ONLY_TYPES``;
 5. the frontier judge (``prompts/resolve_judge.md``) for up to five candidates
-   with a related spelling (any cosine) or cosine ≥ 0.80, assigned when it
-   names one at confidence ≥ 0.7 (#353);
+   with a related spelling (any cosine) or name cosine ≥ 0.60, assigned when it
+   names one at confidence ≥ 0.7 (#353).
+
+Rules 4 and 5 shortlist entities by the stored ``name — quote`` embedding but
+score them on name-only embeddings (mention surface name vs entity canonical
+name). On the 145 labelled alias pairs from #364 the stored text separates
+same from different things at chance (AUC 0.52: two things named in one
+sentence score 0.98+), while name-only scores AUC 0.89 with no wrong pair at
+0.92 and 92% of real aliases at or above 0.60 (#399);
 6. otherwise a new entity.
 
 Every judge verdict lands in ``cmap.resolve_decision`` so a later pass never
@@ -51,10 +59,13 @@ JUDGE_PROMPT_PATH = PROMPTS_DIR / "resolve_judge.md"
 DESCRIBE_PROMPT_PATH = PROMPTS_DIR / "entity_describe.md"
 
 ASSIGN_COSINE = 0.92
-JUDGE_COSINE = 0.80
+JUDGE_COSINE = 0.60
 JUDGE_MAX_CANDIDATES = 5
 JUDGE_MIN_CONFIDENCE = 0.7
 EMBED_TOP_K = 5
+# The stored embedding only shortlists; it is a weak identity signal (#399),
+# so a wide shortlist is re-scored on name-only embeddings.
+SHORTLIST_K = 25
 # Different retailers, licensors, roles and people often share context, so
 # their mention embeddings sit above ASSIGN_COSINE (Walmart / HomeGoods, Lic
 # Manager / Lic Coordinator, #353); these types always go to the judge.
@@ -159,7 +170,16 @@ class _Frontier:
         )
         self.max_tokens = STAGE_MAX_TOKENS.get(stage, MAX_TOKENS)
         self.usage: dict[str, int] = {}
+        self.name_vectors: dict[str, list[float]] = {}
         self._lock = threading.Lock()
+
+    def name_vectors_for(self, names: list[str]) -> list[list[float]]:
+        """Name-only embeddings, embedding each distinct name once per job."""
+        missing = list(dict.fromkeys(n for n in names if n not in self.name_vectors))
+        if missing:
+            vectors = embed_names(missing, self.settings, self.usage)
+            self.name_vectors.update(zip(missing, vectors, strict=True))
+        return [self.name_vectors[n] for n in names]
 
     def ask(self, prompt: str) -> dict[str, Any]:
         """One JSON answer, retrying transient provider failures."""
@@ -435,39 +455,64 @@ def _lexical_candidates(conn: psycopg.Connection, mention: Mention) -> list[str]
     return seen
 
 
+def embed_names(
+    names: list[str], settings: Settings, usage: dict[str, int]
+) -> list[list[float]]:
+    """Embed bare names (no quote); tests swap this for fixed vectors."""
+    return embed_texts(names, settings, usage)
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    return dot / (na * nb) if na and nb else 0.0
+
+
 def _nearest(
-    conn: psycopg.Connection, mention: Mention, ids: list[str] | None = None
+    conn: psycopg.Connection,
+    mention: Mention,
+    frontier: _Frontier,
+    ids: list[str] | None = None,
 ) -> list[Candidate]:
-    """Top entities of the same type by cosine to the mention embedding."""
-    if not mention.has_embedding:
-        if ids is None:
-            return []
-        rows = conn.execute(
-            "SELECT id, canonical_name, description, 0.0 FROM cmap.entity WHERE id = ANY(%s::uuid[])",
-            (ids,),
-        ).fetchall()
-    else:
-        where = "e.entity_type = %s AND e.embedding IS NOT NULL"
-        params: list[Any] = [mention.id, mention.entity_type]
-        if ids is not None:
-            where = "e.id = ANY(%s::uuid[])"
-            params = [mention.id, ids]
-        rows = conn.execute(
-            "SELECT e.id, e.canonical_name, e.description, "
-            "COALESCE(1 - (e.embedding <=> m.embedding), 0.0) AS cosine "
-            "FROM cmap.entity e, (SELECT embedding FROM cmap.mention WHERE id = %s) m "
-            f"WHERE {where} ORDER BY cosine DESC LIMIT {EMBED_TOP_K}",
-            params,
-        ).fetchall()
-    return [
+    """Top entities of the same type by name-only cosine (#399)."""
+    rows = _shortlist(conn, mention, ids)
+    if not rows:
+        return []
+    vectors = frontier.name_vectors_for(
+        [mention.surface_name.strip()] + [str(row[1]) for row in rows]
+    )
+    scored = [
         Candidate(
             id=str(row[0]),
             canonical_name=str(row[1]),
             description=row[2],
-            cosine=float(row[3]),
+            cosine=_cosine(vectors[0], vector),
         )
-        for row in rows
+        for row, vector in zip(rows, vectors[1:], strict=True)
     ]
+    scored.sort(key=lambda item: -item.cosine)
+    return scored if ids is not None else scored[:EMBED_TOP_K]
+
+
+def _shortlist(
+    conn: psycopg.Connection, mention: Mention, ids: list[str] | None
+) -> list[Any]:
+    """Entities to score: ``ids``, or the same type nearest the stored embedding."""
+    if ids is not None:
+        return conn.execute(
+            "SELECT id, canonical_name, description FROM cmap.entity WHERE id = ANY(%s::uuid[])",
+            (ids,),
+        ).fetchall()
+    if not mention.has_embedding:
+        return []
+    return conn.execute(
+        "SELECT e.id, e.canonical_name, e.description "
+        "FROM cmap.entity e, (SELECT embedding FROM cmap.mention WHERE id = %s) m "
+        "WHERE e.entity_type = %s AND e.embedding IS NOT NULL "
+        "ORDER BY e.embedding <=> m.embedding LIMIT %s",
+        (mention.id, mention.entity_type, SHORTLIST_K),
+    ).fetchall()
 
 
 def _past_decisions(conn: psycopg.Connection, mention: Mention) -> dict[str, bool]:
@@ -589,11 +634,13 @@ def resolve_mention(
     if name_part is not None and len(name_part) == 1:
         return "name_part", name_part[0]
     if name_part is not None and len(name_part) > 1:
-        chosen = _judge(conn, mention, _nearest(conn, mention, name_part), frontier)
+        chosen = _judge(
+            conn, mention, _nearest(conn, mention, frontier, name_part), frontier
+        )
         if chosen is not None:
             return "judge", chosen
         return "new", _create_entity(conn, mention)
-    nearest = _nearest(conn, mention)
+    nearest = _nearest(conn, mention, frontier)
     if (
         nearest
         and nearest[0].cosine >= ASSIGN_COSINE
@@ -601,12 +648,11 @@ def resolve_mention(
         and names_overlap(mention.normalized_name, nearest[0].canonical_name)
     ):
         return "embedding", nearest[0].id
-    # Spelling-related entities reach the judge whatever their cosine (mention
-    # embeddings carry the quote, so DFlow / DesignFlow can sit below 0.80);
-    # the embedding band fills the remaining seats.
+    # Spelling-related entities reach the judge whatever their cosine (DFlow /
+    # DesignFlow); the name-cosine band fills the remaining seats.
     lexical = _lexical_candidates(conn, mention)
     band = sorted(
-        _nearest(conn, mention, lexical) if lexical else [],
+        _nearest(conn, mention, frontier, lexical) if lexical else [],
         key=lambda item: -item.cosine,
     )
     band_ids = {item.id for item in band}

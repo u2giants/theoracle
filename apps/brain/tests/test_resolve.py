@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 import math
 import random
+from pathlib import Path
 from typing import Any
 
+import psycopg
 import pytest
 from conftest import fake_embeddings, fake_scaledown
 from test_flat import TRANSCRIPT_FIXTURE, _seed_fixture, _seed_text
@@ -34,6 +36,48 @@ def frontier_env(monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+ALIAS_PAIRS = (
+    Path(__file__).resolve().parents[3]
+    / "docs/verification/company-map/bake-off/2026-11-04-stage-2-alias-pairs.json"
+)
+
+
+@pytest.fixture(autouse=True)
+def name_vectors(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[float]]:
+    """Name-only embeddings (#399): a test may pin a name's vector here;
+    otherwise a name reuses the stored embedding of the mention or entity it
+    names, so older tests keep the cosines they set, and else gets its own
+    direction. No test calls the real embeddings API through ``embed_names``."""
+    pinned: dict[str, list[float]] = {}
+
+    def fake(
+        names: list[str], settings: Any, usage: dict[str, int]
+    ) -> list[list[float]]:
+        del settings, usage
+        out = []
+        with psycopg.connect(get_settings().database_url) as conn:
+            for name in names:
+                if name in pinned:
+                    out.append(pinned[name])
+                    continue
+                row = conn.execute(
+                    "SELECT embedding::text FROM cmap.mention WHERE surface_name = %s "
+                    "AND embedding IS NOT NULL UNION ALL "
+                    "SELECT embedding::text FROM cmap.entity WHERE canonical_name = %s "
+                    "AND embedding IS NOT NULL LIMIT 1",
+                    (name, name),
+                ).fetchone()
+                out.append(
+                    [float(v) for v in row[0].strip("[]").split(",")]
+                    if row
+                    else _unit(f"name:{name}")
+                )
+        return out
+
+    monkeypatch.setattr(resolve_mod, "embed_names", fake)
+    return pinned
 
 
 def _dims() -> int:
@@ -585,3 +629,90 @@ def test_high_cosine_customer_goes_to_judge(
     run_resolve()
     assert [item["mention"]["name"] for item in fake.judge_prompts] == ["Walmart"]
     assert _entity_of(db, walmart) != _entity_of(db, homegoods)
+
+
+def _labelled_pairs() -> list[dict[str, Any]]:
+    return json.loads(ALIAS_PAIRS.read_text(encoding="utf-8"))["pairs"]
+
+
+def test_thresholds_fit_the_labelled_alias_pairs() -> None:
+    """#399: on the 145 labelled pairs from #364, name-only cosine at 0.92 makes
+    no wrong merge and the 0.60 judge floor keeps ≥90% of real aliases, while
+    the stored ``name — quote`` text would wrongly merge at the same cut-off."""
+    pairs = _labelled_pairs()
+    assert len(pairs) == 145
+    same = [p for p in pairs if p["same"]]
+    different = [p for p in pairs if not p["same"]]
+    assert not [p for p in different if p["cos_name"] >= resolve_mod.ASSIGN_COSINE]
+    kept = sum(p["cos_name"] >= resolve_mod.JUDGE_COSINE for p in same) / len(same)
+    assert kept >= 0.90
+    assert [p for p in different if p["cos_quote"] >= resolve_mod.ASSIGN_COSINE]
+
+
+def _pair(a: str, b: str) -> dict[str, Any]:
+    return next(p for p in _labelled_pairs() if (p["a"], p["b"]) == (a, b))
+
+
+def test_same_sentence_different_things_stay_separate(
+    monkeypatch: pytest.MonkeyPatch,
+    db: Any,
+    frontier_env,
+    name_vectors: dict[str, list[float]],
+) -> None:
+    """#399: two roles named in one sentence (stored cosine 0.99) stay apart.
+
+    Cosines are the labelled #364 values for Concept / Contract Reviewers."""
+    pair = _pair("Concept Reviewers", "Contract Reviewers")
+    assert pair["same"] == 0
+    fake = _fake(monkeypatch)
+    source = _seed_text(
+        db, "Concept Reviewers and Contract Reviewers sign off.", "same-sentence"
+    )
+    stored = _unit("reviewers sentence")
+    first = _mention(db, source, "Role", pair["a"], stored)
+    second = _mention(
+        db, source, "Role", pair["b"], _at_cosine(stored, pair["cos_quote"], "rv")
+    )
+    base = _unit("concept reviewers name")
+    name_vectors[pair["a"]] = base
+    name_vectors[pair["b"]] = _at_cosine(base, pair["cos_name"], "rv-name")
+    run_resolve()
+    assert _entity_of(db, first) != _entity_of(db, second)
+    assert len(fake.judge_prompts) == 1
+
+
+def test_rule_4_scores_names_not_quotes(
+    monkeypatch: pytest.MonkeyPatch,
+    db: Any,
+    frontier_env,
+    name_vectors: dict[str, list[float]],
+) -> None:
+    """#399: a high stored cosine no longer auto-merges overlapping names; a
+    high name cosine does, whatever the stored cosine."""
+    fake = _fake(monkeypatch)
+    source = _seed_text(
+        db, "The PIM server and the PIM database. Later: art log.", "rule4-names"
+    )
+    stored = _unit("pim sentence")
+    server = _mention(db, source, "System", "PIM server", stored)
+    database = _mention(
+        db, source, "System", "PIM database", _at_cosine(stored, 0.98, "pimdb")
+    )
+    log = _mention(db, source, "System", "Artwork Log", _unit("log stored"))
+    art = _mention(
+        db, source, "System", "art log", _at_cosine(_unit("log stored"), 0.40, "a")
+    )
+    pim = _unit("pim name")
+    name_vectors["PIM server"] = pim
+    name_vectors["PIM Server"] = pim
+    name_vectors["PIM database"] = _at_cosine(pim, 0.70, "pimdb-name")
+    name_vectors["PIM Database"] = name_vectors["PIM database"]
+    logn = _unit("log name")
+    name_vectors["Artwork Log"] = logn
+    name_vectors["art log"] = _at_cosine(logn, 0.95, "art-name")
+    name_vectors["Art Log"] = name_vectors["art log"]
+    run_resolve()
+    assert _entity_of(db, server) != _entity_of(db, database)
+    assert len(fake.judge_prompts) == 1
+    assert fake.judge_prompts[0]["mention"]["name"].startswith("PIM")
+    assert _entity_of(db, log) == _entity_of(db, art)
