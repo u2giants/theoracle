@@ -204,10 +204,7 @@ export async function getUserDisplayName(userId: string): Promise<string | null>
 // Ad-hoc "Meet Now" calls are NOT enumerable after the fact via
 // getAllTranscripts(meetingOrganizerUserId=...) — that only covers *scheduled*
 // meetings (which is also how the backfill worker recovers missed ones). Live
-// capture for either kind requires its standing subscription. NOTE: the
-// production renewal/repair lives in the WORKER copy
-// (apps/workers/src/lib/graph-transcripts.ts, ensureAllSubscriptions); this web
-// module is the reference and is kept in sync with it.
+// capture for either kind requires its standing subscription.
 //
 // IMPORTANT operational facts (see DECISIONS / memory):
 //   - "Listen going forward" only: a notification fires solely if the

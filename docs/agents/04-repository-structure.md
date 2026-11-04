@@ -6,18 +6,12 @@ This is a `pnpm` + `turbo` TypeScript monorepo.
 
 Code we own:
 
-- `apps/web/` — Next.js 16 App Router app, API routes, admin UI, employee chat UI
-- `apps/workers/` — Trigger.dev tasks and worker config
-- `packages/ai/` — `OracleAIClient`, retrieval, prompts, provider adapters, model catalog
+- `apps/web/` — Next.js 16 App Router app, API routes, `/admin/employees`, Company Map UI
 - `packages/auth/` — Supabase auth helpers and employee identity linker
 - `packages/db/` — Drizzle schema, client, migrate/seed scripts
-- `packages/oracle-engines/` — deterministic extraction and synthesis logic
 - `packages/shared/` — shared types/constants
-- `packages/brain-contracts/` — Oracle 2 wire contracts (Zod) mirrored from Python
-- `services/oracle-brain/` — Oracle 2 Python foundation (contracts, graph adapter, outbox, authority)
-- `dev/oracle2/` — isolated local/CI stores and runtime identity manifest for Oracle 2
-- `scripts/oracle2/` — Oracle 2 phase gates, contract export, model evaluation
-- `apps/workers/trigger.oracle2-*.config.ts`, `apps/workers/oracle2-python-extension.ts` — Oracle 2 preview Trigger configs and Python 3.12 build layer
+- `apps/brain/` — Python FastAPI Company Map service (Coolify)
+- Oracle 2 and the old workers were removed in #398 (2026-11-04).
 - `docs/` — project documentation
 - root markdown files — `README.md`, `AGENTS.md`, `CLAUDE.md`, `DECISIONS.md`,
   `MACRO_FIRST_IMPLEMENTATION_PLAN.md`, supporting design/history files, and `china_imp.md`
@@ -40,7 +34,6 @@ Build artifacts and caches:
 - `.vercel/`
 - `.cache/`
 - `coverage/`
-- `packages/ai/evals/runs/`
 
 Docs:
 
@@ -85,6 +78,4 @@ Deployment files:
 - `vercel.json` — repo-level Vercel build contract
 - `.github/workflows/pr-check.yml` — production build and repository verification gate
 - `.github/workflows/task-gates.yml` — task-classification policy gate; never deploys
-- `.github/workflows/oracle2-contracts.yml` — self-hosted Oracle 2 contracts, workers typecheck and legacy worker-bundle guard; never deploys
-- `apps/workers/trigger.config.ts` — Trigger.dev runtime config
 

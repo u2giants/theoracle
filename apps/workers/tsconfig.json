@@ -1,9 +1,0 @@
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": ".",
-    "types": ["node"]
-  },
-  "include": ["src/**/*", "trigger.config.ts", "trigger.oracle2-*.config.ts", "oracle2-python-extension.ts"]
-}

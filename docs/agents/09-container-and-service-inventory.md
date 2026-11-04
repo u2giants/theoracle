@@ -3,20 +3,16 @@
 
 ## 9. Container and service inventory
 
-Production runtime services are fully managed; no production container is
-self-hosted. Oracle 2 has local/CI-only containers in `dev/oracle2/compose.yaml`
-(digest-pinned Postgres, two FalkorDB instances — candidate and confirmed, SSPL
-server, internal use only per `docs/verification/oracle2/S02-falkordb-license.md`
-— and LocalStack), bound to `127.0.0.1` and started by the `Oracle 2 contracts`
-workflow; CI also starts one ephemeral restore container.
+Oracle 2 and the old workers were removed in #398 (2026-11-04); rows that pointed at the deleted code were removed.
+
+Production runtime: Vercel (web), Supabase (database/auth/storage), and the
+Company Map brain service on Coolify (service `oracle-brain`, image
+`ghcr.io/u2giants/theoracle-brain`, built from `apps/brain`).
 
 | Container/service | Purpose | Managed by | App/project ID | Image/source |
 |---|---|---|---|---|
 | Vercel Functions | Next.js web app and API routes | Vercel | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `apps/web` build via `vercel.json` |
 | Oracle MCP server | Read-only MCP endpoint exposing approved business knowledge (claims, Brain sections, domain taxonomy) to external AI agents. Streamable HTTP at `/api/mcp/mcp`, bearer-token auth (`ORACLE_MCP_TOKEN`). | Vercel (in-app route) | same web project | `apps/web/app/api/mcp/[transport]/route.ts` + `apps/web/lib/mcp/` |
-| Trigger.dev Cloud | Background workers | Trigger.dev | `proj_PRIVATE_REFERENCE_SHA256_9f596b7f49dd981243eda05436fe11207bc7a91b39b7806c41a831504c04bb01` | `apps/workers` |
-| Trigger.dev Oracle 2 extractor preview | Synthetic-only S02 preview; delete when #26 closes | Trigger.dev | `proj_PRIVATE_REFERENCE_SHA256_5ac719234cae50874f21f058a58195aea057b037473342b561250e996f9cbf9d` | `apps/workers/trigger.oracle2-extract.config.ts` |
-| Trigger.dev Oracle 2 projector preview | Synthetic-only S02 preview; delete when #26 closes | Trigger.dev | `proj_PRIVATE_REFERENCE_SHA256_1be33553a1432811f3b085bbf640ff84aa12c5a94d7f7a822296cdc5d78f8285` | `apps/workers/trigger.oracle2-project.config.ts` |
 | Supabase Postgres | Primary database | Supabase | configured by env | managed Postgres + pgvector |
 | Supabase Auth | Login and session identity | Supabase | same project | managed Auth |
 | Supabase Storage | Uploaded documents | Supabase | bucket `company_documents` | managed object storage |
@@ -27,7 +23,6 @@ workflow; CI also starts one ephemeral restore container.
 | OpenAI API | Fallback inference and embeddings | OpenAI | external account | `openai` SDK |
 | DeepSeek API | Optional inference provider | DeepSeek | external account | `openai` SDK against `api.deepseek.com` |
 | DashScope | Optional Qwen inference provider | Alibaba | external account | `openai` SDK against `dashscope-us.aliyuncs.com/compatible-mode/v1` |
-| Microsoft Graph | Tenant directory pull (admin onboarding) + Teams call-transcript ingestion. App-only `client_credentials`. | Microsoft Entra | app `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Raw `fetch` (no SDK) — `apps/web/lib/microsoft-graph.ts`, `apps/workers/src/lib/graph-transcripts.ts` |
 | Azure Bot Service | Teams Bot Framework message ingress for `@The Oracle join`. | Azure | subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`; resource `theoracle-popcre-teams-bot` | Free `F0` Bot Service registration; Teams channel routes signed Bot Framework turns to `/api/teams/bot/messages`. |
 | Teams tenant app store | Makes The Oracle addable/searchable inside Teams. | Microsoft Teams Admin Center / Teams PowerShell | Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923` | Organization/private-catalog app package built from `apps/web/teams-app/oracle/manifest.template.json`. |
 

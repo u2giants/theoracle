@@ -24,7 +24,6 @@ coverage/
 *.tsbuildinfo
 
 # Eval run outputs
-packages/ai/evals/runs/
 
 # Logs
 *.log
