@@ -55,6 +55,10 @@ DESCRIBE_MIN_MENTIONS = 3
 DESCRIBE_MAX_QUOTES = 12
 CANDIDATE_SAMPLE_QUOTES = 2
 MAX_TOKENS = 4000
+# Community reports (L0/L1/L2) are the longest frontier outputs; the company
+# report with its Top-10 section ran past 4,000 tokens on most stage-6
+# candidates (#347), so the reports seat gets its own budget.
+STAGE_MAX_TOKENS: dict[str, int] = {"reports": 12000}
 ASK_ATTEMPTS = 3
 
 _INITIALS = re.compile(r"^(?:[A-Za-z]\.\s*){1,3}$|^[A-Z]{1,3}$")
@@ -101,7 +105,11 @@ def prompt_hash(path: Path) -> str:
     return hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
 
 
-def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, Any]:
+def _post_chat(
+    messages: list[dict[str, Any]],
+    settings: Settings,
+    max_tokens: int = MAX_TOKENS,
+) -> dict[str, Any]:
     """POST one frontier chat-completions request in JSON mode."""
     if settings.openrouter_api_key is None:
         raise ResolveError("OPENROUTER_API_KEY is not set")
@@ -112,7 +120,7 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
             "model": settings.brain_frontier_model,
             "messages": messages,
             "temperature": 0,
-            "max_tokens": MAX_TOKENS,
+            "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         },
         api_key=settings.openrouter_api_key,
@@ -136,6 +144,7 @@ class _Frontier:
         self.settings = settings.model_copy(
             update={"brain_frontier_model": stage_model(settings, stage)}
         )
+        self.max_tokens = STAGE_MAX_TOKENS.get(stage, MAX_TOKENS)
         self.usage: dict[str, int] = {}
         self._lock = threading.Lock()
 
@@ -164,7 +173,9 @@ class _Frontier:
                     "rerun the resolve job to continue (resolved mentions are skipped)"
                 )
             self.usage["frontier_calls"] = used + 1
-        body = _post_chat([{"role": "user", "content": prompt}], self.settings)
+        body = _post_chat(
+            [{"role": "user", "content": prompt}], self.settings, self.max_tokens
+        )
         tokens = (body.get("usage") or {}).get("total_tokens")
         if isinstance(tokens, int):
             with self._lock:

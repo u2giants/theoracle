@@ -40,7 +40,9 @@ class FakeReport:
         self.open_questions = open_questions if open_questions is not None else []
         self.prompts: list[str] = []
 
-    def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+    def __call__(
+        self, messages: list[dict[str, Any]], settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del settings
         self.prompts.append(str(messages[-1]["content"]))
         answer = {
