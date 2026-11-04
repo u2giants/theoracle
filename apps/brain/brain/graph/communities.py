@@ -35,6 +35,9 @@ REPORT_PROMPT_PATH = PROMPTS_DIR / "community_report.md"
 RESOLUTION_L0 = 1.0
 RESOLUTION_L1 = 0.5
 MIN_COMMUNITY = 3
+MAX_MERGED_COMMUNITY = 60
+MAX_L1_CHILDREN = 8
+MAX_L1_ENTITIES = 150
 MAX_CONTEXT_TOKENS = 12000
 MAX_EDGES_IN_CONTEXT = 40
 MAX_QUOTES_IN_CONTEXT = 25
@@ -118,6 +121,7 @@ def _level0_membership(
         groups: dict[int, list[int]] = {}
         for vertex, community in enumerate(membership):
             groups.setdefault(community, []).append(vertex)
+        sizes = {community: len(members) for community, members in groups.items()}
         for community, members in sorted(groups.items()):
             if len(members) >= MIN_COMMUNITY:
                 continue
@@ -146,7 +150,7 @@ def _level0_membership(
                     if other == community:
                         continue
                     shared = own_sources & entity_sources.get(entity_ids[vertex], set())
-                    if shared:
+                    if shared and sizes[other] + len(members) <= MAX_MERGED_COMMUNITY:
                         neighbour_weights[other] = neighbour_weights.get(
                             other, 0.0
                         ) + len(shared)
@@ -201,9 +205,47 @@ def _level1_membership(
         leidenalg.RBConfigurationVertexPartition,
         weights="weight" if pairs else None,
         resolution_parameter=RESOLUTION_L1,
+        max_comm_size=MAX_L1_CHILDREN,
         seed=0,
     )
     membership = list(partition.membership)
+    # Keep the middle level readable (#410): split any level-1 group holding
+    # more than MAX_L1_ENTITIES entities: pack its children, largest first,
+    # into the bin they share the most edge weight with, under the cap.
+    entity_count = {community: 0 for community in communities}
+    for community in level0.values():
+        entity_count[community] += 1
+    groups: dict[int, list[int]] = {}
+    for position, group in enumerate(membership):
+        groups.setdefault(group, []).append(position)
+    next_id = max(membership, default=-1) + 1
+    for children in groups.values():
+        if sum(entity_count[communities[c]] for c in children) <= MAX_L1_ENTITIES:
+            continue
+        bins: list[tuple[int, list[int], int]] = []
+        for child in sorted(
+            children, key=lambda c: (-entity_count[communities[c]], c)
+        ):
+            size = entity_count[communities[child]]
+            best = None
+            best_weight = 0.0
+            for number, (_, members, total) in enumerate(bins):
+                if total + size > MAX_L1_ENTITIES:
+                    continue
+                weight = sum(
+                    cross.get((min(child, m), max(child, m)), 0.0) for m in members
+                )
+                if weight > best_weight:
+                    best, best_weight = number, weight
+            if best is None:
+                bins.append((next_id, [child], size))
+                next_id += 1
+            else:
+                bin_id, members, total = bins[best]
+                bins[best] = (bin_id, members + [child], total + size)
+        for bin_id, members, _ in bins:
+            for child in members:
+                membership[child] = bin_id
     return {community: membership[index_of[community]] for community in communities}
 
 
