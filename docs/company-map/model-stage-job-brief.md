@@ -92,8 +92,9 @@ empty (reasoning-flagged models can burn the budget on thinking — PR #307).
 | 9 | Eval grading | `brain/eval/run.py:51-75` | `BRAIN_EVAL_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`) | 1 call per eval question (plus the answer calls) | JSON mode, 800 tokens |
 
 **Live seats (2026-11-03, per `GET /models`, all set from the model page —
-PR #357, stored in `cmap.model_seat`):** vision and answer
-`anthropic/claude-haiku-5.5`; embed `voyageai/voyage-4-lite` (dims 1024);
+PR #357, stored in `cmap.model_seat`):** vision `anthropic/claude-sonnet-5.5`
+(seated 2026-11-04 ~5:00 PM EST after the round-2 vision bake-off, #413/#417);
+answer `anthropic/claude-haiku-5.5`; embed `voyageai/voyage-4-lite` (dims 1024);
 flat `z-ai/glm-5.3-flash`; relations `meta/muse-spark-1.3-contributor`;
 resolve, reports, recommend and grade `openai/gpt-6-luna`. A page seat
 overrides the env var named in the table; the env var is the fallback
@@ -791,7 +792,7 @@ linked files under `docs/verification/company-map/bake-off/`):**
 
 | Stage | Old seat | Winner (seated) | Runner-up | Key result | Evidence |
 |-------|----------|-----------------|-----------|------------|----------|
-| 1 Vision | openai/gpt-4.1 | anthropic/claude-haiku-5.5 | openai/gpt-6-luna | all 62 node labels and 14 arrows on the flowchart fixture | `2026-11-03-stage-1-vision.md` |
+| 1 Vision | openai/gpt-4.1 | anthropic/claude-sonnet-5.5 (round 2, 2026-11-04; was claude-haiku-5.5) | anthropic/claude-haiku-5.5 (budget; route org charts to openai/gpt-6-luna) | round 2: mean 0.99 over 7 diagrams, 61/67 arrows on the Edge Home flowchart, 30/30 org-chart lines, identical across repeats | `2026-11-04-stage-1-vision-round2.md` (round 1: `2026-11-03-stage-1-vision.md`) |
 | 2 Embeddings | openai/text-embedding-3-large | voyageai/voyage-4-lite | openai/text-embedding-3-large | best alias separation (AUC 0.749); prod re-indexed | `2026-11-03-stage-2-embeddings.md` |
 | 3 Flat fallback | claude-sonnet-4.5 | z-ai/glm-5.3-flash | deepseek/deepseek-v4.1-flash | F1 0.748 vs 0.752 best, ~12× cheaper than the runner-up | `2026-11-03-stage-3-flat-extraction.md` |
 | 4 Relations | claude-sonnet-4.5 | meta/muse-spark-1.3-contributor | z-ai/glm-5.3 | F1 0.62, zero failed chunks, ~5.5× cheaper than GLM-5.3 at equal quality | `2026-11-03-stage-4-relations.md` |
