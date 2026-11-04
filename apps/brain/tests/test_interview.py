@@ -14,6 +14,7 @@ import pytest
 from conftest import fake_embeddings
 
 from brain.config import get_settings
+from brain.interview import intake
 from brain.interview import tick as tick_mod
 from brain.interview.inbound import REPLY_ANSWERED, REPLY_STOPPED, handle_inbound
 from brain.interview.tick import (
@@ -38,7 +39,7 @@ CONVERSATION_REF = {
 def _clean_interviews(db: Any) -> None:
     db.execute(
         "TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags, "
-        "cmap.interview_send"
+        "cmap.interview_send, cmap.teams_intake"
     )
     db.execute("UPDATE cmap.interview_setting SET enabled = true")
     db.commit()
@@ -141,7 +142,7 @@ def test_weekly_cap(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None
     licensing = _thing(db, "Licensing approval")
     _relate(db, person, licensing, sources=2)
     ids = [_question(db, f"Who signs off step {n}?", [licensing]) for n in range(3)]
-    assert _connect()["handled"] is False
+    assert _connect()["reply"] == intake.REPLY_INTRO
 
     first = run_interview_tick()
     assert first["asked"] == 2
@@ -367,7 +368,7 @@ def test_work_email_matches_identity_row(db: Any) -> None:
     result = handle_inbound(
         email="work.user@corp.test", conversation_ref=CONVERSATION_REF, text="hi"
     )
-    assert result["handled"] is False
+    assert result["reply"] == intake.REPLY_INTRO
     assert result["employee_id"] == employee_id
     stored = db.execute("SELECT count(*) FROM cmap.teams_conversation").fetchone()[0]
     assert stored == 1
@@ -384,7 +385,7 @@ def test_tenant_sender_auto_registers(db: Any) -> None:
         conversation_ref=CONVERSATION_REF,
         text="hi",
     )
-    assert result["handled"] is False
+    assert result["reply"] == intake.REPLY_INTRO
     row = db.execute(
         "SELECT id::text, name FROM public.employees WHERE lower(email) = %s",
         ("new.person@popcre.com",),
@@ -433,3 +434,95 @@ def test_conversation_lookup_works_while_interviews_off(
     )
     assert response.status_code == 200
     assert response.json()["conversation_ref"]
+
+
+VOLUNTEERED = (
+    "When a licensor sends back artwork comments I log them in the tracker "
+    "and pass the file to Dana in production for the revision."
+)
+
+
+def test_greeting_gets_intro(db: Any) -> None:
+    """A bare greeting gets a one-line intro that invites a contribution."""
+    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Hi!")
+    assert reply["handled"] is True
+    assert reply["reply"] == intake.REPLY_INTRO
+    assert db.execute("SELECT count(*) FROM cmap.teams_intake").fetchone()[0] == 0
+
+
+def test_short_non_greeting_falls_through(db: Any) -> None:
+    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="what can you do")
+    assert reply["handled"] is False
+
+
+def test_join_still_reaches_meeting_helper(db: Any) -> None:
+    """Join requests fall through to the meeting helper, even mid-thread."""
+    join = "join https://teams.microsoft.com/l/meetup-join/abc please and thank you very much indeed friend"
+    assert handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=join)[
+        "handled"
+    ] is False
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    assert handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="join")[
+        "handled"
+    ] is False
+
+
+def test_group_chat_is_not_intake(db: Any) -> None:
+    ref = {**CONVERSATION_REF, "conversation": {"id": "19:x", "conversationType": "groupChat"}}
+    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=ref, text=VOLUNTEERED)
+    assert reply["handled"] is False
+
+
+def test_volunteer_becomes_source(db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Volunteered messages buffer into one thread; "done" ingests one transcript."""
+    fake_embeddings(monkeypatch)
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    assert first["handled"] is True
+    assert first["reply"] == intake.REPLY_ACK
+    second = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Dana usually turns it in two days."
+    )
+    assert second["handled"] is True
+    assert second["intake_id"] == first["intake_id"]
+    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Done.")
+    assert done["reply"] == intake.REPLY_DONE
+    source_id = done["source_id"]
+    title, kind = db.execute(
+        "SELECT title, kind FROM cmap.source WHERE id = %s", (source_id,)
+    ).fetchone()
+    assert kind == "transcript"
+    assert title.startswith(f"Teams contribution — {EMPLOYEE_NAME} — ")
+    state = db.execute(
+        "SELECT state, source_id::text FROM cmap.teams_intake WHERE id = %s", (first["intake_id"],)
+    ).fetchone()
+    assert state == ("closed", source_id)
+    job = db.execute(
+        "SELECT id, kind, payload FROM cmap.job WHERE kind = 'read_source' "
+        "AND payload->>'source_id' = %s",
+        (source_id,),
+    ).fetchone()
+    assert job is not None
+    handle_read_source({"id": job[0], "kind": job[1], "payload": job[2]})
+    chunks = db.execute(
+        "SELECT locator->>'speaker', text FROM cmap.chunk WHERE source_id = %s ORDER BY ordinal",
+        (source_id,),
+    ).fetchall()
+    assert {speaker for speaker, _ in chunks} == {EMPLOYEE_NAME}
+    joined = " ".join(text for _, text in chunks)
+    assert "licensor sends back artwork" in joined
+    assert "two days" in joined
+
+
+def test_silent_thread_closes(db: Any, storage: Any) -> None:
+    """After 20 quiet minutes the worker sweep ingests the thread."""
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    assert intake.close_stale_threads() == []
+    db.execute(
+        "UPDATE cmap.teams_intake SET last_at = now() - interval '21 minutes' WHERE id = %s",
+        (first["intake_id"],),
+    )
+    db.commit()
+    closed = intake.close_stale_threads()
+    assert len(closed) == 1
+    assert intake.close_stale_threads() == []
+    assert db.execute("SELECT count(*) FROM cmap.source").fetchone()[0] == 1
