@@ -526,3 +526,75 @@ def test_silent_thread_closes(db: Any, storage: Any) -> None:
     assert len(closed) == 1
     assert intake.close_stale_threads() == []
     assert db.execute("SELECT count(*) FROM cmap.source").fetchone()[0] == 1
+
+
+@pytest.fixture()
+def stub_model(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Replace the conversation model; tests set ``reply`` and read ``prompts``."""
+    from brain.interview import followup
+
+    state: dict[str, Any] = {"reply": "Who do you hand the revised file to?", "prompts": []}
+
+    def _fake(messages: list[dict[str, str]]) -> str:
+        state["prompts"].append(messages[-1]["content"])
+        return str(state["reply"])
+
+    monkeypatch.setattr(followup, "_call_model", _fake)
+    return state
+
+
+def test_followups_capped_at_two(db: Any, storage: Any, stub_model: dict[str, Any]) -> None:
+    """At most two follow-ups per thread; they are kept in the transcript."""
+    from brain.interview import followup
+
+    replies = [
+        handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=text)["reply"]
+        for text in (VOLUNTEERED, "Production gets it next.", "It takes two days usually.")
+    ]
+    assert "Who do you hand the revised file to?" in replies[0]
+    assert "Who do you hand the revised file to?" in replies[1]
+    assert replies[2] == intake.REPLY_ACK
+    assert len(stub_model["prompts"]) == 2
+    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done")
+    turns = db.execute(
+        "SELECT turns FROM cmap.teams_intake WHERE source_id = %s", (done["source_id"],)
+    ).fetchone()[0]
+    speakers = [turn["speaker"] for turn in turns]
+    assert speakers == [EMPLOYEE_NAME, followup.ORACLE_SPEAKER, EMPLOYEE_NAME,
+                        followup.ORACLE_SPEAKER, EMPLOYEE_NAME]
+
+
+def test_followup_cites_no_invented_names(db: Any, stub_model: dict[str, Any]) -> None:
+    """Judge check: a follow-up naming someone absent from the chat and Map is dropped."""
+    from brain.interview import followup
+
+    dana = _person(db, "Dana")
+    tracker = _thing(db, "Artwork Tracker")
+    _relate(db, dana, tracker, 1)
+
+    stub_model["reply"] = "Does Dana hand it to Marcus afterwards?"
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    assert first["reply"] == intake.REPLY_ACK
+    assert "Dana (Person)" in stub_model["prompts"][0]
+    assert "Dana OWNS Artwork Tracker" in stub_model["prompts"][0]
+
+    stub_model["reply"] = "Does Dana record the revision in the Artwork Tracker?"
+    second = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Dana then starts the revision."
+    )
+    assert "Artwork Tracker" in second["reply"]
+    allowed = VOLUNTEERED + " Dana then starts the revision. " + "\n".join(stub_model["prompts"])
+    assert followup.invented_names(second["reply"], allowed) == set()
+
+
+def test_followup_model_failure_still_acknowledges(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from brain.interview import followup
+
+    def _boom(messages: list[dict[str, str]]) -> str:
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr(followup, "_call_model", _boom)
+    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    assert reply["reply"] == intake.REPLY_ACK
