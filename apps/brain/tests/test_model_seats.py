@@ -69,7 +69,9 @@ def test_frontier_client_calls_its_own_stage_seat(
     )
     seen: list[str | None] = []
 
-    def fake(messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+    def fake(
+        messages: list[dict[str, Any]], settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del messages
         seen.append(settings.brain_frontier_model)
         return {

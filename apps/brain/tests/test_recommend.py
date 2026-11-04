@@ -64,7 +64,9 @@ class FakeRecommend:
         self.duplicate_of = duplicate_of
         self.prompts: list[str] = []
 
-    def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+    def __call__(
+        self, messages: list[dict[str, Any]], settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del settings
         prompt = str(messages[-1]["content"])
         self.prompts.append(prompt)

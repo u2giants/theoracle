@@ -109,7 +109,9 @@ class FakeFrontier:
     def _block(prompt: str, label: str) -> Any:
         return json.loads(prompt.split(f"{label}:\n<<<\n", 1)[1].split("\n>>>", 1)[0])
 
-    def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+    def __call__(
+        self, messages: list[dict[str, Any]], settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del settings
         prompt = str(messages[-1]["content"])
         if "CANDIDATES:" in prompt:
@@ -378,7 +380,7 @@ def test_frontier_tolerates_trailing_comma_and_fence(
 ) -> None:
     """Live smoke finding: describe answers may fence the JSON and add commas."""
 
-    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
         del messages, settings
         return {
             "choices": [
@@ -405,7 +407,7 @@ def test_frontier_salvages_truncated_describe_fields(
 ) -> None:
     """Live smoke finding: describe answers can be cut off at max_tokens."""
 
-    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
         del messages, settings
         return {
             "choices": [
@@ -429,7 +431,7 @@ def test_frontier_accepts_content_block_lists(
 ) -> None:
     """Step-8 smoke finding: some providers answer with content blocks."""
 
-    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
         del messages, settings
         return {
             "choices": [
@@ -459,7 +461,7 @@ def test_frontier_retries_transient_failures(
     """Step-8 smoke finding: one empty provider answer must not fail the job."""
     calls = {"count": 0}
 
-    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
         del messages, settings
         calls["count"] += 1
         if calls["count"] == 1:
@@ -480,7 +482,7 @@ def test_frontier_salvages_truncated_report_fields(
 ) -> None:
     """Step-8 smoke finding: community reports can also be cut off."""
 
-    def _post_chat(messages: list, settings: Any) -> dict[str, Any]:
+    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
         del messages, settings
         content = (
             '```json\n{\n  "title": "Licensing Approval Workflow",\n'
@@ -510,3 +512,23 @@ def test_frontier_salvages_truncated_report_fields(
             }
         ],
     }
+
+
+def test_reports_stage_gets_a_larger_output_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#347: community reports run past 4,000 tokens; they get their own cap."""
+    from brain.resolve import resolve as resolve_mod
+
+    seen: list[int] = []
+
+    def fake(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
+        del messages, settings
+        seen.append(max_tokens)
+        return {"choices": [{"message": {"content": "{}"}}], "usage": {}}
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", fake)
+
+    resolve_mod._Frontier(get_settings(), "reports").ask("x")
+    resolve_mod._Frontier(get_settings(), "resolve").ask("x")
+    assert seen == [12000, 4000]

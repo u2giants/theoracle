@@ -65,7 +65,9 @@ class MapReports:
     def __init__(self) -> None:
         self.calls = 0
 
-    def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+    def __call__(
+        self, messages: list[dict[str, Any]], settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del settings
         self.calls += 1
         prompt = str(messages[-1]["content"])
