@@ -85,39 +85,50 @@ async function senderProfile(context: TurnContext): Promise<SenderProfile | null
 }
 
 // Returns true when the brain handled the message as an interview reply.
-async function offerToInterviews(context: TurnContext, text: string): Promise<boolean> {
-  if (!process.env.BRAIN_BASE_URL || !process.env.BRAIN_SHARED_TOKEN) return false;
-  const sender = await senderProfile(context);
-  if (!sender) return false;
-  try {
-    const result = await brainService<InboundResult>('interview/teams/inbound', {
-      method: 'POST',
-      body: {
-        email: sender.email,
-        name: sender.name,
-        conversation_ref: TurnContext.getConversationReference(context.activity),
-        text,
-      },
-    });
-    if (result.status !== 200 || !result.body?.handled) return false;
-    if (result.body.reply) await context.sendActivity(result.body.reply);
-    return true;
-  } catch (err) {
-    console.warn('[teams/bot] interview hand-off failed', err);
+async function offerToInterviews(context: TurnContext, text: string, install = false): Promise<boolean> {
+  if (!process.env.BRAIN_BASE_URL || !process.env.BRAIN_SHARED_TOKEN) {
+    if (install) throw new Error('Interview service is not configured');
     return false;
   }
+  for (let attempt = 0; attempt < (install ? 3 : 1); attempt++) {
+    try {
+      const sender = await senderProfile(context);
+      if (!sender) throw new Error('Sender profile unavailable');
+      const result = await brainService<InboundResult>('interview/teams/inbound', {
+        method: 'POST',
+        body: {
+          email: sender.email,
+          name: sender.name,
+          conversation_ref: TurnContext.getConversationReference(context.activity),
+          text,
+        },
+      });
+      if (result.status !== 200) throw new Error(`Interview service returned ${result.status}`);
+      if (!result.body?.handled) return false;
+      if (result.body.reply) await context.sendActivity(result.body.reply);
+      return !install || Boolean(result.body.reply);
+    } catch (err) {
+      console.warn('[teams/bot] interview hand-off failed', err);
+      if (install) {
+        // Returning a failed turn preserves delivery retry rather than acknowledging a lost reference.
+      if (attempt === 2) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      } else return false;
+    }
+  }
+  return false;
 }
 
 async function handleTurn(context: TurnContext, req: NextRequest): Promise<void> {
   if (context.activity.type !== ActivityTypes.Message) {
-    if (context.activity.type === ActivityTypes.ConversationUpdate) {
+    if (context.activity.type === ActivityTypes.ConversationUpdate ||
+        (context.activity.type === ActivityTypes.InstallationUpdate && context.activity.action === 'add')) {
       // Phase 4: a personal install (including a tenant-wide proactive one)
       // stores the conversation and greets the employee with the intro.
       const personal = context.activity.conversation?.conversationType === 'personal';
-      const botAdded = (context.activity.membersAdded ?? []).some(
-        (m) => m.id === context.activity.recipient?.id,
-      );
-      if (personal && botAdded && (await offerToInterviews(context, 'hi'))) return;
+      const botAdded = context.activity.type === ActivityTypes.InstallationUpdate ||
+        (context.activity.membersAdded ?? []).length > 0;
+      if (personal && botAdded && (await offerToInterviews(context, 'hi', true))) return;
       await context.sendActivity('theoracle is ready. In a meeting chat, type "join" or "join <Teams meeting link>".');
     }
     return;
