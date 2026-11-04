@@ -1,0 +1,307 @@
+{
+ "stage": 1,
+ "date": "2026-11-04",
+ "image": {
+  "title": "BPMN Application to create a permit",
+  "url": "https://commons.wikimedia.org/wiki/File:BPMN_Application_to_create_a_permit.svg",
+  "author": "Arbeck (Wikimedia Commons)",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0",
+  "rendered": "3840x1045 PNG (Wikimedia thumbnail of the SVG), not committed, never imported into any cmap database"
+ },
+ "reference": {
+  "lanes": [
+   "Applicant",
+   "Platform",
+   "Other juridical agencies",
+   "Land Register"
+  ],
+  "nodes": {
+   "n1": "Navigate to registration platform",
+   "n2": "Login",
+   "n3": "Verify user.",
+   "n4": "Create dashboard showing details of prior applications.",
+   "n5": "Is this a new application?",
+   "n6": "Enter review and edit sub-process",
+   "n7": "Generate application identifier",
+   "n8": "Is the user acting on behalf of a third-party?",
+   "n9": "Enter details of party that the user can represent",
+   "n10": "Confirm user has appropriate powers for representation",
+   "n11": "Get details of owned land or property by the applicant.",
+   "n12": "Show registered properties on dashboard",
+   "n13": "Choose a property",
+   "n14": "Display restrictions affecting property",
+   "n15": "Select the restriction for which a permit is being applied",
+   "n16": "Enter supporting information for the permit.",
+   "n17": "Save or submit application",
+   "n18": "Save",
+   "n19": "Platform undertakes pre-submission logic checks",
+   "n20": "Generate pre-submission report.",
+   "n21": "Does the application pass all logic checks",
+   "n22": "Save or edit application",
+   "n23": "Submit",
+   "n24": "Place in review pool for permit officer"
+  },
+  "edges": [
+   [
+    "n1",
+    "n2",
+    ""
+   ],
+   [
+    "n2",
+    "n3",
+    ""
+   ],
+   [
+    "n3",
+    "n4",
+    ""
+   ],
+   [
+    "n4",
+    "n5",
+    ""
+   ],
+   [
+    "n5",
+    "n6",
+    "No"
+   ],
+   [
+    "n5",
+    "n7",
+    "Yes"
+   ],
+   [
+    "n7",
+    "n8",
+    ""
+   ],
+   [
+    "n8",
+    "n9",
+    "Yes"
+   ],
+   [
+    "n8",
+    "n11",
+    "No"
+   ],
+   [
+    "n9",
+    "n10",
+    ""
+   ],
+   [
+    "n10",
+    "n11",
+    ""
+   ],
+   [
+    "n11",
+    "n12",
+    ""
+   ],
+   [
+    "n12",
+    "n13",
+    ""
+   ],
+   [
+    "n13",
+    "n14",
+    ""
+   ],
+   [
+    "n14",
+    "n15",
+    ""
+   ],
+   [
+    "n15",
+    "n16",
+    ""
+   ],
+   [
+    "n16",
+    "n17",
+    ""
+   ],
+   [
+    "n17",
+    "n19",
+    "Submit"
+   ],
+   [
+    "n19",
+    "n20",
+    ""
+   ],
+   [
+    "n20",
+    "n21",
+    ""
+   ],
+   [
+    "n21",
+    "n23",
+    "Yes"
+   ],
+   [
+    "n21",
+    "n22",
+    "No"
+   ],
+   [
+    "n22",
+    "n16",
+    ""
+   ],
+   [
+    "n22",
+    "n18",
+    ""
+   ],
+   [
+    "n23",
+    "n24",
+    ""
+   ]
+  ],
+  "ambiguous_edges": [
+   [
+    "n17",
+    "n18"
+   ],
+   [
+    "n3",
+    "OJA"
+   ],
+   [
+    "OJA",
+    "n3"
+   ],
+   [
+    "n10",
+    "OJA"
+   ],
+   [
+    "OJA",
+    "n10"
+   ],
+   [
+    "n11",
+    "LR"
+   ],
+   [
+    "LR",
+    "n11"
+   ]
+  ],
+  "extra_nodes_ok": [
+   "Other juridical agencies",
+   "Land Register"
+  ],
+  "annotations": [
+   "Integrates in to a multi-agency party brokerage or national identity system",
+   "Satisfying the capability principle",
+   "This could be a power of attorney, an agent for a non-natural party or a notary/solicitor acting for a citizen.",
+   "Satisfying the specificity principle",
+   "Identify relevant restriction using a spatial overlap of ownership extent against restriction extents.",
+   "Creating an Land Owners appication for a permit from an authoritative agency"
+  ]
+ },
+ "scores": {
+  "anthropic/claude-haiku-5.5": {
+   "node_recall": 1.0,
+   "verbatim": 1.0,
+   "lane_recall": 1.0,
+   "edge_recall": 1.0,
+   "edge_label_recall": 1.0,
+   "edges_returned": 32,
+   "unmatched_edges": 0,
+   "nodes_returned": 26,
+   "invented_nodes": 0,
+   "sec": 21.9,
+   "cost": 0.002930004,
+   "unreadable": "Gateway names and some annotation placement are ambiguous; the top-right label placement near the save/edit loop was inferred. Dashed association arro",
+   "quality": 1.0
+  },
+  "google/gemini-3.8-flash": {
+   "node_recall": 1.0,
+   "verbatim": 1.0,
+   "lane_recall": 1.0,
+   "edge_recall": 0.96,
+   "edge_label_recall": 1.0,
+   "edges_returned": 26,
+   "unmatched_edges": 1,
+   "nodes_returned": 24,
+   "invented_nodes": 0,
+   "sec": 17.0,
+   "cost": 0.010084635,
+   "unreadable": "",
+   "quality": 0.984
+  },
+  "meta/muse-spark-1.3-contributor": {
+   "node_recall": 1.0,
+   "verbatim": 1.0,
+   "lane_recall": 1.0,
+   "edge_recall": 1.0,
+   "edge_label_recall": 1.0,
+   "edges_returned": 26,
+   "unmatched_edges": 0,
+   "nodes_returned": 24,
+   "invented_nodes": 0,
+   "sec": 37.5,
+   "cost": 0.001440945,
+   "unreadable": "First letters of Enter, Confirm, Get task labels partially covered by icons but still legible.",
+   "quality": 1.0
+  },
+  "openai/gpt-4.1": {
+   "node_recall": 0.958,
+   "verbatim": 0.957,
+   "lane_recall": 1.0,
+   "edge_recall": 0.68,
+   "edge_label_recall": 0.571,
+   "edges_returned": 24,
+   "unmatched_edges": 7,
+   "nodes_returned": 23,
+   "invented_nodes": 0,
+   "sec": 11.4,
+   "cost": 0.0141471,
+   "unreadable": "",
+   "quality": 0.786
+  },
+  "openai/gpt-6-luna": {
+   "node_recall": 0.958,
+   "verbatim": 0.957,
+   "lane_recall": 1.0,
+   "edge_recall": 0.88,
+   "edge_label_recall": 0.714,
+   "edges_returned": 26,
+   "unmatched_edges": 3,
+   "nodes_returned": 29,
+   "invented_nodes": 1,
+   "sec": 30.4,
+   "cost": 0.00210961575,
+   "unreadable": "",
+   "quality": 0.886
+  },
+  "qwen/qwen2.5-vl-72b-instruct": {
+   "node_recall": 1.0,
+   "verbatim": 0.958,
+   "lane_recall": 1.0,
+   "edge_recall": 0.6,
+   "edge_label_recall": 0.429,
+   "edges_returned": 24,
+   "unmatched_edges": 8,
+   "nodes_returned": 25,
+   "invented_nodes": 0,
+   "sec": 33.1,
+   "cost": 0.005642802,
+   "unreadable": "",
+   "quality": 0.742
+  }
+ }
+}
