@@ -14,7 +14,7 @@ Code we own:
 - Oracle 2 and the old workers were removed in #398 (2026-11-04).
 - `docs/` — project documentation
 - root markdown files — `README.md`, `AGENTS.md`, `CLAUDE.md`, `DECISIONS.md`,
-  `MACRO_FIRST_IMPLEMENTATION_PLAN.md`, supporting design/history files, and `china_imp.md`
+  supporting design/history files, and `china_imp.md`
 
 Generated code:
 
@@ -41,21 +41,12 @@ Docs:
 - `docs/development.md`
 - `docs/configuration.md`
 - `docs/deployment.md`
-- `docs/operations/` (reviewed production dispatch records, one file per action)
-- `docs/wet-test-walkthrough.md`
-- `docs/macro-understanding-implementation-plan.md` - macro-first source outlines, meaning-based source groups, budgeted document lens fan-out, cross-claim macro relationships, and coverage audits; the first end-to-end implementation is migrated and deployed
-- `docs/oracle/` — deeper AI-retrofit reference material
 - `oracle_master_spec.md` — product/spec contract
-- `oracle_ai_architecture_prompt caching.md` — historical AI architecture/prompt-cache reference
 - `china_imp.md` — design + resolved decisions for the China bilingual claim layer (Phase 1 implemented; the code is the source of truth, this doc captures rationale). Read only for China bilingual / translation / recertification work.
-- `MACRO_FIRST_IMPLEMENTATION_PLAN.md` — canonical forward plan for the macro-first redesign;
-  supporting macro/shape documents retain rationale, history, and completed gate evidence.
 - `plan_repo_reliability_and_release_gaps.md` — canonical plan for known runtime verification,
   stale-script/comment, drift, production-proof, and release-automation gaps.
 - `plan_deferred_product_and_infrastructure_gaps.md` — canonical plan for known product,
   optional-infrastructure, and owner-deferred security gaps.
-- `plan_typesafe_jev_decision_layer.md` — staged plan for a separate TypeSafe Jev decision
-  layer, shadow evaluations, privacy gates, and one-use-case-at-a-time rollout.
 
 Scripts:
 

@@ -5,10 +5,7 @@ The Oracle is the Company Map for POP Creations / Spruce Line: it reads company 
 Start here:
 
 - `AGENTS.md` — primary developer and AI-session operating guide
-- [`plan_oracle_consultant_overhaul.md`](plan_oracle_consultant_overhaul.md) — company-consultant replacement; read STATUS first and follow parent issue #24
-- [`plan_oracle_workflow_integrity.md`](plan_oracle_workflow_integrity.md) — preserved conflicts/unknowns, explicit workflows and PM4Py; read STATUS first, existing recovery gates retained
 - `HANDOFF.md` — active unfinished work, when present
-- `MACRO_FIRST_IMPLEMENTATION_PLAN.md` — macro-first refactor status and execution gates
 - `plan_repo_reliability_and_release_gaps.md` — known reliability and release problems
 - `plan_deferred_product_and_infrastructure_gaps.md` — known product and infrastructure gaps
 - `docs/architecture.md` — current system design and data flow

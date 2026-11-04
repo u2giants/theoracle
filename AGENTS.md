@@ -8,39 +8,11 @@ The Oracle is an evidence-backed enterprise knowledge graph for POP Creations / 
 
 ## 2. AI tool notes
 
-Claude Code uses .claudeignore. Other tools follow **What to ignore** in this file. Do not bulk-load docs/oracle/, historical specs, or generated SQL.
+Claude Code uses .claudeignore. Other tools follow **What to ignore** in this file. Do not bulk-load historical specs or generated SQL.
 
 ## Consultant overhaul discovery
 
-**Current program (2026-10-27):** read [plan_oracle_company_map.md](plan_oracle_company_map.md) STATUS first; the overhaul plan is superseded. The paragraphs that follow are history.
-
-For the company-consultant replacement requested on 2026-09-27 EDT, read
-[`plan_oracle_consultant_overhaul.md`](plan_oracle_consultant_overhaul.md) **STATUS first**
-and follow parent issue #24. This is the durable project-memory pointer: do not
-re-derive the plan or resume old experiments to start the isolated replacement.
-The plan distinguishes future design from current runtime and preserves the
-applicable evidence, access and release controls.
-
-For the scoped clean operating-model rebuild, retained conflicts/unknowns,
-explicit workflow modeling, PM4Py and selective
-consultant/lineage integrations, read
-[`plan_oracle_workflow_integrity.md`](plan_oracle_workflow_integrity.md) **STATUS first**.
-It preserves FalkorDB/GraphRAG and the recovery ownership, paused questions and
-release gates; planning publication is not implementation or acceptance.
-
-For separating qualified original processing from generated-truth confirmation, read
-[`plan_oracle_source_processing_qualification.md`](plan_oracle_source_processing_qualification.md)
-**STATUS first**. It is an unimplemented architecture prerequisite on #27 under #24,
-not permission to change roles, read private originals, dispatch providers or apply SQL.
-
-For S03 original-to-generated replacement knowledge integration, read
-[`plan_oracle_replacement_documentary_journey.md`](plan_oracle_replacement_documentary_journey.md)
-**STATUS first**. The hosted quotation-only preview is transport proof, not
-holistic generation acceptance; the W ledger remains the single authority.
-
-For the genuinely fresh native/browser v2 invented proof after the unexecuted v1
-permission expired, read [plan_oracle_native_fresh_v2.md](plan_oracle_native_fresh_v2.md)
-STATUS first on #27. It adds a separate fixed test; it never renews v1 or resumes paused work.
+**Current program (2026-10-27):** read [plan_oracle_company_map.md](plan_oracle_company_map.md) STATUS first; older plans were removed in #398.
 
 ## 3. Task router — where each section now lives
 
@@ -181,7 +153,6 @@ Do not load these into AI context unless a task explicitly requires them:
 - `oracle_master_spec.md` unless product/spec alignment is the task
 - `oracle_ai_architecture_prompt caching.md` unless AI architecture or prompt-cache retrofit history is the task
 - `china_imp.md` unless the task is the China bilingual claim layer / claim translation / recertification
-- `docs/oracle/` unless the task touches the AI-retrofit spec directly
 
 For orientation, follow the documentation map near the top of this file. Do not load broad source files such as `packages/db/src/schema.ts` unless the task needs that subsystem.
 

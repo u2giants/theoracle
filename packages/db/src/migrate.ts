@@ -6,7 +6,6 @@
 //   3. Apply raw SQL files in lex order from ./migrations/sql (excluding 01_extensions
 //      which we ran in step 1, and 99_vector_indexes which is opt-in).
 //   4. If ORACLE_RUN_VECTOR_INDEXES=1, apply 99_vector_indexes.sql
-//   5. Seed settings + admin employee (calls seed.ts inline)
 //
 // Run from repo root:
 //   pnpm db:migrate
@@ -20,7 +19,6 @@ import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
-import { runSeed } from './seed';
 import { shouldSkipRawMigration } from './identity-cleanup-contract';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -134,11 +132,7 @@ async function main(): Promise<void> {
       );
     }
 
-    // Step 5 — seeds.
-    console.log('Step 5: seed (settings + admin employee)');
-    await runSeed(client);
-
-    console.log('\nMigrations + seed complete.');
+    console.log('\nMigrations complete.');
   } finally {
     await client.end({ timeout: 5 });
   }
