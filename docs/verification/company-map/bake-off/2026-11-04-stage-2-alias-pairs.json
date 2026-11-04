@@ -1,0 +1,1166 @@
+{
+ "model": "voyageai/voyage-4-lite",
+ "cost": 0.00028928,
+ "pairs": [
+  {
+   "type": "Customer",
+   "a": "Walmart",
+   "b": "Wal-Mart",
+   "same": 1,
+   "cos_quote": 0.4923,
+   "cos_name": 0.9547
+  },
+  {
+   "type": "Customer",
+   "a": "Dollar",
+   "b": "Dollar General",
+   "same": 1,
+   "cos_quote": 0.5559,
+   "cos_name": 0.7023
+  },
+  {
+   "type": "Customer",
+   "a": "Desperate",
+   "b": "Desperate Enterprises",
+   "same": 1,
+   "cos_quote": 0.9654,
+   "cos_name": 0.7428
+  },
+  {
+   "type": "Customer",
+   "a": "Buyer",
+   "b": "buyers",
+   "same": 1,
+   "cos_quote": 0.5541,
+   "cos_name": 0.8689
+  },
+  {
+   "type": "Customer",
+   "a": "retailer",
+   "b": "RETAILERS",
+   "same": 1,
+   "cos_quote": 0.7337,
+   "cos_name": 0.8803
+  },
+  {
+   "type": "Customer",
+   "a": "Retailer",
+   "b": "retail buyer",
+   "same": 0,
+   "cos_quote": 0.6345,
+   "cos_name": 0.796
+  },
+  {
+   "type": "Customer",
+   "a": "TJ Maxx",
+   "b": "Marshalls",
+   "same": 0,
+   "cos_quote": 0.9763,
+   "cos_name": 0.26
+  },
+  {
+   "type": "Customer",
+   "a": "Ross",
+   "b": "Burlington",
+   "same": 0,
+   "cos_quote": 0.6468,
+   "cos_name": 0.5568
+  },
+  {
+   "type": "Customer",
+   "a": "HomeGoods",
+   "b": "Hobby Lobby",
+   "same": 0,
+   "cos_quote": 0.5046,
+   "cos_name": 0.5376
+  },
+  {
+   "type": "Customer",
+   "a": "Walmart",
+   "b": "Dollar General",
+   "same": 0,
+   "cos_quote": 0.5319,
+   "cos_name": 0.6772
+  },
+  {
+   "type": "Customer",
+   "a": "Five Below",
+   "b": "Dollar General",
+   "same": 0,
+   "cos_quote": 0.5032,
+   "cos_name": 0.4261
+  },
+  {
+   "type": "Customer",
+   "a": "Box Lunch",
+   "b": "Hot Topic",
+   "same": 0,
+   "cos_quote": 0.8876,
+   "cos_name": 0.4126
+  },
+  {
+   "type": "Customer",
+   "a": "Costco",
+   "b": "Amazon",
+   "same": 0,
+   "cos_quote": 0.9388,
+   "cos_name": 0.4125
+  },
+  {
+   "type": "Customer",
+   "a": "Kohl's",
+   "b": "Ollies",
+   "same": 0,
+   "cos_quote": 0.4176,
+   "cos_name": 0.2131
+  },
+  {
+   "type": "Customer",
+   "a": "DD's",
+   "b": "Ross",
+   "same": 0,
+   "cos_quote": 0.9344,
+   "cos_name": 0.5632
+  },
+  {
+   "type": "Customer",
+   "a": "At Home",
+   "b": "HomeGoods",
+   "same": 0,
+   "cos_quote": 0.9813,
+   "cos_name": 0.6476
+  },
+  {
+   "type": "Customer",
+   "a": "Walmart",
+   "b": "HomeGoods",
+   "same": 0,
+   "cos_quote": 0.9457,
+   "cos_name": 0.6342
+  },
+  {
+   "type": "Department",
+   "a": "China team",
+   "b": "China Team",
+   "same": 1,
+   "cos_quote": 0.7376,
+   "cos_name": 0.9938
+  },
+  {
+   "type": "Department",
+   "a": "creative",
+   "b": "Creative",
+   "same": 1,
+   "cos_quote": 0.7556,
+   "cos_name": 0.9417
+  },
+  {
+   "type": "Department",
+   "a": "creative team",
+   "b": "Creative",
+   "same": 1,
+   "cos_quote": 0.658,
+   "cos_name": 0.7677
+  },
+  {
+   "type": "Department",
+   "a": "Licensed team",
+   "b": "Licensed Team",
+   "same": 1,
+   "cos_quote": 0.6617,
+   "cos_name": 0.9721
+  },
+  {
+   "type": "Department",
+   "a": "license team",
+   "b": "Licensed Team",
+   "same": 1,
+   "cos_quote": 0.596,
+   "cos_name": 0.8878
+  },
+  {
+   "type": "Department",
+   "a": "licensing team",
+   "b": "Licensing Team",
+   "same": 1,
+   "cos_quote": 0.6988,
+   "cos_name": 0.9399
+  },
+  {
+   "type": "Department",
+   "a": "Licensed Team",
+   "b": "Licensing Team",
+   "same": 1,
+   "cos_quote": 0.6488,
+   "cos_name": 0.8387
+  },
+  {
+   "type": "Department",
+   "a": "production",
+   "b": "Production Team",
+   "same": 1,
+   "cos_quote": 0.6073,
+   "cos_name": 0.767
+  },
+  {
+   "type": "Department",
+   "a": "production team",
+   "b": "Production Team",
+   "same": 1,
+   "cos_quote": 0.5835,
+   "cos_name": 0.969
+  },
+  {
+   "type": "Department",
+   "a": "sales",
+   "b": "Sales Team",
+   "same": 1,
+   "cos_quote": 0.6434,
+   "cos_name": 0.6886
+  },
+  {
+   "type": "Department",
+   "a": "sourcing",
+   "b": "Sourcing",
+   "same": 1,
+   "cos_quote": 0.6016,
+   "cos_name": 0.9763
+  },
+  {
+   "type": "Department",
+   "a": "technical",
+   "b": "technical team",
+   "same": 1,
+   "cos_quote": 0.6657,
+   "cos_name": 0.703
+  },
+  {
+   "type": "Department",
+   "a": "tech team",
+   "b": "technical team",
+   "same": 1,
+   "cos_quote": 0.6935,
+   "cos_name": 0.8643
+  },
+  {
+   "type": "Department",
+   "a": "technical design",
+   "b": "technical team",
+   "same": 1,
+   "cos_quote": 0.6296,
+   "cos_name": 0.8034
+  },
+  {
+   "type": "Department",
+   "a": "design team",
+   "b": "Design",
+   "same": 1,
+   "cos_quote": 0.576,
+   "cos_name": 0.7683
+  },
+  {
+   "type": "Department",
+   "a": "New York",
+   "b": "New York office",
+   "same": 1,
+   "cos_quote": 0.7169,
+   "cos_name": 0.8653
+  },
+  {
+   "type": "Department",
+   "a": "POP Creations",
+   "b": "POP",
+   "same": 1,
+   "cos_quote": 0.614,
+   "cos_name": 0.4903
+  },
+  {
+   "type": "Department",
+   "a": "Sales",
+   "b": "Production",
+   "same": 0,
+   "cos_quote": 0.9853,
+   "cos_name": 0.781
+  },
+  {
+   "type": "Department",
+   "a": "Sales",
+   "b": "Sourcing",
+   "same": 0,
+   "cos_quote": 0.9846,
+   "cos_name": 0.5206
+  },
+  {
+   "type": "Department",
+   "a": "Creative",
+   "b": "technical",
+   "same": 0,
+   "cos_quote": 0.5673,
+   "cos_name": 0.8024
+  },
+  {
+   "type": "Department",
+   "a": "China team",
+   "b": "New York office",
+   "same": 0,
+   "cos_quote": 0.3264,
+   "cos_name": 0.4068
+  },
+  {
+   "type": "Department",
+   "a": "Licensing Team",
+   "b": "Production Team",
+   "same": 0,
+   "cos_quote": 0.5864,
+   "cos_name": 0.6026
+  },
+  {
+   "type": "Department",
+   "a": "design team",
+   "b": "technical team",
+   "same": 0,
+   "cos_quote": 0.5122,
+   "cos_name": 0.669
+  },
+  {
+   "type": "Department",
+   "a": "Sales China team",
+   "b": "Sales Team",
+   "same": 0,
+   "cos_quote": 0.6208,
+   "cos_name": 0.6281
+  },
+  {
+   "type": "Department",
+   "a": "creative",
+   "b": "production",
+   "same": 0,
+   "cos_quote": 0.564,
+   "cos_name": 0.7647
+  },
+  {
+   "type": "Licensor",
+   "a": "DISNEY",
+   "b": "Disney",
+   "same": 1,
+   "cos_quote": 0.6658,
+   "cos_name": 0.6373
+  },
+  {
+   "type": "Licensor",
+   "a": "Nickelodeon",
+   "b": "nickelodeon",
+   "same": 1,
+   "cos_quote": 0.51,
+   "cos_name": 0.8318
+  },
+  {
+   "type": "Licensor",
+   "a": "Nickelodeon",
+   "b": "Nickelodeon (Paramount)",
+   "same": 1,
+   "cos_quote": 0.6965,
+   "cos_name": 0.8456
+  },
+  {
+   "type": "Licensor",
+   "a": "One Piece",
+   "b": "One Piece (TOEI)",
+   "same": 1,
+   "cos_quote": 0.7774,
+   "cos_name": 0.6215
+  },
+  {
+   "type": "Licensor",
+   "a": "TOEI",
+   "b": "One Piece (TOEI)",
+   "same": 1,
+   "cos_quote": 0.727,
+   "cos_name": 0.6346
+  },
+  {
+   "type": "Licensor",
+   "a": "NBC Universal",
+   "b": "NBCUniversal",
+   "same": 1,
+   "cos_quote": 0.698,
+   "cos_name": 0.9928
+  },
+  {
+   "type": "Licensor",
+   "a": "Warner Bros",
+   "b": "Warner Brothers",
+   "same": 1,
+   "cos_quote": 0.7289,
+   "cos_name": 0.9258
+  },
+  {
+   "type": "Licensor",
+   "a": "LucasFilm",
+   "b": "LucasFilm / Star Wars",
+   "same": 1,
+   "cos_quote": 0.6716,
+   "cos_name": 0.7747
+  },
+  {
+   "type": "Licensor",
+   "a": "Star Wars",
+   "b": "LucasFilm / Star Wars",
+   "same": 1,
+   "cos_quote": 0.6749,
+   "cos_name": 0.6119
+  },
+  {
+   "type": "Licensor",
+   "a": "Strawberry Shortcake",
+   "b": "Strawberry Shortcake (WildBrain CPLP)",
+   "same": 1,
+   "cos_quote": 0.7705,
+   "cos_name": 0.8905
+  },
+  {
+   "type": "Licensor",
+   "a": "WildBrain CPLP",
+   "b": "Strawberry Shortcake (WildBrain CPLP)",
+   "same": 1,
+   "cos_quote": 0.724,
+   "cos_name": 0.5889
+  },
+  {
+   "type": "Licensor",
+   "a": "Marvel",
+   "b": "DC Comics",
+   "same": 0,
+   "cos_quote": 0.9504,
+   "cos_name": 0.6655
+  },
+  {
+   "type": "Licensor",
+   "a": "Disney",
+   "b": "Warner Bros",
+   "same": 0,
+   "cos_quote": 0.4329,
+   "cos_name": 0.4724
+  },
+  {
+   "type": "Licensor",
+   "a": "Care Bears",
+   "b": "Sesame Street",
+   "same": 0,
+   "cos_quote": 0.9157,
+   "cos_name": 0.4458
+  },
+  {
+   "type": "Licensor",
+   "a": "SEGA",
+   "b": "WWE",
+   "same": 0,
+   "cos_quote": 0.941,
+   "cos_name": 0.2332
+  },
+  {
+   "type": "Licensor",
+   "a": "Peanuts",
+   "b": "Care Bears",
+   "same": 0,
+   "cos_quote": 0.9437,
+   "cos_name": 0.4537
+  },
+  {
+   "type": "Licensor",
+   "a": "Coca-Cola",
+   "b": "Disney",
+   "same": 0,
+   "cos_quote": 0.4201,
+   "cos_name": 0.5766
+  },
+  {
+   "type": "Licensor",
+   "a": "Nickelodeon",
+   "b": "Disney",
+   "same": 0,
+   "cos_quote": 0.4172,
+   "cos_name": 0.5633
+  },
+  {
+   "type": "Licensor",
+   "a": "Star Wars",
+   "b": "Marvel",
+   "same": 0,
+   "cos_quote": 0.9399,
+   "cos_name": 0.5613
+  },
+  {
+   "type": "Licensor",
+   "a": "Bears with Sweaters",
+   "b": "Care Bears",
+   "same": 0,
+   "cos_quote": 0.5849,
+   "cos_name": 0.7134
+  },
+  {
+   "type": "Licensor",
+   "a": "NBC Universal",
+   "b": "Paramount",
+   "same": 0,
+   "cos_quote": 0.6499,
+   "cos_name": 0.4702
+  },
+  {
+   "type": "Licensor",
+   "a": "IKONIK",
+   "b": "Stallion",
+   "same": 0,
+   "cos_quote": 0.8146,
+   "cos_name": 0.2911
+  },
+  {
+   "type": "Person",
+   "a": "Jen",
+   "b": "Jennifer Chaffier",
+   "same": 1,
+   "cos_quote": 0.4977,
+   "cos_name": 0.568
+  },
+  {
+   "type": "Person",
+   "a": "jen",
+   "b": "Jen",
+   "same": 1,
+   "cos_quote": 0.3448,
+   "cos_name": 0.5598
+  },
+  {
+   "type": "Person",
+   "a": "Jennifer",
+   "b": "Jennifer Chaffier",
+   "same": 1,
+   "cos_quote": 0.5346,
+   "cos_name": 0.6647
+  },
+  {
+   "type": "Person",
+   "a": "Jen Chaffier",
+   "b": "Jennifer (Jen) Chaffier",
+   "same": 1,
+   "cos_quote": 0.8905,
+   "cos_name": 0.9348
+  },
+  {
+   "type": "Person",
+   "a": "Liz",
+   "b": "Elizabeth Parkin",
+   "same": 1,
+   "cos_quote": 0.4327,
+   "cos_name": 0.4685
+  },
+  {
+   "type": "Person",
+   "a": "Liz Parkin",
+   "b": "Liz (Elizabeth) Parkin",
+   "same": 1,
+   "cos_quote": 0.7985,
+   "cos_name": 0.8958
+  },
+  {
+   "type": "Person",
+   "a": "Liz",
+   "b": "Liz Parkin",
+   "same": 1,
+   "cos_quote": 0.623,
+   "cos_name": 0.7124
+  },
+  {
+   "type": "Person",
+   "a": "Jess",
+   "b": "Jessica",
+   "same": 1,
+   "cos_quote": 0.4159,
+   "cos_name": 0.9563
+  },
+  {
+   "type": "Person",
+   "a": "Jessica",
+   "b": "Jessica Cortázar",
+   "same": 1,
+   "cos_quote": 0.6159,
+   "cos_name": 0.6806
+  },
+  {
+   "type": "Person",
+   "a": "Albert",
+   "b": "Albert Hazan",
+   "same": 1,
+   "cos_quote": 0.5453,
+   "cos_name": 0.6851
+  },
+  {
+   "type": "Person",
+   "a": "Arena",
+   "b": "arena",
+   "same": 1,
+   "cos_quote": 0.8673,
+   "cos_name": 0.9343
+  },
+  {
+   "type": "Person",
+   "a": "Yuchen",
+   "b": "Yuchin",
+   "same": 1,
+   "cos_quote": 0.2911,
+   "cos_name": 0.8415
+  },
+  {
+   "type": "Person",
+   "a": "Jen",
+   "b": "Jessica",
+   "same": 0,
+   "cos_quote": 0.9801,
+   "cos_name": 0.5468
+  },
+  {
+   "type": "Person",
+   "a": "Liz",
+   "b": "Lucy",
+   "same": 0,
+   "cos_quote": 0.3567,
+   "cos_name": 0.4544
+  },
+  {
+   "type": "Person",
+   "a": "Laura",
+   "b": "Angie",
+   "same": 0,
+   "cos_quote": 0.4665,
+   "cos_name": 0.4331
+  },
+  {
+   "type": "Person",
+   "a": "Carlos",
+   "b": "Gina",
+   "same": 0,
+   "cos_quote": 0.9663,
+   "cos_name": 0.385
+  },
+  {
+   "type": "Person",
+   "a": "Albert",
+   "b": "Ilona",
+   "same": 0,
+   "cos_quote": 0.677,
+   "cos_name": 0.5009
+  },
+  {
+   "type": "Person",
+   "a": "Elizabeth Parkin",
+   "b": "Elizabeth's son",
+   "same": 0,
+   "cos_quote": 0.2979,
+   "cos_name": 0.5973
+  },
+  {
+   "type": "Person",
+   "a": "Jennifer Chaffier",
+   "b": "Umamaheswararao (Uma) Meka",
+   "same": 0,
+   "cos_quote": 0.4423,
+   "cos_name": 0.1859
+  },
+  {
+   "type": "Person",
+   "a": "Adam",
+   "b": "Derek",
+   "same": 0,
+   "cos_quote": 0.3027,
+   "cos_name": 0.4722
+  },
+  {
+   "type": "Person",
+   "a": "Kyle",
+   "b": "Tim",
+   "same": 0,
+   "cos_quote": 0.2607,
+   "cos_name": 0.84
+  },
+  {
+   "type": "Person",
+   "a": "Anna",
+   "b": "Alice Zhu",
+   "same": 0,
+   "cos_quote": 0.6092,
+   "cos_name": 0.6326
+  },
+  {
+   "type": "Person",
+   "a": "Emma",
+   "b": "Eliza",
+   "same": 0,
+   "cos_quote": 0.3912,
+   "cos_name": 0.5377
+  },
+  {
+   "type": "Person",
+   "a": "Mal",
+   "b": "Mallow",
+   "same": 0,
+   "cos_quote": 0.6268,
+   "cos_name": 0.5385
+  },
+  {
+   "type": "Person",
+   "a": "Julie Greer",
+   "b": "Jessica Cortázar",
+   "same": 0,
+   "cos_quote": 0.5147,
+   "cos_name": 0.6309
+  },
+  {
+   "type": "Role",
+   "a": "Lic Manager",
+   "b": "Licensing Manager",
+   "same": 1,
+   "cos_quote": 0.7847,
+   "cos_name": 0.8226
+  },
+  {
+   "type": "Role",
+   "a": "Lic Coordinator",
+   "b": "Coordinator",
+   "same": 1,
+   "cos_quote": 0.5722,
+   "cos_name": 0.8227
+  },
+  {
+   "type": "Role",
+   "a": "Creative Designer",
+   "b": "creative designer",
+   "same": 1,
+   "cos_quote": 0.7601,
+   "cos_name": 0.904
+  },
+  {
+   "type": "Role",
+   "a": "Creative designers",
+   "b": "Creative Designers",
+   "same": 1,
+   "cos_quote": 0.8027,
+   "cos_name": 0.9301
+  },
+  {
+   "type": "Role",
+   "a": "Technical Designer",
+   "b": "technical designer",
+   "same": 1,
+   "cos_quote": 0.6872,
+   "cos_name": 0.9709
+  },
+  {
+   "type": "Role",
+   "a": "Technical designers",
+   "b": "Technical Designers",
+   "same": 1,
+   "cos_quote": 0.8261,
+   "cos_name": 0.9407
+  },
+  {
+   "type": "Role",
+   "a": "project manager",
+   "b": "Project Manager",
+   "same": 1,
+   "cos_quote": 0.6239,
+   "cos_name": 0.9728
+  },
+  {
+   "type": "Role",
+   "a": "PM",
+   "b": "Project Manager",
+   "same": 1,
+   "cos_quote": 0.6022,
+   "cos_name": 0.6299
+  },
+  {
+   "type": "Role",
+   "a": "project coordinator",
+   "b": "Project coordinator",
+   "same": 1,
+   "cos_quote": 0.8024,
+   "cos_name": 0.9825
+  },
+  {
+   "type": "Role",
+   "a": "creative director",
+   "b": "Creative Director",
+   "same": 1,
+   "cos_quote": 0.6483,
+   "cos_name": 0.824
+  },
+  {
+   "type": "Role",
+   "a": "Factory",
+   "b": "factory",
+   "same": 1,
+   "cos_quote": 0.5193,
+   "cos_name": 0.9069
+  },
+  {
+   "type": "Role",
+   "a": "Senior Designer",
+   "b": "Creative Senior Designer",
+   "same": 1,
+   "cos_quote": 0.8179,
+   "cos_name": 0.9135
+  },
+  {
+   "type": "Role",
+   "a": "Lic Manager",
+   "b": "Lic Coordinator",
+   "same": 0,
+   "cos_quote": 0.9487,
+   "cos_name": 0.5628
+  },
+  {
+   "type": "Role",
+   "a": "Technical Designer",
+   "b": "Creative Designer",
+   "same": 0,
+   "cos_quote": 0.665,
+   "cos_name": 0.7987
+  },
+  {
+   "type": "Role",
+   "a": "Junior Designer",
+   "b": "Senior Designer",
+   "same": 0,
+   "cos_quote": 0.7431,
+   "cos_name": 0.7504
+  },
+  {
+   "type": "Role",
+   "a": "Production Managers",
+   "b": "Sourcing Managers",
+   "same": 0,
+   "cos_quote": 0.7109,
+   "cos_name": 0.7188
+  },
+  {
+   "type": "Role",
+   "a": "creative director",
+   "b": "art director",
+   "same": 0,
+   "cos_quote": 0.613,
+   "cos_name": 0.879
+  },
+  {
+   "type": "Role",
+   "a": "project manager",
+   "b": "project coordinator",
+   "same": 0,
+   "cos_quote": 0.7847,
+   "cos_name": 0.7834
+  },
+  {
+   "type": "Role",
+   "a": "Technical Lead Designer",
+   "b": "Technical Designer",
+   "same": 0,
+   "cos_quote": 0.6726,
+   "cos_name": 0.8634
+  },
+  {
+   "type": "Role",
+   "a": "Concept Reviewers",
+   "b": "Contract Reviewers",
+   "same": 0,
+   "cos_quote": 0.9873,
+   "cos_name": 0.738
+  },
+  {
+   "type": "Role",
+   "a": "Licensing Manager",
+   "b": "Licensor",
+   "same": 0,
+   "cos_quote": 0.648,
+   "cos_name": 0.808
+  },
+  {
+   "type": "Role",
+   "a": "buyer",
+   "b": "Factory",
+   "same": 0,
+   "cos_quote": 0.5863,
+   "cos_name": 0.4479
+  },
+  {
+   "type": "Role",
+   "a": "Apparel designers",
+   "b": "Creative Designers",
+   "same": 0,
+   "cos_quote": 0.6673,
+   "cos_name": 0.7297
+  },
+  {
+   "type": "System",
+   "a": "click up",
+   "b": "ClickUp",
+   "same": 1,
+   "cos_quote": 0.3962,
+   "cos_name": 0.8675
+  },
+  {
+   "type": "System",
+   "a": "Clickup",
+   "b": "ClickUp",
+   "same": 1,
+   "cos_quote": 0.5699,
+   "cos_name": 0.9392
+  },
+  {
+   "type": "System",
+   "a": "chat GPT",
+   "b": "ChatGPT",
+   "same": 1,
+   "cos_quote": 0.754,
+   "cos_name": 0.9574
+  },
+  {
+   "type": "System",
+   "a": "Chat gpd",
+   "b": "ChatGPT",
+   "same": 1,
+   "cos_quote": 0.7219,
+   "cos_name": 0.7853
+  },
+  {
+   "type": "System",
+   "a": "ColdLion",
+   "b": "ColdLion System",
+   "same": 1,
+   "cos_quote": 0.5434,
+   "cos_name": 0.8302
+  },
+  {
+   "type": "System",
+   "a": "DesignFlow",
+   "b": "Dflow",
+   "same": 1,
+   "cos_quote": 0.6761,
+   "cos_name": 0.7068
+  },
+  {
+   "type": "System",
+   "a": "design flow",
+   "b": "DesignFlow",
+   "same": 1,
+   "cos_quote": 0.6422,
+   "cos_name": 0.9391
+  },
+  {
+   "type": "System",
+   "a": "Master Data",
+   "b": "MasterData",
+   "same": 1,
+   "cos_quote": 0.6545,
+   "cos_name": 0.9836
+  },
+  {
+   "type": "System",
+   "a": "Techpack Automation",
+   "b": "TechPack Automation",
+   "same": 1,
+   "cos_quote": 0.7119,
+   "cos_name": 0.9843
+  },
+  {
+   "type": "System",
+   "a": "Techpack Automation system",
+   "b": "TechPack Automation",
+   "same": 1,
+   "cos_quote": 0.7267,
+   "cos_name": 0.9422
+  },
+  {
+   "type": "System",
+   "a": "Google sheets",
+   "b": "Google Sheet",
+   "same": 1,
+   "cos_quote": 0.7489,
+   "cos_name": 0.9712
+  },
+  {
+   "type": "System",
+   "a": "Illustrator",
+   "b": "Adobe Illustrator",
+   "same": 1,
+   "cos_quote": 0.6826,
+   "cos_name": 0.8171
+  },
+  {
+   "type": "System",
+   "a": "licensing sheet",
+   "b": "Licensing Sheet",
+   "same": 1,
+   "cos_quote": 0.7767,
+   "cos_name": 0.9516
+  },
+  {
+   "type": "System",
+   "a": "SharedLic server",
+   "b": "SharedLic FAMA server",
+   "same": 1,
+   "cos_quote": 0.7415,
+   "cos_name": 0.7735
+  },
+  {
+   "type": "System",
+   "a": "ShareLic Server",
+   "b": "SharedLic server",
+   "same": 1,
+   "cos_quote": 0.7519,
+   "cos_name": 0.834
+  },
+  {
+   "type": "System",
+   "a": "licensor portals",
+   "b": "licensor's portal",
+   "same": 1,
+   "cos_quote": 0.7749,
+   "cos_name": 0.9438
+  },
+  {
+   "type": "System",
+   "a": "DesignFlow",
+   "b": "MasterData",
+   "same": 0,
+   "cos_quote": 0.5689,
+   "cos_name": 0.4767
+  },
+  {
+   "type": "System",
+   "a": "ClickUp",
+   "b": "Microsoft Loop",
+   "same": 0,
+   "cos_quote": 0.4601,
+   "cos_name": 0.3906
+  },
+  {
+   "type": "System",
+   "a": "SharedLic server",
+   "b": "Production Server",
+   "same": 0,
+   "cos_quote": 0.6574,
+   "cos_name": 0.5555
+  },
+  {
+   "type": "System",
+   "a": "SharedProd Testing Server",
+   "b": "SharedLic FAMA server",
+   "same": 0,
+   "cos_quote": 0.7001,
+   "cos_name": 0.5286
+  },
+  {
+   "type": "System",
+   "a": "Style Guide Server",
+   "b": "Production Server",
+   "same": 0,
+   "cos_quote": 0.5388,
+   "cos_name": 0.6414
+  },
+  {
+   "type": "System",
+   "a": "Google Sheet",
+   "b": "Licensing Sheet",
+   "same": 0,
+   "cos_quote": 0.6543,
+   "cos_name": 0.6542
+  },
+  {
+   "type": "System",
+   "a": "ColdLion",
+   "b": "DesignFlow",
+   "same": 0,
+   "cos_quote": 0.4697,
+   "cos_name": 0.2499
+  },
+  {
+   "type": "System",
+   "a": "ChatGPT",
+   "b": "Teams",
+   "same": 0,
+   "cos_quote": 0.3057,
+   "cos_name": 0.4525
+  },
+  {
+   "type": "System",
+   "a": "PowerPoint",
+   "b": "Illustrator",
+   "same": 0,
+   "cos_quote": 0.6112,
+   "cos_name": 0.4941
+  },
+  {
+   "type": "System",
+   "a": "tech pack",
+   "b": "techpackData",
+   "same": 0,
+   "cos_quote": 0.599,
+   "cos_name": 0.7712
+  },
+  {
+   "type": "System",
+   "a": "Product Library",
+   "b": "Master Data",
+   "same": 0,
+   "cos_quote": 0.9855,
+   "cos_name": 0.5169
+  },
+  {
+   "type": "System",
+   "a": "Compression Enabled",
+   "b": "Embed ICC Profiles Enabled",
+   "same": 0,
+   "cos_quote": 0.9761,
+   "cos_name": 0.5989
+  },
+  {
+   "type": "System",
+   "a": "Techpack Automation",
+   "b": "Licensing Sheet",
+   "same": 0,
+   "cos_quote": 0.5181,
+   "cos_name": 0.4771
+  },
+  {
+   "type": "Vendor",
+   "a": "factories",
+   "b": "Factories",
+   "same": 1,
+   "cos_quote": 0.4492,
+   "cos_name": 0.9786
+  },
+  {
+   "type": "Vendor",
+   "a": "factory",
+   "b": "Factories (China)",
+   "same": 1,
+   "cos_quote": 0.4139,
+   "cos_name": 0.5808
+  },
+  {
+   "type": "Vendor",
+   "a": "Stallion Art",
+   "b": "Iconick",
+   "same": 0,
+   "cos_quote": 0.9704,
+   "cos_name": 0.3488
+  },
+  {
+   "type": "Vendor",
+   "a": "freelancers",
+   "b": "factories",
+   "same": 0,
+   "cos_quote": 0.5339,
+   "cos_name": 0.3737
+  }
+ ]
+}
