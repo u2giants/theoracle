@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     brain_eval_model: str | None = None
     # Flat entity pickup. When set, it extracts every chunk (ScaleDown still
     # classifies); unset keeps ScaleDown /extract with the frontier fallback.
+    # Flat extraction model. When set it extracts every non-chatter chunk (ScaleDown
+    # still classifies), and each call counts against BRAIN_MAX_FRONTIER_CALLS_PER_JOB,
+    # so size that cap to at least the chunk count of the largest job.
     brain_flat_model: str | None = None
     brain_vision_model: str | None = None
     brain_embed_model: str | None = None

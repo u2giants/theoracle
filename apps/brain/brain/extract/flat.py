@@ -162,8 +162,13 @@ class ChunkOutcome:
 
 
 def load_flat_prompt() -> str:
-    """Return the runtime prompt text for the frontier fallback."""
-    return PROMPT_PATH.read_text(encoding="utf-8")
+    """Return the frontier prompt, its label rubrics rendered from ``CLASSIFY_LABELS``.
+
+    Both classify paths (ScaleDown and the frontier model) therefore use the
+    same rubric text, and changing a rubric changes ``frontier_prompt_hash``.
+    """
+    labels = "\n".join(f"- {label['name']}: {label['rubric']}" for label in CLASSIFY_LABELS)
+    return PROMPT_PATH.read_text(encoding="utf-8").replace("{{classify_labels}}", labels)
 
 
 def _spec_hash(prefix: str, spec: Any) -> str:
