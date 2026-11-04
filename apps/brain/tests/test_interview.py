@@ -42,7 +42,22 @@ def _clean_interviews(db: Any) -> None:
         "cmap.interview_send, cmap.teams_intake"
     )
     db.execute("UPDATE cmap.interview_setting SET enabled = true")
+    # The standing test employee already told the bot who they are; the
+    # profile tests clear this row to exercise the question.
+    db.execute(
+        "INSERT INTO cmap.employee_flags (employee_id, department, job_title, profile_answer, "
+        "profile_asked_at) VALUES (%s, 'Design', 'Designer', 'Designer in Design', now())",
+        (EMPLOYEE_ID,),
+    )
     db.commit()
+
+
+@pytest.fixture(autouse=True)
+def _office_hours(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tick tests run as if during office hours whatever the wall clock says."""
+    if request.node.name == "test_quiet_hours_window":
+        return
+    monkeypatch.setattr(tick_mod, "in_quiet_hours", lambda now=None: False)
 
 
 @pytest.fixture()
@@ -238,9 +253,13 @@ def test_answer_becomes_source(
         "SELECT locator->>'speaker', text FROM cmap.chunk WHERE source_id = %s ORDER BY ordinal",
         (source_id,),
     ).fetchall()
-    assert [speaker for speaker, _ in chunks] == ["The Oracle", EMPLOYEE_NAME]
-    assert "licensor approval form" in chunks[0][1]
-    assert answer in chunks[1][1]
+    assert [speaker for speaker, _ in chunks] == [
+        "The Oracle", EMPLOYEE_NAME, "The Oracle", EMPLOYEE_NAME
+    ]
+    assert "job title" in chunks[0][1]
+    assert "Designer in Design" in chunks[1][1]
+    assert "licensor approval form" in chunks[2][1]
+    assert answer in chunks[3][1]
 
     later = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="join")
     assert later["handled"] is False
@@ -388,7 +407,7 @@ def test_tenant_sender_auto_registers(db: Any) -> None:
         conversation_ref=CONVERSATION_REF,
         text="hi",
     )
-    assert result["reply"] == intake.REPLY_INTRO
+    assert result["reply"].startswith(intake.REPLY_INTRO_SHORT)
     row = db.execute(
         "SELECT id::text, name FROM public.employees WHERE lower(email) = %s",
         ("new.person@popcre.com",),
@@ -510,7 +529,9 @@ def test_volunteer_becomes_source(db: Any, storage: Any, monkeypatch: pytest.Mon
         "SELECT locator->>'speaker', text FROM cmap.chunk WHERE source_id = %s ORDER BY ordinal",
         (source_id,),
     ).fetchall()
-    assert {speaker for speaker, _ in chunks} == {EMPLOYEE_NAME}
+    assert {speaker for speaker, _ in chunks} == {EMPLOYEE_NAME, "The Oracle"}
+    hint = db.execute("SELECT department_hint FROM cmap.source WHERE id = %s", (source_id,)).fetchone()
+    assert hint == ("Design",)
     joined = " ".join(text for _, text in chunks)
     assert "licensor sends back artwork" in joined
     assert "two days" in joined
@@ -646,3 +667,64 @@ def test_tick_sends_nothing_in_quiet_hours(
     result = run_interview_tick()
     assert result["quiet_hours"] is True
     assert sent == []
+
+
+
+def _forget_profile(db: Any) -> None:
+    db.execute("DELETE FROM cmap.employee_flags WHERE employee_id = %s", (EMPLOYEE_ID,))
+    db.commit()
+
+
+def test_first_greeting_asks_department_and_title(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner direction 2026-11-03: the bot asks department and job title first."""
+    from brain.interview import profile
+
+    _forget_profile(db)
+    monkeypatch.setattr(profile, "_split", lambda text: ("Licensing", "Licensing Coordinator"))
+    hello = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi")
+    assert profile.PROFILE_QUESTION in hello["reply"]
+    answer = handle_inbound(
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="I'm a licensing coordinator in the licensing team",
+    )
+    assert answer["profile"] is True
+    assert "Licensing Coordinator, Licensing" in answer["reply"]
+    row = db.execute(
+        "SELECT department, job_title, profile_answer FROM cmap.employee_flags WHERE employee_id = %s",
+        (EMPLOYEE_ID,),
+    ).fetchone()
+    assert row == ("Licensing", "Licensing Coordinator", "I'm a licensing coordinator in the licensing team")
+    again = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi")
+    assert again["reply"] == intake.REPLY_INTRO
+
+
+def test_profile_kept_raw_when_model_unavailable(db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    from brain.interview import profile
+
+    _forget_profile(db)
+    monkeypatch.setattr(profile, "_split", lambda text: (None, None))
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hello")
+    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Sales, account manager")
+    assert reply["reply"] == profile.REPLY_PROFILE_THANKS_RAW
+    assert profile.department_hint(EMPLOYEE_ID) == "Sales, account manager"
+
+
+def test_first_contribution_asks_profile_and_keeps_content(
+    db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first message of real content is kept and the profile question follows."""
+    from brain.interview import profile
+
+    _forget_profile(db)
+    monkeypatch.setattr(profile, "_split", lambda text: ("Production", "Planner"))
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    assert profile.PROFILE_QUESTION in first["reply"]
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Production planner")
+    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done")
+    hint = db.execute(
+        "SELECT department_hint FROM cmap.source WHERE id = %s", (done["source_id"],)
+    ).fetchone()
+    assert hint == ("Production",)

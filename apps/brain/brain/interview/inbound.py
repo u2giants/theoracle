@@ -19,7 +19,7 @@ from psycopg.types.json import Json
 
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
-from brain.interview import followup, intake
+from brain.interview import followup, intake, profile
 
 ANSWER_WINDOW_DAYS = 7
 ORACLE_SPEAKER = "The Oracle"
@@ -98,7 +98,11 @@ def _transcript_text(question: str, employee_name: str, answer: str) -> str:
 
 def _thread_reply(conn: Any, thread_id: str) -> str:
     """A grounded follow-up (kept in the thread) or the plain acknowledgement."""
-    question = followup.next_followup(conn, intake.thread_turns(conn, thread_id))
+    row = conn.execute(
+        "SELECT employee_id::text FROM cmap.teams_intake WHERE id = %s", (thread_id,)
+    ).fetchone()
+    who = profile.get_profile(conn, str(row[0])).label() if row else None
+    question = followup.next_followup(conn, intake.thread_turns(conn, thread_id), who)
     if question is None:
         return intake.REPLY_ACK
     intake.append_turn(conn, thread_id, followup.ORACLE_SPEAKER, question)
@@ -113,15 +117,24 @@ def _volunteer(
     if not personal or intake.is_join_request(text):
         return unhandled
     if intake.is_greeting(command):
-        return {"handled": True, "reply": intake.REPLY_INTRO, "employee_id": employee_id}
+        reply = intake.REPLY_INTRO
+        if not profile.get_profile(conn, employee_id).complete:
+            profile.mark_asked(conn, employee_id)
+            reply = f"{intake.REPLY_INTRO_SHORT} {profile.PROFILE_QUESTION}"
+        return {"handled": True, "reply": reply, "employee_id": employee_id}
     if intake.is_done(command):
         return {"handled": True, "reply": intake.REPLY_NOTHING_OPEN, "employee_id": employee_id}
     if intake.word_count(text) < intake.MIN_CONTRIBUTION_WORDS:
         return unhandled
     thread_id = intake.start_thread(conn, employee_id, employee_name, text)
+    if not profile.get_profile(conn, employee_id).asked:
+        profile.mark_asked(conn, employee_id)
+        reply = f"Got it, keep going any time. {profile.PROFILE_QUESTION}"
+    else:
+        reply = _thread_reply(conn, thread_id)
     return {
         "handled": True,
-        "reply": _thread_reply(conn, thread_id),
+        "reply": reply,
         "employee_id": employee_id,
         "intake_id": thread_id,
     }
@@ -162,6 +175,25 @@ def handle_inbound(
             conn.commit()
             return {"handled": True, "reply": REPLY_STOPPED, "employee_id": employee_id}
         personal = intake.is_personal(conversation_ref)
+        if personal and not intake.is_join_request(text) and command not in ("skip", "done"):
+            who = profile.get_profile(conn, employee_id)
+            pending = conn.execute(
+                "SELECT 1 FROM cmap.open_question WHERE state = 'asked' AND target_employee_id = %s "
+                "AND asked_at > now() - make_interval(days => %s) LIMIT 1",
+                (employee_id, ANSWER_WINDOW_DAYS),
+            ).fetchone()
+            if (
+                pending is None
+                and who.asked
+                and not who.complete
+                and intake.word_count(text) <= profile.MAX_ANSWER_WORDS
+            ):
+                return {
+                    "handled": True,
+                    "reply": profile.record_answer(conn, employee_id, text),
+                    "employee_id": employee_id,
+                    "profile": True,
+                }
         thread = intake.open_thread(conn, employee_id) if personal else None
         if thread is not None and not thread[1]:
             thread_id = thread[0]
@@ -215,8 +247,9 @@ def handle_inbound(
         kind="transcript",
         title=f"Interview answer — {employee_name} — {day}",
         original_filename=f"interview-answer-{question_id}.txt",
-        data=_transcript_text(question, employee_name, answer).encode("utf-8"),
-        department_hint=None,
+        data=(profile.transcript_header(employee_id, employee_name)
+              + _transcript_text(question, employee_name, answer)).encode("utf-8"),
+        department_hint=profile.department_hint(employee_id),
         effective_date=None,
         uploaded_by=None,
     )

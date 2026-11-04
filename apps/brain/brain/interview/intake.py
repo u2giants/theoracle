@@ -18,6 +18,7 @@ from psycopg.types.json import Json
 
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
+from brain.interview import profile
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,10 @@ REPLY_INTRO = (
     "Hi, I'm The Oracle. I learn how POP Creations works from the people who do "
     "the work. Tell me about something you handle (who you get it from, what "
     "you do, who you pass it to) and I'll add it to the Company Map."
+)
+REPLY_INTRO_SHORT = (
+    "Hi, I'm The Oracle. I learn how POP Creations works from the people who do "
+    "the work and add it to the Company Map."
 )
 REPLY_ACK = "Got it — keep going, or say done."
 REPLY_DONE = "Thanks, that's recorded. Message me any time you have more."
@@ -143,8 +148,10 @@ def close_thread(thread_id: str) -> str | None:
             kind="transcript",
             title=f"Teams contribution — {name} — {day}",
             original_filename=f"teams-contribution-{thread_id}.txt",
-            data=_transcript(list(turns or [])).encode("utf-8"),
-            department_hint=None,
+            data=(
+                profile.transcript_header(employee_id, name) + _transcript(list(turns or []))
+            ).encode("utf-8"),
+            department_hint=profile.department_hint(employee_id),
             effective_date=None,
             uploaded_by=None,
         )

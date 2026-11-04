@@ -117,7 +117,9 @@ def _call_model(messages: list[dict[str, str]]) -> str:
     return message_content(body)
 
 
-def next_followup(conn: Any, turns: list[dict[str, Any]]) -> str | None:
+def next_followup(
+    conn: Any, turns: list[dict[str, Any]], who: str | None = None
+) -> str | None:
     """One grounded follow-up for this thread, or ``None`` (cap reached / no good question)."""
     asked = sum(1 for turn in turns if turn.get("speaker") == ORACLE_SPEAKER)
     if asked >= MAX_FOLLOWUPS:
@@ -128,7 +130,8 @@ def next_followup(conn: Any, turns: list[dict[str, Any]]) -> str | None:
     context = map_context(conn, employee_text)
     transcript = "\n".join(f"{turn.get('speaker')}: {turn.get('text')}" for turn in turns)
     user = (
-        "Map context (what the Company Map already records):\n"
+        (f"The employee is {who}.\n\n" if who else "")
+        + "Map context (what the Company Map already records):\n"
         + ("\n".join(context) if context else "(nothing yet)")
         + "\n\nConversation so far:\n"
         + transcript
