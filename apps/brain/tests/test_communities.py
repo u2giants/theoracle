@@ -269,3 +269,43 @@ def test_fixture_report_context_covers_pdf_and_transcript(
         for prompt in level0_prompts
     ), "no level-0 community sees both the transcript and the PDF procedure"
     assert "Top 10 cross-department issues" in fake.prompts[-1]
+
+
+def test_open_question_embeddings_grow_linearly(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """#344: N distinct open questions cost N embedded texts, not N^2."""
+    from brain.config import get_settings
+    from brain.graph import communities as comm
+
+    embedded: list[str] = []
+
+    def _embed(texts: list[str], settings: Any) -> list[list[float]]:
+        embedded.extend(texts)
+        out = []
+        for text in texts:
+            vec = [0.0] * 64
+            vec[int(text.split()[-1]) % 64] = 1.0  # distinct axis per question
+            out.append(vec)
+        return out
+
+    monkeypatch.setattr(comm, "embed_texts", _embed)
+
+    def _run(n: int) -> int:
+        db.execute("DELETE FROM cmap.open_question")
+        db.commit()
+        embedded.clear()
+        cache: dict[str, list[float]] = {}
+        for start in range(0, n, 4):
+            report = {
+                "title": "r",
+                "open_questions": [f"question {i}" for i in range(start, start + 4)],
+            }
+            comm._store_open_questions(db, report, [], get_settings(), cache)
+        db.commit()
+        stored = db.execute("SELECT count(*) FROM cmap.open_question").fetchone()[0]
+        assert stored == n
+        return len(embedded)
+
+    assert _run(16) == 16
+    assert _run(48) == 48  # 3x the questions, exactly 3x the embedding work

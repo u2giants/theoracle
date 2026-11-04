@@ -347,28 +347,40 @@ def _store_open_questions(
     report: dict[str, Any],
     entity_ids: list[str],
     settings: Settings,
+    cache: dict[str, list[float]] | None = None,
 ) -> int:
-    """Insert deduped open questions (cosine >= 0.9 counts as the same)."""
+    """Insert deduped open questions (cosine >= 0.9 counts as the same).
+
+    ``cache`` maps question text to its vector for the whole job, so each
+    distinct question is embedded once: one batched call per report, and the
+    total embedding work grows linearly with the number of questions (#344).
+    """
+    vectors = cache if cache is not None else {}
+    existing = [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT question FROM cmap.open_question WHERE state = 'open'"
+        ).fetchall()
+    ]
+    missing = list(
+        dict.fromkeys(
+            text for text in existing + list(report["open_questions"]) if text not in vectors
+        )
+    )
+    if missing:
+        vectors.update(zip(missing, embed_texts(missing, settings), strict=True))
+    stored = [vectors[text] for text in existing]
     written = 0
     for question in report["open_questions"]:
-        existing = [
-            str(row[0])
-            for row in conn.execute(
-                "SELECT question FROM cmap.open_question WHERE state = 'open'"
-            ).fetchall()
-        ]
-        vectors = embed_texts(existing + [question], settings)
-        new_vector = vectors[-1]
-        duplicate = any(
-            _cosine(new_vector, other) >= DEDUPE_COSINE for other in vectors[:-1]
-        )
-        if duplicate:
+        new_vector = vectors[question]
+        if any(_cosine(new_vector, other) >= DEDUPE_COSINE for other in stored):
             continue
         conn.execute(
             "INSERT INTO cmap.open_question (question, why, entity_ids, state) "
             "VALUES (%s, %s, %s, 'open')",
             (question, report["title"], entity_ids),
         )
+        stored.append(new_vector)
         written += 1
     return written
 
@@ -467,6 +479,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         "findings_dropped": 0,
         "open_questions": 0,
     }
+    question_vectors: dict[str, list[float]] = {}
     with get_pool().connection() as conn:
         nodes = _load_entities(conn)
         if not nodes:
@@ -519,7 +532,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 )
                 stats["findings_dropped"] += dropped
                 stats["open_questions"] += _store_open_questions(
-                    conn, stored, member_ids, cfg
+                    conn, stored, member_ids, cfg, question_vectors
                 )
                 conn.commit()
             else:
@@ -604,7 +617,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             stats["findings_dropped"] += dropped
             stats["reports"] += 1
             stats["open_questions"] += _store_open_questions(
-                conn, report, member_ids, cfg
+                conn, report, member_ids, cfg, question_vectors
             )
             conn.commit()
 
@@ -638,7 +651,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 conn, 2, None, company, entity_ids, graph_version, valid_sources
             )
             stats["findings_dropped"] += dropped
-            stats["open_questions"] += _store_open_questions(conn, company, entity_ids, cfg)
+            stats["open_questions"] += _store_open_questions(
+                conn, company, entity_ids, cfg, question_vectors
+            )
         stats["reports"] += 1
         conn.execute(
             "UPDATE cmap.community SET parent_id = %s WHERE level = 1",
