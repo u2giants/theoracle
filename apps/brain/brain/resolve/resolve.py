@@ -47,7 +47,7 @@ import psycopg
 
 from brain.config import Settings, get_settings
 from brain.db import get_pool
-from brain.embed import embed_texts, vector_literal
+from brain.embed import EmbedError, embed_texts, vector_literal
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
@@ -175,11 +175,12 @@ class _Frontier:
 
     def name_vectors_for(self, names: list[str]) -> list[list[float]]:
         """Name-only embeddings, embedding each distinct name once per job."""
-        missing = list(dict.fromkeys(n for n in names if n not in self.name_vectors))
-        if missing:
-            vectors = embed_names(missing, self.settings, self.usage)
-            self.name_vectors.update(zip(missing, vectors, strict=True))
-        return [self.name_vectors[n] for n in names]
+        with self._lock:
+            missing = list(dict.fromkeys(n for n in names if n not in self.name_vectors))
+            if missing:
+                vectors = embed_names(missing, self.settings, self.usage)
+                self.name_vectors.update(zip(missing, vectors, strict=True))
+            return [self.name_vectors[n] for n in names]
 
     def ask(self, prompt: str) -> dict[str, Any]:
         """One JSON answer, retrying transient provider failures."""
@@ -505,13 +506,18 @@ def _shortlist(
             (ids,),
         ).fetchall()
     if not mention.has_embedding:
-        return []
+        return conn.execute(
+            "SELECT id, canonical_name, description FROM cmap.entity WHERE entity_type = %s",
+            (mention.entity_type,),
+        ).fetchall()
     return conn.execute(
-        "SELECT e.id, e.canonical_name, e.description "
+        "(SELECT e.id, e.canonical_name, e.description "
         "FROM cmap.entity e, (SELECT embedding FROM cmap.mention WHERE id = %s) m "
         "WHERE e.entity_type = %s AND e.embedding IS NOT NULL "
-        "ORDER BY e.embedding <=> m.embedding LIMIT %s",
-        (mention.id, mention.entity_type, SHORTLIST_K),
+        "ORDER BY e.embedding <=> m.embedding LIMIT %s) "
+        "UNION ALL SELECT id, canonical_name, description FROM cmap.entity "
+        "WHERE entity_type = %s AND embedding IS NULL",
+        (mention.id, mention.entity_type, SHORTLIST_K, mention.entity_type),
     ).fetchall()
 
 
@@ -752,7 +758,15 @@ def run_resolve(settings: Settings | None = None) -> dict[str, int]:
     with get_pool().connection() as conn:
         try:
             for mention in _load_unresolved(conn):
-                rule, entity_id = resolve_mention(conn, mention, frontier)
+                try:
+                    rule, entity_id = resolve_mention(conn, mention, frontier)
+                except EmbedError as exc:
+                    # Leave this mention unresolved for retry; exact matches later
+                    # in the pass can still succeed without the embedding service.
+                    conn.rollback()
+                    logger.warning("resolve deferred for mention %s: %s", mention.id, exc)
+                    stats["deferred"] = stats.get("deferred", 0) + 1
+                    continue
                 _assign(conn, mention, entity_id, touched)
                 conn.commit()
                 stats[rule] = stats.get(rule, 0) + 1

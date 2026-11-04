@@ -305,7 +305,7 @@ def test_first_name_ambiguous_goes_to_judge(
 def test_embedding_threshold(
     monkeypatch: pytest.MonkeyPatch, db: Any, frontier_env
 ) -> None:
-    """≥0.92 assigns without the judge; [0.80, 0.92) asks it; below 0.80 is new."""
+    """Overlapping System names at ≥0.92 assign; [0.60, 0.92) asks the judge."""
     fake = _fake(monkeypatch)
     source = _seed_text(
         db, "Artwork Log, the art log, the artwork tracker, the PO system.", "embed"
