@@ -42,8 +42,15 @@ class TrustBoundary(unittest.TestCase):
         self.assertEqual(job['needs'], 'trusted-context')
         self.assertEqual(job['if'], "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)")
         self.assertEqual(job['runs-on'], ['self-hosted','edge-dev3'])
-        self.assertNotIn('uses', job['steps'][0])
-        self.assertEqual(job['steps'][1]['uses'], 'actions/checkout@v4')
+        steps = job['steps']
+        first_action = next(i for i, step in enumerate(steps) if 'uses' in step)
+        self.assertGreaterEqual(first_action, 1)
+        self.assertEqual(steps[first_action]['uses'], 'actions/checkout@v4')
+        for step in steps[:first_action]:
+            self.assertNotIn('uses', step)
+            self.assertNotIn('env', step)
+            self.assertNotIn('secrets.', str(step))
+            self.assertNotIn('checkout', step['run'])
 
     def test_profile_selector_uses_native_runner_context_before_checkout(self):
         job = JOBS['oracle2-offline']
