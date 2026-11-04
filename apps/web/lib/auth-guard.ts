@@ -68,7 +68,7 @@ export async function requireEmployee(): Promise<Employee> {
 
 export async function requireAdmin(): Promise<Employee> {
   const me = await requireEmployee();
-  if (!me.isAdmin) redirect('/channels');
+  if (!me.isAdmin) redirect('/map');
   return me;
 }
 

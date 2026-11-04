@@ -28,13 +28,9 @@ const GROUPS: NavGroup[] = [
     label: 'People',
     items: [{ href: '/admin/employees', label: 'Employees' }],
   },
-  {
-    label: 'Company Map',
-    items: [{ href: '/map', label: 'Map' }],
-  },
 ];
 
-const EXTERNAL_LINK = { href: '/channels', label: '↗ Chat' };
+const EXTERNAL_LINK = { href: '/map', label: '↗ Company Map' };
 
 function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/');
