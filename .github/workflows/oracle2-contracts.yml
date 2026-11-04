@@ -14,6 +14,12 @@ permissions:
   contents: read
 
 jobs:
+  route:
+    uses: popcre/ai-devops/.github/workflows/edge-dev3-route.yml@main
+    with:
+      heartbeat: ${{ vars.EDGE_DEV3_RUNNER_HEARTBEAT }}
+      fallback: ubuntu-latest
+
   trusted-context:
     runs-on: ubuntu-latest
     steps:
@@ -266,8 +272,8 @@ jobs:
         run: node dev/oracle2/prepare-ci-target-profile.mjs --cleanup
   offline-result:
     name: oracle2-offline
-    runs-on: ubuntu-latest
-    needs: [trusted-context, oracle2-offline]
+    runs-on: ${{ fromJSON(needs.route.outputs.runs_on || '"ubuntu-latest"') }}
+    needs: [trusted-context, oracle2-offline, route]
     if: always()
     steps:
       - name: Require trusted context and all offline suites
