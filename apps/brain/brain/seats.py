@@ -8,9 +8,13 @@ table holds whatever the admin picked, and the env stays the fallback.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any
+
+import psycopg
+from psycopg import errors as pg_errors
 
 from brain.config import Settings
 from brain.db import get_pool
@@ -34,6 +38,8 @@ _cache: dict[str, str] = {}
 _cache_at = 0.0
 _lock = threading.Lock()
 
+logger = logging.getLogger(__name__)
+
 
 def clear_cache() -> None:
     """Forget cached seats (after a change, and in tests)."""
@@ -51,8 +57,15 @@ def _db_seats() -> dict[str, str]:
     try:
         with get_pool().connection() as conn:
             rows = conn.execute("SELECT stage, model FROM cmap.model_seat").fetchall()
-    except Exception:  # noqa: BLE001 - no table yet / no database: env seats apply
-        rows = []
+    except pg_errors.UndefinedTable:
+        rows = []  # before migration 005: env seats apply, and that is stable
+    except Exception as exc:  # noqa: BLE001 - a transient read failure
+        # Never cache a failure as "no seats": that would silently swap every
+        # stage back to its env seat for the cache window. Keep the last good
+        # seats (if any) and retry on the next call.
+        logger.warning("model seat read failed; keeping last known seats: %s", exc)
+        with _lock:
+            return dict(_cache)
     seats = {str(stage): str(model) for stage, model in rows}
     with _lock:
         _cache.clear()
@@ -105,16 +118,34 @@ def seat_report(settings: Settings) -> dict[str, dict[str, Any]]:
     }
 
 
-def set_seat(stage: str, model: str, updated_by: str | None) -> None:
-    """Store the page's choice for one stage."""
+def set_seat(
+    stage: str,
+    model: str,
+    updated_by: str | None,
+    conn: psycopg.Connection | None = None,
+) -> None:
+    """Store the page's choice for one stage.
+
+    With ``conn`` the write joins the caller's transaction (the caller commits
+    and then calls ``clear_cache``); without it the seat commits on its own.
+    """
     if stage not in STAGES:
         raise ValueError(f"unknown model stage {stage!r}")
-    with get_pool().connection() as conn:
-        conn.execute(
-            "INSERT INTO cmap.model_seat (stage, model, updated_by) VALUES (%s, %s, %s) "
-            "ON CONFLICT (stage) DO UPDATE SET model = EXCLUDED.model, "
-            "updated_at = now(), updated_by = EXCLUDED.updated_by",
-            (stage, model, updated_by),
-        )
-        conn.commit()
+    if conn is not None:
+        _write_seat(conn, stage, model, updated_by)
+        return
+    with get_pool().connection() as own:
+        _write_seat(own, stage, model, updated_by)
+        own.commit()
     clear_cache()
+
+
+def _write_seat(
+    conn: psycopg.Connection, stage: str, model: str, updated_by: str | None
+) -> None:
+    conn.execute(
+        "INSERT INTO cmap.model_seat (stage, model, updated_by) VALUES (%s, %s, %s) "
+        "ON CONFLICT (stage) DO UPDATE SET model = EXCLUDED.model, "
+        "updated_at = now(), updated_by = EXCLUDED.updated_by",
+        (stage, model, updated_by),
+    )
