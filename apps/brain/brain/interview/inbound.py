@@ -19,7 +19,7 @@ from psycopg.types.json import Json
 
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
-from brain.interview import intake
+from brain.interview import followup, intake
 
 ANSWER_WINDOW_DAYS = 7
 ORACLE_SPEAKER = "The Oracle"
@@ -96,6 +96,15 @@ def _transcript_text(question: str, employee_name: str, answer: str) -> str:
     return f"{ORACLE_SPEAKER}: {question_line}\n{speaker}: {answer_line}\n"
 
 
+def _thread_reply(conn: Any, thread_id: str) -> str:
+    """A grounded follow-up (kept in the thread) or the plain acknowledgement."""
+    question = followup.next_followup(conn, intake.thread_turns(conn, thread_id))
+    if question is None:
+        return intake.REPLY_ACK
+    intake.append_turn(conn, thread_id, followup.ORACLE_SPEAKER, question)
+    return f"Got it. {question} (Or say done.)"
+
+
 def _volunteer(
     conn: Any, employee_id: str, employee_name: str, text: str, command: str, personal: bool
 ) -> dict[str, Any]:
@@ -112,7 +121,7 @@ def _volunteer(
     thread_id = intake.start_thread(conn, employee_id, employee_name, text)
     return {
         "handled": True,
-        "reply": intake.REPLY_ACK,
+        "reply": _thread_reply(conn, thread_id),
         "employee_id": employee_id,
         "intake_id": thread_id,
     }
@@ -170,7 +179,7 @@ def handle_inbound(
             intake.append_turn(conn, thread_id, employee_name, text)
             return {
                 "handled": True,
-                "reply": intake.REPLY_ACK,
+                "reply": _thread_reply(conn, thread_id),
                 "employee_id": employee_id,
                 "intake_id": thread_id,
             }

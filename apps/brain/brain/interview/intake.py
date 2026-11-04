@@ -103,6 +103,11 @@ def append_turn(conn: Any, thread_id: str, speaker: str, text: str) -> None:
     conn.commit()
 
 
+def thread_turns(conn: Any, thread_id: str) -> list[dict[str, Any]]:
+    row = conn.execute("SELECT turns FROM cmap.teams_intake WHERE id = %s", (thread_id,)).fetchone()
+    return list(row[0] or []) if row else []
+
+
 def _transcript(turns: list[dict[str, Any]]) -> str:
     lines = []
     for turn in turns:
