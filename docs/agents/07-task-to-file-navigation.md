@@ -6,7 +6,6 @@ Oracle 2 and the old workers were removed in #398 (2026-11-04); rows that pointe
 
 | Task | Files to touch | Files not to touch |
 |---|---|---|
-| Connected employee business explanations / cross-source answer context | `plan_connected_business_answers.md` STATUS, `bugs.md` diagnosis, `apps/web/lib/business-answer-*.ts`, `apps/web/lib/__verify__/business-answer-journey.ts` | Reader/R2 changes, automatic business-model apply, migrations |
 | Add a database field or table | `packages/db/src/schema.ts`, new file under `packages/db/migrations/sql/` if hand-written SQL is needed, generated Drizzle migration if schema changed. Ship through `pnpm db:migrate` only — never via Supabase MCP `apply_migration` or `drizzle-kit push`, both bypass the journal. Run `pnpm db:check-drift` if unsure of state. | previously applied migration files; `drizzle.__drizzle_migrations` directly |
 | Add an admin page | `apps/web/app/admin/**`, possibly `packages/db/migrations/sql/*.sql` for a new admin view | RLS helpers unless policy changes are truly required |
 | Change auth/linking behavior | `packages/auth/src/**`, `apps/web/app/auth/**`, `apps/web/app/_components/login-form.tsx` | direct edits to Supabase-managed auth tables |

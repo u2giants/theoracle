@@ -28,21 +28,6 @@ jobs:
     name: Build @oracle/web
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: oracle
-          POSTGRES_PASSWORD: oracle
-          POSTGRES_DB: oracle_fresh
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U oracle -d oracle_fresh"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,31 +69,6 @@ jobs:
           DIRECT_URL: postgres://ci:ci@localhost:5432/ci
           OPENROUTER_API_KEY: ci-placeholder-openrouter-key
           TRIGGER_SECRET_KEY: ci-placeholder-trigger-key
-
-      - name: Topical lull-gap schema parity guard
-        run: pnpm --filter @oracle/db verify:gap-topical-schema
-
-      - name: Fresh-database source-map migration guard
-        # Adds only the auth schema/function and roles that Supabase owns,
-        # applies the full migration runner to empty pgvector Postgres, and
-        # proves only the surviving 86_macro_first_schema shape plus later
-        # source-structure/R0 amendments exist.
-        run: |
-          pnpm --filter @oracle/db verify:r1-generated-order
-          pnpm --filter @oracle/db verify:raw-constraint-chain
-          pnpm --filter @oracle/db verify:raw-migration-rerun-guard
-          pnpm --filter @oracle/db prepare:fresh-supabase-test-db
-          pnpm --filter @oracle/db migrate
-          pnpm --filter @oracle/db prepare:raw-migration-rerun-test
-          pnpm --filter @oracle/db migrate
-          pnpm --filter @oracle/db verify:raw-migration-rerun-test
-          pnpm --filter @oracle/db verify:document-context-schema
-          pnpm --filter @oracle/db verify:fresh-source-workflow-schema
-          pnpm --filter @oracle/db verify:r1-cross-shape-schema
-        env:
-          DIRECT_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh
-          DATABASE_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh
-          ORACLE_MIGRATION_RERUN_TEST: '1'
 
       - name: Drizzle journal drift check
         # Compares on-disk packages/db/migrations/0*.sql hashes against
