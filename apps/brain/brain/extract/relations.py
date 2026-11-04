@@ -4,8 +4,10 @@ Job ``relations`` runs per source. Every non-chatter chunk goes to the
 frontier model once with ``prompts/relations.md``, together with the mentions
 step 4 already found in it (so the model links known things rather than
 inventing names) and the last two sentences of the previous chunk as context.
-The call uses JSON mode, ``temperature=0`` and ``max_tokens=2000``; the model
-id comes from the environment only.
+The call uses JSON mode, ``temperature=0`` and ``max_tokens=8000``; a reply
+still cut off at that limit is retried once at ``max_tokens=16000`` (issue
+#365: dense chunks truncated at 2,000). The model id comes from the
+environment only.
 
 Validation drops a relation whose quote is not an exact substring of the
 chunk, whose type is outside the ontology, or whose keys do not resolve.
@@ -44,7 +46,9 @@ logger = logging.getLogger(__name__)
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "relations.md"
 
 CONCURRENCY = 8
-MAX_TOKENS = 2000
+MAX_TOKENS = 8000
+# One retry with this budget when a reply stops at MAX_TOKENS (issue #365).
+TRUNCATION_RETRY_MAX_TOKENS = 16000
 DEFAULT_MAX_FRONTIER_CALLS = 5000
 INFERENCE_MAX_CONFIDENCE = 0.6
 CONTEXT_SENTENCES = 2
@@ -161,7 +165,9 @@ def build_prompt(
     )
 
 
-def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, Any]:
+def _post_chat(
+    messages: list[dict[str, Any]], settings: Settings, max_tokens: int = MAX_TOKENS
+) -> dict[str, Any]:
     """POST one frontier chat-completions request in JSON mode."""
     if settings.openrouter_api_key is None:
         raise RelationsError("OPENROUTER_API_KEY is not set")
@@ -173,7 +179,7 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
             "model": model,
             "messages": messages,
             "temperature": 0,
-            "max_tokens": MAX_TOKENS,
+            "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         },
         api_key=settings.openrouter_api_key,
@@ -284,8 +290,16 @@ class _Counters:
 
 def _call_model(prompt: str, counters: _Counters) -> dict[str, Any]:
     """Run one relations prompt and return the parsed JSON object."""
+    messages = [{"role": "user", "content": prompt}]
     counters.take_frontier_call()
-    body = _post_chat([{"role": "user", "content": prompt}], counters.settings)
+    body = _post_chat(messages, counters.settings)
+    if _finish_reason(body) == "length":
+        # Dense chunks can need more than MAX_TOKENS; retry once with a larger
+        # budget before falling back to item-wise salvage (issue #365).
+        counters.bump("frontier_truncation_retries")
+        counters.take_frontier_call()
+        _bump_usage(body, counters)
+        body = _post_chat(messages, counters.settings, TRUNCATION_RETRY_MAX_TOKENS)
     try:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
@@ -297,15 +311,24 @@ def _call_model(prompt: str, counters: _Counters) -> dict[str, Any]:
         )
     if not isinstance(content, str) or not content:
         raise RelationsError("frontier relations message content is not text")
-    finish = (body.get("choices") or [{}])[0].get("finish_reason")
-    if finish == "length":
+    if _finish_reason(body) == "length":
         counters.bump("frontier_truncated")
+    _bump_usage(body, counters)
+    return parse_relations_json(content)
+
+
+def _finish_reason(body: dict[str, Any]) -> Any:
+    choices = body.get("choices") or [{}]
+    first = choices[0] if isinstance(choices[0], dict) else {}
+    return first.get("finish_reason")
+
+
+def _bump_usage(body: dict[str, Any], counters: _Counters) -> None:
     reported = body.get("usage") or {}
     for name in ("prompt_tokens", "completion_tokens", "total_tokens"):
         value = reported.get(name)
         if isinstance(value, int):
             counters.bump(f"frontier_{name}" if name != "total_tokens" else "frontier_tokens", value)
-    return parse_relations_json(content)
 
 
 def parse_relations_json(content: str) -> dict[str, Any]:
