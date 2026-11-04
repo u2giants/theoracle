@@ -532,3 +532,56 @@ def test_reports_stage_gets_a_larger_output_budget(
     resolve_mod._Frontier(get_settings(), "reports").ask("x")
     resolve_mod._Frontier(get_settings(), "resolve").ask("x")
     assert seen == [12000, 4000]
+
+
+def test_spelling_rules() -> None:
+    """#353: spacing variants, abbreviations and short forms are related names."""
+    assert resolve_mod.compact_name("Click Up") == resolve_mod.compact_name("ClickUp")
+    assert resolve_mod.names_overlap("lic manager", "licensing manager")
+    assert resolve_mod.names_overlap("liz", "liz parkin")
+    assert not resolve_mod.names_overlap("lic manager", "lic coordinator")
+    assert not resolve_mod.names_overlap("creative designer", "technical designer")
+    assert resolve_mod.is_abbreviation("dflow", "designflow")
+    assert not resolve_mod.names_related("walmart", "homegood")
+    assert not resolve_mod.names_related("disney", "nbc universal")
+
+
+def test_compact_alias_joins_spacing_variants(
+    monkeypatch: pytest.MonkeyPatch, db: Any, frontier_env
+) -> None:
+    fake = _fake(monkeypatch)
+    source = _seed_text(db, "ClickUp and Click Up.", "compact")
+    one = _mention(db, source, "System", "ClickUp", _unit("clickup"))
+    two = _mention(db, source, "System", "Click Up", _unit("click up"))
+    run_resolve()
+    assert _entity_of(db, one) == _entity_of(db, two)
+    assert fake.judge_prompts == []
+
+
+def test_low_cosine_related_spelling_reaches_judge(
+    monkeypatch: pytest.MonkeyPatch, db: Any, frontier_env
+) -> None:
+    fake = _fake(monkeypatch, same={"DFlow": "DesignFlow"})
+    source = _seed_text(db, "DesignFlow, also called DFlow.", "abbrev")
+    base = _unit("designflow")
+    full = _mention(db, source, "System", "DesignFlow", base)
+    short = _mention(db, source, "System", "DFlow", _at_cosine(base, 0.55, "dflow"))
+    run_resolve()
+    assert [item["mention"]["name"] for item in fake.judge_prompts] == ["DFlow"]
+    assert _entity_of(db, full) == _entity_of(db, short)
+
+
+def test_high_cosine_customer_goes_to_judge(
+    monkeypatch: pytest.MonkeyPatch, db: Any, frontier_env
+) -> None:
+    """Walmart / HomeGoods at cosine 0.95 is not merged without the judge."""
+    fake = _fake(monkeypatch)
+    source = _seed_text(db, "Walmart and HomeGoods buyers.", "customers")
+    base = _unit("walmart")
+    walmart = _mention(db, source, "Customer", "Walmart", base)
+    homegoods = _mention(
+        db, source, "Customer", "HomeGoods", _at_cosine(base, 0.95, "homegoods")
+    )
+    run_resolve()
+    assert [item["mention"]["name"] for item in fake.judge_prompts] == ["Walmart"]
+    assert _entity_of(db, walmart) != _entity_of(db, homegoods)
