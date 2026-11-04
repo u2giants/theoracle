@@ -62,6 +62,7 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
 def enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(get_settings(), "brain_interview_enabled", True)
     monkeypatch.setattr(get_settings(), "brain_interview_weekly_cap", 2)
+    monkeypatch.setattr(tick_mod, "in_quiet_hours", lambda now=None: False)
 
 
 def _person(db: Any, name: str) -> str:
@@ -616,3 +617,30 @@ def test_overview_lists_contributions(
     assert item["turns"] == 1
     assert item["source_id"] == done["source_id"]
     assert item["preview"].startswith("When a licensor")
+def test_quiet_hours_window() -> None:
+    """Phase 3: nights 8 PM–8 AM New York time and weekends are quiet."""
+    from datetime import datetime
+
+    from brain.interview.tick import EASTERN, in_quiet_hours
+
+    def at(day: int, hour: int) -> datetime:
+        return datetime(2026, 11, day, hour, 30, tzinfo=EASTERN)  # 2 Nov 2026 is a Monday
+
+    assert in_quiet_hours(at(3, 7)) is True
+    assert in_quiet_hours(at(3, 8)) is False
+    assert in_quiet_hours(at(3, 19)) is False
+    assert in_quiet_hours(at(3, 20)) is True
+    assert in_quiet_hours(at(7, 12)) is True  # Saturday
+    assert in_quiet_hours(at(8, 12)) is True  # Sunday
+
+
+def test_tick_sends_nothing_in_quiet_hours(
+    db: Any, enabled: None, sent: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    person = _person(db, EMPLOYEE_NAME)
+    _question(db, "Who approves samples?", [person])
+    _connect()
+    monkeypatch.setattr(tick_mod, "in_quiet_hours", lambda now=None: True)
+    result = run_interview_tick()
+    assert result["quiet_hours"] is True
+    assert sent == []

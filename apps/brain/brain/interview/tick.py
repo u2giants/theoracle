@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import psycopg
@@ -33,6 +35,19 @@ MESSAGE_TEMPLATE = (
 )
 
 TICK_INTERVAL_SECONDS = 3600
+
+# Build-out phase 3: never message people 8 PM–8 AM New York time or on weekends.
+EASTERN = ZoneInfo("America/New_York")
+QUIET_START_HOUR = 20
+QUIET_END_HOUR = 8
+
+
+def in_quiet_hours(now: datetime | None = None) -> bool:
+    """True on Saturday/Sunday and from 8 PM to 8 AM New York time."""
+    local = (now or datetime.now(EASTERN)).astimezone(EASTERN)
+    if local.weekday() >= 5:
+        return True
+    return local.hour >= QUIET_START_HOUR or local.hour < QUIET_END_HOUR
 
 # Summed edge weight between each Person entity and the question's entities.
 # Edge weight is the number of distinct sources asserting the relation, the
@@ -182,6 +197,9 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
         if not interviews_enabled(conn, cfg):
             return result
         result["enabled"] = True
+        if in_quiet_hours():
+            result["quiet_hours"] = True
+            return result
         questions = conn.execute(
             "SELECT id::text, question, entity_ids, target_employee_id::text, skipped_by "
             "FROM cmap.open_question WHERE state = 'open' ORDER BY created_at, id"
