@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from brain.api.deps import User, require_admin, require_service
 from brain.config import get_settings
 from brain.db import get_pool
-from brain.seats import STAGES, seat_report, set_seat, stage_model
+from brain.seats import STAGES, clear_cache, seat_report, set_seat, stage_model
 
 router = APIRouter()
 
@@ -66,13 +66,16 @@ def put_model(
         raise HTTPException(status_code=422, detail="model is required")
     settings = get_settings()
     before = stage_model(settings, stage)
-    set_seat(stage, model, user.auth_user_id)
     reembed = stage == "embed" and model != before
-    if reembed:
-        with get_pool().connection() as conn:
+    # The seat and its reembed job land together or not at all: a seat change
+    # without the job would leave every stored vector in the old model's space.
+    with get_pool().connection() as conn:
+        set_seat(stage, model, user.auth_user_id, conn)
+        if reembed:
             conn.execute(
                 "INSERT INTO cmap.job (kind, payload) VALUES ('reembed', %s)",
                 (Json({"model": model}),),
             )
-            conn.commit()
+        conn.commit()
+    clear_cache()
     return {"stage": stage, "model": model, "reembed_queued": reembed}

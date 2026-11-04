@@ -39,7 +39,9 @@ def test_unknown_stage_is_rejected(env_seats: None) -> None:
 def test_page_seat_overrides_one_stage_only(
     client: TestClient, env_seats: None, admin_headers: dict[str, str]
 ) -> None:
-    response = client.put("/models/reports", json={"model": "test/reports"}, headers=admin_headers)
+    response = client.put(
+        "/models/reports", json={"model": "test/reports"}, headers=admin_headers
+    )
     assert response.status_code == 200
     assert response.json()["reembed_queued"] is False
     settings = get_settings()
@@ -62,13 +64,18 @@ def test_frontier_client_calls_its_own_stage_seat(
 ) -> None:
     from brain.resolve import resolve as resolve_mod
 
-    client.put("/models/recommend", json={"model": "test/recommend"}, headers=admin_headers)
+    client.put(
+        "/models/recommend", json={"model": "test/recommend"}, headers=admin_headers
+    )
     seen: list[str | None] = []
 
     def fake(messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
         del messages
         seen.append(settings.brain_frontier_model)
-        return {"choices": [{"message": {"content": "{}"}}], "usage": {"total_tokens": 1}}
+        return {
+            "choices": [{"message": {"content": "{}"}}],
+            "usage": {"total_tokens": 1},
+        }
 
     monkeypatch.setattr(resolve_mod, "_post_chat", fake)
     _Frontier(get_settings(), "recommend").ask("x")
@@ -79,7 +86,9 @@ def test_frontier_client_calls_its_own_stage_seat(
 def test_changing_embeddings_queues_a_reembed(
     client: TestClient, env_seats: None, admin_headers: dict[str, str], db: Any
 ) -> None:
-    response = client.put("/models/embed", json={"model": "test/embed-2"}, headers=admin_headers)
+    response = client.put(
+        "/models/embed", json={"model": "test/embed-2"}, headers=admin_headers
+    )
     assert response.json()["reembed_queued"] is True
     kinds = [row[0] for row in db.execute("SELECT kind FROM cmap.job").fetchall()]
     assert kinds == ["reembed"]
@@ -95,5 +104,63 @@ def test_seating_needs_an_admin(
 def test_unknown_stage_put_is_404(
     client: TestClient, env_seats: None, admin_headers: dict[str, str]
 ) -> None:
-    response = client.put("/models/nonsense", json={"model": "x/y"}, headers=admin_headers)
+    response = client.put(
+        "/models/nonsense", json={"model": "x/y"}, headers=admin_headers
+    )
     assert response.status_code == 404
+
+
+# --- #359 review findings -------------------------------------------------
+
+
+def test_embed_seat_rolls_back_when_reembed_job_insert_fails(
+    client: TestClient,
+    env_seats: None,
+    admin_headers: dict[str, str],
+    db: Any,
+) -> None:
+    """Finding 2: the seat and its reembed job are one transaction."""
+    db.execute(
+        "ALTER TABLE cmap.job ADD CONSTRAINT t359_no_reembed CHECK (kind <> 'reembed')"
+    )
+    db.commit()
+    try:
+        failing = TestClient(client.app, raise_server_exceptions=False)
+        response = failing.put(
+            "/models/embed", json={"model": "test/embed-2"}, headers=admin_headers
+        )
+        assert response.status_code == 500
+        assert db.execute("SELECT count(*) FROM cmap.model_seat").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM cmap.job").fetchone()[0] == 0
+    finally:
+        db.execute("ALTER TABLE cmap.job DROP CONSTRAINT t359_no_reembed")
+        db.commit()
+
+
+def test_seat_read_failure_is_not_cached_as_no_seats(
+    client: TestClient,
+    env_seats: None,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finding 4: a DB blip keeps the last good seats and is retried, not cached."""
+    from brain import seats as seats_mod
+
+    client.put("/models/reports", json={"model": "test/reports"}, headers=admin_headers)
+    settings = get_settings()
+    assert stage_model(settings, "reports") == "test/reports"  # cached now
+
+    real_pool = seats_mod.get_pool
+
+    class Broken:
+        def connection(self) -> Any:
+            raise RuntimeError("db blip")
+
+    monkeypatch.setattr(seats_mod, "_cache_at", 0.0)  # expire the cache
+    monkeypatch.setattr(seats_mod, "get_pool", lambda: Broken())
+    assert stage_model(settings, "reports") == "test/reports"  # last good seat
+    assert seats_mod._cache_at == 0.0  # the failure was not cached
+
+    monkeypatch.setattr(seats_mod, "get_pool", real_pool)
+    assert stage_model(settings, "reports") == "test/reports"
+    assert seats_mod._cache_at > 0.0
