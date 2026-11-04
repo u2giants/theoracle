@@ -74,3 +74,14 @@ the shared test services; each candidate used its own database and the shared
 FalkorDB `company` graph (rebuilt per run). Runner and logs are machine-local;
 every number above is reproducible from the recorded `eval_run` rows
 (`cmap.eval_run.models` manifests the exact configuration — PR #297).
+
+## Superseded by the 2026-11-03 per-stage bake-off
+
+These finalists were a first pass. Each stage was then run on its own
+(files `2026-11-03-stage-*` in this folder) and the winners are seated:
+1 vision and 7 answers `anthropic/claude-haiku-5.5`; 2 embeddings
+`voyageai/voyage-4-lite`; 3 flat `z-ai/glm-5.3-flash`; 4 relations
+`meta/muse-spark-1.3-contributor`; 5 resolve, 6 reports, 8 recommendations
+and 9 grader `openai/gpt-6-luna`. GLM-5.3-flash, the finalist above, won
+only flat extraction. Scores above used the old Sonnet grader and are not
+comparable with later runs (PR #335).

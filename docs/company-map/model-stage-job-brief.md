@@ -64,9 +64,10 @@ This brief adds two rules the old world lacked:
   recorded fixtures and never judges model quality — the step-11 eval and the
   per-stage recipes below are the only model-quality instruments.
 - **The grader never moves during a bake-off.** When candidates for answering are
-  compared, the grade model is fixed (a strong model, currently
-  `anthropic/claude-sonnet-4.5`) so scores are comparable. When the grader itself
-  is being chosen, answers are frozen.
+  compared, the grade model is fixed so scores are comparable; when the grader
+  itself is being chosen, answers are frozen. The 2026-11-03 cycle chose
+  `openai/gpt-6-luna` as the grader (stage 9); scores graded before PR #335 are
+  not comparable with later ones.
 
 ## 3. Stage inventory (from the code)
 
@@ -90,11 +91,15 @@ empty (reasoning-flagged models can burn the budget on thinking — PR #307).
 | 8 | Recommendations | `brain/recommend/recommend.py:361` (`frontier.ask`) | `BRAIN_FRONTIER_MODEL` | 1 call per qualifying finding (≥2 sources); 12k-token context | JSON mode, 4000 tokens |
 | 9 | Eval grading | `brain/eval/run.py:51-75` | `BRAIN_EVAL_MODEL` (falls back to `BRAIN_FRONTIER_MODEL`) | 1 call per eval question (plus the answer calls) | JSON mode, 800 tokens |
 
-Production (Coolify, verified live 2026-10-30) runs exactly:
-`BRAIN_FRONTIER_MODEL=anthropic/claude-sonnet-4.5`,
-`BRAIN_VISION_MODEL=openai/gpt-4.1`,
-`BRAIN_EMBED_MODEL=openai/text-embedding-3-large` (dims 1024),
-`BRAIN_SCALEDOWN_ENABLED=true`, `BRAIN_MAX_FRONTIER_CALLS_PER_JOB=3000`.
+**Live seats (2026-11-03, per `GET /models`, all set from the model page —
+PR #357, stored in `cmap.model_seat`):** vision and answer
+`anthropic/claude-haiku-5.5`; embed `voyageai/voyage-4-lite` (dims 1024);
+flat `z-ai/glm-5.3-flash`; relations `meta/muse-spark-1.3-contributor`;
+resolve, reports, recommend and grade `openai/gpt-6-luna`. A page seat
+overrides the env var named in the table; the env var is the fallback
+(`BRAIN_FRONTIER_MODEL` is still `anthropic/claude-sonnet-4.5`, now unused).
+Map content built before 2026-11-03 came from the old models; new seats apply
+to future runs only.
 
 Interview (`brain/interview/*`) makes **no** model calls — the question text is
 templated; answers flow back through the normal pipeline (stage 3 onward).
@@ -305,7 +310,7 @@ BOTTOM LINE
 ScaleDown already owns the primary path; this stage's bake-off is really about
 the frontier fallback model (which must not be worse than the old
 claude-sonnet-4.5 fallback on recall) and about keeping chatter detection
-honest. Cheap non-Claude candidates belong here.
+honest. Seat since 2026-11-03: z-ai/glm-5.3-flash (bake-off winner).
 ```
 
 ### 4.4 Relationship extraction — HEAVY
@@ -383,7 +388,7 @@ KNOWN PITFALLS
 BOTTOM LINE
 This is where the cheap non-Claude seat is most valuable and most risky: the
 bake-off must PROVE recall parity on real chunks before the switch. Current
-seat: anthropic/claude-sonnet-4.5. Compete current-generation non-Claude
+seat (2026-11-03 winner): meta/muse-spark-1.3-contributor. Compete current-generation non-Claude
 candidates (and cheap Claude) on the recipe; winner goes to production only if
 its fixture recall passes and its step-11 end-to-end mean holds.
 ```
@@ -452,8 +457,8 @@ KNOWN PITFALLS
 BOTTOM LINE
 Lower volume than relations but higher blast radius per error. Candidate cheap
 non-Claude models must PROVE merge precision; if none do, this stage stays on
-a stronger model even if relations moves. Current seat:
-anthropic/claude-sonnet-4.5.
+a stronger model even if relations moves. Current seat (2026-11-03
+winner): openai/gpt-6-luna.
 ```
 
 ### 4.6 Community reports — HEAVY (cost center) and human-read
@@ -530,8 +535,8 @@ The hardest slot to price-optimize because it is both the volume center and
 the reading surface. Albert's rule: the step-11 eval decides. If a cheap
 candidate holds end-to-end parity, take it; if it lands between cheap-heavy
 and premium-conversation in quality, this stage can take the conversation
-model (Claude Haiku 5.5) as a middle seat. Current seat:
-anthropic/claude-sonnet-4.5 (provisional until this bake-off).
+model (Claude Haiku 5.5) as a middle seat. Current seat (2026-11-03
+winner): openai/gpt-6-luna.
 ```
 
 ### 4.7 Question answering (conversation)
@@ -670,7 +675,8 @@ KNOWN PITFALLS
 BOTTOM LINE
 Low volume, high visibility. This can ride the conversation seat (Claude
 Haiku 5.5) if it passes (c)/(d); it must NOT ride a candidate that writes
-confident invented numbers. Current seat: anthropic/claude-sonnet-4.5.
+confident invented numbers. Current seat (2026-11-03 winner):
+openai/gpt-6-luna.
 ```
 
 ### 4.9 Eval grading (the instrument)
@@ -725,9 +731,10 @@ KNOWN PITFALLS
 2. Mid-cycle grader swaps — invalidates every comparison in flight.
 
 BOTTOM LINE
-During the whole bake-off the grader is FROZEN on anthropic/claude-sonnet-4.5
-(current seat). Grader candidates are evaluated at the very end and switched
-only between cycles. This stage is about trust, not cost (1 call/question).
+During a bake-off cycle the grader does not move. The 2026-11-03 cycle
+evaluated grader candidates at the end and seated openai/gpt-6-luna; switch
+again only between cycles. This stage is about trust, not cost
+(1 call/question).
 ```
 
 ---
@@ -779,19 +786,23 @@ scaledown flag, extraction model counts). The results table below is filled
 from those rows — no number enters it without an eval_run id or a micro-eval
 output file under `docs/verification/company-map/bake-off/`.
 
-**Results table (to fill during the bake-off):**
+**Results table (2026-11-03 cycle; detail and per-stage lessons in the
+linked files under `docs/verification/company-map/bake-off/`):**
 
-| Stage | Incumbent | Candidates | Fixture result | Step-11 mean | Winner | Evidence |
-|-------|-----------|------------|----------------|--------------|--------|----------|
-| 1 Vision | openai/gpt-4.1 | not yet run | | n/a | pending | |
-| 2 Embeddings | openai/text-embedding-3-large | not yet run | | n/a | pending | |
-| 3 Flat fallback | claude-sonnet-4.5 | glm-5.3-flash, gemini-3.1-flash-lite, qwen3.7-flash | covered by the heavy-seat runs (0.6 / 0.5333 / FAIL) | pending | pending | micro-evals 2026-11-01 |
-| 4 Relations | claude-sonnet-4.5 | glm-5.3-flash, gemini-3.1-flash-lite, qwen3.7-flash | relations kept: 530 base / 495 glm / 423 gemini; qwen FAIL (empty content) | pending | pending (glm finalist) | `4f88dd04`, `b21c92a6`, `269558df` |
-| 5 Resolve | claude-sonnet-4.5 | glm-5.3-flash, gemini-3.1-flash-lite | 0.6 glm / 0.5333 gemini vs 0.5333 base | pending | pending (glm finalist) | micro-evals 2026-11-01 |
-| 6 Community reports | claude-sonnet-4.5 | glm-5.3-flash (finalist) | not in micro-eval (cost center — §5) | pending | pending | micro-evals 2026-11-01 |
-| 7 Answers (conversation) | → claude-haiku-5.5 | glm-5.3-flash, gemini-3.1-flash-lite | haiku 0.5333 / glm 0.6 / gemini 0.4 (same graph, frozen grader) | pending | claude-haiku-5.5 holds (assigned) | `269558df`, `0b732084`, `eb516e0c` |
-| 8 Recommendations | claude-sonnet-4.5 | glm-5.3-flash (finalist) | not yet run | pending | pending | micro-evals 2026-11-01 |
-| 9 Grader (frozen) | claude-sonnet-4.5 | — (frozen during bake-off) | — | n/a | frozen | §7 decision 3 |
+| Stage | Old seat | Winner (seated) | Runner-up | Key result | Evidence |
+|-------|----------|-----------------|-----------|------------|----------|
+| 1 Vision | openai/gpt-4.1 | anthropic/claude-haiku-5.5 | openai/gpt-6-luna | all 62 node labels and 14 arrows on the flowchart fixture | `2026-11-03-stage-1-vision.md` |
+| 2 Embeddings | openai/text-embedding-3-large | voyageai/voyage-4-lite | openai/text-embedding-3-large | best alias separation (AUC 0.749); prod re-indexed | `2026-11-03-stage-2-embeddings.md` |
+| 3 Flat fallback | claude-sonnet-4.5 | z-ai/glm-5.3-flash | deepseek/deepseek-v4.1-flash | F1 0.748 vs 0.752 best, ~12× cheaper than the runner-up | `2026-11-03-stage-3-flat-extraction.md` |
+| 4 Relations | claude-sonnet-4.5 | meta/muse-spark-1.3-contributor | z-ai/glm-5.3 | F1 0.62, zero failed chunks, ~5.5× cheaper than GLM-5.3 at equal quality | `2026-11-03-stage-4-relations.md` |
+| 5 Resolve | claude-sonnet-4.5 | openai/gpt-6-luna | meta/muse-spark-1.3-contributor | tied precision; candidates differ little because fixed rules decide (#353) | `2026-11-03-stage-5-resolve.md` |
+| 6 Community reports | claude-sonnet-4.5 | openai/gpt-6-luna | meta/muse-spark-1.3-contributor | quality 0.816, 11/12 valid; one truncation at the output cap (#347) | `2026-11-03-stage-6-community-reports.md` |
+| 7 Answers | claude-haiku-5.5 (assigned) | anthropic/claude-haiku-5.5 | z-ai/glm-5.3-flash | statistical tie on 20 draft questions; GLM first calls came back empty | `2026-11-03-stage-7-answer.md` |
+| 8 Recommendations | claude-sonnet-4.5 | openai/gpt-6-luna | z-ai/glm-5.3-flash | quality 0.797, grounding 0.84, 20/20 valid | `2026-11-03-stage-8-recommend.md` |
+| 9 Grader | claude-sonnet-4.5 (frozen) | openai/gpt-6-luna | anthropic/claude-haiku-5.5 | agreement 0.895, found all 9 planted contradictions | `2026-11-03-stage-9-grader.md` |
+
+The 2026-11-01 micro-evals (`2026-11-01-fixture-micro-evals.md`) were the
+first pass; the 2026-11-03 per-stage runs supersede their finalists.
 
 ## 6. Model page rework spec
 
@@ -808,8 +819,7 @@ in one collapsed section (the old app still runs; do not delete its settings).
 - **New stages block** (primary): a responsive 2-column card grid (single
   column under `md`) — one card per §3 stage, ordered by pipeline position.
   Each card: stage title + one-line role + the current model id (`font-mono
-  text-xs`) + the stage's seat status (chips: incumbent / assigned / bake-off
-  pending / frozen grader) + its env-var name and the note "set in Coolify app oracle-brain" +
+  text-xs`) + the stage's seat status (chip: bake-off winner) + its env-var name and the note "set in Coolify app oracle-brain" +
   "Copy job brief" button. Card padding `px-4 py-3`, `gap-3`; no
   legend boxes repeated per card — one page-level legend.
 - **Model pool block** (secondary): the provider×model matrix is legacy
@@ -833,10 +843,12 @@ live env values, each card names its env var (e.g. `BRAIN_FRONTIER_MODEL`) and
 the card says where it is set (Coolify app `oracle-brain`). Seating a bake-off
 winner = the AI operator updates that env. The model split landed in PR #295:
 `BRAIN_CHAT_MODEL` for the conversation seat, `BRAIN_EVAL_MODEL` for the
-frozen grader, `BRAIN_FRONTIER_MODEL` for heavy work — each falls back to the
+grader, `BRAIN_FRONTIER_MODEL` for heavy work — each falls back to the
 frontier model when unset. If the bake-off later proves we change models often
 enough to deserve DB-backed seats, that is a separate, explicitly approved
-change — not smuggled in with the layout.
+change — not smuggled in with the layout. (That change landed in PR #357:
+per-stage seats picked on the page, stored in `cmap.model_seat`, env as
+fallback.)
 
 **Job-brief wiring.** The §4 texts become the page's clipboard briefs: each
 stage card copies its brief through the clipboard API
@@ -851,7 +863,8 @@ stage card. Keep the §4 texts and the page copy in sync when a fact changes.
    candidate **only** where the §4 gates and the step-11 eval hold; the
    community-reports slot may end up on the conversation model instead — the
    eval decides.
-3. The eval grader is frozen during the bake-off.
+3. The eval grader does not move during a bake-off cycle (2026-11-03 cycle
+   seated openai/gpt-6-luna).
 4. Testing equals production: fixture micro-evals use the production prompts
    verbatim; eval runs record model provenance (PR #297); the winner's exact
    config is what the Coolify env receives.
