@@ -1,0 +1,2143 @@
+{
+ "stage": 1,
+ "date": "2026-11-04",
+ "prompt": "apps/brain/brain/prompts/read_visual.md (production), temperature 0, one call per model per image via post_chat_with_rescue",
+ "images": {
+  "edge": "company corpus: Pop_Creations_Flow_12112025.png (6359x7610), read-only from production storage",
+  "permit": "https://commons.wikimedia.org/wiki/File:BPMN_Application_to_create_a_permit.svg — CC BY 4.0, Arbeck",
+  "audit": "https://commons.wikimedia.org/wiki/File:Audit-flow.svg — CC0, Foundation for Public Code (rendered 3840x2678)",
+  "dhs": "https://commons.wikimedia.org/wiki/File:DHS_Organizational_Chart_2023.png — public domain, U.S. DHS",
+  "network_white": "https://commons.wikimedia.org/wiki/File:Screened_Subnet_Firewall.png — public domain, Wack & Carnahan (NIST); transparent background flattened to white",
+  "network_raw": "same file sent as-is (RGBA, transparent): scored separately, see doc",
+  "gantt": "https://commons.wikimedia.org/wiki/File:Neutral_Buoyancy_Simulator_Gantt_chart_March_1967.png — public domain, NASA",
+  "whiteboard": "https://commons.wikimedia.org/wiki/File:A_'Two_Way'_Whiteboard_at_Newhouse_III_(2035894088).jpg — CC BY 2.0, Vin Crosbie"
+ },
+ "references": {
+  "edge": {
+   "kind": "swimlane flowchart (company corpus)",
+   "nodes": [
+    "Meeting Scheduled",
+    "Agenda template/ Kick off Meeting",
+    "Create card: Style guides - input for designers",
+    "Assets/ compositions selection",
+    "Meeting w Buyer / Trendboards",
+    "Design Request Format",
+    "Pre-brief design notes + Confirming size",
+    "Asking the factories about limitations",
+    "Details and Limitations",
+    "Call/email from the buyer",
+    "Brief",
+    "Provide details in Click Up",
+    "Debriefing",
+    "Costing sheets elaboration",
+    "Costing sheets/Tech Pack elaboration",
+    "Costing sheets approval",
+    "Upload to DFlow RFQ code",
+    "RFQ to Factories",
+    "Price",
+    "Designs Approval",
+    "Design in Progress",
+    "Buyer's Approval",
+    "DFlow Library + Reference number in PPT",
+    "Picks confirmation to PM",
+    "Art files in the right format + Packaging",
+    "SKUs creation (DFlow, ColdLion, MasterData, ClickUp)",
+    "Tech Packing",
+    "Tech Pack Submit Authorization",
+    "Tech Pack Approval",
+    "Concept Submit to Licensor",
+    "Licensor's revisions review",
+    "Concept Revisions",
+    "Tech Pack Update",
+    "Revisions implementation",
+    "Resubmit",
+    "Licensor's comment",
+    "Concept Approved w comments",
+    "If comment is legal line or packaging",
+    "If comment is about creative design",
+    "Comments approval",
+    "Sample request",
+    "Factory selection",
+    "Include in Task List",
+    "Concept image to ColdLion and ClickUp",
+    "Concept Approved",
+    "Samples Order / TechPack request",
+    "Files for Factory: Art Files + Mock ups+ Packaging + Legal",
+    "Sampling",
+    "PPS Audit",
+    "Review Audit and send to factory",
+    "Re-sampling",
+    "PPS Submit to licensor",
+    "PPS Approved",
+    "Samples Buyer's approval",
+    "Samples Internal Approval",
+    "Samples shipped to US",
+    "Buyer places an order",
+    "Production order",
+    "Mass Production",
+    "Professional Photos Approval",
+    "Professional Photos",
+    "Ship to US"
+   ],
+   "edges": [
+    [
+     "Meeting Scheduled",
+     "Agenda template/ Kick off Meeting",
+     ""
+    ],
+    [
+     "Agenda template/ Kick off Meeting",
+     "Create card: Style guides - input for designers",
+     ""
+    ],
+    [
+     "Create card: Style guides - input for designers",
+     "Assets/ compositions selection",
+     ""
+    ],
+    [
+     "Assets/ compositions selection",
+     "Meeting w Buyer / Trendboards",
+     ""
+    ],
+    [
+     "Meeting w Buyer / Trendboards",
+     "Design Request Format",
+     ""
+    ],
+    [
+     "Call/email from the buyer",
+     "Design Request Format",
+     ""
+    ],
+    [
+     "Design Request Format",
+     "Pre-brief design notes + Confirming size",
+     ""
+    ],
+    [
+     "Pre-brief design notes + Confirming size",
+     "Asking the factories about limitations",
+     ""
+    ],
+    [
+     "Asking the factories about limitations",
+     "Details and Limitations",
+     ""
+    ],
+    [
+     "Details and Limitations",
+     "Provide details in Click Up",
+     ""
+    ],
+    [
+     "Provide details in Click Up",
+     "Brief",
+     ""
+    ],
+    [
+     "Brief",
+     "Debriefing",
+     ""
+    ],
+    [
+     "Debriefing",
+     "Costing sheets elaboration",
+     "Existing Product"
+    ],
+    [
+     "Debriefing",
+     "Costing sheets/Tech Pack elaboration",
+     "New Product Type"
+    ],
+    [
+     "Costing sheets elaboration",
+     "Costing sheets approval",
+     ""
+    ],
+    [
+     "Costing sheets/Tech Pack elaboration",
+     "Costing sheets approval",
+     ""
+    ],
+    [
+     "Costing sheets approval",
+     "Upload to DFlow RFQ code",
+     ""
+    ],
+    [
+     "Upload to DFlow RFQ code",
+     "RFQ to Factories",
+     ""
+    ],
+    [
+     "RFQ to Factories",
+     "Price",
+     ""
+    ],
+    [
+     "Price",
+     "Design in Progress",
+     "If Sales confirms buyer approves the Price"
+    ],
+    [
+     "Debriefing",
+     "Design in Progress",
+     "For Customer Refresh"
+    ],
+    [
+     "Design in Progress",
+     "Designs Approval",
+     ""
+    ],
+    [
+     "Designs Approval",
+     "DFlow Library + Reference number in PPT",
+     ""
+    ],
+    [
+     "DFlow Library + Reference number in PPT",
+     "Buyer's Approval",
+     ""
+    ],
+    [
+     "Buyer's Approval",
+     "Picks confirmation to PM",
+     ""
+    ],
+    [
+     "Picks confirmation to PM",
+     "Art files in the right format + Packaging",
+     ""
+    ],
+    [
+     "Art files in the right format + Packaging",
+     "SKUs creation (DFlow, ColdLion, MasterData, ClickUp)",
+     ""
+    ],
+    [
+     "SKUs creation (DFlow, ColdLion, MasterData, ClickUp)",
+     "Tech Packing",
+     ""
+    ],
+    [
+     "Tech Packing",
+     "Tech Pack Approval",
+     ""
+    ],
+    [
+     "Tech Pack Approval",
+     "Tech Pack Submit Authorization",
+     ""
+    ],
+    [
+     "Tech Pack Submit Authorization",
+     "Concept Submit to Licensor",
+     ""
+    ],
+    [
+     "Concept Revisions",
+     "Licensor's revisions review",
+     ""
+    ],
+    [
+     "Licensor's revisions review",
+     "Revisions implementation",
+     ""
+    ],
+    [
+     "Revisions implementation",
+     "Tech Pack Update",
+     ""
+    ],
+    [
+     "Tech Pack Update",
+     "Tech Pack Submit Authorization",
+     ""
+    ],
+    [
+     "Tech Pack Submit Authorization",
+     "Resubmit",
+     ""
+    ],
+    [
+     "Concept Approved w comments",
+     "Licensor's comment",
+     ""
+    ],
+    [
+     "Licensor's comment",
+     "If comment is legal line or packaging",
+     ""
+    ],
+    [
+     "Licensor's comment",
+     "If comment is about creative design",
+     ""
+    ],
+    [
+     "If comment is legal line or packaging",
+     "Comments approval",
+     ""
+    ],
+    [
+     "If comment is about creative design",
+     "Comments approval",
+     ""
+    ],
+    [
+     "Comments approval",
+     "Concept image to ColdLion and ClickUp",
+     ""
+    ],
+    [
+     "Concept Approved",
+     "Concept image to ColdLion and ClickUp",
+     ""
+    ],
+    [
+     "Resubmit",
+     "Concept Approved",
+     ""
+    ],
+    [
+     "Picks confirmation to PM",
+     "Sample request",
+     ""
+    ],
+    [
+     "Sample request",
+     "Include in Task List",
+     ""
+    ],
+    [
+     "Include in Task List",
+     "Factory selection",
+     ""
+    ],
+    [
+     "Factory selection",
+     "Samples Order / TechPack request",
+     "With an Order"
+    ],
+    [
+     "Samples Order / TechPack request",
+     "Files for Factory: Art Files + Mock ups+ Packaging + Legal",
+     ""
+    ],
+    [
+     "Files for Factory: Art Files + Mock ups+ Packaging + Legal",
+     "Sampling",
+     ""
+    ],
+    [
+     "Sampling",
+     "PPS Audit",
+     ""
+    ],
+    [
+     "PPS Audit",
+     "Review Audit and send to factory",
+     ""
+    ],
+    [
+     "Review Audit and send to factory",
+     "Re-sampling",
+     "If Audit: Fail"
+    ],
+    [
+     "Re-sampling",
+     "PPS Audit",
+     ""
+    ],
+    [
+     "Review Audit and send to factory",
+     "PPS Submit to licensor",
+     "If Audit: Pass"
+    ],
+    [
+     "PPS Submit to licensor",
+     "PPS Approved",
+     ""
+    ],
+    [
+     "PPS Approved",
+     "Mass Production",
+     "For existing products"
+    ],
+    [
+     "PPS Approved",
+     "Samples shipped to US",
+     "For New Products"
+    ],
+    [
+     "Samples shipped to US",
+     "Samples Internal Approval",
+     ""
+    ],
+    [
+     "Samples Internal Approval",
+     "Samples Buyer's approval",
+     ""
+    ],
+    [
+     "Samples Buyer's approval",
+     "Buyer places an order",
+     ""
+    ],
+    [
+     "Buyer places an order",
+     "Production order",
+     ""
+    ],
+    [
+     "Production order",
+     "Mass Production",
+     ""
+    ],
+    [
+     "Mass Production",
+     "Professional Photos",
+     "For New Items"
+    ],
+    [
+     "Professional Photos",
+     "Professional Photos Approval",
+     ""
+    ],
+    [
+     "Professional Photos Approval",
+     "Ship to US",
+     ""
+    ],
+    [
+     "Mass Production",
+     "Ship to US",
+     "For Existing Items"
+    ]
+   ],
+   "ambiguous": [
+    [
+     "Concept Submit to Licensor",
+     "Concept Revisions"
+    ],
+    [
+     "Concept Submit to Licensor",
+     "Concept Approved w comments"
+    ],
+    [
+     "Concept Submit to Licensor",
+     "Concept Approved"
+    ],
+    [
+     "Factory selection",
+     "Files for Factory: Art Files + Mock ups+ Packaging + Legal"
+    ],
+    [
+     "Factory selection",
+     "Sampling"
+    ],
+    [
+     "Debriefing",
+     "Costing sheets approval"
+    ],
+    [
+     "Costing sheets elaboration",
+     "Costing sheets/Tech Pack elaboration"
+    ],
+    [
+     "Concept Approved",
+     "Factory selection"
+    ],
+    [
+     "Include in Task List",
+     "Samples Order / TechPack request"
+    ],
+    [
+     "Concept image to ColdLion and ClickUp",
+     "Concept Approved"
+    ],
+    [
+     "Comments approval",
+     "Concept Approved"
+    ]
+   ],
+   "ok_text": [
+    "Albert :)",
+    "Buyer",
+    "Sales",
+    "Creative direction",
+    "Junior designer",
+    "Technical designers",
+    "Creative designers",
+    "Sourcing",
+    "Production",
+    "Carlos",
+    "Gina",
+    "Licensing Team",
+    "Licensor",
+    "Factories",
+    "New Product Type",
+    "Existing Product",
+    "For Customer Refresh",
+    "If Sales confirms buyer approves the Price",
+    "With an Order",
+    "Before an Order",
+    "If Audit: Fail",
+    "If Audit: Pass",
+    "For existing products",
+    "For New Products",
+    "For New Items",
+    "For Existing Items"
+   ],
+   "directed": true
+  },
+  "permit": {
+   "kind": "BPMN process",
+   "nodes": [
+    "Navigate to registration platform",
+    "Login",
+    "Verify user.",
+    "Create dashboard showing details of prior applications.",
+    "Is this a new application?",
+    "Enter review and edit sub-process",
+    "Generate application identifier",
+    "Is the user acting on behalf of a third-party?",
+    "Enter details of party that the user can represent",
+    "Confirm user has appropriate powers for representation",
+    "Get details of owned land or property by the applicant.",
+    "Show registered properties on dashboard",
+    "Choose a property",
+    "Display restrictions affecting property",
+    "Select the restriction for which a permit is being applied",
+    "Enter supporting information for the permit.",
+    "Save or submit application",
+    "Save",
+    "Platform undertakes pre-submission logic checks",
+    "Generate pre-submission report.",
+    "Does the application pass all logic checks",
+    "Save or edit application",
+    "Submit",
+    "Place in review pool for permit officer"
+   ],
+   "edges": [
+    [
+     "Navigate to registration platform",
+     "Login",
+     ""
+    ],
+    [
+     "Login",
+     "Verify user.",
+     ""
+    ],
+    [
+     "Verify user.",
+     "Create dashboard showing details of prior applications.",
+     ""
+    ],
+    [
+     "Create dashboard showing details of prior applications.",
+     "Is this a new application?",
+     ""
+    ],
+    [
+     "Is this a new application?",
+     "Enter review and edit sub-process",
+     "No"
+    ],
+    [
+     "Is this a new application?",
+     "Generate application identifier",
+     "Yes"
+    ],
+    [
+     "Generate application identifier",
+     "Is the user acting on behalf of a third-party?",
+     ""
+    ],
+    [
+     "Is the user acting on behalf of a third-party?",
+     "Enter details of party that the user can represent",
+     "Yes"
+    ],
+    [
+     "Is the user acting on behalf of a third-party?",
+     "Get details of owned land or property by the applicant.",
+     "No"
+    ],
+    [
+     "Enter details of party that the user can represent",
+     "Confirm user has appropriate powers for representation",
+     ""
+    ],
+    [
+     "Confirm user has appropriate powers for representation",
+     "Get details of owned land or property by the applicant.",
+     ""
+    ],
+    [
+     "Get details of owned land or property by the applicant.",
+     "Show registered properties on dashboard",
+     ""
+    ],
+    [
+     "Show registered properties on dashboard",
+     "Choose a property",
+     ""
+    ],
+    [
+     "Choose a property",
+     "Display restrictions affecting property",
+     ""
+    ],
+    [
+     "Display restrictions affecting property",
+     "Select the restriction for which a permit is being applied",
+     ""
+    ],
+    [
+     "Select the restriction for which a permit is being applied",
+     "Enter supporting information for the permit.",
+     ""
+    ],
+    [
+     "Enter supporting information for the permit.",
+     "Save or submit application",
+     ""
+    ],
+    [
+     "Save or submit application",
+     "Platform undertakes pre-submission logic checks",
+     "Submit"
+    ],
+    [
+     "Platform undertakes pre-submission logic checks",
+     "Generate pre-submission report.",
+     ""
+    ],
+    [
+     "Generate pre-submission report.",
+     "Does the application pass all logic checks",
+     ""
+    ],
+    [
+     "Does the application pass all logic checks",
+     "Submit",
+     "Yes"
+    ],
+    [
+     "Does the application pass all logic checks",
+     "Save or edit application",
+     "No"
+    ],
+    [
+     "Save or edit application",
+     "Enter supporting information for the permit.",
+     ""
+    ],
+    [
+     "Save or edit application",
+     "Save",
+     ""
+    ],
+    [
+     "Submit",
+     "Place in review pool for permit officer",
+     ""
+    ]
+   ],
+   "ambiguous": [
+    [
+     "Save or submit application",
+     "Save"
+    ]
+   ],
+   "ok_text": [
+    "Applicant",
+    "Platform",
+    "Other juridical agencies",
+    "Land Register",
+    "Integrates in to a multi-agency party brokerage or national identity system",
+    "Satisfying the capability principle",
+    "This could be a power of attorney, an agent for a non-natural party or a notary/solicitor acting for a citizen.",
+    "Satisfying the specificity principle",
+    "Identify relevant restriction using a spatial overlap of ownership extent against restriction extents.",
+    "Creating an Land Owners appication for a permit from an authoritative agency",
+    "Yes",
+    "No",
+    "Submit"
+   ],
+   "directed": true
+  },
+  "dhs": {
+   "kind": "org chart",
+   "nodes": [
+    "Secretary Deputy Secretary",
+    "Chief of Staff",
+    "Executive Secretary",
+    "Military Advisor",
+    "Chief Financial Officer",
+    "Chief Information Officer",
+    "Management Directorate",
+    "Science and Technology Directorate",
+    "Office of Intelligence and Analysis",
+    "Office of Strategy, Policy, and Plans",
+    "Office of the General Counsel",
+    "Office of Inspector General",
+    "Office of Homeland Security Situational Awareness",
+    "Office of Partnership and Engagement",
+    "Countering Weapons of Mass Destruction Office",
+    "Office of Legislative Affairs",
+    "Office of Public Affairs",
+    "Federal Law Enforcement Training Centers",
+    "Privacy Office",
+    "Office of the Immigration Detention Ombudsman",
+    "Office of the Citizenship and Immigration Services Ombudsman",
+    "Office for Civil Rights and Civil Liberties",
+    "Office of Health Security",
+    "U.S. Immigration and Customs Enforcement",
+    "U.S. Customs and Border Protection",
+    "U.S. Citizenship and Immigration Services",
+    "Federal Emergency Management Agency",
+    "U.S. Secret Service",
+    "Cybersecurity and Infrastructure Security Agency",
+    "Transportation Security Administration",
+    "U.S. Coast Guard"
+   ],
+   "edges": [
+    [
+     "Secretary Deputy Secretary",
+     "Chief of Staff",
+     ""
+    ],
+    [
+     "Chief of Staff",
+     "Executive Secretary",
+     ""
+    ],
+    [
+     "Chief of Staff",
+     "Military Advisor",
+     ""
+    ],
+    [
+     "Management Directorate",
+     "Chief Financial Officer",
+     ""
+    ],
+    [
+     "Management Directorate",
+     "Chief Information Officer",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Management Directorate",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Science and Technology Directorate",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of Intelligence and Analysis",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of Strategy, Policy, and Plans",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of the General Counsel",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of Inspector General",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of Homeland Security Situational Awareness",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of Partnership and Engagement",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Countering Weapons of Mass Destruction Office",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of Legislative Affairs",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of Public Affairs",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Federal Law Enforcement Training Centers",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Privacy Office",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of the Immigration Detention Ombudsman",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of the Citizenship and Immigration Services Ombudsman",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office for Civil Rights and Civil Liberties",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Office of Health Security",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "U.S. Immigration and Customs Enforcement",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "U.S. Customs and Border Protection",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "U.S. Citizenship and Immigration Services",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Federal Emergency Management Agency",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "U.S. Secret Service",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Cybersecurity and Infrastructure Security Agency",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Transportation Security Administration",
+     ""
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "U.S. Coast Guard",
+     ""
+    ]
+   ],
+   "ambiguous": [
+    [
+     "Secretary Deputy Secretary",
+     "Chief Financial Officer"
+    ],
+    [
+     "Secretary Deputy Secretary",
+     "Chief Information Officer"
+    ]
+   ],
+   "ok_text": [
+    "Secretary",
+    "Deputy Secretary",
+    "Homeland Security",
+    "U.S. Department of Homeland Security",
+    "Department of Homeland Security"
+   ],
+   "directed": false,
+   "aliases": {
+    "Secretary Deputy Secretary": [
+     "Secretary",
+     "Deputy Secretary",
+     "Secretary / Deputy Secretary"
+    ]
+   }
+  },
+  "audit": {
+   "kind": "BPMN swimlane process map",
+   "nodes": [
+    "Contributor submits a merge request",
+    "Request updated",
+    "Team member assigns merge request to themselves within 2 business days",
+    "Check changes for project governance and Public Code compliance",
+    "Post what needs to be done so the contributor can make the changes",
+    "Set request status to 'Changes requested'",
+    "Set request status to 'approved' and post positively",
+    "Make new commits to the code to resolve review and audit issues",
+    "Check changes for usefulness, value added and 'mergeability'",
+    "Set request status to 'approved' and post positively",
+    "Post what needs to be done so the contributor can make the changes",
+    "Set request status to 'Changes requested'",
+    "Post why the request cannot be merged and close it",
+    "Merge",
+    "Merge request rejected"
+   ],
+   "edges": [
+    [
+     "Contributor submits a merge request",
+     "Team member assigns merge request to themselves within 2 business days",
+     ""
+    ],
+    [
+     "Contributor submits a merge request",
+     "Check changes for usefulness, value added and 'mergeability'",
+     ""
+    ],
+    [
+     "Request updated",
+     "Team member assigns merge request to themselves within 2 business days",
+     ""
+    ],
+    [
+     "Request updated",
+     "Check changes for usefulness, value added and 'mergeability'",
+     ""
+    ],
+    [
+     "Team member assigns merge request to themselves within 2 business days",
+     "Check changes for project governance and Public Code compliance",
+     ""
+    ],
+    [
+     "Check changes for project governance and Public Code compliance",
+     "Post what needs to be done so the contributor can make the changes",
+     "Not compliant"
+    ],
+    [
+     "Check changes for project governance and Public Code compliance",
+     "Set request status to 'approved' and post positively",
+     "Compliant"
+    ],
+    [
+     "Post what needs to be done so the contributor can make the changes",
+     "Set request status to 'Changes requested'",
+     ""
+    ],
+    [
+     "Set request status to 'Changes requested'",
+     "Make new commits to the code to resolve review and audit issues",
+     ""
+    ],
+    [
+     "Set request status to 'approved' and post positively",
+     "Merge",
+     ""
+    ],
+    [
+     "Make new commits to the code to resolve review and audit issues",
+     "Request updated",
+     ""
+    ],
+    [
+     "Check changes for usefulness, value added and 'mergeability'",
+     "Set request status to 'approved' and post positively",
+     "Can be merged"
+    ],
+    [
+     "Check changes for usefulness, value added and 'mergeability'",
+     "Post what needs to be done so the contributor can make the changes",
+     "Needs changes"
+    ],
+    [
+     "Check changes for usefulness, value added and 'mergeability'",
+     "Post why the request cannot be merged and close it",
+     "Cannot be merged"
+    ],
+    [
+     "Set request status to 'approved' and post positively",
+     "Merge",
+     ""
+    ],
+    [
+     "Post what needs to be done so the contributor can make the changes",
+     "Set request status to 'Changes requested'",
+     ""
+    ],
+    [
+     "Set request status to 'Changes requested'",
+     "Make new commits to the code to resolve review and audit issues",
+     ""
+    ],
+    [
+     "Post why the request cannot be merged and close it",
+     "Merge request rejected",
+     ""
+    ]
+   ],
+   "ambiguous": [],
+   "ok_text": [
+    "Contributor",
+    "Auditor (staff)",
+    "Maintainers (community or staff)",
+    "Merge Request Acceptance",
+    "Merge request to a 'protected branch' or Foundation For Public Code managed codebase",
+    "Not compliant",
+    "Compliant",
+    "Can be merged",
+    "Needs changes",
+    "Cannot be merged"
+   ],
+   "directed": true
+  },
+  "gantt": {
+   "kind": "scanned table-like Gantt chart",
+   "nodes": [
+    "DAC-MSFC - Standard Hatch Evaluation",
+    "LH2 Tank Entry, Inspection, & Sealing Tests",
+    "Habitability & Experiment Package Transfer",
+    "Crew Quarters Installation",
+    "Experiment Packages - Installation, Stowage, Use (Electron Beam Joining, ST-124, et al)",
+    "MDA Human Factors - Ingress, Egress, Arrangement, etc.",
+    "Support to P&VE on G. E. Contract",
+    "Tool Kits, Stems, Serpentuator, Space Pulse Power Simulation, Checkout, etc.",
+    "Phase III ATM Tasks - Film Pack Handling, Partial Ingress, Egress, etc.",
+    "General ATM Design Verification and Astronaut Participation",
+    "CSM-LM Activities in ME's Large Tank"
+   ],
+   "edges": [],
+   "ambiguous": [],
+   "ok_text": [
+    "Neutral Buoyancy Testing",
+    "M. E. Lab Master Simulation Schedule",
+    "S-IVB Mods",
+    "Corollary Experiments - MSC, Air Force & MSFC",
+    "Multiple Docking Adapter",
+    "G. E. Contract",
+    "Space Tools & Systems Development - ME Lab",
+    "ATM",
+    "Apollo Mission Support",
+    "1967",
+    "1968",
+    "1969",
+    "Manufacturing Engineering Laboratory",
+    "MSFC",
+    "NASA"
+   ],
+   "directed": false
+  },
+  "whiteboard": {
+   "kind": "photo of a hand-drawn whiteboard schema",
+   "nodes": [
+    "Chapter",
+    "Data Contributors",
+    "dataCon_user_ID",
+    "dataCon_datatype",
+    "dataCon_dataID",
+    "Status",
+    "Pending",
+    "Under Review",
+    "In progress"
+   ],
+   "edges": [],
+   "ambiguous": [],
+   "ok_text": [
+    "All datatypes",
+    "All datatypes and story",
+    "varchar (45)",
+    "Contributor",
+    "Editor",
+    "Live",
+    "bridge",
+    "FK",
+    "PK"
+   ],
+   "directed": false
+  },
+  "network_white": {
+   "kind": "same network diagram, transparency flattened to white",
+   "nodes": [
+    "Info Server",
+    "E-Mail Server",
+    "Application Gateway",
+    "Internet"
+   ],
+   "edges": [],
+   "ambiguous": [],
+   "ok_text": [
+    "Application Traffic",
+    "Other Trusted Traffic",
+    "Router",
+    "Workstation",
+    "Firewall",
+    "Screened subnet",
+    "LAN",
+    "Internal network"
+   ],
+   "directed": false
+  }
+ },
+ "scores": {
+  "anthropic/claude-haiku-5.5": {
+   "audit": {
+    "sec": 11.6,
+    "cost": 0.001990395,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 21,
+    "edges_returned": 23,
+    "arrows_found": 18,
+    "arrows_total": 18,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs2": {
+    "sec": 7.4,
+    "cost": 0.001607463,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 30,
+    "arrows_found": 30,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "dhs": {
+    "sec": 6.6,
+    "cost": 0.001358478,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 5,
+    "arrows_found": 5,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge2": {
+    "sec": 30.8,
+    "cost": 0.004517766,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 69,
+    "arrows_found": 61,
+    "arrows_total": 67,
+    "arrows_wrong": 4,
+    "arrow_labels_found": 11,
+    "arrow_labels_total": 11
+   },
+   "edge3": {
+    "sec": 29.2,
+    "cost": 0.004316796,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 68,
+    "arrows_found": 58,
+    "arrows_total": 67,
+    "arrows_wrong": 7,
+    "arrow_labels_found": 10,
+    "arrow_labels_total": 11
+   },
+   "edge": {
+    "sec": 22.0,
+    "cost": 0.003512916,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 70,
+    "arrows_found": 57,
+    "arrows_total": 67,
+    "arrows_wrong": 8,
+    "arrow_labels_found": 10,
+    "arrow_labels_total": 11
+   },
+   "gantt": {
+    "sec": 7.5,
+    "cost": 0.001414512,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 11,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 4.1,
+    "cost": 0.000679041,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 6,
+    "edges_returned": 5
+   },
+   "network_white": {
+    "sec": 2.2,
+    "cost": 0.000420651,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 4,
+    "edges_returned": 0
+   },
+   "permit": {
+    "sec": 8.5,
+    "cost": 0.001351449,
+    "boxes_found": 24,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 24,
+    "edges_returned": 27,
+    "arrows_found": 24,
+    "arrows_total": 25,
+    "arrows_wrong": 2,
+    "arrow_labels_found": 6,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 5.7,
+    "cost": 0.000874566,
+    "boxes_found": 9,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   }
+  },
+  "anthropic/claude-sonnet-5.5": {
+   "audit": {
+    "sec": 9.5,
+    "cost": 0.0254133,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [
+     "Parallel gateway (split after submit)",
+     "Exclusive gateway (compliance)"
+    ],
+    "nodes_returned": 21,
+    "edges_returned": 23,
+    "arrows_found": 18,
+    "arrows_total": 18,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs2": {
+    "sec": 10.6,
+    "cost": 0.02976336,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 30,
+    "arrows_found": 30,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "dhs": {
+    "sec": 10.8,
+    "cost": 0.02976336,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 30,
+    "arrows_found": 30,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge2": {
+    "sec": 29.9,
+    "cost": 0.06809022,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 69,
+    "arrows_found": 61,
+    "arrows_total": 67,
+    "arrows_wrong": 4,
+    "arrow_labels_found": 11,
+    "arrow_labels_total": 11
+   },
+   "edge3": {
+    "sec": 29.1,
+    "cost": 0.06726852,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 68,
+    "arrows_found": 61,
+    "arrows_total": 67,
+    "arrows_wrong": 4,
+    "arrow_labels_found": 11,
+    "arrow_labels_total": 11
+   },
+   "edge": {
+    "sec": 30.8,
+    "cost": 0.06744672,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 69,
+    "arrows_found": 61,
+    "arrows_total": 67,
+    "arrows_wrong": 4,
+    "arrow_labels_found": 11,
+    "arrow_labels_total": 11
+   },
+   "gantt": {
+    "sec": 9.7,
+    "cost": 0.02608254,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 11,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 5.2,
+    "cost": 0.01301652,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 9,
+    "edges_returned": 10
+   },
+   "network_white": {
+    "sec": 5.3,
+    "cost": 0.01360062,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 9,
+    "edges_returned": 13
+   },
+   "permit": {
+    "sec": 9.8,
+    "cost": 0.02342538,
+    "boxes_found": 24,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 24,
+    "edges_returned": 26,
+    "arrows_found": 25,
+    "arrows_total": 25,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 7,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 6.9,
+    "cost": 0.01511532,
+    "boxes_found": 9,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 3,
+    "edges_returned": 0
+   }
+  },
+  "google/gemini-3.8-flash": {
+   "audit": {
+    "sec": 30.4,
+    "cost": 0.0157476825,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 22,
+    "edges_returned": 24,
+    "arrows_found": 18,
+    "arrows_total": 18,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs": {
+    "sec": 25.4,
+    "cost": 0.014839605,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 30,
+    "arrows_found": 30,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge": {
+    "sec": 27.0,
+    "cost": 0.01935252,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 71,
+    "arrows_found": 47,
+    "arrows_total": 67,
+    "arrows_wrong": 16,
+    "arrow_labels_found": 9,
+    "arrow_labels_total": 11
+   },
+   "gantt": {
+    "sec": 15.0,
+    "cost": 0.0078415425,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 2.7,
+    "cost": 0.0013402125,
+    "boxes_found": 0,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   },
+   "network_white": {
+    "sec": 11.7,
+    "cost": 0.0048596625,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 4,
+    "edges_returned": 0
+   },
+   "permit": {
+    "sec": 18.3,
+    "cost": 0.0103482225,
+    "boxes_found": 24,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 24,
+    "edges_returned": 26,
+    "arrows_found": 24,
+    "arrows_total": 25,
+    "arrows_wrong": 1,
+    "arrow_labels_found": 7,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 9.6,
+    "cost": 0.0050126175,
+    "boxes_found": 9,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   }
+  },
+  "meta/muse-spark-1.3-contributor": {
+   "audit": {
+    "sec": 26.0,
+    "cost": 0.001206909,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 22,
+    "edges_returned": 23,
+    "arrows_found": 18,
+    "arrows_total": 18,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs": {
+    "sec": 22.0,
+    "cost": 0.001145727,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 30,
+    "arrows_found": 30,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge": {
+    "sec": 0.8,
+    "cost": null,
+    "fail": "RuntimeError('vision call failed: 400 {\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\\\\"error\\\\\":{\\\\\"code\\\\\":null,\\\\\"message\\\\\":\\\\\"image decode limit exceeded at input[0].content[1]: the `image/png` payload exceeds ')"
+   },
+   "gantt": {
+    "sec": 18.3,
+    "cost": 0.000935451,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 11,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 5.4,
+    "cost": 0.000348975,
+    "boxes_found": 0,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   },
+   "network_white": {
+    "sec": 18.4,
+    "cost": 0.00062904402,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 6,
+    "edges_returned": 2
+   },
+   "permit": {
+    "sec": 44.5,
+    "cost": 0.001490445,
+    "boxes_found": 24,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 24,
+    "edges_returned": 26,
+    "arrows_found": 25,
+    "arrows_total": 25,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 7,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 18.6,
+    "cost": 0.000664191,
+    "boxes_found": 9,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   }
+  },
+  "minimax/minimax-m3.1-flash": {
+   "audit": {
+    "sec": 45.2,
+    "cost": 0.0070532748,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 22,
+    "edges_returned": 23,
+    "arrows_found": 18,
+    "arrows_total": 18,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs": {
+    "sec": 20.5,
+    "cost": 0.0046374768,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 32,
+    "arrows_found": 30,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge": {
+    "sec": 113.3,
+    "cost": 0.0187474716,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 71,
+    "arrows_found": 44,
+    "arrows_total": 67,
+    "arrows_wrong": 22,
+    "arrow_labels_found": 8,
+    "arrow_labels_total": 11
+   },
+   "gantt": {
+    "sec": 16.5,
+    "cost": 0.0036652176,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 11,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 1.2,
+    "cost": 0.0004224231,
+    "boxes_found": 0,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   },
+   "network_white": {
+    "sec": 24.6,
+    "cost": 0.0040819383,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 9,
+    "edges_returned": 9
+   },
+   "permit": {
+    "sec": 73.5,
+    "cost": 0.0087877548,
+    "boxes_found": 23,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 29,
+    "edges_returned": 26,
+    "arrows_found": 22,
+    "arrows_total": 25,
+    "arrows_wrong": 2,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 24.3,
+    "cost": 0.0042419916,
+    "boxes_found": 9,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 14,
+    "edges_returned": 1
+   }
+  },
+  "nvidia/nemotron-3.5-super-vl": {
+   "audit": {
+    "sec": 15.1,
+    "cost": 0.002638251,
+    "boxes_found": 14,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 18,
+    "edges_returned": 18,
+    "arrows_found": 13,
+    "arrows_total": 18,
+    "arrows_wrong": 1,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs": {
+    "sec": 8.8,
+    "cost": 0.003359367,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 16,
+    "arrows_found": 11,
+    "arrows_total": 30,
+    "arrows_wrong": 5,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge": {
+    "sec": 27.9,
+    "cost": 0.004197303,
+    "boxes_found": 55,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 70,
+    "edges_returned": 0,
+    "arrows_found": 0,
+    "arrows_total": 67,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 11
+   },
+   "gantt": {
+    "sec": 11.1,
+    "cost": 0.002019204,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 8.0,
+    "cost": 0.001377288,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 6,
+    "edges_returned": 0
+   },
+   "network_white": {
+    "sec": 5.1,
+    "cost": 0.001075833,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 6,
+    "edges_returned": 0
+   },
+   "permit": {
+    "sec": 12.6,
+    "cost": 0.004280067,
+    "boxes_found": 24,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 24,
+    "edges_returned": 24,
+    "arrows_found": 15,
+    "arrows_total": 25,
+    "arrows_wrong": 8,
+    "arrow_labels_found": 3,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 8.2,
+    "cost": 0.001293732,
+    "boxes_found": 9,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   }
+  },
+  "openai/gpt-4.1": {
+   "audit": {
+    "sec": 10.7,
+    "cost": 0.01417086,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 27,
+    "edges_returned": 28,
+    "arrows_found": 11,
+    "arrows_total": 18,
+    "arrows_wrong": 5,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs": {
+    "sec": 9.3,
+    "cost": 0.01459854,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 32,
+    "edges_returned": 31,
+    "arrows_found": 10,
+    "arrows_total": 30,
+    "arrows_wrong": 20,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge": {
+    "sec": 273.1,
+    "cost": 0.2614095,
+    "fail": "no JSON"
+   },
+   "gantt": {
+    "sec": 6.5,
+    "cost": 0.00891198,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 11,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 2.8,
+    "cost": 0.00458766,
+    "boxes_found": 0,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 5,
+    "edges_returned": 4
+   },
+   "network_white": {
+    "sec": 3.8,
+    "cost": 0.00545886,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 8,
+    "edges_returned": 7
+   },
+   "permit": {
+    "sec": 7.8,
+    "cost": 0.0141471,
+    "boxes_found": 23,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 23,
+    "edges_returned": 24,
+    "arrows_found": 20,
+    "arrows_total": 25,
+    "arrows_wrong": 4,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 7.6,
+    "cost": 0.00707454,
+    "boxes_found": 7,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 12,
+    "edges_returned": 8
+   }
+  },
+  "openai/gpt-6-luna": {
+   "audit": {
+    "sec": 31.0,
+    "cost": 0.00294022575,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 23,
+    "edges_returned": 23,
+    "arrows_found": 17,
+    "arrows_total": 18,
+    "arrows_wrong": 2,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs2": {
+    "sec": 15.9,
+    "cost": 0.002048706,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 30,
+    "arrows_found": 28,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "dhs": {
+    "sec": 22.3,
+    "cost": 0.0013447764,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 30,
+    "arrows_found": 28,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge2": {
+    "sec": 21.7,
+    "cost": 0.0021546855,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 71,
+    "arrows_found": 55,
+    "arrows_total": 67,
+    "arrows_wrong": 12,
+    "arrow_labels_found": 9,
+    "arrow_labels_total": 11
+   },
+   "edge3": {
+    "sec": 22.2,
+    "cost": 0.0021522105,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 64,
+    "arrows_found": 56,
+    "arrows_total": 67,
+    "arrows_wrong": 4,
+    "arrow_labels_found": 9,
+    "arrow_labels_total": 11
+   },
+   "edge": {
+    "sec": 21.2,
+    "cost": 0.00297101475,
+    "boxes_found": 59,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 63,
+    "edges_returned": 62,
+    "arrows_found": 55,
+    "arrows_total": 67,
+    "arrows_wrong": 4,
+    "arrow_labels_found": 8,
+    "arrow_labels_total": 11
+   },
+   "gantt": {
+    "sec": 18.8,
+    "cost": 0.00205467075,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 21,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 2.4,
+    "cost": 0.0003425895,
+    "boxes_found": 0,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   },
+   "network_white": {
+    "sec": 8.6,
+    "cost": 0.00097517475,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 12,
+    "edges_returned": 11
+   },
+   "permit": {
+    "sec": 31.9,
+    "cost": 0.00233434575,
+    "boxes_found": 23,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 29,
+    "edges_returned": 26,
+    "arrows_found": 22,
+    "arrows_total": 25,
+    "arrows_wrong": 2,
+    "arrow_labels_found": 6,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 15.8,
+    "cost": 0.00149556825,
+    "boxes_found": 9,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 2,
+    "edges_returned": 0
+   }
+  },
+  "openai/gpt-6.1-terra": {
+   "audit": {
+    "sec": 18.9,
+    "cost": 0.0225168075,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 22,
+    "edges_returned": 23,
+    "arrows_found": 18,
+    "arrows_total": 18,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 5,
+    "arrow_labels_total": 5
+   },
+   "dhs": {
+    "sec": 22.3,
+    "cost": 0.01514007,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 31,
+    "edges_returned": 32,
+    "arrows_found": 30,
+    "arrows_total": 30,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge": {
+    "sec": 5.5,
+    "cost": null,
+    "fail": "RuntimeError('vision call failed: 400 {\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\\\n  \\\\\"error\\\\\": {\\\\n    \\\\\"message\\\\\": \\\\\"The image you provided requires 47362 patches after processing, exceeding the limit of')"
+   },
+   "gantt": {
+    "sec": 14.2,
+    "cost": 0.0161511075,
+    "boxes_found": 11,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 11,
+    "edges_returned": 0
+   },
+   "network": {
+    "sec": 2.3,
+    "cost": 0.003302145,
+    "boxes_found": 0,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   },
+   "network_white": {
+    "sec": 5.3,
+    "cost": 0.004683195,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 9,
+    "edges_returned": 0
+   },
+   "permit": {
+    "sec": 21.8,
+    "cost": 0.0148146075,
+    "boxes_found": 24,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 24,
+    "edges_returned": 26,
+    "arrows_found": 25,
+    "arrows_total": 25,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 7,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 12.0,
+    "cost": 0.0118223325,
+    "boxes_found": 9,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 2,
+    "edges_returned": 0
+   }
+  },
+  "qwen/qwen2.5-vl-72b-instruct": {
+   "audit": {
+    "sec": 33.1,
+    "cost": 0.011645766,
+    "boxes_found": 15,
+    "boxes_total": 15,
+    "invented": [],
+    "nodes_returned": 21,
+    "edges_returned": 17,
+    "arrows_found": 10,
+    "arrows_total": 18,
+    "arrows_wrong": 0,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 5
+   },
+   "dhs": {
+    "sec": 53.4,
+    "cost": 0.00559053,
+    "boxes_found": 31,
+    "boxes_total": 31,
+    "invented": [],
+    "nodes_returned": 32,
+    "edges_returned": 31,
+    "arrows_found": 11,
+    "arrows_total": 30,
+    "arrows_wrong": 19,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 0
+   },
+   "edge": {
+    "sec": 92.5,
+    "cost": 0.016394202,
+    "boxes_found": 51,
+    "boxes_total": 62,
+    "invented": [],
+    "nodes_returned": 64,
+    "edges_returned": 62,
+    "arrows_found": 10,
+    "arrows_total": 67,
+    "arrows_wrong": 38,
+    "arrow_labels_found": 0,
+    "arrow_labels_total": 11
+   },
+   "gantt": {
+    "sec": 15.2,
+    "cost": 0.007914654,
+    "boxes_found": 10,
+    "boxes_total": 11,
+    "invented": [],
+    "nodes_returned": 3,
+    "edges_returned": 2
+   },
+   "network": {
+    "sec": 7.8,
+    "cost": 0.002232252,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 4,
+    "edges_returned": 3
+   },
+   "network_white": {
+    "sec": 6.0,
+    "cost": 0.002308284,
+    "boxes_found": 4,
+    "boxes_total": 4,
+    "invented": [],
+    "nodes_returned": 4,
+    "edges_returned": 3
+   },
+   "permit": {
+    "sec": 43.2,
+    "cost": 0.005516082,
+    "boxes_found": 23,
+    "boxes_total": 24,
+    "invented": [],
+    "nodes_returned": 23,
+    "edges_returned": 21,
+    "arrows_found": 11,
+    "arrows_total": 25,
+    "arrows_wrong": 9,
+    "arrow_labels_found": 2,
+    "arrow_labels_total": 7
+   },
+   "whiteboard": {
+    "sec": 4.9,
+    "cost": 0.006168096,
+    "boxes_found": 0,
+    "boxes_total": 9,
+    "invented": [],
+    "nodes_returned": 0,
+    "edges_returned": 0
+   }
+  }
+ }
+}
