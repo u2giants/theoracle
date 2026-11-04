@@ -1,0 +1,2039 @@
+{
+ "note": "Stage 5 resolve rerun on main c6c906b1 (#353 rules). Every judge merge plus 40 random rejections (seed 5) re-judged by anthropic/claude-sonnet-5.5.",
+ "runs": {
+  "luna": {
+   "decisions_total": 1808,
+   "accepted": 127,
+   "rejected": 1681,
+   "graded": [
+    {
+     "mention": "Trademark Authorization forms",
+     "type": "Artifact",
+     "candidate": "Trademark Authorization Letter",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the trademark authorization document issued by a licensor. The mention uses 'forms' and the candidate uses 'Letter', but the process context shows it is the same artifact that is requested and later renewed."
+    },
+    {
+     "mention": "Q U I C K R E F E R E N C E",
+     "type": "Artifact",
+     "candidate": "Packaging Production Standards Quick Reference",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention's quote is the quick-reference section of the Packaging Production Standards document (CMYK, 300 ppi, AI 2020, etc.). The candidate's other mention has the same text, so both point to the same Quick Reference artifact."
+    },
+    {
+     "mention": "trademark authorization",
+     "type": "Artifact",
+     "candidate": "Trademark Authorization Letter",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention refers to the trademark authorization document that accompanies shipments for import clearance. This matches the candidate's 'Trademark Authorization Letter', and one of its other mentions uses nearly identical wording about the production team pasting the Brand Assurance form alongside the authorization so the goods can be imported."
+    },
+    {
+     "mention": "Brand Assurance form",
+     "type": "Artifact",
+     "candidate": "Brand Assurance Record",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the licensor's Brand Assurance submission form, printed and attached to shipping boxes for import. 'Form' and 'record' are just different labels for the same artifact."
+    },
+    {
+     "mention": "factory tech packs",
+     "type": "Artifact",
+     "candidate": "Tech Pack for Factory",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'factory tech packs' is the tech pack artifact built by Technical Designers for factories. The candidate 'Tech Pack for Factory' is that same artifact, and its other mentions ('tech pack', 'tech packs') refer to it as well."
+    },
+    {
+     "mention": "licensing sheet",
+     "type": "Artifact",
+     "candidate": "Licensing Sheet",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'licensing sheet' refers to the same document type as the candidate 'Licensing Sheet', the artifact the Techpack Automation generates and the Creative Director approves before it goes to a licensor."
+    },
+    {
+     "mention": "Packaging Back",
+     "type": "Artifact",
+     "candidate": "SKU_PACKAGING_BACK.png",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is an example caption for the packaging back image, which is the artifact the naming standard calls SKU_PACKAGING_BACK.png. This is an inference from the caption, not a certain match."
+    },
+    {
+     "mention": "Project / offer",
+     "type": "Artifact",
+     "candidate": "Offer (a \"project\")",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention defines 'Project / offer' as one offer to one buyer at one retailer for a season, i.e. an offer that is also called a 'project'. The candidate is 'Offer (a \"project\")', the same concept and artifact."
+    },
+    {
+     "mention": "style number",
+     "type": "Artifact",
+     "candidate": "Style number",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the style number, the permanent identifier assigned to a committed product (Spruce) once the buyer commits to an order or sample. The candidate's mentions describe the same concept, including its 'style-numbered product' variants."
+    },
+    {
+     "mention": "SKU_MOCKUP.ai",
+     "type": "Artifact",
+     "candidate": "SKU_MOCKUP.psd Or .ai",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the editable mockup source file named SKU_MOCKUP, which the same naming rule allows as .psd or .ai. The mention is the .ai variant of the candidate's 'psd or .ai' pattern, from the same File Naming section."
+    },
+    {
+     "mention": "test report",
+     "type": "Artifact",
+     "candidate": "PI / Product Integrity test report",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the test report described under the PI / Product Integrity heading, certifying that materials are non-toxic and safe. The candidate is the PI / Product Integrity test report, which other mentions describe as a materials-safety test report. Both refer to the same document type."
+    },
+    {
+     "mention": "PowerPoint",
+     "type": "Artifact",
+     "candidate": "PowerPoint presentation",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is a generic reference to a PowerPoint presentation as a deliverable format, which matches the candidate's generic 'PowerPoint presentation' artifact type."
+    },
+    {
+     "mention": "Tech Pack",
+     "type": "Artifact",
+     "candidate": "Tech Pack for Factory",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The Tech Pack in the licensed flow is the document that gets split, approved and handed off to factories, which is what 'Tech Pack for Factory' describes. The candidate's other mentions (handoff, packaging files, technical designers building factory tech packs) fit the same artifact."
+    },
+    {
+     "mention": "document",
+     "type": "Artifact",
+     "candidate": "selections document",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "project",
+     "type": "Artifact",
+     "candidate": "Account Projects",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention defines a 'project' as account-specific work for one buyer/account, which is the same concept as 'Account Projects' (account-specific projects distinct from general collections and style-numbered products). The candidate is the plural/category form of the singular term."
+    },
+    {
+     "mention": "General",
+     "type": "Artifact",
+     "candidate": "Presentation Boards",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention's quote describes Spruce's account-agnostic presentation boards, and the candidate's only other mention is that same sentence. 'General' is just a label for this artifact."
+    },
+    {
+     "mention": "flow",
+     "type": "Artifact",
+     "candidate": "Flowchart",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "SKU",
+     "type": "Artifact",
+     "candidate": "SKU",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"SKU/\" is a per-SKU folder placeholder in a directory path, and the candidate already includes the \"SKU Folder\" mention. Both refer to the SKU concept (a picked product) and its folder."
+    },
+    {
+     "mention": "BA",
+     "type": "Artifact",
+     "candidate": "BA form",
+     "model_same": true,
+     "judge_same": true,
+     "why": "In the mention, 'BA' is shorthand for the BA form: the licensed team saves the BA from SKU#_FA, and the next step sends 'BA forms of SKU#s' to Emma and the factories. The candidate's other mentions also treat the BA form as a document saved to the SharedLic server under SKU# names, so both refer to the same artifact type."
+    },
+    {
+     "mention": "Desperate",
+     "type": "Customer",
+     "candidate": "Desperate Enterprises",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Desperate' is a shortened form of 'Desperate Enterprises'. The quote refers to 'Desperate Enterprises' and 'Desperate Signs Orders' in the same context, and the candidate's other mention comes from the same passage. They refer to the same customer."
+    },
+    {
+     "mention": "Dollar",
+     "type": "Customer",
+     "candidate": "Dollar General",
+     "model_same": true,
+     "judge_same": true,
+     "why": "In a list of retail buyers, 'Dollar' most likely abbreviates Dollar General, which this company's other mentions treat as a buyer. The text doesn't rule out Dollar Tree or Family Dollar, so confidence is moderate."
+    },
+    {
+     "mention": "Liz has taken over her review-and-approval function",
+     "type": "Decision",
+     "candidate": "Liz Took Over Review-and-approval Without The Formal Named Checkpoint Sarbani Had",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the decision that Liz took over Sarbani's review-and-approval function without the formal named checkpoint. The candidate entity is a restatement of that same decision, and its other mention quotes the identical sentence."
+    },
+    {
+     "mention": "creative directors",
+     "type": "Department",
+     "candidate": "Creative direction",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'creative directors' is the people in the Creative direction swimlane/department of the same licensed flow; the quote describes work passing from Adam to creative directors and back to sales, matching that lane."
+    },
+    {
+     "mention": "Licensed Team",
+     "type": "Department",
+     "candidate": "Licensing Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Licensed Team\" is a variant of \"Licensing Team\"; both refer to the internal department that handles licensing and licensor approvals, and the context fits (asking about licenses buyers want)."
+    },
+    {
+     "mention": "license team",
+     "type": "Department",
+     "candidate": "Licensing Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"License team\" and \"Licensing Team\" are different wordings for the same internal department. The surrounding context (licensing involved in concept review and submission to the licensor) fits the same function, and nothing suggests a different team."
+    },
+    {
+     "mention": "Production",
+     "type": "Department",
+     "candidate": "Production Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Production' is a department/swimlane in the Edge Home licensed flow. The candidate 'Production Team' appears in the same flowchart, with 'Production: to factory' among its other mentions. These are the same production function, with only a naming variation."
+    },
+    {
+     "mention": "tech team",
+     "type": "Department",
+     "candidate": "Technical Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Tech team\" is a common shorthand for \"Technical Team\". The candidate's other mentions already include \"tech team\" and \"technical team\" as the same department, and nothing in the context points to a different team."
+    },
+    {
+     "mention": "Technical",
+     "type": "Department",
+     "candidate": "Technical Design",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the 'Technical' department, whose work in the quote is done by the technical designer. The candidate 'Technical Design' has another mention that also calls it 'technical', and both refer to the same packaging and spec team."
+    },
+    {
+     "mention": "licensing",
+     "type": "Department",
+     "candidate": "Licensing Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the licensing department, which the sheet is submitted to. The candidate's other mentions include the bare word 'licensing' in the same workflow context, so they are most likely the same internal Licensing Team."
+    },
+    {
+     "mention": "Creative",
+     "type": "Department",
+     "candidate": "Creative team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Creative' (Department) in the quote refers to the creative team that designs concept options. The candidate 'Creative team' is the same department, and its other mentions ('creative team', 'creative') use the same naming."
+    },
+    {
+     "mention": "design",
+     "type": "Department",
+     "candidate": "Design team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'design' is a department that serves as liaison with technical teams. The candidate 'Design team' is the same department, and its other mentions ('Design', 'design') refer to the same group in the product development workflow. No conflicting qualifiers suggest a different team."
+    },
+    {
+     "mention": "Sales",
+     "type": "Department",
+     "candidate": "Sales Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Sales' is a department in the Edge Home licensed flow. The candidate 'Sales Team' is the same internal sales function, referred to as 'Sales Team' and 'sales' in other mentions. These are naming variants of one department."
+    },
+    {
+     "mention": "POP",
+     "type": "Department",
+     "candidate": "POP Creations",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "pulling creatives off other projects",
+     "type": "Issue",
+     "candidate": "Huge Ollies Order Forced Pausing Everything Else",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention is a specific consequence (pulling creatives off other projects), while the candidate is a different event (a huge Ollies order forcing everything else to pause). They are related parts of the same quote, but they are distinct issues."
+    },
+    {
+     "mention": "nobody re-surfaces it",
+     "type": "Issue",
+     "candidate": "Work Is Effectively Wasted",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention is the cause (no one re-surfaces approved inventory), while the candidate is the consequence (the work is effectively wasted). They come from the same sentence but are distinct issues."
+    },
+    {
+     "mention": "mismatch",
+     "type": "Issue",
+     "candidate": "Mismatch Discovered During Sampling",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention describes a mismatch between design and manufacturing constraints that is discovered during sampling and forces rework. The candidate 'Mismatch Discovered During Sampling' names that same issue, and its other mention quotes the same sentence."
+    },
+    {
+     "mention": "Strawberry Shortcake",
+     "type": "Licensor",
+     "candidate": "Strawberry Shortcake (WildBrain CPLP)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the licensor Strawberry Shortcake, which the same list tags as '(WildBrain CPLP)'. The candidate is the same licensor with its full name, and its other mentions also appear in the licensor lists."
+    },
+    {
+     "mention": "WildBrain CPLP",
+     "type": "Licensor",
+     "candidate": "Strawberry Shortcake (WildBrain CPLP)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "In this document the licensor list has a single entry, 'Strawberry Shortcake (WildBrain CPLP)'. The mention 'WildBrain CPLP' is the parenthetical part of that entry, so both point to the same licensor. WildBrain could license other properties in general, but none appear here."
+    },
+    {
+     "mention": "Nickelodeon",
+     "type": "Licensor",
+     "candidate": "Nickelodeon (Paramount)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Paramount/Nickelodeon' in the licensor list refers to the Nickelodeon licensor, which the candidate 'Nickelodeon (Paramount)' also represents. Both are the same licensor of licensed IP (Nickelodeon, owned by Paramount)."
+    },
+    {
+     "mention": "Warner Bros",
+     "type": "Licensor",
+     "candidate": "Warner Bros",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the licensor Warner Bros (also written 'Warner Brothers') in the same licensor lists from the same company context; only the spelling differs."
+    },
+    {
+     "mention": "Paramount",
+     "type": "Licensor",
+     "candidate": "Nickelodeon (Paramount)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention lists the licensor as \"Paramount/Nickelodeon\", and the candidate is \"Nickelodeon (Paramount)\". Both point to the same licensor relationship, with Paramount as the parent company and Nickelodeon as its brand. The licensor list and the turnaround table treat them as one licensor entry."
+    },
+    {
+     "mention": "One Piece",
+     "type": "Licensor",
+     "candidate": "One Piece (TOEI)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'One Piece (TOEI)' in the licensor list is the same licensor as the candidate 'One Piece (TOEI)'. The candidate's other mentions come from the same licensor list and approval-timeline table."
+    },
+    {
+     "mention": "LucasFilm",
+     "type": "Licensor",
+     "candidate": "LucasFilm / Star Wars",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the LucasFilm licensor, which the source lists as 'Star Wars (LucasFilm)'. The candidate 'LucasFilm / Star Wars' is the same licensor under a combined name, and its other mentions are about the same licensor's approval turnaround."
+    },
+    {
+     "mention": "Star Wars",
+     "type": "Licensor",
+     "candidate": "LucasFilm / Star Wars",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention lists \"Star Wars (LucasFilm)\" as a single licensor. The candidate \"LucasFilm / Star Wars\" is the same licensor, listed under a combined name in the turnaround table."
+    },
+    {
+     "mention": "TOEI",
+     "type": "Licensor",
+     "candidate": "One Piece (TOEI)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "In this document the licensor entry is 'One Piece (TOEI)', so TOEI is the licensor behind the One Piece line. The mention comes from that same list item and refers to the same licensor record."
+    },
+    {
+     "mention": "months",
+     "type": "Metric",
+     "candidate": "Weeks Or Months",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention 'months' is a bare time unit used in 'projects sit with buyer for months'. The candidate 'Weeks Or Months' is a distinct duration-range concept (weeks or months). They overlap in context but are not the same entity: one is a single unit and the other is a combined range."
+    },
+    {
+     "mention": "Jennifer Chaffier",
+     "type": "Person",
+     "candidate": "Jennifer Chaffier",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention and the candidate share the exact full name 'Jennifer Chaffier' and appear as a speaker in the same kind of transcript (timestamped lines). Nothing suggests two different people, so they are most likely the same person."
+    },
+    {
+     "mention": "Elizabeth Parkin",
+     "type": "Person",
+     "candidate": "Elizabeth Parkin",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention and the candidate share the exact full name 'Elizabeth Parkin' and appear as a speaker in the same transcript format (timestamped speaker labels). Nothing indicates a different person, so they are most likely the same speaker."
+    },
+    {
+     "mention": "Jen Chaffier",
+     "type": "Person",
+     "candidate": "Jennifer Chaffier",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Jen Chaffier and Jennifer Chaffier share the same surname and Jen is a common short form of Jennifer. The candidate is speaking in a product-development discussion, which fits the Creative Director role in the mention. No conflicting details."
+    },
+    {
+     "mention": "Liz Parkin",
+     "type": "Person",
+     "candidate": "Elizabeth Parkin",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Liz is a common nickname for Elizabeth, and the surname Parkin matches. Both mentions fit a design-focused role: the Creative Director approves design and licensing sheets, and the candidate talks about design workflow from presentation to art file to mock-up to production file. No conflicting evidence, though the match rests on name and context."
+    },
+    {
+     "mention": "Eliza",
+     "type": "Person",
+     "candidate": "Elizabeth Parkin",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Eliza is a common diminutive of Elizabeth. The mention is a direct address in what looks like the same conversation where Elizabeth Parkin speaks, and nothing points to a different Eliza. This is a likely match but not confirmed."
+    },
+    {
+     "mention": "Jess",
+     "type": "Person",
+     "candidate": "Jessica Cortázar (Project Manager)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Jess\" is a common short form of \"Jessica\". The candidate's other mentions already use \"Jessica\" alone for Jessica Cortázar, the Project Manager who owns the whole POP pipeline. The quote \"Wouldn't that be Jess?\" asks who owns something, which fits her role. The match is likely but not certain, because the quote gives no surname and the same team could include another Jess."
+    },
+    {
+     "mention": "jen",
+     "type": "Person",
+     "candidate": "Jennifer Chaffier",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention is only the first name 'jen', and nothing ties it to Jennifer Chaffier. Elizabeth Parkin asks 'Is jen here?' and Jennifer Chaffier is a speaker in the same transcript, but the question doesn't show who 'jen' is. Other people named Jen or Jennifer could be meant, so the match is not confirmed."
+    },
+    {
+     "mention": "Retrieve Product Type example image",
+     "type": "Process",
+     "candidate": "Step 8: Retrieve Product Type Example",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both describe the process step of retrieving the example product image for a Product Type from the library. The candidate's description, 'The automation retrieves the Example Product Image corresponding to the Product Type', matches the mention, and the name differs only in the step number and the word 'image'."
+    },
+    {
+     "mention": "Concept Resubmission",
+     "type": "Process",
+     "candidate": "Concept Resubmission",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention and the candidate are the same process step, 'Concept Resubmission', which the Licensed Team repeats several times. The candidate's other mentions ('Concept Resubmit', 'PUSH BACK ON LICENSOR') are just variants of that step's name, with the same repeat note and the same owner."
+    },
+    {
+     "mention": "Techpack Automation",
+     "type": "Process",
+     "candidate": "Techpack Automation system",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both name the same Techpack Automation system. The mention is a downstream step in the non-compliance list. The candidate's other mentions use 'Techpack Automation' and 'Techpack Automation system' interchangeably for the system that generates the Licensing Sheet."
+    },
+    {
+     "mention": "Build techpackData",
+     "type": "Process",
+     "candidate": "Build TechpackData Object",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the process step of building the techpackData object by merging retrieved sources. The names differ only in the word 'Object', and the candidate's context (n12 'Build techpackData Object') fits the mention."
+    },
+    {
+     "mention": "Retrieve packaging",
+     "type": "Process",
+     "candidate": "Step 9: Retrieve Packaging",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the process step of retrieving packaging. The mention's front and back PNGs match the candidate's SKU_PACKAGING_FRONT.png and SKU_PACKAGING_BACK.png searched for in Packaging."
+    },
+    {
+     "mention": "Populate template",
+     "type": "Process",
+     "candidate": "Populate Licensing Sheet Template",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is a shortened name for the same workflow step, which fills a template's placeholders automatically. In the candidate's graph, that step (n13) comes right after the techpackData object is built. Nothing points to a different template, but the candidate's context is truncated, so this is a moderate-confidence match."
+    },
+    {
+     "mention": "licensor approval",
+     "type": "Process",
+     "candidate": "Full Licensor Approval Process",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the licensor approval process that licensed (POP) designs must go through, with concept and sample stages. The candidate's 'full' describes the same process, not a separate lighter variant."
+    },
+    {
+     "mention": "Concept Resubmit",
+     "type": "Process",
+     "candidate": "Concept Resubmission",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Concept Resubmit\" and \"Concept Resubmission\" are the same repeatable step, owned by the Licensed Team, in the same process. The wording differs only slightly, and the candidate's plain \"Concept Resubmission\" mention matches the quote almost exactly."
+    },
+    {
+     "mention": "concept approval",
+     "type": "Process",
+     "candidate": "Concept Approved",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the concept-approval gate that comes before sampling in the product workflow. 'Concept Approved' is the same step named as its outcome or status, not a different step such as sample/PPS approval."
+    },
+    {
+     "mention": "Retrieve mockup",
+     "type": "Process",
+     "candidate": "Step 7: Retrieve Mockup",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the process step of retrieving the SKU_MOCKUP.png file from the SKU folder. The mention is a shorthand for 'Step 7: Retrieve Mockup', and the file name matches."
+    },
+    {
+     "mention": "Spruce process",
+     "type": "Process",
+     "candidate": "product lifecycle process",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Spruce process' and the candidate 'product lifecycle process' come from the same passage and refer to Spruce's product lifecycle workflow, which the text says breaks down. The candidate's other mentions use the same quoted text."
+    },
+    {
+     "mention": "Licensing",
+     "type": "Process",
+     "candidate": "Licensing Review",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Licensing rejection' in a non-compliance context refers to rejection at the Licensing Review step. The candidate's other mentions describe the same gate, since non-compliant files must not be submitted for Licensing Review."
+    },
+    {
+     "mention": "Categories",
+     "type": "Product",
+     "candidate": "Product Categories",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Categories' in the royalty reporting context refers to product categories on designs, which is the same concept as the candidate 'Product Categories'. Both are the generic product category concept, and the other mentions use it the same way."
+    },
+    {
+     "mention": "Desk Acc",
+     "type": "Product",
+     "candidate": "Desk Accessories",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Desk Acc\" in the product-category table is an abbreviation of \"Desk Accessories\", the product category the company designs and sources. The table lists it alongside other categories such as Soft Storage, Hard Storage and Floor Coverings, which matches the candidate's product list."
+    },
+    {
+     "mention": "Color Mode CMYK",
+     "type": "Rule",
+     "candidate": "CMYK Color Mode",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the rule 'Color Mode CMYK', and the candidate 'CMYK Color Mode' is the same requirement. Its other mentions say documents must be created in CMYK color mode, and the quick-reference lists show Color Mode: CMYK."
+    },
+    {
+     "mention": "Garden",
+     "type": "Product",
+     "candidate": "Garden Items",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Garden' is a product category row in a timeline table. The candidate 'Garden Items' is the company's garden product category, listed alongside storage and floor coverings. Both refer to the same product category."
+    },
+    {
+     "mention": "line",
+     "type": "Product",
+     "candidate": "Existing Line",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention is a generic product line in an internal refresh, which may add new categories or properties. The candidate is the narrower concept of an already-existing line that a buyer asks to have refreshed. The two are related but not clearly the same entity."
+    },
+    {
+     "mention": "art",
+     "type": "Product",
+     "candidate": "Artwork",
+     "model_same": true,
+     "judge_same": true,
+     "why": "In the quote, 'art' is shorthand for artwork, the design asset sent to Mallow for approval. The candidate 'Artwork' is the same artwork asset in the approval workflow, so both refer to the same thing."
+    },
+    {
+     "mention": "technical design",
+     "type": "Role",
+     "candidate": "Technical Designer",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Technical design\" in the quote is shorthand for the technical designer role, which handles packaging revisions. This matches the candidate entity 'Technical Designer', who designs packaging and builds licensing sheets."
+    },
+    {
+     "mention": "Senior Designer",
+     "type": "Role",
+     "candidate": "Senior Designer",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The source lists them as separate table rows. 'Senior Designer' (Mal) manages factories and approves files, tech packs and samples. 'Creative Senior Designer' (e.g., Ilona) advises the creative team on product restrictions and materials. The responsibilities and example people differ, so these are distinct roles."
+    },
+    {
+     "mention": "Licensed Team",
+     "type": "Role",
+     "candidate": "Licensed Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the Licensed Team, the licensing group (Licensing Manager and Licensing Coordinator) in the Edge Home licensed flow. The candidate's other mentions use 'Licensing Team' and 'Licensed Team' for the same role."
+    },
+    {
+     "mention": "Lic Manager",
+     "type": "Role",
+     "candidate": "Licensing Manager",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Lic Manager\" is an abbreviation of \"Licensing Manager\". The candidate's other mentions include \"Lic Manager\" itself, and both sit in the same licensed-team workflow alongside the Lic Coordinator and licensors."
+    },
+    {
+     "mention": "Coordinator",
+     "type": "Role",
+     "candidate": "Lic Coordinator",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention's quote ('Download the photos from the Factory Sample Request email') is the same sentence listed under the candidate 'Lic Coordinator', so 'Coordinator' is a short form of that role. The candidate's other mentions also place the coordinator on the licensing team alongside the manager."
+    },
+    {
+     "mention": "China team",
+     "type": "Role",
+     "candidate": "Sourcing team (China team)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention's quote names 'sourcing team / China team' as a single role, and the candidate entity is 'Sourcing team (China team)'. The candidate's own mention list includes this same quote, so they are the same role."
+    },
+    {
+     "mention": "tech team",
+     "type": "Role",
+     "candidate": "Technical Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Tech team\" is a shorthand for \"Technical Team\". The candidate's other mentions include \"tech team: things for the tech team\" and refer to the same team that receives prepared art files. Both point to the same internal role/team."
+    },
+    {
+     "mention": "Sourcing",
+     "type": "Role",
+     "candidate": "Sourcing team (China team)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the 'Sourcing' swimlane in the Edge Home licensed flow. The candidate is the sourcing team (China team), and its other mentions include the same flowchart's 'Sourcing' swimlane and 'Sourcing: to factory'. Both point to the same sourcing role/function in this process."
+    },
+    {
+     "mention": "Director",
+     "type": "Role",
+     "candidate": "Creative Director",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The 'Director' role is held by Jen Chaffier, who other mentions identify as Creative Director of Spruce Line. Her duties (approving art, head product designer, running trend collections) fit that creative role, so 'Director' is shorthand for it."
+    },
+    {
+     "mention": "POP Team",
+     "type": "Role",
+     "candidate": "POP Creations Team (POP Team)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'POP Team' matches the candidate's alias 'POP Team', and the candidate already lists this same quote as one of its mentions. Both refer to the POP Creations Team role."
+    },
+    {
+     "mention": "manager",
+     "type": "Role",
+     "candidate": "Licensing Manager",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'manager' appears in the context of the licensing team (manager + coordinator), which matches the Licensing Manager role, also written 'Lic Manager' in the other mentions."
+    },
+    {
+     "mention": "design",
+     "type": "Role",
+     "candidate": "Design Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'design' in 'liaison between design and technical teams' refers to the design team/function. The candidate 'Design Team' has other mentions that use 'Design' and 'design team' interchangeably for the same group, so they are the same entity."
+    },
+    {
+     "mention": "Sales",
+     "type": "Role",
+     "candidate": "Sales Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the 'Sales' swimlane in the Edge Home licensed flow. The candidate 'Sales Team' is the same sales function, with mentions that include the same flowchart swimlane (Albert, Buyer, Sales, Creative direction...). Both refer to the sales role/team that works with buyers and relays licensor changes."
+    },
+    {
+     "mention": "tech",
+     "type": "Role",
+     "candidate": "Technical Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'the tech' in 'it does go to the tech for us' refers to the technical group that receives art files. That matches the Technical Team, which is also called 'tech team' and 'technical teams' in the candidate's other mentions. 'Tech' is a shorthand for the same role."
+    },
+    {
+     "mention": "FAILURE TO COMPLY MAY RESULT IN",
+     "type": "Rule",
+     "candidate": "Failure To Comply May Result In Licensing Rejection Or Production Delays",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is a truncated, OCR-fragmented version of the same warning phrase 'Failure to comply may result in...' that appears in the candidate's other mentions. The candidate is the full form of this warning rule, so they refer to the same rule."
+    },
+    {
+     "mention": "Raster Effects 300 ppi",
+     "type": "Rule",
+     "candidate": "Image Resolution Embedded, CMYK, Minimum 300 Ppi",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention's quote is the rule text 'Image Resolution Embedded, CMYK, minimum 300 ppi', which is the candidate entity's name. The candidate's other mention is the same passage, headed 'Raster Effects 300 ppi'. Both describe the one 300 ppi embedded CMYK image resolution rule."
+    },
+    {
+     "mention": "CMYK",
+     "type": "Rule",
+     "candidate": "CMYK Color Mode",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the CMYK color mode requirement. The mention is the 'COLOR MODE: CMYK' setting in the artwork standards, and the candidate is the CMYK Color Mode rule, which also appears as 'COLOR MODE: CMYK' in the mockup standards."
+    },
+    {
+     "mention": "Inches",
+     "type": "Rule",
+     "candidate": "Measurement Units Inches, Unless Otherwise Specified",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the artwork production standard that measurements are in inches. The mention's 'UNITS: Inches' quick-reference rule matches the candidate 'Measurement Units Inches, unless otherwise specified'. The candidate only adds the 'unless otherwise specified' qualifier."
+    },
+    {
+     "mention": "100%",
+     "type": "Rule",
+     "candidate": "Scale Create At 100% Actual Size",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the 'SCALE 100%' rule from the artwork production standards quick reference. The candidate is the rule 'Scale: Create at 100% actual size'. Both state the same requirement."
+    },
+    {
+     "mention": "Update DesignFlow status and enter the Licensor’s comment",
+     "type": "Step",
+     "candidate": "Update DesignFlow status and enter the Licensor’s comment",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention's text matches the candidate's name exactly. The candidate's other mentions ('Adjust status in DesignFlow', 'Add Licensor Comment to DesignFlow') are paraphrases of the same step: updating the DesignFlow status and entering the Licensor's comment."
+    },
+    {
+     "mention": "Download the photos from the Factory Sample Request email",
+     "type": "Step",
+     "candidate": "Lic Coordinator Download The Photos From The Factory Sample Request Email",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both are the step of downloading the photos from the Factory Sample Request email. The mention's quote starts with 'Coordinator', which looks like the tail of 'Lic Coordinator', the role prefix in the candidate. The wording is otherwise identical."
+    },
+    {
+     "mention": "updateds “Sample Received” on DesignFlow",
+     "type": "Step",
+     "candidate": "Lic Coordinator Updateds “Sample Received” On DesignFlow",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the same process step as the candidate: the Lic Coordinator updating 'Sample Received' on DesignFlow. The quote matches the candidate's other mentions, and the only difference is the step number '5.' and a typo ('updateds')."
+    },
+    {
+     "mention": "Approves every preliminary design",
+     "type": "Step",
+     "candidate": "Internal Creative Director Review",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention's quote describes Liz Parkin approving every preliminary design and licensing sheet as the internal quality gate before anything goes to a licensor. The candidate is the internal Creative Director review step, where Liz reviews the licensing sheet and design before licensor submission. Both describe the same gate."
+    },
+    {
+     "mention": "Connect to Production Server",
+     "type": "Step",
+     "candidate": "Connect to the Production Server",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The table of contents lists 'Step 6 — Connect to Production Server'. The candidate is the same step: its other mentions include '09 — Step 6: Connect to the Production Server', and only the article 'the' differs."
+    },
+    {
+     "mention": "Concept Submit to Licensor",
+     "type": "Step",
+     "candidate": "Concept Submitted To Licensor",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the same process step, where the licensing team submits the concept to the licensor. The wording differs only in tense and capitalization, and the flowchart includes the Licensing Team and Licensor swimlanes."
+    },
+    {
+     "mention": "Select Technical Designer",
+     "type": "Step",
+     "candidate": "Step 3 — Select Technical Designer",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the table-of-contents entry '06 Step 3 — Select Technical Designer', which is the same step as the candidate 'Step 3 — Select Technical Designer' in the same document."
+    },
+    {
+     "mention": "pre-screens AI-generated art",
+     "type": "Step",
+     "candidate": "AI art screening",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the same process step: Nat (Junior Designer) screening AI-generated art and removing poor-quality pieces and obvious AI mistakes before Jen reviews. The candidate's other mentions repeat the same quote."
+    },
+    {
+     "mention": "Update the Dflow Status",
+     "type": "Step",
+     "candidate": "Update the Dflow Status & Add Reason for Pushback",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The candidate already lists an identical mention (\"Update the Dflow Status.\") as step 5, so it is the same Dflow status-update step. The \"add reason for pushback\" part is only an extra clause in some phrasings."
+    },
+    {
+     "mention": "sent out to the factory",
+     "type": "Step",
+     "candidate": "Send the approved art file to the factory",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'sent out to the factory' is the same handoff step as the candidate's 'Send the approved art file to the factory'. The other mentions describe the same step in the same workflow, and the quote refers to the point where the China team takes over after it is sent."
+    },
+    {
+     "mention": "sends it to the factory",
+     "type": "Step",
+     "candidate": "Send the approved art file to the factory",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention describes sending the approved art file to the factory after approval. This is the same process step as the candidate, whose other mentions also describe sending the file out to the factory. The only difference is who sends it (Angie versus 'we'), which doesn't change the step itself."
+    },
+    {
+     "mention": "style numbers assigned",
+     "type": "Step",
+     "candidate": "Style Number Assigned (commitment)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the workflow step where a style number is assigned to a selection once the buyer commits to an order (or a sample for sample accounts). The mention is the Burlington example of that step, and the candidate is its general definition."
+    },
+    {
+     "mention": "Open the Application",
+     "type": "Step",
+     "candidate": "Step 1 — Open the Application",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Open the Application' is the table-of-contents entry for Step 1, which is the candidate 'Step 1 — Open the Application' in the same Techpack Automation document."
+    },
+    {
+     "mention": "Product Type Example",
+     "type": "Step",
+     "candidate": "Retrieve Product Type Example",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "Retrieve Packaging",
+     "type": "Step",
+     "candidate": "Step 9 — Retrieve Packaging",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the 'Retrieve Packaging' step in the same licensing sheet automation workflow. The mention comes from the flowchart and the candidate is the numbered Step 9 with the same name, so they are the same step."
+    },
+    {
+     "mention": "Populate Template",
+     "type": "Step",
+     "candidate": "Step 13 — Populate Template",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the table-of-contents entry '16 Step 13 — Populate Template', which is the same step as the candidate 'Step 13 — Populate Template'. Only the step number is missing from the mention's name."
+    },
+    {
+     "mention": "goes back to Adam",
+     "type": "Step",
+     "candidate": "It Goes Back To Adam",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the same workflow step where work returns to Adam. The mention's 'goes back to Adam' matches the candidate 'It Goes Back To Adam', and the candidate's other mention ('it goes back to Adam') describes the same handoff in the process."
+    },
+    {
+     "mention": "obtain die lines",
+     "type": "Step",
+     "candidate": "Obtains The Die Lines",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the same process step: the sourcing/China team obtaining die lines while reviewing construction and materials. The wording differs only slightly ('obtain die lines' vs 'Obtains The Die Lines')."
+    },
+    {
+     "mention": "Licensing Sheet",
+     "type": "Step",
+     "candidate": "Build the Licensing Sheet",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the 'Licensing Sheet' column in the time-expectations table, which is the licensing sheet step of the workflow. The candidate 'Build the Licensing Sheet' is Step 12 of the same process, so both refer to the same step."
+    },
+    {
+     "mention": "sends tech packs",
+     "type": "Step",
+     "candidate": "Partners send their concepts as techpacks for the Licensed Team to submit for them",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention is a question ('Who sends tech packs?') that names a step without saying who performs it. The candidate is a specific statement that Partners send concepts as techpacks for the Licensed Team to submit. The two are related, but the candidate adds an actor and a purpose that the mention does not establish, so they can't be confirmed as the same step."
+    },
+    {
+     "mention": "Generate PDF",
+     "type": "Step",
+     "candidate": "Step 14 — Generate PDF",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Generate PDF' comes from the table of contents line '17 Step 14 — Generate PDF', which is the same step as the candidate 'Step 14 — Generate PDF'."
+    },
+    {
+     "mention": "presentation",
+     "type": "Step",
+     "candidate": "Presentation-to-production process",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention is one specific step, the presentation stage, within a design workflow (presentation → art file → mock up → production file). The candidate is the whole presentation-to-production process, which spans all of those stages. A single step is not the same as the end-to-end process that contains it."
+    },
+    {
+     "mention": "Enter SKU",
+     "type": "Step",
+     "candidate": "Step 2 — Enter SKU",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the table-of-contents entry for 'Step 2 — Enter SKU', which is the candidate entity. Both are the same step in the automation workflow."
+    },
+    {
+     "mention": "submit",
+     "type": "Step",
+     "candidate": "Submit It To Licensing",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'submit' comes from the same quote as the candidate's other mention ('I approve it, I submit it to licensing'). It is the same process step, with 'it' (the licensing sheet) and 'to licensing' elided in the shorter mention."
+    },
+    {
+     "mention": "14",
+     "type": "Step",
+     "candidate": "Sample Submitted To Licensor (PPS)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is step 14, 'Sample submitted to licensor (PPS)', owned by the Licensing Team. The candidate entity is 'Sample Submitted To Licensor (PPS)', and its other mention quotes the same step 14 row with the same owner. Only the capitalization differs, so they refer to the same process step."
+    },
+    {
+     "mention": "13",
+     "type": "Step",
+     "candidate": "Factory Resample (if Needed)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is step 13, 'Factory resample (if needed)', and the candidate entity 'Factory Resample (if Needed)' has the same name. Its other mention quotes the identical table row, so both refer to the same process step."
+    },
+    {
+     "mention": "4",
+     "type": "Step",
+     "candidate": "Presentation To Buyer",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the process step where Adam (Sales) presents the preliminary designs to the buyer. The step number differs (4 vs 3) and the wording is slightly different, but they come from different process documents or versions describing the same step."
+    },
+    {
+     "mention": "2",
+     "type": "Step",
+     "candidate": "AI art screening",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is step 2, named 'AI art screening', in which Nat removes poor-quality AI art and obvious mistakes before Jen reviews. The candidate entity 'AI art screening' has other mentions describing the same task and the same person (Nat, Junior Designer), so both refer to the same process step."
+    },
+    {
+     "mention": "TechPack Automation",
+     "type": "System",
+     "candidate": "Techpack Automation system",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is a spaced-out title rendering of 'TechPack Automation', and the candidate is the Techpack Automation system. Both are the same system, and the document PPS-001 is about it."
+    },
+    {
+     "mention": "ShareLic Server",
+     "type": "System",
+     "candidate": "ShareLic Server",
+     "model_same": true,
+     "judge_same": true,
+     "why": "'ShareLic Server' and 'SharedLic server' differ only by a minor spelling variation. Both describe the same shared server where BA forms are saved, so they refer to one system."
+    },
+    {
+     "mention": "FAMA Server",
+     "type": "System",
+     "candidate": "SharedLic FAMA Server",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the same file server location where factory audits and approval letters are stored. 'FAMA Server' is a shortened form of 'SharedLic FAMA server', and both are used in the same licensing compliance process."
+    },
+    {
+     "mention": "Illustrator",
+     "type": "System",
+     "candidate": "Adobe Illustrator",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Illustrator\" is the common short name for Adobe Illustrator, the vector graphics software. The mention asks to draw something in it, and the candidate's other mentions use the same short name for the same tool."
+    },
+    {
+     "mention": "ColdLion",
+     "type": "System",
+     "candidate": "ColdLion System",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the ColdLion system used for saving licensor reference numbers and generating reports. The name matches and the context is the same."
+    },
+    {
+     "mention": "chat GPT",
+     "type": "System",
+     "candidate": "ChatGPT",
+     "model_same": true,
+     "judge_same": true,
+     "why": "'chat GPT' and 'Chat gpd' are spelling and transcription variants of ChatGPT, the same AI system. The candidate's own mention list includes the identical quote."
+    },
+    {
+     "mention": "server",
+     "type": "System",
+     "candidate": "Style Guide Server",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention refers to the server where new style guides are downloaded and made available, which matches the 'Style Guide Server' candidate. Both are the same system that stores licensor style guides."
+    },
+    {
+     "mention": "Dflow",
+     "type": "System",
+     "candidate": "DesignFlow",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Dflow is a common abbreviation for DesignFlow. Both appear in the same workflow context (licensor feedback, revisions, status updates), and the candidate's own mentions already include 'Dflow: Update the Dflow Status'."
+    },
+    {
+     "mention": "Factories",
+     "type": "Vendor",
+     "candidate": "Factories",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the generic 'Factories' role/lane in the Edge Home licensed flow process (manufacturing vendors). The candidate's other mentions come from the same flowchart and related process docs, so it's the same entity."
+    },
+    {
+     "mention": "Load Product Library",
+     "type": "Step",
+     "candidate": "Build the Licensing Sheet",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is Step 5, 'Load Product Library', while the candidate is Step 12, 'Build the Licensing Sheet'. They are different steps in the same table of contents."
+    },
+    {
+     "mention": "6 days",
+     "type": "Metric",
+     "candidate": "1–3 Days",
+     "model_same": false,
+     "judge_same": false,
+     "why": "These are different metric values. The mention is the Coca-Cola expected turnaround of 6 days, and the candidate is Disney's 1–3 days. They come from the same table, but they are distinct values for different licensors."
+    },
+    {
+     "mention": "No HEX Colors",
+     "type": "Step",
+     "candidate": "Embedded Images",
+     "model_same": false,
+     "judge_same": false,
+     "why": "These are different checklist items. 'No HEX Colors' checks that the artwork contains no HEX color values. 'Embedded Images' is a separate item, concerning images embedded in the file. They only appear together because both are in the same 25-item list."
+    },
+    {
+     "mention": "PANTONE 186 M",
+     "type": "Product",
+     "candidate": "PANTONE 186 CP",
+     "model_same": false,
+     "judge_same": false,
+     "why": "PANTONE 186 M and PANTONE 186 CP are different Pantone suffix variants (M vs. CP). The document lists both separately under NOT PERMITTED, so they are distinct entities."
+    },
+    {
+     "mention": "submit",
+     "type": "Step",
+     "candidate": "Concept Submitted To Licensor",
+     "model_same": false,
+     "judge_same": true,
+     "why": "The mention is a step where the speaker approves the returned licensing sheet and then submits it. In context this is the submission to the licensor, which matches the 'Concept submitted to licensor' step, where the concept and packaging go to the licensor's portal. The context doesn't say outright that the submission goes to the licensor, so this is a likely match rather than a certain one."
+    },
+    {
+     "mention": "For New Products",
+     "type": "Step",
+     "candidate": "Concept Reviewers",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the process step 'For New Products' (a branch for new items), while the candidate is 'Concept Reviewers', a reviewer role/step. 'Concept Reviewers' only appears in the same flowchart text, so the two are different nodes."
+    },
+    {
+     "mention": "No HEX Colors",
+     "type": "Step",
+     "candidate": "No Unused Swatches",
+     "model_same": false,
+     "judge_same": false,
+     "why": "These are two different checklist steps in the same artwork QA list. 'No HEX Colors' checks that no HEX color values are used, while 'No Unused Swatches' checks that unused swatches are removed. The shared quote text only reflects that both come from the same list."
+    },
+    {
+     "mention": "Search Master Data",
+     "type": "Step",
+     "candidate": "Populate Licensing Sheet Template",
+     "model_same": false,
+     "judge_same": false,
+     "why": "These are two different steps in the flowchart. 'Search Master Data' comes early, after 'Enter SKU', and 'Populate Licensing Sheet Template' comes late, after 'Build techpackData Object'. They are distinct actions with different roles, and the candidate's overlapping context text comes from the same shared list of flowchart items."
+    },
+    {
+     "mention": "Save the Approval Letter to the FAMA Server Location",
+     "type": "Step",
+     "candidate": "Enter Factory Information From The Audits On The “Vendor” Tab In MasterData",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the step of saving the approval letter to the FAMA server, which belongs to the FAMA/GBS Approval process. The candidate is the step of entering factory information from audits on the Vendor tab in MasterData, which belongs to Factory Audit Submission. These are different steps."
+    },
+    {
+     "mention": "Mockup Final.png",
+     "type": "Artifact",
+     "candidate": "VKP83DYMM02_MOCKUP.psd",
+     "model_same": false,
+     "judge_same": false,
+     "why": "'Mockup Final.png' is listed under NOT PERMITTED as an example of a bad file name. 'VKP83DYMM02_MOCKUP.psd' is the compliant example file. They are different artifacts with different names and formats (.png vs .psd), so they are not the same."
+    },
+    {
+     "mention": "Production",
+     "type": "Role",
+     "candidate": "Production Team",
+     "model_same": false,
+     "judge_same": true,
+     "why": "Both refer to the same internal Production function/role. The mention is the 'Production' role in the licensed flow, and the candidate 'Production Team' is the team handling production tasks. The naming differs only slightly, with no sign of a different entity."
+    },
+    {
+     "mention": "art picks",
+     "type": "Step",
+     "candidate": "Prepare The Art Files For The Picks",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the workflow stage where art picks come back (sales → art picks → technical). The candidate is the designers' earlier task of preparing art files for those picks. The two are related but are different steps."
+    },
+    {
+     "mention": "3–6 days",
+     "type": "Metric",
+     "candidate": "7–15 Days",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a 3–6 day turnaround (Nickelodeon/Paramount), while the candidate is a 7–15 day range. These are different metric values and different ranges, so they are not the same entity."
+    },
+    {
+     "mention": "Add any new releases",
+     "type": "Step",
+     "candidate": "If Something Is Removed From Our Contract",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a specific step, 'Add any new releases', in a movie release calendar process. The candidate is a broader scenario or procedure, 'If Something Is Removed From Our Contract'. The candidate's quote contains the step text, but the two are different things: a step versus a scenario or process."
+    },
+    {
+     "mention": "NOT PERMITTED",
+     "type": "Artifact",
+     "candidate": "Artwork",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention 'NOT PERMITTED' is the label for what the ARTWORK layer must not contain (a restriction note in the layer structure). The candidate 'Artwork' is the layer or deliverable itself. These are different concepts, so they are not the same entity."
+    },
+    {
+     "mention": "Walmart",
+     "type": "Customer",
+     "candidate": "HomeGoods",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Walmart and HomeGoods are different retailers. Both appear in the same list of buyers, but they are separate companies and not the same entity."
+    },
+    {
+     "mention": "Garden",
+     "type": "Artifact",
+     "candidate": "Floor Coverings",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Garden and Floor Coverings are distinct categories in the same list of areas (New Formats, Trend Boards, Garden, Floor Coverings, Storage, etc.), so they are different entities."
+    },
+    {
+     "mention": "Hard Storage",
+     "type": "Product",
+     "candidate": "Other Tabletop",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Hard Storage and Other Tabletop are separate product types listed in different rows of the table. They have different time values (30/60/40/100/40/32 vs 20/60/30/75/30/24), and storage is a different category from tabletop."
+    },
+    {
+     "mention": "Sourcing",
+     "type": "Role",
+     "candidate": "Sourcing Managers",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the generic 'Sourcing' role/function that appears as a swimlane in a licensed-flow chart. The candidate is 'Sourcing Managers', a specific role held by Albert and the China Team, with defined duties such as costing review and factory finding. The two are closely related and may overlap, but the mention is a function or department label and the candidate is a distinct job role, so I can't confirm they are the same entity."
+    },
+    {
+     "mention": "1–2 days",
+     "type": "Metric",
+     "candidate": "7–15 Days",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a 1–2 day expected response time (LucasFilm/Marvel), while the candidate is a 7–15 day range. These are different metric values, so they are not the same entity."
+    },
+    {
+     "mention": "Other Wall",
+     "type": "Product",
+     "candidate": "Stretched/Box",
+     "model_same": false,
+     "judge_same": false,
+     "why": "\"Other Wall\" and \"Stretched/Box\" are separate product type rows in the table. Other Wall has a longer brief time (20 vs 10), which confirms they are distinct categories."
+    },
+    {
+     "mention": "Repeat Steps 1-4 of the FAMA/GBS Approval",
+     "type": "Step",
+     "candidate": "Save The Approval Letter To The FAMA Server Location",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a step that says to repeat Steps 1-4 of the FAMA/GBS Approval, which is a whole group of steps. The candidate is one of those steps, 'Save the Approval Letter to the FAMA Server Location'. A repeat instruction and the single step it refers to are different things."
+    },
+    {
+     "mention": "SKU cards",
+     "type": "Artifact",
+     "candidate": "Design Calendar",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention 'SKU cards' is a kind of tracking record (a work item in the old system), while 'Design Calendar' is a desired seasonal planning view. They are different concepts. The shared source text is only incidental."
+    },
+    {
+     "mention": "Creating sketches and concepts",
+     "type": "Step",
+     "candidate": "Update To Drive And PO Folder",
+     "model_same": false,
+     "judge_same": false,
+     "why": "These are two different steps in the Licensed Flow. 'Creating sketches and concepts' is a design step, and 'Update to Drive and PO folder' is a later file-management step. The shared quote is only the whole flow's text, not evidence that they are the same step."
+    },
+    {
+     "mention": "No printable artwork.",
+     "type": "Artifact",
+     "candidate": "Artwork",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a negated constraint, probably describing the INFO/production-reference layer, which holds no printable artwork. The candidate is the Artwork artifact or layer itself, which is the opposite case. They are related but not the same thing."
+    },
+    {
+     "mention": "PPS Approved",
+     "type": "Step",
+     "candidate": "Enters Date Licensor Approved PPS Photos On MasterData",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the flowchart step 'PPS Approved', meaning the pre-production sample was approved. The candidate is a separate, later administrative step in which the Licensing Team enters the date the Licensor approved the PPS photos into MasterData. The two are related but distinct steps."
+    },
+    {
+     "mention": "Star Wars",
+     "type": "Licensor",
+     "candidate": "DC Comics",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Star Wars (LucasFilm) and DC Comics are separate licensors, listed as distinct items in the same licensor list. They are related only by both being licensors, so they are different entities."
+    },
+    {
+     "mention": "product",
+     "type": "Product",
+     "candidate": "Retail Product",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a generic 'product' in an approval workflow, with no indication it is retail product. The candidate is the specific category 'Retail Product' (retail product development). Without context linking them, they are not the same entity."
+    },
+    {
+     "mention": "60",
+     "type": "Metric",
+     "candidate": "20",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the metric value 60 and the candidate is the metric value 20. Both come from the same benchmark table, but they are different figures, so they are not the same metric."
+    },
+    {
+     "mention": "China Team",
+     "type": "Department",
+     "candidate": "Sales China Team",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a sourcing-side China Team that works with Albert on costing sheets, factories, die lines and construction details. The candidate is a Sales China Team. These are different functional departments, and nothing in the context links them, so they should not be merged."
+    },
+    {
+     "mention": "Packaging",
+     "type": "Step",
+     "candidate": "Submit Concepts And Packaging To The Licensor Portals",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a flowchart step named 'Packaging' that feeds 'Build techpackData Object' in a licensing-sheet PDF generation workflow. The candidate is a Licensing Manager task: submitting concepts and packaging to licensor portals. The two are different activities, so they are not the same step."
+    },
+    {
+     "mention": "wall art",
+     "type": "Product",
+     "candidate": "Photo Frames",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Wall art and photo frames are separate product categories in the company's list of home decor products (wall art, framed and stretched canvas, ... photo frames). They are distinct items, not the same thing."
+    },
+    {
+     "mention": "At Home",
+     "type": "Customer",
+     "candidate": "HomeGoods",
+     "model_same": false,
+     "judge_same": false,
+     "why": "At Home is a separate home decor retailer, distinct from HomeGoods (a TJX banner). The quote lists them as separate buyers."
+    },
+    {
+     "mention": "Enter SKU",
+     "type": "Step",
+     "candidate": "Build the Licensing Sheet",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is Step 2 (Enter SKU), while the candidate is Step 12 (Build the Licensing Sheet). They are different steps in the same workflow, so they are distinct entities."
+    },
+    {
+     "mention": "Brief",
+     "type": "Step",
+     "candidate": "Brief / Offer Created",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the design Brief step in the Edge Home licensed flow, coming after the Designer Request Form and before the Initial Design Meeting. The candidate is step 1 of a different process, where Sales and PM define an offer for a buyer or season. The shared word 'Brief' isn't enough to treat them as the same step."
+    },
+    {
+     "mention": "SKU_MOCKUP.ai",
+     "type": "Artifact",
+     "candidate": "SKU_MOCKUP.png",
+     "model_same": false,
+     "judge_same": false,
+     "why": "SKU_MOCKUP.ai is the editable source file (.psd or .ai), while SKU_MOCKUP.png is the exported PNG. They have different formats and roles, so they are two distinct artifacts even though they share a naming pattern."
+    },
+    {
+     "mention": "PPS",
+     "type": "Artifact",
+     "candidate": "PPS Photos",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the PPS itself, the physical pre-production sample the licensor approves. The candidate 'PPS Photos' is a different artifact: photographs of that sample that the factory sends for internal review. They are related, but a photo of a sample is not the sample."
+    },
+    {
+     "mention": "Identify Product Type",
+     "type": "Step",
+     "candidate": "Step 3 — Select Technical Designer",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is Step 4 — Identify Product Type, while the candidate is Step 3 — Select Technical Designer. They are different steps in the same procedure. The candidate's table of contents text only appears alongside the mention's."
+    },
+    {
+     "mention": "Identify Product Type",
+     "type": "Step",
+     "candidate": "Step 13 — Populate Template",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is Step 4 (Identify Product Type) and the candidate is Step 13 (Populate Template). They are different steps in the same procedure, and the table of contents only lists them together."
+    },
+    {
+     "mention": "Foil",
+     "type": "Product",
+     "candidate": "Puff Print",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Foil and Puff Print are separate decoration or finishing techniques in the same list. They are related but distinct products, so they are not the same entity."
+    }
+   ],
+   "wall_s": 2504,
+   "calls": 809,
+   "cost_usd": 0.1387
+  },
+  "muse": {
+   "decisions_total": 655,
+   "accepted": 45,
+   "rejected": 610,
+   "graded": [
+    {
+     "mention": "Trademark Authorization forms",
+     "type": "Artifact",
+     "candidate": "Trademark Authorization Letter",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the trademark authorization document that is requested from licensors and later used for import and shipping. The 'forms' in the mention are the same artifact type as the 'Letter' in the candidate."
+    },
+    {
+     "mention": "trademark authorization",
+     "type": "Artifact",
+     "candidate": "Trademark Authorization Letter",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention refers to the trademark authorization document that ships with the goods for import clearance. The candidate's other mentions describe the same document, including its use at production alongside the Brand Assurance form so goods can be imported. The wording differs slightly, but both point to the same artifact."
+    },
+    {
+     "mention": "Brand Assurance form",
+     "type": "Artifact",
+     "candidate": "Brand Assurance Record",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the licensor's Brand Assurance submission form/record that is printed and attached to shipping boxes for import. The wording differs (form vs. record), but the context and artifact are the same."
+    },
+    {
+     "mention": "factory tech packs",
+     "type": "Artifact",
+     "candidate": "Tech Pack For Factory",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the same artifact type: the tech pack prepared for the factory. 'Factory tech packs' in the Technical Designers description is the plural form of 'Tech Pack for Factory', the deliverable also listed in the time-expectation table."
+    },
+    {
+     "mention": "licensing sheet",
+     "type": "Artifact",
+     "candidate": "SKU_LICENSING_SHEET.pdf",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "Packaging Front",
+     "type": "Artifact",
+     "candidate": "SKU_PACKAGING_FRONT.png",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Packaging Front' is the front packaging export artifact. The candidate SKU_PACKAGING_FRONT.png is the required file name for that export, so both point to the same deliverable."
+    },
+    {
+     "mention": "Project / offer",
+     "type": "Artifact",
+     "candidate": "Offer (a \"project\")",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both describe the same concept: a 'project' as one offer/account-specific body of work for one buyer at one retailer. The candidate's alias 'Offer (a \"project\")' and its other mentions match the mention's 'Project / offer' definition."
+    },
+    {
+     "mention": "SKU_MOCKUP.ai",
+     "type": "Artifact",
+     "candidate": "SKU_MOCKUP.psd Or .ai",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the editable source mockup file in the SKU_MOCKUP naming convention, which can be saved as .psd or .ai. The mention is the .ai variant of that same artifact. It is distinct from the SKU_MOCKUP.png export."
+    },
+    {
+     "mention": "test report",
+     "type": "Artifact",
+     "candidate": "PI / Product Integrity",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the PI / Product Integrity item itself, described as a test report certifying that materials are non-toxic and safe. The candidate's other mentions describe it the same way, as a materials-safety test report some licensors require. Both refer to the same artifact."
+    },
+    {
+     "mention": "document",
+     "type": "Artifact",
+     "candidate": "Selections Document",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the selections document the team builds after a buyer meeting, listing everything the buyer chose. The Burlington example is an instance of that same artifact type in the same process."
+    },
+    {
+     "mention": "project",
+     "type": "Artifact",
+     "candidate": "Offer (a \"project\")",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both describe the account-specific 'project': one body of work for one buyer at one retailer. The candidate's 'Project / offer' (an account-specific body of work) matches the mention's definition."
+    },
+    {
+     "mention": "General",
+     "type": "Artifact",
+     "candidate": "Presentation Boards",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "samples",
+     "type": "Artifact",
+     "candidate": "Physical Samples",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention refers to samples that the Director approves, i.e., product samples. This is the same concept as the candidate 'Physical Samples', whose other mentions also refer to product samples. The wording differs only slightly (plural 'samples' vs 'physical samples')."
+    },
+    {
+     "mention": "specs",
+     "type": "Artifact",
+     "candidate": "Product Specs",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention is a generic reference to 'specs' in a list of work artifacts (files, notes, specs, handoffs) in a general statement. The candidate is a specific entity, Product Specs, meaning how each product is made, found in the tech pack. The mention does not clearly point to that specific artifact, so I can't confirm they are the same."
+    },
+    {
+     "mention": "art",
+     "type": "Artifact",
+     "candidate": "Art Files",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "BA",
+     "type": "Artifact",
+     "candidate": "BA Form",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "Desperate",
+     "type": "Customer",
+     "candidate": "Desperate Enterprises",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Desperate' is a shortened form of 'Desperate Enterprises' (the customer). The quote refers to Desperate Enterprises' weekly order reports and 'Desperate Signs Orders', and the candidate's other mention comes from the same passage, so they are the same customer."
+    },
+    {
+     "mention": "Dollar",
+     "type": "Customer",
+     "candidate": "Dollar General",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Dollar\" appears in a list of retailer buyers for this company, and Dollar General is the only Dollar-named retailer in the graph, where it is also a buyer. Dollar Tree is possible but unsupported, so this is a moderate-confidence match."
+    },
+    {
+     "mention": "buyers",
+     "type": "Customer",
+     "candidate": "Retail Buyer",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'buyers' (customers shown preliminary concepts) is the plural of the generic retail buyer role. Other mentions of 'buyer' and 'buyers' in the same context (designs shown to a buyer, lines presented to buyers) refer to that same role."
+    },
+    {
+     "mention": "Liz has taken over her review-and-approval function",
+     "type": "Decision",
+     "candidate": "Liz Took Over Review-and-approval Without The Formal Named Checkpoint Sarbani Had",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention is the decision that Liz took over Sarbani's review-and-approval function without the formal named checkpoint. The candidate entity is the same decision, restated as a title, and its only listed mention quotes the identical sentence."
+    },
+    {
+     "mention": "creative directors",
+     "type": "Department",
+     "candidate": "Creative Direction",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'creative directors' refers to the people in the Creative direction swimlane/department in the flowchart. The candidate 'Creative Direction' is that department, and the mention is the stage in the workflow (Adam → creative directors → sales). Same organizational function."
+    },
+    {
+     "mention": "Licensed Team",
+     "type": "Department",
+     "candidate": "Licensing Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Licensed Team\" is a variant wording of \"Licensing Team\"; both denote the internal department handling licenses/licensor submissions in the same company context, so they likely refer to the same department."
+    },
+    {
+     "mention": "license team",
+     "type": "Department",
+     "candidate": "Licensing Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "'License team' and 'Licensing Team' are the same department, just worded slightly differently. The candidate's other mentions (licensing team, licensing) point to the same internal team, and nothing suggests a different team or a licensor."
+    },
+    {
+     "mention": "Production",
+     "type": "Department",
+     "candidate": "Production Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Production' is a swimlane/department in the Edge Home licensed flow, and the candidate 'Production Team' appears in the same flowchart with that swimlane list. Both refer to the same production function in the same process."
+    },
+    {
+     "mention": "tech team",
+     "type": "Department",
+     "candidate": "Technical Teams",
+     "model_same": true,
+     "judge_same": true,
+     "why": "\"Tech team\" is a shorthand for the technical team. The candidate's other mentions already include \"tech team\" and \"technical team\" in the same context, so they refer to the same department."
+    },
+    {
+     "mention": "Technical",
+     "type": "Department",
+     "candidate": "Technical Design",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the technical design department. The mention's 'Technical' is the department of the Technical Designer role, and the candidate's other mentions use 'technical' as shorthand for the same team."
+    },
+    {
+     "mention": "licensing",
+     "type": "Department",
+     "candidate": "Licensing Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the internal licensing department/team that receives the licensing sheet and handles submission to the licensor. The candidate's other mentions include the bare word 'licensing' used the same way."
+    },
+    {
+     "mention": "Creative",
+     "type": "Department",
+     "candidate": "Creative Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Creative' is a department label for the creative team that designs concept options, which matches the candidate 'Creative Team' and its other mentions about the same internal group."
+    },
+    {
+     "mention": "design",
+     "type": "Department",
+     "candidate": "Design Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'design' in the quote refers to the design department/team, which is liaised with technical teams. The candidate 'Design Team' has other mentions that use 'design' and 'design team' interchangeably for the same internal department. Both denote the same organizational unit."
+    },
+    {
+     "mention": "Sales",
+     "type": "Department",
+     "candidate": "Sales Team",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both refer to the company's internal Sales department/team. The mention 'Sales' in the licensed flow chart is the same function as 'Sales Team' in the other mentions, which also appear in the same licensed-product context (buyer, licensor, design)."
+    },
+    {
+     "mention": "POP",
+     "type": "Department",
+     "candidate": "POP Creations",
+     "model_same": true,
+     "judge_same": null,
+     "why": null
+    },
+    {
+     "mention": "mismatch",
+     "type": "Issue",
+     "candidate": "Mismatch Discovered During Sampling",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention describes a mismatch between design and manufacturing constraints that is discovered during sampling, which is the same issue as the candidate 'Mismatch Discovered During Sampling'. The candidate's other mention comes from the same sentence."
+    },
+    {
+     "mention": "Strawberry Shortcake",
+     "type": "Licensor",
+     "candidate": "Strawberry Shortcake (WildBrain CPLP)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention lists 'Strawberry Shortcake (WildBrain CPLP)' among the licensors, and the candidate is that same licensor, listed with the same WildBrain CPLP qualifier. Both refer to the Strawberry Shortcake licensor."
+    },
+    {
+     "mention": "Nickelodeon",
+     "type": "Licensor",
+     "candidate": "Nickelodeon (Paramount)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention lists the licensor as \"Paramount/Nickelodeon\", and the candidate \"Nickelodeon (Paramount)\" is the same licensor in the same licensor list. Its other mentions also refer to Nickelodeon licensed products such as SpongeBob."
+    },
+    {
+     "mention": "Warner Bros",
+     "type": "Licensor",
+     "candidate": "Warner Brothers",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Both are the licensor Warner Bros, which the candidate spells 'Warner Brothers'. Both appear in the same licensor list alongside Disney, Peanuts, SEGA and others, so this is a naming variant of one entity."
+    },
+    {
+     "mention": "Paramount",
+     "type": "Licensor",
+     "candidate": "Nickelodeon (Paramount)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The source lists the licensor as \"Paramount/Nickelodeon\", and the candidate \"Nickelodeon (Paramount)\" is the same licensor. The licensor table also treats the two names as one entry, so this is a single licensor under two names."
+    },
+    {
+     "mention": "One Piece",
+     "type": "Licensor",
+     "candidate": "One Piece (TOEI)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention lists \"One Piece (TOEI)\" among the POP licensors, and the candidate is the same licensor entity, One Piece licensed by TOEI. The only difference is that the parenthetical is part of the candidate's name."
+    },
+    {
+     "mention": "LucasFilm",
+     "type": "Licensor",
+     "candidate": "LucasFilm / Star Wars",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention \"Star Wars (LucasFilm)\" in the licensor list and the candidate \"LucasFilm / Star Wars\" are the same licensor. The candidate's other mentions list it as a licensor with turnaround times, and the names are just two labels for one entity."
+    },
+    {
+     "mention": "Star Wars",
+     "type": "Licensor",
+     "candidate": "LucasFilm / Star Wars",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention lists \"Star Wars (LucasFilm)\" as a single licensor, and the candidate \"LucasFilm / Star Wars\" is that same licensor, written as a combined name in the turnaround table."
+    },
+    {
+     "mention": "TOEI",
+     "type": "Licensor",
+     "candidate": "One Piece (TOEI)",
+     "model_same": true,
+     "judge_same": true,
+     "why": "In this document the licensor list entry is 'One Piece (TOEI)', with TOEI as the licensing company behind the One Piece property. The mention 'TOEI' as Licensor comes from that same entry, so it most plausibly refers to the same licensor node. The match is not certain, since TOEI the company and the One Piece property are strictly distinct."
+    },
+    {
+     "mention": "months",
+     "type": "Metric",
+     "candidate": "Weeks Or Months",
+     "model_same": true,
+     "judge_same": false,
+     "why": "The mention is the unit 'months' in the context of projects sitting 'with buyer' for months. The candidate is 'Weeks Or Months', a duration range for the same kind of wait. A bare unit of time is not the same as that specific range, so they are different metric entities."
+    },
+    {
+     "mention": "Jennifer Chaffier",
+     "type": "Person",
+     "candidate": "Jennifer (Jen) Chaffier",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Same full name, and the candidate is the entity 'Jennifer (Jen) Chaffier' whose other mentions come from the same transcript and speaker label, so it is the same person."
+    },
+    {
+     "mention": "Elizabeth Parkin",
+     "type": "Person",
+     "candidate": "Liz (Elizabeth) Parkin",
+     "model_same": true,
+     "judge_same": true,
+     "why": "The mention 'Elizabeth Parkin' matches the candidate 'Liz (Elizabeth) Parkin' by name, since Liz is a common short form of Elizabeth. The candidate's other mentions use the same speaker label format, so they appear to come from the same transcript and speaker."
+    },
+    {
+     "mention": "Jen Chaffier",
+     "type": "Person",
+     "candidate": "Jennifer (Jen) Chaffier",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Jen Chaffier and Jennifer (Jen) Chaffier share the same surname and a matching first name (Jen is short for Jennifer). Her role as Creative Director who oversees product development fits the candidate's mentions about product development questions and approvals. Nothing suggests two different people."
+    },
+    {
+     "mention": "Liz Parkin",
+     "type": "Person",
+     "candidate": "Liz (Elizabeth) Parkin",
+     "model_same": true,
+     "judge_same": true,
+     "why": "Same name (Liz is a short form of Elizabeth Parkin). The Creative Director approving designs matches the candidate's talk about design workflow from presentation to art file to mock-up to production file. Nothing in the evidence points to a different person."
+    },
+    {
+     "mention": "files",
+     "type": "Artifact",
+     "candidate": "Packaging Files",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a generic 'files' that Mal (Senior Designer) approves, alongside tech packs and samples. The candidate is 'Packaging Files', a specific artifact type that is included in the tech pack. The mention is broader and not specifically packaging files, so they are not the same entity."
+    },
+    {
+     "mention": "approves with changes",
+     "type": "Decision",
+     "candidate": "Rejects With Revisions",
+     "model_same": false,
+     "judge_same": false,
+     "why": "These are two distinct licensor decision outcomes. 'Approves with changes' means the design is approved but needs minor revisions before sampling. 'Rejects with revisions' means the design is rejected and must be revised. They are listed as separate options in the same step."
+    },
+    {
+     "mention": "4 days",
+     "type": "Metric",
+     "candidate": "3–6 Days",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the 4-day expected response for Sesame Street. The candidate is the 3–6 day response for Nickelodeon (Paramount). These are different metric values tied to different licensors."
+    },
+    {
+     "mention": "SKU_PACKAGING_BACK.png",
+     "type": "Artifact",
+     "candidate": "SKU_PACKAGING_FRONT.png",
+     "model_same": false,
+     "judge_same": false,
+     "why": "SKU_PACKAGING_BACK.png and SKU_PACKAGING_FRONT.png are separate required files in the naming standard (back vs. front export). They are related but distinct artifacts."
+    },
+    {
+     "mention": "Marvel",
+     "type": "Licensor",
+     "candidate": "WildBrain CPLP",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Marvel and WildBrain CPLP are separate licensors in the list. WildBrain CPLP is the licensing agent for Strawberry Shortcake, not Marvel."
+    },
+    {
+     "mention": "INFO",
+     "type": "Artifact",
+     "candidate": "ART / INFO / Guide (DO NOT PRINT)",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the single INFO layer (production reference only, readable by Techpack automation). The candidate 'ART / INFO / Guide (DO NOT PRINT)' is a combined label for the set of top-level layers (ART, INFO, Guide), so it is a different granularity."
+    },
+    {
+     "mention": "product categories",
+     "type": "Artifact",
+     "candidate": "Retailer Restrictions",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention 'product categories' is the set of product types offered per licensor. The candidate 'Retailer Restrictions' is a different concept: limits that retailers place on those categories or style guides. The two are related, since the restrictions apply to categories, but they are not the same thing."
+    },
+    {
+     "mention": "Artwork (.ai)",
+     "type": "Artifact",
+     "candidate": "Licensing Sheet Template",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the artwork source file (.ai) retrieved from the production server, which is an input to the process. The candidate is the licensing sheet template that gets populated to produce the PDF. They are different artifacts, even though they appear in the same flowchart."
+    },
+    {
+     "mention": "concept images",
+     "type": "Artifact",
+     "candidate": "Physical Samples",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention 'concept images' (visual renderings) is a different artifact from 'Physical Samples' (tangible product samples). The source sentence lists them as two separate items to send to the Licensor."
+    },
+    {
+     "mention": "Technical",
+     "type": "Department",
+     "candidate": "Technical Teams",
+     "model_same": false,
+     "judge_same": true,
+     "why": "The mention 'Technical' is a department label, and the quote shows the technical designer building the licensing sheet, so it belongs to the technical function. The candidate 'Technical Teams' covers the same function, since its other mentions ('tech team', 'technical teams') refer to the same department that liaises with design. This is a plural/singular or naming variant of one department."
+    },
+    {
+     "mention": "TOEI",
+     "type": "Licensor",
+     "candidate": "DC Comics",
+     "model_same": false,
+     "judge_same": false,
+     "why": "TOEI (licensor of One Piece) and DC Comics are separate licensors, listed as distinct entries in the same list. Related by context, but not the same entity."
+    },
+    {
+     "mention": "email",
+     "type": "Artifact",
+     "candidate": "Factory Sample Request Email",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a generic reference to email as a channel for buyer change requests. The candidate is a specific artifact, the Factory Sample Request email, from which photos are downloaded. They are different things."
+    },
+    {
+     "mention": "design",
+     "type": "Department",
+     "candidate": "Technical Design",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the general 'design' team, which the quote separates from the 'technical teams' (liaison between design and technical). The candidate, Technical Design, is the technical department/function, so it is a different entity from plain design."
+    },
+    {
+     "mention": "264",
+     "type": "Metric",
+     "candidate": "2,446",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is 264, the number of parent cards in a buyer-refresh list. The candidate is 2,446, the number of child tasks in that same list. They are different metrics with different values, even though they come from the same sentence."
+    },
+    {
+     "mention": "Packaging files",
+     "type": "Artifact",
+     "candidate": "Packaging Folder",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is about packaging files as content inside a tech pack. The candidate is a specific folder location that automation reads from. They are related, but a set of files and the folder that holds them are different artifacts."
+    },
+    {
+     "mention": "32",
+     "type": "Metric",
+     "candidate": "100",
+     "model_same": false,
+     "judge_same": true,
+     "why": "Both refer to the same company benchmark table of expected task times in minutes by product type. The candidate's mention text is a truncated copy of the same passage."
+    },
+    {
+     "mention": "SKU_PACKAGING_DIELINE.png",
+     "type": "Artifact",
+     "candidate": "VKP83DYMM02_PACKAGING.ai",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the generic template filename SKU_PACKAGING_DIELINE.png, a PNG dieline export. The candidate is the specific VKP83DYMM02_PACKAGING.ai, an Illustrator file for one SKU. They differ in file type and suffix (DIELINE vs. none), and one is a placeholder pattern while the other is a concrete example."
+    },
+    {
+     "mention": "handoffs",
+     "type": "Artifact",
+     "candidate": "Status Columns",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is 'handoffs', one of several artifacts (files, notes, specs, handoffs) that the quote contrasts with status columns. The candidate is 'Status Columns', a different thing. They are related only because they appear in the same sentence."
+    },
+    {
+     "mention": "production delays",
+     "type": "Issue",
+     "candidate": "Licensing Rejection",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The quote names two separate consequences of non-compliance: 'Licensing rejection' and 'production delays'. They are distinct issues, so the mention (production delays) is not the same as the candidate (Licensing Rejection), even though both come from the same sentence."
+    },
+    {
+     "mention": "SKU",
+     "type": "Artifact",
+     "candidate": "SKU_LICENSING_SHEET.pdf",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention \"SKU/\" is a SKU identifier or folder path fragment, not the document SKU_LICENSING_SHEET.pdf. A product code and a licensing sheet PDF are different artifacts."
+    },
+    {
+     "mention": "Mockup.psd",
+     "type": "Artifact",
+     "candidate": "Mockup Final.png",
+     "model_same": false,
+     "judge_same": false,
+     "why": "They are different example filenames in the 'NOT PERMITTED' list: 'Mockup.psd' (a PSD file) and 'Mockup Final.png' (a PNG file). They differ in name and file type, so they are not the same artifact."
+    },
+    {
+     "mention": "Many people don't understand the complete workflow",
+     "type": "Issue",
+     "candidate": "Rework Processes Because The Wrong Person Does The Task",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the issue that many people don't understand the complete workflow, which is a root cause. The candidate is a different issue, rework caused by the wrong person doing the task, which is a consequence. They come from the same quote but are distinct issues."
+    },
+    {
+     "mention": "Legal lines",
+     "type": "Artifact",
+     "candidate": "Royalty Rates",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the 'Legal lines' artifact, a document or section that covers several items (restrictions, product categories, royalty rates, minimum guarantees, contract number). The candidate 'Royalty Rates' is just one item in that list. The artifact contains royalty rates but is not the same thing as them."
+    },
+    {
+     "mention": "Artwork Final.ai",
+     "type": "Artifact",
+     "candidate": "Disney Artwork.ai",
+     "model_same": false,
+     "judge_same": false,
+     "why": "These are two different example filenames in the document's 'NOT PERMITTED' list. 'Artwork Final.ai' and 'Disney Artwork.ai' are separate non-compliant naming examples, not the same artifact."
+    },
+    {
+     "mention": "product type",
+     "type": "Artifact",
+     "candidate": "Product Specs",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a field/column in a spreadsheet or screen ('product type', alongside 'product sub') used to categorize products. The candidate, Product Specs, is the tech-pack content describing how a product is made. A product type is a categorization attribute, not the specs document, so they are different artifacts."
+    },
+    {
+     "mention": "Coca-Cola",
+     "type": "Licensor",
+     "candidate": "DC Comics",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Coca-Cola and DC Comics are different licensors. They appear as separate items in the same list of POP licensors, so they are distinct entities."
+    },
+    {
+     "mention": "Movie Releases",
+     "type": "Artifact",
+     "candidate": "“Before And After” Presentations",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the 'Movie Releases' artifact (a list or calendar of releases by licensor), while the candidate is the 'Before and After' presentations, a separate deliverable. They appear in the same process text, but a presentation is not the release data it draws on."
+    },
+    {
+     "mention": "Release dates",
+     "type": "Artifact",
+     "candidate": "Packaging Mockups",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is about release dates (movie releases tracked on a calendar), while the candidate is packaging mockups, a design deliverable. They are different artifacts. The candidate's other mention comes from the same source text, but that only shows the mockups are mentioned there, not that they are the same thing as release dates."
+    },
+    {
+     "mention": "Q U I C K R E F E R E N C E",
+     "type": "Artifact",
+     "candidate": "Packaging Production Standards",
+     "model_same": false,
+     "judge_same": true,
+     "why": "The mention is the Quick Reference section of the Packaging Production Standards document. Its quoted text (color mode, resolution, etc.) matches the candidate's other mention, and both sit under the same title, so they refer to the same document."
+    },
+    {
+     "mention": "EMBELLISHMENT PLACEMENT",
+     "type": "Artifact",
+     "candidate": "Packaging Content Requirements",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is 'Embellishment Placement', a layer item within the Layer Structure section (05). The candidate is 'Packaging Content Requirements', a separate section (07). They are different artifacts. The candidate's other mention only shares the same surrounding text because of the extraction window."
+    },
+    {
+     "mention": "SKU cards",
+     "type": "Artifact",
+     "candidate": "Design Calendar",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention 'SKU cards' is a kind of tracking record in the old system (a card per SKU), while 'Design Calendar' is a desired planning view built from historical data. They are different things; the shared context is only incidental."
+    },
+    {
+     "mention": "CONTAINS",
+     "type": "Artifact",
+     "candidate": "DIE LINES",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention's name is 'CONTAINS', which is a relation label and not the die lines artifact. Its quote does come from the die lines passage, so this looks like an extraction error. The mention is not an entity that matches DIE LINES."
+    },
+    {
+     "mention": "screenshots",
+     "type": "Artifact",
+     "candidate": "Costing Tools",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is 'screenshots', a type of artifact, while the candidate is 'Costing Tools', a separate item in the same list of places where work records live. They are different things."
+    },
+    {
+     "mention": "Wall Decor",
+     "type": "Artifact",
+     "candidate": "Floor Coverings",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Wall Decor and Floor Coverings are separate product areas in the same list of categories (New Formats, Trend Boards, Garden, Floor Coverings, Storage, Seasonal, Wall Decor, Wall Art, General). They are distinct entities, not the same one."
+    },
+    {
+     "mention": ".AI",
+     "type": "Artifact",
+     "candidate": ".PSD",
+     "model_same": false,
+     "judge_same": false,
+     "why": "'.AI' (Adobe Illustrator file format) and '.PSD' (Adobe Photoshop file format) are distinct file formats. They only appear together in the same list of supported formats."
+    },
+    {
+     "mention": "Walmart",
+     "type": "Customer",
+     "candidate": "Hobby Lobby",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Walmart and Hobby Lobby are distinct retailers. Both appear as separate items in the same list of buyers, so they are different entities."
+    },
+    {
+     "mention": "contract",
+     "type": "Artifact",
+     "candidate": "Contract Number",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is a 'contract' artifact in a licensing workflow, meaning the licensing agreement that gets added to or removed from. The candidate 'Contract Number' is an identifier field for a contract, not the contract itself. These are different things."
+    },
+    {
+     "mention": "2,446",
+     "type": "Metric",
+     "candidate": "7,281",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is 2,446 child tasks in a buyer-refresh list. The candidate is 7,281 parent cards in the largest licensed list. They are different metric values for different quantities."
+    },
+    {
+     "mention": "Seasonal",
+     "type": "Artifact",
+     "candidate": "Wall Decor",
+     "model_same": false,
+     "judge_same": false,
+     "why": "Seasonal and Wall Decor are separate categories in the same list of areas (New Formats, Trend Boards, Garden, Floor Coverings, Storage, Seasonal, Wall Decor, Wall Art, General). They are distinct entities, not the same thing."
+    },
+    {
+     "mention": "Calendar",
+     "type": "Artifact",
+     "candidate": "“Before And After” Presentations",
+     "model_same": false,
+     "judge_same": false,
+     "why": "The mention is the Calendar, a artifact where movie release dates are checked and updated. The candidate is the 'Before and After' presentations, a different deliverable. They appear in the same process text, but they are distinct things."
+    }
+   ],
+   "note": "run stopped after 870 of 2077 mentions (45 min, too slow); decisions graded are those made up to then"
+  }
+ }
+}

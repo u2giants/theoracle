@@ -1,0 +1,2995 @@
+{
+"note": "30 stored eval answers (evenly spaced by stored score from 45 distinct), graded 3x each with the current prompts/grade.md via production grade_answer; answer text not included (items identified by index).",
+"runs": {
+"openai/gpt-6-luna": [
+{
+"i": 0,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.2,
+"tokens": 675
+},
+{
+"i": 0,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.8,
+"tokens": 776
+},
+{
+"i": 0,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 6.2,
+"tokens": 850
+},
+{
+"i": 1,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.2,
+"tokens": 937
+},
+{
+"i": 1,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.2,
+"tokens": 730
+},
+{
+"i": 1,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+1,
+2
+],
+"contradicted": [
+0
+]
+},
+"err": null,
+"sec": 11.6,
+"tokens": 1373
+},
+{
+"i": 2,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.9,
+"tokens": 862
+},
+{
+"i": 2,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.9,
+"tokens": 895
+},
+{
+"i": 2,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+1,
+2
+],
+"contradicted": [
+0
+]
+},
+"err": null,
+"sec": 8.8,
+"tokens": 1415
+},
+{
+"i": 3,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.1,
+"tokens": 875
+},
+{
+"i": 3,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.6,
+"tokens": 833
+},
+{
+"i": 3,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.1,
+"tokens": 858
+},
+{
+"i": 4,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 6.1,
+"tokens": 1462
+},
+{
+"i": 4,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.3,
+"tokens": 1163
+},
+{
+"i": 4,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.7,
+"tokens": 1294
+},
+{
+"i": 5,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.0,
+"tokens": 1116
+},
+{
+"i": 5,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 7.5,
+"tokens": 1430
+},
+{
+"i": 5,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 8.0,
+"tokens": 1342
+},
+{
+"i": 6,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.1,
+"tokens": 1017
+},
+{
+"i": 6,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 9.5,
+"tokens": 1588
+},
+{
+"i": 6,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.0,
+"tokens": 1016
+},
+{
+"i": 7,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.1,
+"tokens": 805
+},
+{
+"i": 7,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.6,
+"tokens": 760
+},
+{
+"i": 7,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.6,
+"tokens": 887
+},
+{
+"i": 8,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.2,
+"tokens": 872
+},
+{
+"i": 8,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.0,
+"tokens": 953
+},
+{
+"i": 8,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.8,
+"tokens": 983
+},
+{
+"i": 9,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.5,
+"tokens": 1005
+},
+{
+"i": 9,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.0,
+"tokens": 970
+},
+{
+"i": 9,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 7.1,
+"tokens": 1109
+},
+{
+"i": 10,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.1,
+"tokens": 578
+},
+{
+"i": 10,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.8,
+"tokens": 536
+},
+{
+"i": 10,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.6,
+"tokens": 554
+},
+{
+"i": 11,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.9,
+"tokens": 543
+},
+{
+"i": 11,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.3,
+"tokens": 529
+},
+{
+"i": 11,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.8,
+"tokens": 553
+},
+{
+"i": 12,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 8.2,
+"tokens": 1200
+},
+{
+"i": 12,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.2,
+"tokens": 738
+},
+{
+"i": 12,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.7,
+"tokens": 776
+},
+{
+"i": 13,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.6,
+"tokens": 1087
+},
+{
+"i": 13,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.5,
+"tokens": 1041
+},
+{
+"i": 13,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.8,
+"tokens": 1064
+},
+{
+"i": 14,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.9,
+"tokens": 541
+},
+{
+"i": 14,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.0,
+"tokens": 506
+},
+{
+"i": 14,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.7,
+"tokens": 518
+},
+{
+"i": 15,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.1,
+"tokens": 906
+},
+{
+"i": 15,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.5,
+"tokens": 926
+},
+{
+"i": 15,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.8,
+"tokens": 839
+},
+{
+"i": 16,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.7,
+"tokens": 885
+},
+{
+"i": 16,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.0,
+"tokens": 933
+},
+{
+"i": 16,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.0,
+"tokens": 922
+},
+{
+"i": 17,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.0,
+"tokens": 767
+},
+{
+"i": 17,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.8,
+"tokens": 781
+},
+{
+"i": 17,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.7,
+"tokens": 758
+},
+{
+"i": 18,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 6.7,
+"tokens": 1249
+},
+{
+"i": 18,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.3,
+"tokens": 1118
+},
+{
+"i": 18,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.9,
+"tokens": 1329
+},
+{
+"i": 19,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 6.5,
+"tokens": 893
+},
+{
+"i": 19,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 6.5,
+"tokens": 888
+},
+{
+"i": 19,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 9.9,
+"tokens": 905
+},
+{
+"i": 20,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.7,
+"tokens": 962
+},
+{
+"i": 20,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.1,
+"tokens": 1133
+},
+{
+"i": 20,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.0,
+"tokens": 959
+},
+{
+"i": 21,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.5,
+"tokens": 846
+},
+{
+"i": 21,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.6,
+"tokens": 849
+},
+{
+"i": 21,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.0,
+"tokens": 860
+},
+{
+"i": 22,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.4,
+"tokens": 758
+},
+{
+"i": 22,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.3,
+"tokens": 708
+},
+{
+"i": 22,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.3,
+"tokens": 760
+},
+{
+"i": 23,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.7,
+"tokens": 706
+},
+{
+"i": 23,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.7,
+"tokens": 700
+},
+{
+"i": 23,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.0,
+"tokens": 761
+},
+{
+"i": 24,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.5,
+"tokens": 838
+},
+{
+"i": 24,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.8,
+"tokens": 1031
+},
+{
+"i": 24,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.2,
+"tokens": 905
+},
+{
+"i": 25,
+"rep": 0,
+"grade": {
+"covered": [
+1
+],
+"missing": [
+0,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 8.0,
+"tokens": 865
+},
+{
+"i": 25,
+"rep": 1,
+"grade": {
+"covered": [
+1
+],
+"missing": [
+0,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 6.8,
+"tokens": 803
+},
+{
+"i": 25,
+"rep": 2,
+"grade": {
+"covered": [
+1
+],
+"missing": [
+0,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 5.7,
+"tokens": 739
+},
+{
+"i": 26,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.5,
+"tokens": 532
+},
+{
+"i": 26,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.5,
+"tokens": 514
+},
+{
+"i": 26,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.8,
+"tokens": 523
+},
+{
+"i": 27,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.5,
+"tokens": 737
+},
+{
+"i": 27,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.2,
+"tokens": 732
+},
+{
+"i": 27,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.8,
+"tokens": 738
+},
+{
+"i": 28,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 2.8,
+"tokens": 754
+},
+{
+"i": 28,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 6.8,
+"tokens": 982
+},
+{
+"i": 28,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 8.7,
+"tokens": 1203
+},
+{
+"i": 29,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 8.1,
+"tokens": 1211
+},
+{
+"i": 29,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 7.4,
+"tokens": 1147
+},
+{
+"i": 29,
+"rep": 2,
+"grade": {
+"covered": [
+1,
+2
+],
+"missing": [
+0
+],
+"contradicted": []
+},
+"err": null,
+"sec": 4.2,
+"tokens": 869
+}
+],
+"anthropic/claude-sonnet-5.5": [
+{
+"i": 0,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.1,
+"tokens": 883
+},
+{
+"i": 0,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.1,
+"tokens": 883
+},
+{
+"i": 0,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.2,
+"tokens": 883
+},
+{
+"i": 1,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.1,
+"tokens": 963
+},
+{
+"i": 1,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 963
+},
+{
+"i": 1,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.1,
+"tokens": 963
+},
+{
+"i": 2,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1010
+},
+{
+"i": 2,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1010
+},
+{
+"i": 2,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 1010
+},
+{
+"i": 3,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.8,
+"tokens": 1305
+},
+{
+"i": 3,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.0,
+"tokens": 1300
+},
+{
+"i": 3,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 1133
+},
+{
+"i": 4,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.2,
+"tokens": 1633
+},
+{
+"i": 4,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.1,
+"tokens": 1600
+},
+{
+"i": 4,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.2,
+"tokens": 1627
+},
+{
+"i": 5,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.6,
+"tokens": 1682
+},
+{
+"i": 5,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.7,
+"tokens": 1675
+},
+{
+"i": 5,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.1,
+"tokens": 1660
+},
+{
+"i": 6,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1193
+},
+{
+"i": 6,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 1193
+},
+{
+"i": 6,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1193
+},
+{
+"i": 7,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.2,
+"tokens": 975
+},
+{
+"i": 7,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 975
+},
+{
+"i": 7,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.2,
+"tokens": 975
+},
+{
+"i": 8,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.2,
+"tokens": 1102
+},
+{
+"i": 8,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1102
+},
+{
+"i": 8,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 1102
+},
+{
+"i": 9,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1037
+},
+{
+"i": 9,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1037
+},
+{
+"i": 9,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1037
+},
+{
+"i": 10,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 741
+},
+{
+"i": 10,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 741
+},
+{
+"i": 10,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 741
+},
+{
+"i": 11,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 753
+},
+{
+"i": 11,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.8,
+"tokens": 753
+},
+{
+"i": 11,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 753
+},
+{
+"i": 12,
+"rep": 0,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 938
+},
+{
+"i": 12,
+"rep": 1,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 938
+},
+{
+"i": 12,
+"rep": 2,
+"grade": {
+"covered": [],
+"missing": [
+0,
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 938
+},
+{
+"i": 13,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.7,
+"tokens": 1374
+},
+{
+"i": 13,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.9,
+"tokens": 1426
+},
+{
+"i": 13,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.7,
+"tokens": 1400
+},
+{
+"i": 14,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 653
+},
+{
+"i": 14,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.6,
+"tokens": 927
+},
+{
+"i": 14,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 653
+},
+{
+"i": 15,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 964
+},
+{
+"i": 15,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.4,
+"tokens": 964
+},
+{
+"i": 15,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.1,
+"tokens": 964
+},
+{
+"i": 16,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.0,
+"tokens": 1392
+},
+{
+"i": 16,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1205
+},
+{
+"i": 16,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.9,
+"tokens": 1391
+},
+{
+"i": 17,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.4,
+"tokens": 1180
+},
+{
+"i": 17,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.0,
+"tokens": 1145
+},
+{
+"i": 17,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.4,
+"tokens": 1215
+},
+{
+"i": 18,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.7,
+"tokens": 1641
+},
+{
+"i": 18,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 3.1,
+"tokens": 1673
+},
+{
+"i": 18,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.9,
+"tokens": 1651
+},
+{
+"i": 19,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1240
+},
+{
+"i": 19,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 1240
+},
+{
+"i": 19,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 1240
+},
+{
+"i": 20,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.5,
+"tokens": 1477
+},
+{
+"i": 20,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.6,
+"tokens": 1481
+},
+{
+"i": 20,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.6,
+"tokens": 1516
+},
+{
+"i": 21,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.7,
+"tokens": 1300
+},
+{
+"i": 21,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.7,
+"tokens": 1301
+},
+{
+"i": 21,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.8,
+"tokens": 1327
+},
+{
+"i": 22,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 919
+},
+{
+"i": 22,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.0,
+"tokens": 1119
+},
+{
+"i": 22,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.2,
+"tokens": 919
+},
+{
+"i": 23,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 844
+},
+{
+"i": 23,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 844
+},
+{
+"i": 23,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+2
+],
+"missing": [
+1
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 844
+},
+{
+"i": 24,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.3,
+"tokens": 1248
+},
+{
+"i": 24,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.6,
+"tokens": 1320
+},
+{
+"i": 24,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.8,
+"tokens": 1330
+},
+{
+"i": 25,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 2.0,
+"tokens": 1024
+},
+{
+"i": 25,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.9,
+"tokens": 1045
+},
+{
+"i": 25,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 0.9,
+"tokens": 866
+},
+{
+"i": 26,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 708
+},
+{
+"i": 26,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.1,
+"tokens": 708
+},
+{
+"i": 26,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1
+],
+"missing": [
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.2,
+"tokens": 708
+},
+{
+"i": 27,
+"rep": 0,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.9,
+"tokens": 1209
+},
+{
+"i": 27,
+"rep": 1,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.5,
+"tokens": 1169
+},
+{
+"i": 27,
+"rep": 2,
+"grade": {
+"covered": [
+0
+],
+"missing": [
+1,
+2
+],
+"contradicted": []
+},
+"err": null,
+"sec": 1.7,
+"tokens": 1179
+},
+{
+"i": 28,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 2.4,
+"tokens": 1257
+},
+{
+"i": 28,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 2.1,
+"tokens": 1233
+},
+{
+"i": 28,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 2.2,
+"tokens": 1221
+},
+{
+"i": 29,
+"rep": 0,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 1.2,
+"tokens": 886
+},
+{
+"i": 29,
+"rep": 1,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 2.2,
+"tokens": 1079
+},
+{
+"i": 29,
+"rep": 2,
+"grade": {
+"covered": [
+0,
+1,
+2
+],
+"missing": [],
+"contradicted": []
+},
+"err": null,
+"sec": 1.0,
+"tokens": 886
+}
+]
+}
+}
