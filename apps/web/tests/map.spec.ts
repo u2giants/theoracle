@@ -194,3 +194,82 @@ test('recommendations page sorts by sources and hides rejected cards', async ({
   await expect(cards).toHaveCount(1);
   await expect(page.getByTestId('recommendations')).not.toContainText(ids.rec_small);
 });
+
+// Issue #255 review gate: the admin marks an entity and a relation wrong with
+// notes, the flags survive a reload, and the review page lists and resolves them.
+test('admin marks entity and relation wrong and resolves them on the review page', async ({
+  page,
+  context,
+}) => {
+  const ids = seed();
+  await signIn(context);
+
+  await page.goto(`/map/entity/${ids.jessica_id}`);
+  await expect(page.getByTestId('entity-panel')).toBeVisible({ timeout: 60_000 });
+
+  const entityFlag = page.locator('[data-testid="mark-wrong"][data-item-type="entity"]');
+  await entityFlag.getByTestId('mark-wrong-button').click();
+  await entityFlag.getByTestId('mark-wrong-note').fill('Wrong person on this account');
+  await entityFlag.getByTestId('mark-wrong-save').click();
+  await expect(entityFlag.getByTestId('mark-wrong-flagged')).toContainText(
+    'Wrong person on this account',
+  );
+
+  const relationFlag = page
+    .locator('[data-testid="mark-wrong"][data-item-type="relation"]')
+    .first();
+  await relationFlag.getByTestId('mark-wrong-button').click();
+  await relationFlag.getByTestId('mark-wrong-note').fill('This hand-off is made up');
+  await relationFlag.getByTestId('mark-wrong-save').click();
+  await expect(relationFlag.getByTestId('mark-wrong-flagged')).toContainText(
+    'This hand-off is made up',
+  );
+
+  await page.reload();
+  await expect(page.getByTestId('entity-panel')).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page
+      .locator('[data-testid="mark-wrong"][data-item-type="entity"]')
+      .getByTestId('mark-wrong-flagged'),
+  ).toContainText('Wrong person on this account');
+  await expect(
+    page
+      .locator('[data-testid="mark-wrong"][data-item-type="relation"]')
+      .first()
+      .getByTestId('mark-wrong-flagged'),
+  ).toContainText('This hand-off is made up');
+  await page.screenshot({ path: resolve(SHOTS, '08-entity-flagged.png'), fullPage: true });
+
+  await page.goto(`/map/community/${ids.licensing_community_id}`);
+  await expect(page.getByTestId('community-title')).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page.locator('[data-testid="mark-wrong"][data-item-type="community"]'),
+  ).toBeVisible();
+  await page.locator('details[data-testid="graph-links"] summary').click();
+  await page.getByTestId('graph-link').first().click();
+  const detail = page.getByTestId('relation-detail');
+  await expect(detail).toBeVisible();
+  await expect(
+    detail.locator('[data-testid="mark-wrong"][data-item-type="relation"]'),
+  ).toBeVisible();
+  await page.screenshot({ path: resolve(SHOTS, '09-relation-detail.png'), fullPage: true });
+
+  await page.goto('/map/review');
+  const rows = page.getByTestId('review-flag');
+  await expect(rows).toHaveCount(2, { timeout: 60_000 });
+  await expect(
+    page.getByTestId('review-note').filter({ hasText: 'Wrong person on this account' }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId('review-note').filter({ hasText: 'This hand-off is made up' }),
+  ).toBeVisible();
+  await page.screenshot({ path: resolve(SHOTS, '10-review-flags.png'), fullPage: true });
+
+  await rows
+    .filter({ hasText: 'Wrong person on this account' })
+    .getByTestId('review-resolve')
+    .click();
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByTestId('review-note')).toContainText('This hand-off is made up');
+  await page.screenshot({ path: resolve(SHOTS, '11-review-resolved.png'), fullPage: true });
+});

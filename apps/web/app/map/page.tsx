@@ -4,6 +4,6 @@ import { MapHome } from './_components/map-home';
 export const dynamic = 'force-dynamic';
 
 export default async function MapHomePage() {
-  await requireEmployee();
-  return <MapHome />;
+  const me = await requireEmployee();
+  return <MapHome isAdmin={me.isAdmin} />;
 }

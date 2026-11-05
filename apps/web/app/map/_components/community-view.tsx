@@ -4,14 +4,23 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { brainGet, type CommunityDetail } from './brain';
 import { LoadState, Markdown, SourceChip, StanceBadge } from './bits';
-import { CommunityGraph } from './community-graph';
+import { CommunityGraph, type GraphRelation } from './community-graph';
 import { EntityDrawer } from './entity-panel';
+import { MarkWrongButton, relationItemId } from './mark-wrong';
 
-export function CommunityView({ communityId }: { communityId: string }) {
+export function CommunityView({
+  communityId,
+  isAdmin,
+}: {
+  communityId: string;
+  isAdmin: boolean;
+}) {
   const [community, setCommunity] = useState<CommunityDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [relation, setRelation] = useState<GraphRelation | null>(null);
   const close = useCallback(() => setSelected(null), []);
+  const closeRelation = useCallback(() => setRelation(null), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +48,11 @@ export function CommunityView({ communityId }: { communityId: string }) {
             <h1 className="text-2xl font-semibold" data-testid="community-title">
               {community.title}
             </h1>
+            <MarkWrongButton
+              isAdmin={isAdmin}
+              itemType="community"
+              itemId={community.id}
+            />
             <Markdown
               text={(community.report_md.split('\n## Findings')[0] ?? '').replace(/^# .*\n+/, '')}
             />
@@ -78,12 +92,48 @@ export function CommunityView({ communityId }: { communityId: string }) {
               </div>
             )}
           </section>
-          <section>
-            <CommunityGraph graph={community.graph} onSelect={setSelected} />
+          <section className="space-y-3">
+            {relation && (
+              <div
+                data-testid="relation-detail"
+                data-rel-type={relation.rel_type}
+                className="space-y-2 rounded border bg-slate-50 p-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {relation.rel_type.replaceAll('_', ' ').toLowerCase()}
+                    </p>
+                    <p className="text-sm">
+                      {(community.graph.nodes.find((node) => node.id === relation.source)?.name ??
+                        relation.source) + ' → ' +
+                        (community.graph.nodes.find((node) => node.id === relation.target)?.name ??
+                          relation.target)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {relation.weight} source{relation.weight === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <button type="button" className="text-xs underline" onClick={closeRelation}>
+                    Close
+                  </button>
+                </div>
+                <MarkWrongButton
+                  isAdmin={isAdmin}
+                  itemType="relation"
+                  itemId={relationItemId(relation.source, relation.target, relation.rel_type)}
+                />
+              </div>
+            )}
+            <CommunityGraph
+              graph={community.graph}
+              onSelect={setSelected}
+              onSelectRelation={setRelation}
+            />
           </section>
         </div>
       )}
-      <EntityDrawer entityId={selected} onClose={close} />
+      <EntityDrawer entityId={selected} isAdmin={isAdmin} onClose={close} />
     </main>
   );
 }

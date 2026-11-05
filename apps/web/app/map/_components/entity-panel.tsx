@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { brainGet, sourceHref, type EntityDetail, type Quote } from './brain';
 import { LoadState, SourceChip, StanceBadge } from './bits';
+import { MarkWrongButton, relationItemId } from './mark-wrong';
 
 function QuoteLink({ quote }: { quote: Quote }) {
   return (
@@ -25,7 +26,7 @@ function QuoteLink({ quote }: { quote: Quote }) {
   );
 }
 
-export function EntityPanel({ entityId }: { entityId: string }) {
+export function EntityPanel({ entityId, isAdmin }: { entityId: string; isAdmin: boolean }) {
   const [entity, setEntity] = useState<EntityDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,6 +56,9 @@ export function EntityPanel({ entityId }: { entityId: string }) {
           {entity.type} · {entity.source_count} source{entity.source_count === 1 ? '' : 's'} ·{' '}
           {entity.mention_count} mention{entity.mention_count === 1 ? '' : 's'}
         </p>
+        <div className="mt-1">
+          <MarkWrongButton isAdmin={isAdmin} itemType="entity" itemId={entity.id} />
+        </div>
       </div>
       {entity.description && <p className="text-sm">{entity.description}</p>}
       {entity.aliases.length > 0 && (
@@ -81,23 +85,34 @@ export function EntityPanel({ entityId }: { entityId: string }) {
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {relType.replaceAll('_', ' ').toLowerCase()}
               </h4>
-              {group.map((neighbour) => (
-                <div key={`${neighbour.entity_id}-${neighbour.direction}`} className="space-y-1">
-                  <Link
-                    href={`/map/entity/${neighbour.entity_id}`}
-                    className="text-sm font-medium underline"
-                  >
-                    {neighbour.direction === 'in' ? '← ' : '→ '}
-                    {neighbour.name}
-                  </Link>
-                  <span className="ml-1 text-xs text-muted-foreground">{neighbour.type}</span>
-                  <ul className="space-y-1">
-                    {neighbour.quotes.map((quote, index) => (
-                      <QuoteLink key={`${quote.chunk_id}-${index}`} quote={quote} />
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              {group.map((neighbour) => {
+                const fromId = neighbour.direction === 'out' ? entity.id : neighbour.entity_id;
+                const toId = neighbour.direction === 'out' ? neighbour.entity_id : entity.id;
+                return (
+                  <div key={`${neighbour.entity_id}-${neighbour.direction}`} className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/map/entity/${neighbour.entity_id}`}
+                        className="text-sm font-medium underline"
+                      >
+                        {neighbour.direction === 'in' ? '← ' : '→ '}
+                        {neighbour.name}
+                      </Link>
+                      <span className="text-xs text-muted-foreground">{neighbour.type}</span>
+                      <MarkWrongButton
+                        isAdmin={isAdmin}
+                        itemType="relation"
+                        itemId={relationItemId(fromId, toId, relType)}
+                      />
+                    </div>
+                    <ul className="space-y-1">
+                      {neighbour.quotes.map((quote, index) => (
+                        <QuoteLink key={`${quote.chunk_id}-${index}`} quote={quote} />
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
             </section>
           ))}
         </div>
@@ -118,9 +133,11 @@ export function EntityPanel({ entityId }: { entityId: string }) {
 
 export function EntityDrawer({
   entityId,
+  isAdmin,
   onClose,
 }: {
   entityId: string | null;
+  isAdmin: boolean;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -148,7 +165,7 @@ export function EntityDrawer({
           Close
         </button>
       </div>
-      <EntityPanel key={entityId} entityId={entityId} />
+      <EntityPanel key={entityId} entityId={entityId} isAdmin={isAdmin} />
     </aside>
   );
 }

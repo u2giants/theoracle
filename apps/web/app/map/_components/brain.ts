@@ -68,6 +68,18 @@ export type Quote = {
   description?: string;
 };
 
+export type ReviewFlag = {
+  id: string;
+  item_type: 'entity' | 'relation' | 'community';
+  item_id: string;
+  label: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+};
+
 export type EntityDetail = {
   id: string;
   type: string;
