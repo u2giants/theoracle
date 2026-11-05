@@ -475,7 +475,10 @@ def search(
 
 @router.post("/map/rebuild")
 def rebuild_map(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
-    """Queue ``resolve``; the worker chains ``project`` then ``communities``."""
+    """Queue ``resolve``; the worker chains ``project`` then ``communities``.
+
+    A manual rebuild is immediate: it wakes any debounced hold (issue #415).
+    """
     del user
     with get_pool().connection() as conn:
         row = conn.execute(
@@ -483,6 +486,10 @@ def rebuild_map(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]
             "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'resolve' "
             "AND state IN ('queued','running')) RETURNING id"
         ).fetchone()
+        conn.execute(
+            "UPDATE cmap.job SET run_after = now() "
+            "WHERE kind = 'resolve' AND state = 'queued'"
+        )
         conn.commit()
     if row is None:
         return {"queued": False, "detail": "a rebuild is already queued or running"}
