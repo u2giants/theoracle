@@ -7,6 +7,11 @@ The Vercel token shared during overnight setup is in the chat transcript. **Rota
 
 # Decisions log
 
+## D-dflow-directory-source-of-truth — DesignFlow directory owns people + roles (2026-11-05)
+
+- **Decision**: DesignFlow's `dflow_prod` user directory (`api.oracle_user_directory` on the shared company Supabase — a different database from Oracle's own) is the source of truth for company people and their DesignFlow roles. Oracle mirrors it read-only: the brain `directory_sync` job upserts `public.employees` matched by `lower(btrim(email))` (never deletes employees) and replaces each person's `employee_directory_roles` rows. Oracle-only fields stay local and are never written by the sync: `is_admin`, `locale`, `departments`/`department`, `role`, identity rows, claim-review groups, and `cmap.employee_flags`.
+- **Why**: nobody should maintain a second people list. The admin Employees page shows the mirrored DesignFlow roles next to the Oracle-only fields, which remain admin-managed.
+
 ## 2026-09-20 — Connected explanations from approved evidence
 
 Albert authorized the best next refactor after the holistic-understanding audit. Oracle
