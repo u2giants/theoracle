@@ -1,0 +1,59 @@
+# Deploy proof for the Vercel web app (plan_ci-process-repair.md step 4.1).
+#
+# Vercel builds and deploys from GitHub directly, so this workflow is the
+# deploy gate GitHub can enforce: it reads the running version from the live
+# site at the known path and compares it with the merged commit. A mismatch
+# FAILS the run and reports both values. The fixture test proves a matching
+# version passes and a deliberately stale check fails before anything ships.
+#
+# The task-named URL theoracle-i0o6ilexa-popcre.vercel.app sits behind Vercel
+# Deployment Protection (SSO login), so the live read uses the production
+# custom domain oracle.designflow.app, which serves the same deployment.
+name: Verify live version
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'vercel.json'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/verify-live-version.sh'
+      - 'scripts/test-verify-live-version.sh'
+      - '.github/workflows/verify-live-version.yml'
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'vercel.json'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/verify-live-version.sh'
+      - 'scripts/test-verify-live-version.sh'
+      - '.github/workflows/verify-live-version.yml'
+  workflow_dispatch:
+
+# A newer push supersedes an older wait for a commit Vercel will never serve.
+concurrency:
+  group: verify-live-version-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove the live-version check (matching passes, deliberately stale fails)
+        run: bash scripts/test-verify-live-version.sh
+
+      - name: Verify production serves this commit
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          bash scripts/verify-live-version.sh \
+            --url "https://oracle.designflow.app/version.json" \
+            --expected "${GITHUB_SHA}" \
+            --attempts 90 --interval 10
