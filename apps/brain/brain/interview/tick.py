@@ -5,11 +5,12 @@ every ``open_question`` in state ``open``, picks the Person entity most
 connected (summed edge weight) to the question's entities who maps to an
 employee the bot can reach, and asks them through the Next.js proactive route.
 
-Guardrail (locked): nothing is sent unless ``BRAIN_INTERVIEW_ENABLED`` is true
-and the employee has messaged the bot at least once (a stored
-``cmap.teams_conversation`` row). Weekly cap per employee:
-``BRAIN_INTERVIEW_WEEKLY_CAP``. Questions with no reachable target stay open
-and show on the admin page for manual routing.
+Guardrail: nothing is sent unless ``BRAIN_INTERVIEW_ENABLED`` is true. The
+employee does not have to message first — when no conversation is stored yet
+(Teams never delivered a conversation update and they never opened the chat),
+the web layer opens the 1:1 chat itself on first send. Weekly cap per
+employee: ``BRAIN_INTERVIEW_WEEKLY_CAP``. Questions with no reachable target
+stay open and show on the admin page for manual routing.
 """
 
 from __future__ import annotations
@@ -88,11 +89,15 @@ class Target:
 
     employee_id: str
     name: str
-    conversation_ref: dict[str, Any]
+    conversation_ref: dict[str, Any] | None
 
 
 class InterviewSendError(RuntimeError):
     """Raised when the proactive Teams send fails."""
+
+
+class InterviewUnreachableError(InterviewSendError):
+    """Raised when the bot cannot open any Teams chat for this employee."""
 
 
 def interviews_enabled(conn: psycopg.Connection, settings: Settings) -> bool:
@@ -117,15 +122,18 @@ def _person_names(conn: psycopg.Connection, entity_id: str, canonical: str) -> s
 def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]:
     """Employees the bot may write to now, keyed by normalised name.
 
-    Reachable = has a stored conversation reference, not paused, and asked
-    fewer than ``cap`` questions sent in the last 7 days (skipped
-    ones included, from ``cmap.interview_send``).
+    Reachable = not paused, and asked fewer than ``cap`` questions sent in the
+    last 7 days (skipped ones included, from ``cmap.interview_send``). The
+    conversation reference is optional: without one the web layer opens the
+    chat at first send (measured 2026-11-04: 11 Teams-licensed employees kept
+    the app but never got questions because their install conversation update
+    never arrived).
     """
     rows = conn.execute(
         """
         SELECT e.id::text, e.name, tc.conversation_ref
         FROM public.employees e
-        JOIN cmap.teams_conversation tc ON tc.employee_id = e.id
+        LEFT JOIN cmap.teams_conversation tc ON tc.employee_id = e.id
         LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id
         WHERE e.disabled_at IS NULL AND e.name IS NOT NULL
           AND NOT COALESCE(f.interviews_paused, false)
@@ -139,7 +147,7 @@ def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]
         out[normalize_name(str(name), "Person")] = Target(
             employee_id=employee_id,
             name=str(name),
-            conversation_ref=dict(ref),
+            conversation_ref=dict(ref) if ref is not None else None,
         )
     return out
 
@@ -182,6 +190,10 @@ def _post_proactive(employee_id: str, text: str, settings: Settings) -> None:
         headers={"x-brain-token": token},
         timeout=30.0,
     )
+    if response.status_code == 404:
+        raise InterviewUnreachableError(
+            f"no Teams chat reachable for {employee_id}: {response.text[:300]}"
+        )
     if response.status_code >= 300:
         raise InterviewSendError(
             f"proactive send failed ({response.status_code}): {response.text[:300]}"
@@ -220,6 +232,16 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
                 continue
             try:
                 _post_proactive(target.employee_id, MESSAGE_TEMPLATE.format(question=text), cfg)
+            except InterviewUnreachableError as exc:
+                logger.warning("interview target %s unreachable: %s", target.employee_id, exc)
+                conn.execute(
+                    "UPDATE cmap.open_question SET skipped_by = array_append(skipped_by, %s::uuid) "
+                    "WHERE id = %s",
+                    (target.employee_id, qid),
+                )
+                conn.commit()
+                result["failed"] += 1
+                continue
             except (InterviewSendError, httpx.HTTPError) as exc:
                 logger.warning("interview send to %s failed: %s", target.employee_id, exc)
                 result["failed"] += 1

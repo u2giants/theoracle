@@ -301,17 +301,60 @@ def test_disabled_sends_nothing(
     db.commit()
     assert run_interview_tick()["asked"] == 0
     assert sent == []
-
-    # Enabled everywhere, but this employee never messaged the bot: nothing.
-    # Pin the clock to working hours so quiet hours cannot mask routing (#382).
-    monkeypatch.setattr(tick_mod, "in_quiet_hours", lambda now=None: False)
-    db.execute("UPDATE cmap.interview_setting SET enabled = true")
-    db.execute("TRUNCATE cmap.teams_conversation")
-    db.commit()
-    result = run_interview_tick()
-    assert result == {"enabled": True, "asked": 0, "unrouted": 1, "failed": 0}
-    assert sent == []
     assert set(_states(db).values()) == {"open"}
+
+
+def test_never_messaged_employee_is_still_asked(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """No stored conversation no longer hides the employee from the tick.
+
+    Measured 2026-11-04: 11 Teams-licensed employees (Violette Avouac
+    among them) kept the Oracle app but never got a question because
+    their install conversation update never arrived. The web layer now
+    opens the 1:1 chat itself at first send.
+    """
+    person = _person(db, EMPLOYEE_NAME)
+    _question(db, "Who approves samples?", [person])
+    result = run_interview_tick()
+    assert result == {"enabled": True, "asked": 1, "unrouted": 0, "failed": 0}
+    assert [employee_id for employee_id, _ in sent] == [EMPLOYEE_ID]
+    assert set(_states(db).values()) == {"asked"}
+
+
+def test_unreachable_target_moves_the_question_on(
+    db: Any, enabled: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A target the bot cannot open any Teams chat for never blocks a question."""
+    sent: list[tuple[str, str]] = []
+
+    def _post(employee_id: str, text: str, settings: Any) -> None:
+        del settings
+        if employee_id == EMPLOYEE_ID:
+            raise tick_mod.InterviewUnreachableError("no Teams chat")
+        sent.append((employee_id, text))
+
+    monkeypatch.setattr(tick_mod, "_post_proactive", _post)
+    person = _person(db, EMPLOYEE_NAME)
+    admin = _person(db, "Test Admin")
+    licensing = _thing(db, "Licensing approval")
+    _relate(db, person, licensing, sources=2)
+    _relate(db, admin, licensing, sources=1)
+    qid = _question(db, "Why does licensing approval stall?", [licensing])
+    _connect()
+    handle_inbound(email="admin@test.invalid", conversation_ref=CONVERSATION_REF, text="hi")
+
+    first = run_interview_tick()
+    assert first == {"enabled": True, "asked": 0, "unrouted": 0, "failed": 1}
+    skipped = db.execute(
+        "SELECT skipped_by FROM cmap.open_question WHERE id = %s", (qid,)
+    ).fetchone()
+    assert EMPLOYEE_ID in [str(item) for item in (skipped[0] or [])]
+    assert set(_states(db).values()) == {"open"}
+
+    second = run_interview_tick()
+    assert second["asked"] == 1
+    assert [employee_id for employee_id, _ in sent] == [ADMIN_ID]
 
 
 def test_service_routes_need_token(client: Any) -> None:
@@ -457,6 +500,48 @@ def test_conversation_lookup_works_while_interviews_off(
     )
     assert response.status_code == 200
     assert response.json()["conversation_ref"]
+
+
+def test_lookup_carries_identity_without_a_conversation(client: Any) -> None:
+    """The lookup returns identity and a null reference when no chat is stored.
+
+    The web layer needs the emails to open the 1:1 chat itself, and the
+    tenant service URL to open it on the right Bot Connector endpoint.
+    """
+    from conftest import TEST_TOKEN
+
+    headers = {"x-brain-token": TEST_TOKEN}
+    body = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=headers
+    ).json()
+    assert body["conversation_ref"] is None
+    assert body["name"] == EMPLOYEE_NAME
+    assert body["emails"][0] == EMPLOYEE_EMAIL
+    assert body["service_url"] is None
+
+    stored = client.post(
+        "/interview/teams/conversation",
+        json={"employee_id": EMPLOYEE_ID, "conversation_ref": CONVERSATION_REF},
+        headers=headers,
+    )
+    assert stored.status_code == 200
+    body = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=headers
+    ).json()
+    assert body["conversation_ref"] == CONVERSATION_REF
+    assert body["service_url"] == CONVERSATION_REF["serviceUrl"]
+
+    assert (
+        client.post(
+            "/interview/teams/conversation",
+            json={"employee_id": EMPLOYEE_ID, "conversation_ref": CONVERSATION_REF},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.get("/interview/teams/conversation/00000000-0000-4000-8000-0000000000ff", headers=headers).status_code
+        == 404
+    )
 
 
 VOLUNTEERED = (
