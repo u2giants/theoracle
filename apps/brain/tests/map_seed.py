@@ -297,7 +297,7 @@ INTERVIEW_ANSWER = "Ilona books it every Monday."
 
 def _reset(db: Any) -> None:
     db.execute(
-        "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
+        "TRUNCATE cmap.review_flag, cmap.source, cmap.job, cmap.entity, cmap.community, "
         "cmap.graph_version, cmap.eval_question, cmap.eval_run CASCADE"
     )
     db.commit()

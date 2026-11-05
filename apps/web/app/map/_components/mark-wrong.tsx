@@ -19,10 +19,12 @@ export function MarkWrongButton({
   isAdmin,
   itemType,
   itemId,
+  initialFlag,
 }: {
   isAdmin: boolean;
   itemType: FlagItemType;
   itemId: string;
+  initialFlag?: ReviewFlag | null;
 }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
@@ -32,6 +34,10 @@ export function MarkWrongButton({
 
   useEffect(() => {
     if (!isAdmin) return;
+    if (initialFlag !== undefined) {
+      setFlag(initialFlag);
+      return;
+    }
     let cancelled = false;
     brainGet<{ flags: ReviewFlag[] }>(
       `flags?item_type=${itemType}&item_id=${encodeURIComponent(itemId)}`,
@@ -45,7 +51,7 @@ export function MarkWrongButton({
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, itemType, itemId]);
+  }, [isAdmin, itemType, itemId, initialFlag]);
 
   if (!isAdmin || flag === undefined) return null;
 

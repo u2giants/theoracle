@@ -154,10 +154,12 @@ def list_flags(
     item_type: str | None = Query(default=None),
     item_id: str | None = Query(default=None),
     include_resolved: bool = Query(default=False),
+    entity_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
     """Open flags by default (newest first); ``include_resolved`` adds the rest.
 
     ``item_type``/``item_id`` narrow the list to one flagged map item.
+    ``entity_id`` returns all relation flags touching that entity in one batch.
     """
     del user
     where = "TRUE"
@@ -172,13 +174,24 @@ def list_flags(
         params.append(item_type)
     if item_id is not None:
         where += " AND item_id = %s"
-        params.append(item_id)
+        if item_type is None:
+            raise HTTPException(status_code=400, detail="item_type is required with item_id")
+        params.append(_norm_item(item_type, item_id))
+    if entity_id is not None:
+        entity_id = _norm_uuid(entity_id, "entity_id")
+        where += (
+            " AND item_type = 'relation'"
+            " AND (split_part(item_id, ':', 1) = %s"
+            " OR split_part(item_id, ':', 2) = %s)"
+        )
+        params.extend([entity_id, entity_id])
     if not include_resolved:
         where += " AND resolved_at IS NULL"
+    limit = "" if entity_id is not None else " LIMIT 500"
     with get_pool().connection() as conn:
         rows = conn.execute(
             f"SELECT {_FLAG_COLUMNS} FROM cmap.review_flag WHERE {where} "
-            "ORDER BY created_at DESC LIMIT 500",
+            f"ORDER BY created_at DESC{limit}",
             params,
         ).fetchall()
         flags = [_row_to_dict(row) for row in rows]

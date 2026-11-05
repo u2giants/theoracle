@@ -204,6 +204,13 @@ test('admin marks entity and relation wrong and resolves them on the review page
   const ids = seed();
   await signIn(context);
 
+  const flagLookups: URL[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (request.method() === 'GET' && url.pathname === '/api/brain/flags') {
+      flagLookups.push(url);
+    }
+  });
   await page.goto(`/map/entity/${ids.jessica_id}`);
   await expect(page.getByTestId('entity-panel')).toBeVisible({ timeout: 60_000 });
 
@@ -219,6 +226,8 @@ test('admin marks entity and relation wrong and resolves them on the review page
     .locator('[data-testid="mark-wrong"][data-item-type="relation"]')
     .first();
   await relationFlag.getByTestId('mark-wrong-button').click();
+  expect(flagLookups.filter((url) => url.searchParams.has('entity_id'))).toHaveLength(1);
+  expect(flagLookups.filter((url) => url.searchParams.get('item_type') === 'relation')).toHaveLength(0);
   await relationFlag.getByTestId('mark-wrong-note').fill('This hand-off is made up');
   await relationFlag.getByTestId('mark-wrong-save').click();
   await expect(relationFlag.getByTestId('mark-wrong-flagged')).toContainText(

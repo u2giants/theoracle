@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { brainGet, sourceHref, type EntityDetail, type Quote } from './brain';
+import { brainGet, sourceHref, type EntityDetail, type Quote, type ReviewFlag } from './brain';
 import { LoadState, SourceChip, StanceBadge } from './bits';
 import { MarkWrongButton, relationItemId } from './mark-wrong';
 
@@ -28,6 +28,10 @@ function QuoteLink({ quote }: { quote: Quote }) {
 
 export function EntityPanel({ entityId, isAdmin }: { entityId: string; isAdmin: boolean }) {
   const [entity, setEntity] = useState<EntityDetail | null>(null);
+  const [relationFlags, setRelationFlags] = useState<{
+    entityId: string;
+    flags: ReviewFlag[];
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,6 +47,24 @@ export function EntityPanel({ entityId, isAdmin }: { entityId: string; isAdmin: 
       cancelled = true;
     };
   }, [entityId]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    brainGet<{ flags: ReviewFlag[] }>(`flags?entity_id=${encodeURIComponent(entityId)}`)
+      .then((body) => {
+        if (!cancelled) setRelationFlags({ entityId, flags: body.flags });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'load failed');
+          setRelationFlags({ entityId, flags: [] });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [entityId, isAdmin]);
 
   if (!entity) return <LoadState error={error} loading={!error} />;
 
@@ -60,6 +82,7 @@ export function EntityPanel({ entityId, isAdmin }: { entityId: string; isAdmin: 
           <MarkWrongButton isAdmin={isAdmin} itemType="entity" itemId={entity.id} />
         </div>
       </div>
+      {error && <p role="alert">{error}</p>}
       {entity.description && <p className="text-sm">{entity.description}</p>}
       {entity.aliases.length > 0 && (
         <div>
@@ -99,11 +122,15 @@ export function EntityPanel({ entityId, isAdmin }: { entityId: string; isAdmin: 
                         {neighbour.name}
                       </Link>
                       <span className="text-xs text-muted-foreground">{neighbour.type}</span>
-                      <MarkWrongButton
+                      {(!isAdmin || relationFlags?.entityId === entityId) && (
+                        <MarkWrongButton
                         isAdmin={isAdmin}
                         itemType="relation"
                         itemId={relationItemId(fromId, toId, relType)}
-                      />
+                        initialFlag={relationFlags?.flags.find((flag) =>
+                          flag.item_id === relationItemId(fromId, toId, relType)) ?? null}
+                        />
+                      )}
                     </div>
                     <ul className="space-y-1">
                       {neighbour.quotes.map((quote, index) => (
