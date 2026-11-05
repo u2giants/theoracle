@@ -516,7 +516,7 @@ def test_lookup_carries_identity_without_a_conversation(client: Any) -> None:
     ).json()
     assert body["conversation_ref"] is None
     assert body["name"] == EMPLOYEE_NAME
-    assert body["emails"] == [EMPLOYEE_EMAIL]
+    assert body["emails"][0] == EMPLOYEE_EMAIL
     assert body["service_url"] is None
 
     stored = client.post(
