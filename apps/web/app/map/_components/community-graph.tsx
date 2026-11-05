@@ -40,7 +40,6 @@ export function CommunityGraph({
   const wrapRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods<Node, Link> | undefined>(undefined);
   const [width, setWidth] = useState(640);
-  const [positions, setPositions] = useState<string>('{}');
   const height = 460;
 
   const data = useMemo(
@@ -62,18 +61,21 @@ export function CommunityGraph({
     return () => observer.disconnect();
   }, []);
 
-  // Publish node screen positions once the layout settles so the browser
-  // test (and assistive tooling) can find a node on the canvas.
+  // Publish node screen positions after every painted frame so the browser
+  // test (and assistive tooling) can find a node on the canvas. The attribute
+  // is written straight to the DOM: it must track the painted canvas exactly,
+  // and publishing on every frame must not re-render the node list.
   const publishPositions = useCallback(() => {
     const fg = fgRef.current;
-    if (!fg) return;
+    const wrap = wrapRef.current;
+    if (!fg || !wrap) return;
     const out: Record<string, [number, number]> = {};
     for (const node of data.nodes) {
       if (node.x === undefined || node.y === undefined) continue;
       const point = fg.graph2ScreenCoords(node.x, node.y);
       out[String(node.id)] = [Math.round(point.x), Math.round(point.y)];
     }
-    setPositions(JSON.stringify(out));
+    wrap.setAttribute('data-node-positions', JSON.stringify(out));
   }, [data]);
 
   const large = graph.nodes.length > 500;
@@ -88,7 +90,7 @@ export function CommunityGraph({
       <div
         ref={wrapRef}
         data-testid="community-graph"
-        data-node-positions={positions}
+        data-node-positions="{}"
         className="overflow-hidden rounded border bg-white"
         style={{ height }}
       >
@@ -119,9 +121,10 @@ export function CommunityGraph({
             const fg = fgRef.current;
             fg?.zoomToFit(0, 40);
             if (fg && fg.zoom() > 3) fg.zoom(3, 0);
-            window.setTimeout(publishPositions, 50);
+            publishPositions();
           }}
           onZoomEnd={publishPositions}
+          onRenderFramePost={publishPositions}
           nodeCanvasObjectMode={() => (large ? undefined : 'after')}
           nodeCanvasObject={(raw: NodeObject, ctx: CanvasRenderingContext2D, scale: number) => {
             const node = raw as Node;
