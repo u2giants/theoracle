@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from brain.db import get_pool
+from brain.directory_sync import handle_directory_sync, maybe_queue_directory_sync
 from brain.eval.run import handle_evaluate
 from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
@@ -39,6 +40,7 @@ HANDLERS: dict[str, Handler] = {
     "evaluate": handle_evaluate,
     "interview_tick": handle_interview_tick,
     "reembed": handle_reembed,
+    "directory_sync": handle_directory_sync,
 }
 
 
@@ -101,8 +103,8 @@ def run_worker(stop: threading.Event) -> None:
     """Claim, run and record jobs until ``stop`` is set; sleep 2 s when idle.
 
     About once a minute it also queues the hourly ``interview_tick`` (a no-op
-    while ``BRAIN_INTERVIEW_ENABLED`` is false) and closes Teams intake
-    threads quiet for 20 minutes.
+    while ``BRAIN_INTERVIEW_ENABLED`` is false), queues ``directory_sync`` when
+    configured, and closes Teams intake threads quiet for 20 minutes.
     """
     last_schedule_check = 0.0
     while not stop.is_set():
@@ -113,6 +115,10 @@ def run_worker(stop: threading.Event) -> None:
                 maybe_queue_interview_tick()
             except Exception as exc:
                 logger.warning("interview tick scheduling failed: %s", exc)
+            try:
+                maybe_queue_directory_sync()
+            except Exception as exc:
+                logger.warning("directory sync scheduling failed: %s", exc)
             try:
                 close_stale_threads()
             except Exception as exc:
