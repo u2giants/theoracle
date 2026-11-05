@@ -53,7 +53,7 @@ Every session started from the coordinator, with its final state:
 | T2 #359 seat/reembed | merged #371, #359 closed | deleted |
 | T3 #347 report cap | merged #383, #347 closed; also #387 (#382) | deleted |
 | ↳ #382 quiet-hours test | merged #387 | deleted |
-| ↳ #398 retire Oracle 2 | merged #402, #406; see task 7 | see task 7 |
+| ↳ #398 retire Oracle 2 | merged #402, #406, #422; #398 closed; leftovers in task 7 | merged |
 | T4 #344 embedding cost | merged #391, #344 closed | deleted |
 | T5 #353 resolve rules | merged #393, #353 closed (22/23 real duplicates caught) | deleted |
 | T6 deploy and rebuild | handoff #427; rebuild in flight (task 1) | merged |
@@ -117,7 +117,7 @@ the background; never end a turn on "waiting"; never redeploy the brain while
 a `cmap.job` row is running (check `select kind,state from cmap.job where state
 in ('running','queued')`); check OpenRouter `limit_remaining` and stop under
 $5. Coolify API from edge-dev3: `http://hetz:8000/api/v1` (tailnet). Only ONE
-child deploys at a time: tasks 1, 2, 3 and 7 all touch the live brain, so run
+child deploys at a time: tasks 1, 2, 3 and 4 all touch the live brain, so run
 them one after another, in that order.
 
 ### Task 1. Finish the prod rebuild and seeded eval (#255)
@@ -176,13 +176,20 @@ the eval page, and rerun answers (local and global mode) on a cloned DB. The pag
 buttons are untested in a signed-in browser. Done when: #367 is closed with a
 rerun report in the bake-off folder.
 
-### Task 7. Finish retiring Oracle 2 (#398); after task 1
-Code and checks are removed (#402, #406) and the old jobs are paused. Still
-owed: back up, then drop, the old Oracle 2 database tables, and remove the old
-jobs' settings, per the five-phase plan on
-https://github.com/u2giants/theoracle/issues/398 . This is destructive. Take a
-verified backup first and load `shared-db-change` if any shared-db object is
-involved. Done when: #398 closed with backup location and drop evidence.
+### Task 7. Oracle 2 removal leftovers (#398 is closed); any time
+Done by the #398 session (PRs #402, #406, #422): 93 old database tables
+dropped. That session reports Albert ordered deletion without a backup; the
+coordinator did not see those words. Also deleted: 34 Vercel settings, all 4
+Trigger.dev projects, the inactive Supabase preview project, and 5 old apps
+plus 2 standalone graph databases on the test services host. Remaining:
+(a) delete container images `theoracle-native` and `theoracle-native-browser`
+from GitHub's registry; this needs a token with `delete:packages`, so report
+`Blocked —` if none is available. (b) Repair or remove the `supabase-oracle`
+entry in `.mcp.json`, which launches a deleted script; the Supabase MCP must
+still work afterwards, so repair it rather than drop it. (c) Remove stale doc
+mentions of the seed script and the old settings table from the configuration
+and development docs. Open one issue for (a)–(c). Done when: all three are
+verified and the issue is closed.
 
 ### Task 8. Close step 14 (T12); last, after owner item 3
 Record Albert's verbatim Map verdict in plan STATUS row 14, close #255, and post
