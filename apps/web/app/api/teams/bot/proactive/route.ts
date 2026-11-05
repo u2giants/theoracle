@@ -34,7 +34,8 @@ type EmployeeLookup = {
 
 const TEAMS_CHANNEL_ID = 'msteams';
 const BOT_CONNECTOR_AUDIENCE = 'https://api.botframework.com';
-const DEFAULT_TEAMS_SERVICE_URL = 'https://smba.trafficmanager.net/amer/';
+// Retain opened references across persistence retries in this process.
+const pendingReferences = new Map<string, Partial<ConversationReference>>();
 
 function botTenantId(): string {
   const tenant = process.env.MICROSOFT_BOT_TENANT_ID ?? process.env.AZURE_TENANT_ID;
@@ -42,32 +43,52 @@ function botTenantId(): string {
   return tenant;
 }
 
-// Teams refuses some accounts with 4xx (no Teams license, shared mailbox,
-// disabled) — those are unreachable, everything else is retried later.
+// Only explicit recipient failures may advance the interview to another person.
 function isClientError(err: unknown): boolean {
-  const record = err as { statusCode?: unknown; code?: unknown } | null;
-  for (const value of [record?.statusCode, record?.code]) {
-    if (typeof value === 'number' && value >= 400 && value < 500) return true;
-    if (typeof value === 'string' && /^4\d\d$/.test(value)) return true;
-  }
-  return false;
+  const record = err as { code?: unknown; body?: { error?: { code?: unknown } } } | null;
+  const code = record?.body?.error?.code ?? record?.code;
+  return typeof code === 'string' && new Set([
+    'BotNotInConversation', 'MissingConversationParameter',
+    'ConversationNotFound', 'UserNotFound', 'MessageWritesBlocked',
+  ]).has(code);
 }
 
 async function resolveTeamsUser(emails: string[]): Promise<{ id: string; name?: string } | null> {
   const wanted = new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean));
   if (wanted.size === 0) return null;
   for (const user of await listTenantUsers()) {
-    if (wanted.has(user.email.toLowerCase())) return { id: user.id, name: user.displayName };
+    if (wanted.has(user.email.toLowerCase())) {
+      return user.accountEnabled ? { id: user.id, name: user.displayName } : null;
+    }
   }
   return null;
 }
 
 // Open the 1:1 chat the employee never opened themselves and hand the
 // reference to the brain so later sends reuse the same chat.
-async function openConversation(
+const openingConversations = new Map<string, Promise<Partial<ConversationReference>>>();
+
+async function openConversation(employeeId: string, lookup: EmployeeLookup): Promise<Partial<ConversationReference>> {
+  const existing = openingConversations.get(employeeId);
+  if (existing) return existing;
+  const opening = createAndStoreConversation(employeeId, lookup);
+  openingConversations.set(employeeId, opening);
+  try {
+    return await opening;
+  } finally {
+    openingConversations.delete(employeeId);
+  }
+}
+
+async function createAndStoreConversation(
   employeeId: string,
   lookup: EmployeeLookup,
 ): Promise<Partial<ConversationReference>> {
+  const pending = pendingReferences.get(employeeId);
+  if (pending) {
+    await persistConversation(employeeId, pending);
+    return pending;
+  }
   const user = await resolveTeamsUser(lookup.emails ?? []);
   if (!user) {
     throw Object.assign(new Error('no tenant user matches this employee'), { unreachable: true });
@@ -75,7 +96,8 @@ async function openConversation(
   const appId = teamsBotAppId();
   const tenantId = botTenantId();
   const serviceUrl =
-    lookup.service_url ?? process.env.TEAMS_SERVICE_URL ?? DEFAULT_TEAMS_SERVICE_URL;
+    process.env.TEAMS_SERVICE_URL;
+  if (!serviceUrl) throw new Error('TEAMS_SERVICE_URL is not configured');
   const displayName = user.name ?? lookup.name ?? 'employee';
   const holder: { ref: Partial<ConversationReference> | null } = { ref: null };
   const parameters: ConversationParameters = {
@@ -98,15 +120,20 @@ async function openConversation(
     },
   );
   if (!holder.ref) throw new Error('createConversation produced no reference');
-  try {
-    await brainService('interview/teams/conversation', {
-      method: 'POST',
-      body: { employee_id: employeeId, conversation_ref: holder.ref },
-    });
-  } catch (err) {
-    console.warn('[teams/bot/proactive] could not store the new conversation reference', err);
-  }
+  pendingReferences.set(employeeId, holder.ref);
+  await persistConversation(employeeId, holder.ref);
   return holder.ref;
+}
+
+async function persistConversation(employeeId: string, ref: Partial<ConversationReference>): Promise<void> {
+  const response = await brainService<{ stored?: boolean }>('interview/teams/conversation', {
+    method: 'POST',
+    body: { employee_id: employeeId, conversation_ref: ref },
+  });
+  if (response.status !== 200 || response.body?.stored !== true) {
+    throw new Error('could not store the new conversation reference');
+  }
+  pendingReferences.delete(employeeId);
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -127,7 +154,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
     if (response.status === 404) {
       return NextResponse.json(
-        { error: 'not_reachable', detail: response.body?.detail ?? 'no such employee' },
+        { error: 'unknown_employee', detail: response.body?.detail ?? 'no such employee' },
         { status: 404 },
       );
     }

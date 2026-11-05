@@ -190,7 +190,11 @@ def _post_proactive(employee_id: str, text: str, settings: Settings) -> None:
         headers={"x-brain-token": token},
         timeout=30.0,
     )
-    if response.status_code == 404:
+    try:
+        error = response.json().get("error")
+    except (ValueError, AttributeError):
+        error = None
+    if response.status_code == 404 and error == "not_reachable":
         raise InterviewUnreachableError(
             f"no Teams chat reachable for {employee_id}: {response.text[:300]}"
         )

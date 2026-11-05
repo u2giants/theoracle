@@ -115,11 +115,6 @@ def teams_conversation(employee_id: str) -> dict[str, Any]:
                 emails.append(str(alias))
         ref_dict = dict(ref) if ref is not None else None
         service_url = (ref_dict or {}).get("serviceUrl")
-        if not service_url:
-            hint = conn.execute(
-                "SELECT conversation_ref->>'serviceUrl' FROM cmap.teams_conversation LIMIT 1"
-            ).fetchone()
-            service_url = str(hint[0]) if hint and hint[0] else None
     return {
         "employee_id": employee_id,
         "conversation_ref": ref_dict,
