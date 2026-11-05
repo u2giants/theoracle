@@ -25,7 +25,7 @@ export const runtime = 'nodejs';
 type Body = { employee_id?: unknown; text?: unknown };
 
 type EmployeeLookup = {
-  conversation_ref?: ConversationReference | null;
+  conversation_ref?: Partial<ConversationReference> | null;
   name?: string | null;
   emails?: string[];
   service_url?: string | null;
@@ -67,7 +67,7 @@ async function resolveTeamsUser(emails: string[]): Promise<{ id: string; name?: 
 async function openConversation(
   employeeId: string,
   lookup: EmployeeLookup,
-): Promise<ConversationReference> {
+): Promise<Partial<ConversationReference>> {
   const user = await resolveTeamsUser(lookup.emails ?? []);
   if (!user) {
     throw Object.assign(new Error('no tenant user matches this employee'), { unreachable: true });
@@ -76,11 +76,12 @@ async function openConversation(
   const tenantId = botTenantId();
   const serviceUrl =
     lookup.service_url ?? process.env.TEAMS_SERVICE_URL ?? DEFAULT_TEAMS_SERVICE_URL;
-  const holder: { ref: ConversationReference | null } = { ref: null };
+  const displayName = user.name ?? lookup.name ?? 'employee';
+  const holder: { ref: Partial<ConversationReference> | null } = { ref: null };
   const parameters: ConversationParameters = {
     isGroup: false,
-    bot: { id: appId },
-    members: [{ id: user.id, name: user.name ?? lookup.name ?? undefined }],
+    bot: { id: appId, name: 'theoracle' },
+    members: [{ id: user.id, name: displayName }],
     tenantId,
     channelData: { tenant: { id: tenantId } },
   };
@@ -92,7 +93,7 @@ async function openConversation(
     parameters,
     async (context) => {
       const ref = TurnContext.getConversationReference(context.activity);
-      ref.user = { id: user.id, name: user.name ?? lookup.name ?? undefined };
+      ref.user = { id: user.id, name: displayName };
       holder.ref = ref;
     },
   );
