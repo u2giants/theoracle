@@ -1,7 +1,7 @@
 """DesignFlow directory sync rules (DECISIONS.md
 D-dflow-directory-source-of-truth).
 
-The shared ``api.oracle_user_directory`` view does not exist in the test
+The shared ``api.oracle_user_directory()`` function does not exist in the test
 database, so rows are injected into ``apply_directory`` directly and applied to
 the stand-in ``public.employees`` / ``public.employee_directory_roles`` tables.
 """

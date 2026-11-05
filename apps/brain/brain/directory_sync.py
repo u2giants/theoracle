@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 
 DIRECTORY_SYNC_INTERVAL_SECONDS = 900
 
-# The shared-db side exposes this as a view (columns: user_id integer, email
-# text, name text, lastname text, status text, level text, office_location
-# text, roles text[]).
-DIRECTORY_QUERY = "SELECT * FROM api.oracle_user_directory"
+# The shared-db side exposes this as a set-returning function (columns: user_id
+# integer, email text, name text, lastname text, status text, level text,
+# office_location text, roles text[]).
+DIRECTORY_QUERY = "SELECT * FROM api.oracle_user_directory()"
 
 
 def fetch_directory_rows(conn: psycopg.Connection) -> list[dict[str, Any]]:
