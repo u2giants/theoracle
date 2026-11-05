@@ -37,7 +37,7 @@ RESOLUTION_L1 = 0.5
 MIN_COMMUNITY = 3
 MAX_MERGED_COMMUNITY = 60
 MAX_L1_CHILDREN = 8
-MAX_L1_ENTITIES = 150
+MAX_COMMUNITY = 150
 MAX_CONTEXT_TOKENS = 12000
 MAX_EDGES_IN_CONTEXT = 40
 MAX_QUOTES_IN_CONTEXT = 25
@@ -83,13 +83,17 @@ def _level0_membership(
     edges: list[dict[str, Any]],
     entity_ids: list[str],
     entity_sources: dict[str, set[str]] | None = None,
+    entity_vectors: dict[str, list[float]] | None = None,
 ) -> dict[str, int]:
     """Leiden level 0, then fold communities smaller than MIN_COMMUNITY.
 
     A small community merges into its highest-weight edge neighbour; one with
     no edge to any other community merges into the community sharing the most
-    sources (``entity_sources``: entity id -> source ids). Only a community
-    with neither stays small.
+    sources (``entity_sources``: entity id -> source ids). ``_fold_leftovers``
+    then folds whatever neither signal can reach — entities whose mentions were
+    deleted carry no source at all (#437) — into the most similar community
+    (``entity_vectors``: entity id -> embedding), and keeps every community
+    within [MIN_COMMUNITY, MAX_COMMUNITY] entities.
     """
     index_of = {entity_id: position for position, entity_id in enumerate(entity_ids)}
     pairs: list[tuple[int, int]] = []
@@ -163,9 +167,181 @@ def _level0_membership(
                 membership[vertex] = target
             changed = True
             break
+    sources = [
+        (entity_sources or {}).get(entity_id, set()) for entity_id in entity_ids
+    ]
+    vectors = [(entity_vectors or {}).get(entity_id) for entity_id in entity_ids]
+    _fold_leftovers(membership, adjacency, sources, vectors)
     return {
         entity_id: membership[position] for position, entity_id in enumerate(entity_ids)
     }
+
+
+def _fold_leftovers(
+    membership: list[int],
+    adjacency: dict[tuple[int, int], float],
+    entity_sources: list[set[str]],
+    entity_vectors: list[list[float] | None],
+) -> None:
+    """Fold communities under MIN_COMMUNITY and split those over MAX_COMMUNITY.
+
+    The merge loop only reaches a neighbour through an edge or a shared source.
+    Entities with neither — their mentions were deleted upstream, so nothing
+    links them any more (#437) — had no candidate and stayed singletons. This
+    pass folds whatever is left into the most similar community (edge weight,
+    shared sources, then embedding similarity, preferring targets that stay
+    under MAX_MERGED_COMMUNITY) and peels any community over MAX_COMMUNITY into
+    bounded pieces, so every community holds [MIN_COMMUNITY, MAX_COMMUNITY]
+    entities whenever the corpus holds at least MIN_COMMUNITY.
+    """
+    total = len(membership)
+    neighbours: list[list[tuple[int, float]]] = [[] for _ in range(total)]
+    for (first, second), weight in adjacency.items():
+        neighbours[first].append((second, weight))
+        neighbours[second].append((first, weight))
+    has_sources = any(entity_sources)
+    has_vectors = any(vector is not None for vector in entity_vectors)
+
+    sums: dict[int, list[float]] = {}
+    counts: dict[int, int] = {}
+    for vertex, community in enumerate(membership):
+        counts[community] = counts.get(community, 0) + 1
+        vector = entity_vectors[vertex]
+        if vector is not None:
+            if community in sums:
+                bucket = sums[community]
+                for index, value in enumerate(vector):
+                    bucket[index] += value
+            else:
+                sums[community] = list(vector)
+
+    def _centroid(community: int) -> list[float] | None:
+        bucket = sums.get(community)
+        if bucket is None:
+            return None
+        count = counts[community]
+        return [value / count for value in bucket]
+
+    def _move(vertex: int, target: int) -> None:
+        source = membership[vertex]
+        membership[vertex] = target
+        counts[source] -= 1
+        counts[target] = counts.get(target, 0) + 1
+        vector = entity_vectors[vertex]
+        if vector is not None:
+            bucket = sums.setdefault(target, [0.0] * len(vector))
+            for index, value in enumerate(vector):
+                bucket[index] += value
+            if source in sums:
+                old = sums[source]
+                for index, value in enumerate(vector):
+                    old[index] -= value
+        if counts[source] == 0:
+            counts.pop(source, None)
+            sums.pop(source, None)
+
+    def _split(members: list[int]) -> None:
+        community = membership[members[0]]
+        centre = _centroid(community)
+
+        def _central(vertex: int) -> float:
+            if centre is None or entity_vectors[vertex] is None:
+                return 0.0
+            return _cosine(entity_vectors[vertex], centre)
+
+        ordered = sorted(members, key=lambda vertex: (-_central(vertex), vertex))
+        size = len(ordered)
+        chunks: list[list[int]] = []
+        position = 0
+        while size - position > MAX_COMMUNITY:
+            rest = size - position
+            take = (
+                MAX_COMMUNITY
+                if rest - MAX_COMMUNITY >= MIN_COMMUNITY
+                else rest - MIN_COMMUNITY
+            )
+            chunks.append(ordered[position : position + take])
+            position += take
+        chunks.append(ordered[position:])
+        next_id = max(membership) + 1
+        for chunk in chunks[1:]:
+            for vertex in chunk:
+                _move(vertex, next_id)
+            next_id += 1
+
+    while True:
+        groups: dict[int, list[int]] = {}
+        for vertex, community in enumerate(membership):
+            groups.setdefault(community, []).append(vertex)
+        oversized = [m for m in groups.values() if len(m) > MAX_COMMUNITY]
+        if oversized:
+            _split(oversized[0])
+            continue
+        smalls = [m for m in groups.values() if len(m) < MIN_COMMUNITY]
+        if not smalls:
+            return
+        members = min(smalls, key=lambda m: (len(m), membership[m[0]]))
+        community = membership[members[0]]
+        edge_by: dict[int, float] = {}
+        for vertex in members:
+            for other, weight in neighbours[vertex]:
+                other_community = membership[other]
+                if other_community != community:
+                    edge_by[other_community] = (
+                        edge_by.get(other_community, 0.0) + weight
+                    )
+        source_by: dict[int, int] = {}
+        if has_sources:
+            own: set[str] = set()
+            for vertex in members:
+                own |= entity_sources[vertex]
+            if own:
+                for vertex, other_community in enumerate(membership):
+                    if other_community == community:
+                        continue
+                    shared = own & entity_sources[vertex]
+                    if shared:
+                        source_by[other_community] = (
+                            source_by.get(other_community, 0) + len(shared)
+                        )
+        centre = _centroid(community) if has_vectors else None
+        best: int | None = None
+        best_key: tuple[float, float, int, int] | None = None
+        for other_community, other_members in groups.items():
+            if other_community == community:
+                continue
+            if len(other_members) + len(members) > MAX_COMMUNITY:
+                continue
+            score = 3.0 * edge_by.get(other_community, 0.0) + 2.0 * source_by.get(
+                other_community, 0
+            )
+            if centre is not None:
+                other_centre = _centroid(other_community)
+                if other_centre is not None:
+                    score += _cosine(centre, other_centre)
+            tier = (
+                0.0
+                if len(other_members) + len(members) <= MAX_MERGED_COMMUNITY
+                else 1.0
+            )
+            key = (
+                1.0 if len(other_members) < MIN_COMMUNITY else 0.0,
+                tier,
+                -score,
+                len(other_members),
+                other_community,
+            )
+            if best_key is None or key < best_key:
+                best_key, best = key, other_community
+        if best is None:
+            # Everything else sits at the hard cap: take the smallest anyway
+            # and let _split bring it back under MAX_COMMUNITY.
+            candidates = [c for c in groups if c != community]
+            if not candidates:
+                return
+            best = min(candidates, key=lambda c: (counts.get(c, 0), c))
+        for vertex in members:
+            _move(vertex, best)
 
 
 def _entity_sources(conn: psycopg.Connection) -> dict[str, set[str]]:
@@ -176,6 +352,16 @@ def _entity_sources(conn: psycopg.Connection) -> dict[str, set[str]]:
         "JOIN cmap.chunk ch ON ch.id = m.chunk_id WHERE m.entity_id IS NOT NULL"
     ).fetchall():
         out.setdefault(str(entity_id), set()).add(str(source_id))
+    return out
+
+
+def _entity_vectors(conn: psycopg.Connection) -> dict[str, list[float]]:
+    """Entity id -> embedding, for folding entities no edge or source can reach."""
+    out: dict[str, list[float]] = {}
+    for entity_id, raw in conn.execute(
+        "SELECT id, embedding::text FROM cmap.entity WHERE embedding IS NOT NULL"
+    ).fetchall():
+        out[str(entity_id)] = [float(value) for value in json.loads(str(raw))]
     return out
 
 
@@ -210,7 +396,7 @@ def _level1_membership(
     )
     membership = list(partition.membership)
     # Keep the middle level readable (#410): split any level-1 group holding
-    # more than MAX_L1_ENTITIES entities: pack its children, largest first,
+    # more than MAX_COMMUNITY entities: pack its children, largest first,
     # into the bin they share the most edge weight with, under the cap.
     entity_count = {community: 0 for community in communities}
     for community in level0.values():
@@ -220,7 +406,7 @@ def _level1_membership(
         groups.setdefault(group, []).append(position)
     next_id = max(membership, default=-1) + 1
     for children in groups.values():
-        if sum(entity_count[communities[c]] for c in children) <= MAX_L1_ENTITIES:
+        if sum(entity_count[communities[c]] for c in children) <= MAX_COMMUNITY:
             continue
         bins: list[tuple[int, list[int], int]] = []
         for child in sorted(
@@ -230,7 +416,7 @@ def _level1_membership(
             best = None
             best_weight = 0.0
             for number, (_, members, total) in enumerate(bins):
-                if total + size > MAX_L1_ENTITIES:
+                if total + size > MAX_COMMUNITY:
                     continue
                 weight = sum(
                     cross.get((min(child, m), max(child, m)), 0.0) for m in members
@@ -570,7 +756,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             .fetchone()[0]
         )
         entity_ids = [node["id"] for node in nodes]
-        level0 = _level0_membership(edges, entity_ids, _entity_sources(conn))
+        level0 = _level0_membership(
+            edges, entity_ids, _entity_sources(conn), _entity_vectors(conn)
+        )
         level1 = _level1_membership(edges, level0)
         by_community: dict[int, list[dict[str, Any]]] = {}
         for node in nodes:

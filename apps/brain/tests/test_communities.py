@@ -76,13 +76,16 @@ def _community_of(db: Any, entity_name: str) -> str:
 
 
 def _seed_second_cluster(db: Any) -> None:
-    """A vendor/customer pair far away from the approval cluster."""
+    """A vendor/customer/factory trio far away from the approval cluster."""
     source = _seed_text(db, "The vendor ships to the customer.", "vendor")
     vendor = _entity(db, "Vendor", "Acme Factory", mentions=2, sources=1)
     customer = _entity(db, "Customer", "Big Box", mentions=2, sources=1)
+    factory = _entity(db, "System", "Line 7", mentions=2, sources=1)
     v_m = _mention(db, source, "Vendor", "Acme Factory", vendor)
     c_m = _mention(db, source, "Customer", "Big Box", customer)
+    f_m = _mention(db, source, "System", "Line 7", factory)
     _relation(db, source, v_m, c_m, "PRODUCES", "the factory ships", confidence=0.9)
+    _relation(db, source, f_m, v_m, "DEPENDS_ON", "the line feeds the vendor", confidence=0.9)
 
 
 def test_leiden_groups_fixture_approval_nodes_together(
