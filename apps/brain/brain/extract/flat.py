@@ -231,8 +231,6 @@ def _post_scaledown(path: str, body: dict[str, Any], settings: Settings) -> dict
 
 def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, Any]:
     """POST one frontier chat-completions request and return the response body."""
-    if settings.openrouter_api_key is None:
-        raise FlatError("OPENROUTER_API_KEY is not set")
     model = stage_model(settings, "flat")
     if model is None:
         raise FlatError("BRAIN_FRONTIER_MODEL is not set")
@@ -242,7 +240,7 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
             "messages": messages,
             "temperature": 0,
         },
-        api_key=settings.openrouter_api_key,
+        settings=settings,
         timeout=120.0,
         error_cls=FlatError,
         label="frontier flat",

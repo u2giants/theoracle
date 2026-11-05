@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     supabase_service_role_key: str | None = None
     falkordb_url: str = "redis://localhost:6379"
     openrouter_api_key: str | None = None
+    # Direct Meta (Muse) API key. Model ids starting with ``meta-model-api/``
+    # route here instead of OpenRouter (issue #426).
+    brain_meta_api_key: str | None = None
     brain_frontier_model: str | None = None
     # Human-facing conversation (question answers). Falls back to the frontier model.
     brain_chat_model: str | None = None

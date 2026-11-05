@@ -109,7 +109,7 @@ def _call_model(messages: list[dict[str, str]]) -> str:
         return ""
     body = post_chat_with_rescue(
         {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.2},
-        api_key=settings.openrouter_api_key,
+        settings=settings,
         timeout=MODEL_TIMEOUT_SECONDS,
         error_cls=RuntimeError,
         label="teams follow-up",

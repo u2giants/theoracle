@@ -169,8 +169,6 @@ def _post_chat(
     messages: list[dict[str, Any]], settings: Settings, max_tokens: int = MAX_TOKENS
 ) -> dict[str, Any]:
     """POST one frontier chat-completions request in JSON mode."""
-    if settings.openrouter_api_key is None:
-        raise RelationsError("OPENROUTER_API_KEY is not set")
     model = stage_model(settings, "relations")
     if model is None:
         raise RelationsError("BRAIN_FRONTIER_MODEL is not set")
@@ -182,7 +180,7 @@ def _post_chat(
             "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         },
-        api_key=settings.openrouter_api_key,
+        settings=settings,
         timeout=180.0,
         error_cls=RelationsError,
         label="frontier relations",

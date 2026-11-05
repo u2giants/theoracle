@@ -135,8 +135,6 @@ def _post_chat(
     max_tokens: int = MAX_TOKENS,
 ) -> dict[str, Any]:
     """POST one frontier chat-completions request in JSON mode."""
-    if settings.openrouter_api_key is None:
-        raise ResolveError("OPENROUTER_API_KEY is not set")
     if settings.brain_frontier_model is None:
         raise ResolveError("BRAIN_FRONTIER_MODEL is not set")
     return post_chat_with_rescue(
@@ -147,7 +145,7 @@ def _post_chat(
             "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         },
-        api_key=settings.openrouter_api_key,
+        settings=settings,
         timeout=120.0,
         error_cls=ResolveError,
         label="frontier resolve",

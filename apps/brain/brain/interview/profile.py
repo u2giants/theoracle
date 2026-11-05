@@ -101,7 +101,7 @@ def _split(text: str) -> tuple[str | None, str | None]:
                 "max_tokens": 200,
                 "temperature": 0,
             },
-            api_key=settings.openrouter_api_key,
+            settings=settings,
             timeout=MODEL_TIMEOUT_SECONDS,
             error_cls=RuntimeError,
             label="teams profile",
