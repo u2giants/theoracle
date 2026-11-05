@@ -33,6 +33,7 @@ from brain.read.detect import (
     detect_kind,
     verify_office_zip,
 )
+from brain.resolve.resolve import _refresh_counts
 
 router = APIRouter()
 
@@ -459,7 +460,25 @@ def delete_source(
         if row is None:
             raise HTTPException(status_code=404, detail="source not found")
         storage_path = row[0]
+        touched = {
+            str(r[0])
+            for r in conn.execute(
+                "SELECT DISTINCT m.entity_id FROM cmap.mention m "
+                "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
+                "WHERE ch.source_id = %s AND m.entity_id IS NOT NULL",
+                (str(source_id),),
+            ).fetchall()
+        }
         conn.execute("DELETE FROM cmap.source WHERE id = %s", (str(source_id),))
+        # Scoped to this source's entities on purpose: mention-less orphans from
+        # earlier deletions stay until the owner's keep-vs-hide decision (#255).
+        conn.execute(
+            "DELETE FROM cmap.entity e WHERE e.id = ANY(%s::uuid[]) "
+            "AND NOT EXISTS (SELECT 1 FROM cmap.mention m WHERE m.entity_id = e.id)",
+            (list(touched),),
+        )
+        if touched:
+            _refresh_counts(conn, touched)
         conn.commit()
     try:
         storage_mod.get_storage().delete(storage_path)
