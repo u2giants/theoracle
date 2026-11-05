@@ -88,6 +88,19 @@ def _ensure_employee(conn: Any, email: str | None, name: str | None) -> tuple[st
     return str(row[0]), display
 
 
+def store_conversation_ref(
+    conn: Any, employee_id: str, conversation_ref: dict[str, Any]
+) -> None:
+    """Upsert the employee's conversation reference (the bot's write-back key)."""
+    conn.execute(
+        "INSERT INTO cmap.teams_conversation (employee_id, conversation_ref, updated_at) "
+        "VALUES (%s, %s, now()) ON CONFLICT (employee_id) DO UPDATE SET "
+        "conversation_ref = EXCLUDED.conversation_ref, updated_at = now()",
+        (employee_id, Json(conversation_ref)),
+    )
+    conn.commit()
+
+
 def _transcript_text(question: str, employee_name: str, answer: str) -> str:
     """The Q and A as two speaker turns the transcript reader understands."""
     question_line = " ".join(question.split())
@@ -157,13 +170,7 @@ def handle_inbound(
             return {"handled": False, "reply": None, "employee_id": None}
         employee_id, employee_name = employee
         if conversation_ref:
-            conn.execute(
-                "INSERT INTO cmap.teams_conversation (employee_id, conversation_ref, updated_at) "
-                "VALUES (%s, %s, now()) ON CONFLICT (employee_id) DO UPDATE SET "
-                "conversation_ref = EXCLUDED.conversation_ref, updated_at = now()",
-                (employee_id, Json(conversation_ref)),
-            )
-            conn.commit()
+            store_conversation_ref(conn, employee_id, conversation_ref)
         command = _command(text)
         if command == "stop":
             conn.execute(

@@ -30,7 +30,7 @@ direction. Nothing here turns them on; the ask tick still gates itself.
 |---|---|
 | [#318](https://github.com/u2giants/theoracle/pull/318) | The intake now matches senders on `employees.email` **or** any linked `employee_identities.email` (the table already carries per-provider emails). |
 | [#320](https://github.com/u2giants/theoracle/pull/320) | A first Teams message from an unknown **@popcre.com** sender auto-registers a minimal employee row (display name from the Teams profile) so the conversation is recorded. Non-tenant addresses never auto-register — identity hygiene, not a permission system (the plan allows login + `is_admin` only). |
-| [#325](https://github.com/u2giants/theoracle/pull/325) | The conversation-reference lookup is ungated (404 only when the person never messaged the bot). The outbound ask tick keeps gating itself on the interviews switch. |
+| [#325](https://github.com/u2giants/theoracle/pull/325) | The conversation-reference lookup is ungated (404 only for an unknown employee). The outbound ask tick keeps gating itself on the interviews switch. |
 
 Owner ruling implemented along the way (2026-11-02, verbatim): "all emails in
 the system should be @popcre.com emails. All empployees in our M365 tenant
@@ -60,7 +60,11 @@ app (same route file's sibling
 takes `{employee_id, text}` with the shared service token, fetches the stored
 conversation reference from the brain's
 `GET /interview/teams/conversation/{employee_id}`, and sends through the Bot
-Framework adapter (`continueConversationAsync`) into that same chat. The
+Framework adapter (`continueConversationAsync`) into that same chat. When no
+reference is stored (Teams never delivered a conversation update and the
+employee never opened the chat — 11 install-wave employees were stuck this
+way), the route opens the 1:1 chat itself (`createConversationAsync`), stores
+the new reference with the brain, and sends. The
 brain's interview tick
 ([`apps/brain/brain/interview/tick.py`](https://github.com/u2giants/theoracle/blob/main/apps/brain/brain/interview/tick.py))
 uses this route for its questions and refuses to send while the interviews
@@ -79,8 +83,9 @@ switch is off — that gate is unchanged.
 
 ## Reproducing a send
 
-Anyone with the shared service token can write into a chat whose owner has
-messaged the bot at least once:
+Anyone with the shared service token can write into an employee's Teams chat
+(messaged the bot before or not — without a stored reference the bot opens
+the 1:1 chat itself):
 
 ```
 POST https://oracle.designflow.app/api/teams/bot/proactive
@@ -88,8 +93,9 @@ x-brain-token: <BRAIN_SHARED_TOKEN>
 {"employee_id": "<uuid from cmap.teams_conversation>", "text": "message"}
 ```
 
-Returns `{"sent": true}` on success; `404 not_reachable` when the employee
-never messaged the bot.
+Returns `{"sent": true}` on success; `404 not_reachable` when no Teams chat
+can be opened for the employee (no matching tenant user, or the account
+cannot receive Teams).
 
 ## Constraints preserved
 

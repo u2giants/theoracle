@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from brain.api.deps import User, require_admin, require_service
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
-from brain.interview.inbound import handle_inbound
+from brain.interview.inbound import handle_inbound, store_conversation_ref
 from brain.interview.tick import reachable_employees, select_target
 
 router = APIRouter()
@@ -50,6 +50,13 @@ class RouteBody(BaseModel):
     employee_id: str | None = None
 
 
+class ConversationRefBody(BaseModel):
+    """A conversation reference for a chat the web layer opened itself."""
+
+    employee_id: str
+    conversation_ref: dict[str, Any]
+
+
 def _uuid(value: str, field: str) -> str:
     try:
         return str(UUID(value))
@@ -73,22 +80,71 @@ def teams_inbound(body: InboundBody) -> dict[str, Any]:
     dependencies=[Depends(require_service)],
 )
 def teams_conversation(employee_id: str) -> dict[str, Any]:
-    """Stored conversation reference; 404 when the employee never wrote first.
+    """Employee identity plus the stored conversation reference (nullable).
 
     Always readable: this lookup is what lets the web layer write back into a
-    Teams chat (two-way communication, owner test 2026-11-02). The outbound
-    interview tick gates itself on ``interviews_enabled``; the lookup does not.
+    Teams chat (two-way communication, owner test 2026-11-02). A null
+    ``conversation_ref`` means no chat is stored yet — the web layer then
+    opens the 1:1 chat itself before the first send (measured 2026-11-04: 11
+    Teams-licensed employees never got questions because their install
+    conversation update never arrived). The outbound interview tick gates
+    itself on ``interviews_enabled``; the lookup does not.
     """
     employee_id = _uuid(employee_id, "employee_id")
     pool = get_pool()
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT conversation_ref FROM cmap.teams_conversation WHERE employee_id = %s",
+            "SELECT e.name, e.email, tc.conversation_ref "
+            "FROM public.employees e "
+            "LEFT JOIN cmap.teams_conversation tc ON tc.employee_id = e.id "
+            "WHERE e.id = %s",
             (employee_id,),
         ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="employee has not messaged the bot")
-    return {"employee_id": employee_id, "conversation_ref": row[0]}
+        if row is None:
+            raise HTTPException(status_code=404, detail="no such employee")
+        name, email, ref = row
+        emails: list[str] = []
+        if email:
+            emails.append(str(email))
+        for (alias,) in conn.execute(
+            "SELECT email FROM public.employee_identities "
+            "WHERE employee_id = %s AND email IS NOT NULL",
+            (employee_id,),
+        ).fetchall():
+            if str(alias) not in emails:
+                emails.append(str(alias))
+        ref_dict = dict(ref) if ref is not None else None
+        service_url = (ref_dict or {}).get("serviceUrl")
+        if not service_url:
+            hint = conn.execute(
+                "SELECT conversation_ref->>'serviceUrl' FROM cmap.teams_conversation LIMIT 1"
+            ).fetchone()
+            service_url = str(hint[0]) if hint and hint[0] else None
+    return {
+        "employee_id": employee_id,
+        "conversation_ref": ref_dict,
+        "name": str(name) if name else None,
+        "emails": emails,
+        "service_url": service_url,
+    }
+
+
+@router.post("/interview/teams/conversation", dependencies=[Depends(require_service)])
+def store_teams_conversation(body: ConversationRefBody) -> dict[str, Any]:
+    """Store a conversation reference for a chat the web layer opened."""
+    employee_id = _uuid(body.employee_id, "employee_id")
+    conversation = body.conversation_ref.get("conversation") or {}
+    if not conversation.get("id"):
+        raise HTTPException(status_code=400, detail="conversation_ref needs conversation.id")
+    pool = get_pool()
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM public.employees WHERE id = %s", (employee_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="no such employee")
+        store_conversation_ref(conn, employee_id, body.conversation_ref)
+    return {"employee_id": employee_id, "stored": True}
 
 
 def _iso(value: Any) -> str | None:
