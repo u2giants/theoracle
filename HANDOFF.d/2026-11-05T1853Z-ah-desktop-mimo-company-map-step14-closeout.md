@@ -210,9 +210,14 @@ NOT started / NOT done:
 - **GitHub merges auto-close referenced issues** — #437 was closed by the #451
   merge at 11:16 AM EST before its live proof landed; check `state:` before
   assuming an issue still needs closing.
-- **theoracle has no `bin/ai-doc-safety`** — use the ai-devops toolkit copy;
-  the prose lane `ai-doc-safety --changed origin/main` is the correct gate for
-  docs-only PRs (whole-tree mode fails on pre-existing debt).
+- **theoracle has no `bin/ai-doc-safety`** — use the ai-devops toolkit copy.
+  NOTE (2026-11-05, does not reproduce a child's claim): the current toolkit
+  copy takes only a tree argument (`ai-doc-safety [tree]`) and has NO
+  `--changed` mode; whole-tree mode presently FAILS on pre-existing debt
+  (pnpm-lock `is-finalizationregistry`, DECISIONS.md missing targets, legacy
+  handoff links). A docs-only PR is judged by its own file appearing in ZERO
+  failure lines of the whole-tree output; repairing the debt is separate work
+  and not a wrap-up item.
 - **Git bash `TZ=America/New_York` is broken** (prints GMT labelled EST) —
   compute EST in PowerShell only. Windows cp1252 cannot print `→` in proof
   scripts — set `PYTHONIOENCODING=utf-8`.
@@ -273,8 +278,8 @@ You'll know each step worked when its stated done-when fires.
 ## 7. Constraints and gotchas in force
 
 - Never push to protected `main`: branch + PR + `gh pr merge --squash --admin`.
-  Docs-only PRs need `ai-doc-safety --changed origin/main` (the ai-devops
-  toolkit copy) on the exact head before merge.
+  Docs-only PRs run the ai-devops `ai-doc-safety` copy on the head (§5 note on
+  how to read its whole-tree output).
 - Public repo hygiene: no secrets, no LAN IPs, no Supabase project refs in
   code, commits, issues or PRs. Employee names/emails follow the @popcre.com
   style used in this repo's issues.
