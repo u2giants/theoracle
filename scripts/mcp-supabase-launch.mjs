@@ -22,7 +22,7 @@ const fail = (msg) => {
 }
 
 export function assertProjectShape(project) {
-  if (typeof project !== 'string' || !/^[a-z]{20}$/.test(project)) fail('Private target metadata unavailable')
+  if (typeof project !== 'string' || !/^[a-z0-9]{20}$/.test(project)) fail('oracle_supabase_project must contain exactly 20 lowercase letters or digits')
   return project
 }
 
@@ -44,7 +44,7 @@ export function readOracleSupabaseProject(env = process.env, home = homedir()) {
 
 export function supabaseMcpCommand(project, platform = process.platform) {
   assertProjectShape(project)
-  const args = ['-y', '@supabase/mcp-server-supabase@latest', '--read-only', '--project-ref', project]
+  const args = ['-y', '@supabase/mcp-server-supabase@0.4.5', '--read-only', '--project-ref', project]
   return platform === 'win32'
     ? { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npx', ...args] }
     : { command: 'npx', args }
@@ -61,9 +61,9 @@ export function relayMcp(command, args, options = {}) {
     const clean = () => {
       for (const [signal, listener] of listeners) process.removeListener(signal, listener)
     }
-    child.once('error', () => {
+    child.once('error', (error) => {
       clean()
-      reject(new Error('Supabase MCP startup unavailable'))
+      reject(new Error(`Supabase MCP startup unavailable: ${error.message}`, { cause: error }))
     })
     child.once('close', (code, signal) => {
       clean()
