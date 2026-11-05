@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from conftest import FIXTURES_DIR
 from fastapi.testclient import TestClient
+from test_flat import _seed_text
 
 from brain.config import get_settings
 
@@ -253,6 +254,73 @@ def test_delete_removes_source_and_queues_project(
 
     missing = client.delete(f"/sources/{uuid4()}", headers=admin_headers)
     assert missing.status_code == 404
+
+
+def _entity(db, entity_type: str, name: str, mentions: int, sources: int) -> str:
+    row = db.execute(
+        "INSERT INTO cmap.entity (entity_type, canonical_name, "
+        "mention_count, source_count) VALUES (%s, %s, %s, %s) RETURNING id",
+        (entity_type, name, mentions, sources),
+    ).fetchone()
+    db.commit()
+    return str(row[0])
+
+
+def _mention(db, source_id: str, surface: str, entity_id: str) -> None:
+    chunk_id = db.execute(
+        "SELECT id FROM cmap.chunk WHERE source_id = %s", (source_id,)
+    ).fetchone()[0]
+    db.execute(
+        "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, "
+        "normalized_name, quote, entity_id) "
+        "VALUES (%s, 'Person', %s, %s, %s, %s)",
+        (chunk_id, surface, surface.lower(), f"{surface} spoke.", entity_id),
+    )
+    db.commit()
+
+
+def test_delete_removes_entities_left_without_mentions(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db,
+) -> None:
+    """Delete removes entities this source was the last evidence for."""
+    source_id = _seed_text(db, "Jessica reviews the package.", "solo")
+    entity_id = _entity(db, "Person", "Jessica", 1, 1)
+    _mention(db, source_id, "Jessica", entity_id)
+    # An orphan from earlier deletions (one of production's 405) is untouched.
+    orphan_id = _entity(db, "Issue", "stale orphan", 2, 1)
+
+    response = client.delete(f"/sources/{source_id}", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    kept = {
+        str(r[0]) for r in db.execute("SELECT id FROM cmap.entity").fetchall()
+    }
+    assert entity_id not in kept
+    assert orphan_id in kept
+
+
+def test_delete_keeps_entities_backed_by_other_sources(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db,
+) -> None:
+    """Delete keeps shared entities and repairs their counts."""
+    first = _seed_text(db, "Jessica reviews the package.", "one")
+    second = _seed_text(db, "Jessica signs off.", "two")
+    shared = _entity(db, "Person", "Jessica", 3, 2)
+    _mention(db, first, "Jessica", shared)
+    _mention(db, second, "Jessica", shared)
+    _mention(db, second, "Jessica", shared)
+    solo = _entity(db, "Person", "Reviewer", 1, 1)
+    _mention(db, first, "Reviewer", solo)
+
+    response = client.delete(f"/sources/{first}", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    rows = db.execute(
+        "SELECT canonical_name, mention_count, source_count FROM cmap.entity"
+    ).fetchall()
+    assert [(r[0], int(r[1]), int(r[2])) for r in rows] == [("Jessica", 2, 1)]
 
 
 def test_mutations_require_admin(
