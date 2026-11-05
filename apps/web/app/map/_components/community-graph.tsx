@@ -30,12 +30,29 @@ const TYPE_COLOURS: Record<string, string> = {
 type Node = NodeObject<{ id: string; name: string; type: string; source_count: number }>;
 type Link = LinkObject<Node, { rel_type: string; weight: number }>;
 
+export type GraphRelation = {
+  source: string;
+  target: string;
+  rel_type: string;
+  weight: number;
+};
+
+// react-force-graph replaces link endpoints with node objects after layout.
+function linkEndId(value: string | number | NodeObject | undefined): string {
+  if (value !== null && typeof value === 'object') {
+    return String((value as Node).id);
+  }
+  return String(value ?? '');
+}
+
 export function CommunityGraph({
   graph,
   onSelect,
+  onSelectRelation,
 }: {
   graph: GraphPayload;
   onSelect: (entityId: string) => void;
+  onSelectRelation?: (relation: GraphRelation) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods<Node, Link> | undefined>(undefined);
@@ -47,6 +64,11 @@ export function CommunityGraph({
       nodes: graph.nodes.map((node) => ({ ...node })) as Node[],
       links: graph.edges.map((edge) => ({ ...edge })) as Link[],
     }),
+    [graph],
+  );
+
+  const names = useMemo(
+    () => Object.fromEntries(graph.nodes.map((node) => [String(node.id), node.name])),
     [graph],
   );
 
@@ -139,6 +161,15 @@ export function CommunityGraph({
             const node = raw as Node;
             return onSelect(String(node.id));
           }}
+          onLinkClick={(raw: LinkObject) => {
+            const link = raw as Link;
+            onSelectRelation?.({
+              source: linkEndId(link.source),
+              target: linkEndId(link.target),
+              rel_type: link.rel_type,
+              weight: Number(link.weight ?? 0),
+            });
+          }}
         />
       </div>
       <details className="text-sm">
@@ -159,6 +190,29 @@ export function CommunityGraph({
           ))}
         </ul>
       </details>
+      {onSelectRelation && graph.edges.length > 0 && (
+        <details className="text-sm" data-testid="graph-links">
+          <summary className="cursor-pointer text-muted-foreground">
+            List of the {graph.edges.length} links in this graph
+          </summary>
+          <ul className="mt-2 flex flex-wrap gap-1">
+            {graph.edges.map((edge) => (
+              <li key={`${edge.source}-${edge.target}-${edge.rel_type}`}>
+                <button
+                  type="button"
+                  data-testid="graph-link"
+                  data-rel-type={edge.rel_type}
+                  className="rounded border px-2 py-0.5 text-xs hover:bg-muted"
+                  onClick={() => onSelectRelation(edge)}
+                >
+                  {names[edge.source] ?? edge.source} —{edge.rel_type}→{' '}
+                  {names[edge.target] ?? edge.target}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

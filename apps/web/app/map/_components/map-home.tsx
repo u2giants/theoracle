@@ -14,7 +14,7 @@ type Company = {
   issues: Finding[];
 };
 
-export function MapHome() {
+export function MapHome({ isAdmin }: { isAdmin: boolean }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [cards, setCards] = useState<CommunityCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +62,11 @@ export function MapHome() {
           <Link className="underline" href="/map/questions">
             Open questions
           </Link>
+          {isAdmin && (
+            <Link className="underline" href="/map/review" data-testid="review-link">
+              Review flags
+            </Link>
+          )}
         </nav>
       </header>
       <LoadState error={error} loading={loading} />
