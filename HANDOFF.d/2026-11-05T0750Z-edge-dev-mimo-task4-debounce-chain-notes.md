@@ -97,8 +97,8 @@ Nothing of the task is half-done.
    same text created ONE source. Burst tests must vary the text.
 5. Postgres has no `min(boolean)`; use `bool_and` for boolean aggregates.
 6. `bin/ai-doc-safety` on the whole tree fails on PRE-EXISTING debt (legacy
-   handoffs, DECISIONS.md link targets, `pnpm-lock.yaml` "finalizationregistry"
-   token) — not caused by this change; do not chase them in a feature PR.
+   handoffs, DECISIONS.md link targets, and a package-lock token match) — not
+   caused by this change; do not chase them in a feature PR.
 
 ## 5. Root causes and key findings
 
