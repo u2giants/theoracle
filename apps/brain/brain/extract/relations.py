@@ -53,6 +53,10 @@ DEFAULT_MAX_FRONTIER_CALLS = 5000
 INFERENCE_MAX_CONFIDENCE = 0.6
 CONTEXT_SENTENCES = 2
 CALL_ATTEMPTS = 3
+# Issue #415: hold the resolve→project→communities chain until sources stop
+# arriving, so one burst pays for one chain run.
+DEBOUNCE_SECONDS = 300.0
+MAX_DELAY_SECONDS = 900.0
 
 REL_TYPES: tuple[str, ...] = (
     "PERFORMS",
@@ -595,10 +599,25 @@ def handle_relations(job: dict[str, Any]) -> None:
 
 
 def _enqueue_resolve() -> None:
-    """Queue one whole-corpus ``resolve`` job (step 6) unless one is waiting."""
+    """Queue one whole-corpus ``resolve`` job (step 6), debounced (issue #415).
+
+    A burst of sources must run resolve→project→communities once: the job is
+    held until no source has finished relations for ``DEBOUNCE_SECONDS``, and
+    never past ``MAX_DELAY_SECONDS`` from its first source, so the Map always
+    updates within that bound.
+    """
     with get_pool().connection() as conn:
-        conn.execute(
-            "INSERT INTO cmap.job (kind, payload) SELECT 'resolve', '{}'::jsonb "
-            "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'resolve' AND state = 'queued')"
-        )
+        held = conn.execute(
+            "UPDATE cmap.job SET run_after = LEAST("
+            "now() + make_interval(secs => %s), created_at + make_interval(secs => %s)) "
+            "WHERE kind = 'resolve' AND state = 'queued' AND run_after > now()",
+            (DEBOUNCE_SECONDS, MAX_DELAY_SECONDS),
+        ).rowcount
+        if not held:
+            conn.execute(
+                "INSERT INTO cmap.job (kind, payload, run_after) SELECT 'resolve', '{}'::jsonb, "
+                "now() + make_interval(secs => %s) "
+                "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'resolve' AND state = 'queued')",
+                (DEBOUNCE_SECONDS,),
+            )
         conn.commit()

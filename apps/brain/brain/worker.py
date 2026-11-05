@@ -49,7 +49,7 @@ def claim_next_job() -> dict[str, Any] | None:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, kind, payload FROM cmap.job "
-                "WHERE state = 'queued' "
+                "WHERE state = 'queued' AND run_after <= now() "
                 "ORDER BY created_at "
                 "FOR UPDATE SKIP LOCKED "
                 "LIMIT 1"
