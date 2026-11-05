@@ -45,7 +45,10 @@ class SupabaseStorage:
         self._client = httpx.Client(
             base_url=self._base_url,
             headers={"Authorization": f"Bearer {service_role_key}"},
-            timeout=60.0,
+            # Supabase Storage occasionally stalls past 60 s behind Cloudflare;
+            # a short connect budget but a patient read (see the 2026-11-04
+            # intake timeout that lost a Teams contribution).
+            timeout=httpx.Timeout(180.0, connect=30.0),
         )
 
     def upload(self, key: str, data: bytes, content_type: str) -> None:

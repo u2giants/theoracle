@@ -14,8 +14,11 @@ import re
 from datetime import datetime
 from typing import Any
 
+import httpx
+from psycopg import OperationalError
 from psycopg.types.json import Json
 
+from brain import storage as storage_mod
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
 from brain.interview import profile
@@ -24,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 SILENCE_MINUTES = 20
 MIN_CONTRIBUTION_WORDS = 12
+MAX_ATTEMPTS = 5
 
 REPLY_INTRO = (
     "Hi, I'm The Oracle. I learn how POP Creations works from the people who do "
@@ -123,24 +127,38 @@ def _transcript(turns: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _is_transient(exc: Exception) -> bool:
+    """Network, storage and connection failures are worth retrying; bugs are not."""
+    return isinstance(
+        exc, (httpx.HTTPError, storage_mod.StorageError, OperationalError, OSError)
+    )
+
+
 def close_thread(thread_id: str) -> str | None:
     """Claim, ingest and close one thread; return the new source id.
 
-    The claim (``open`` → ``closing``) is atomic so the worker sweep and an
-    inbound "done" never ingest the same thread twice.
+    The claim (``open``/``failed`` → ``closing``, with ``retry_count`` bumped)
+    is atomic so the worker sweep and an inbound "done" never ingest the same
+    thread twice. A transient ingest failure leaves the thread ``failed`` with
+    ``next_retry_at`` set so the sweep retries it, up to ``MAX_ATTEMPTS``
+    attempts with exponential backoff, then leaves it ``failed`` with the last
+    error.
     """
     pool = get_pool()
     with pool.connection() as conn:
         row = conn.execute(
-            "UPDATE cmap.teams_intake t SET state = 'closing' WHERE id = %s AND state = 'open' "
-            "RETURNING t.employee_id::text, t.started_at, t.turns, "
+            "UPDATE cmap.teams_intake t SET state = 'closing', retry_count = retry_count + 1 "
+            "WHERE id = %s AND (t.state = 'open' OR (t.state = 'failed' "
+            "AND t.next_retry_at IS NOT NULL AND t.next_retry_at <= now() "
+            "AND t.retry_count < %s)) "
+            "RETURNING t.employee_id::text, t.started_at, t.turns, t.retry_count, "
             "(SELECT COALESCE(e.name, e.email) FROM public.employees e WHERE e.id = t.employee_id)",
-            (thread_id,),
+            (thread_id, MAX_ATTEMPTS),
         ).fetchone()
         conn.commit()
     if row is None:
         return None
-    employee_id, started_at, turns, employee_name = row
+    employee_id, started_at, turns, attempts, employee_name = row
     name = str(employee_name or "Employee")
     day = started_at.astimezone().date().isoformat()
     try:
@@ -156,17 +174,27 @@ def close_thread(thread_id: str) -> str | None:
             uploaded_by=None,
         )
     except Exception as exc:
-        logger.warning("teams intake %s ingest failed: %s", thread_id, exc)
+        retrying = _is_transient(exc) and attempts < MAX_ATTEMPTS
+        delay = min(2 ** (attempts - 1), 8) if retrying else 0
+        logger.warning(
+            "teams intake %s ingest failed on attempt %s/%s (%s): %s",
+            thread_id, attempts, MAX_ATTEMPTS,
+            "will retry" if retrying else "giving up", exc,
+        )
         with pool.connection() as conn:
             conn.execute(
-                "UPDATE cmap.teams_intake SET state = 'failed', error = %s, closed_at = now() WHERE id = %s",
-                (str(exc)[:500], thread_id),
+                "UPDATE cmap.teams_intake SET state = 'failed', error = %s, "
+                "closed_at = CASE WHEN %s THEN NULL ELSE now() END, "
+                "next_retry_at = CASE WHEN %s THEN now() + make_interval(mins => %s) ELSE NULL END "
+                "WHERE id = %s",
+                (str(exc)[:500], retrying, retrying, delay, thread_id),
             )
             conn.commit()
         return None
     with pool.connection() as conn:
         conn.execute(
-            "UPDATE cmap.teams_intake SET state = 'closed', source_id = %s, closed_at = now() WHERE id = %s",
+            "UPDATE cmap.teams_intake SET state = 'closed', source_id = %s, "
+            "closed_at = now(), error = NULL, next_retry_at = NULL WHERE id = %s",
             (source["id"], thread_id),
         )
         conn.commit()
@@ -175,11 +203,15 @@ def close_thread(thread_id: str) -> str | None:
 
 
 def close_stale_threads() -> list[str]:
-    """Close every thread quiet for ``SILENCE_MINUTES``; called by the worker loop."""
+    """Close every thread quiet for ``SILENCE_MINUTES``; called by the worker loop.
+
+    Also picks up ``failed`` threads whose retry backoff has elapsed.
+    """
     with get_pool().connection() as conn:
         rows = conn.execute(
-            "SELECT id::text FROM cmap.teams_intake WHERE state = 'open' "
-            "AND last_at < now() - make_interval(mins => %s)",
+            "SELECT id::text FROM cmap.teams_intake WHERE "
+            "(state = 'open' AND last_at < now() - make_interval(mins => %s)) "
+            "OR (state = 'failed' AND next_retry_at IS NOT NULL AND next_retry_at <= now())",
             (SILENCE_MINUTES,),
         ).fetchall()
     closed = []

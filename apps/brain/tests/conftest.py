@@ -99,7 +99,8 @@ def _clean_cmap() -> None:
     with psycopg.connect(settings.database_url, connect_timeout=5) as conn:
         conn.execute(
             "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
-            "cmap.graph_version, cmap.eval_question, cmap.eval_run, cmap.model_seat CASCADE"
+            "cmap.graph_version, cmap.eval_question, cmap.eval_run, cmap.model_seat, "
+            "cmap.teams_intake CASCADE"
         )
         conn.commit()
     clear_seat_cache()

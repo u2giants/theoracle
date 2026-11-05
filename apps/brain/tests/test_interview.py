@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+import httpx
 import pytest
 from conftest import fake_embeddings
 
@@ -550,6 +551,107 @@ def test_silent_thread_closes(db: Any, storage: Any) -> None:
     assert len(closed) == 1
     assert intake.close_stale_threads() == []
     assert db.execute("SELECT count(*) FROM cmap.source").fetchone()[0] == 1
+
+
+def test_failed_ingest_retries_then_succeeds(
+    db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transient ingest failure is retried by the sweep and then becomes one source."""
+    calls = {"n": 0}
+    real_ingest = intake.ingest_bytes
+
+    def flaky(**kwargs: Any) -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("The read operation timed out")
+        return real_ingest(**kwargs)
+
+    monkeypatch.setattr(intake, "ingest_bytes", flaky)
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    db.execute(
+        "UPDATE cmap.teams_intake SET last_at = now() - interval '21 minutes' WHERE id = %s",
+        (first["intake_id"],),
+    )
+    db.commit()
+    assert intake.close_stale_threads() == []
+    state, attempts, error, next_retry_at = db.execute(
+        "SELECT state, retry_count, error, next_retry_at FROM cmap.teams_intake WHERE id = %s",
+        (first["intake_id"],),
+    ).fetchone()
+    assert state == "failed"
+    assert attempts == 1
+    assert "timed out" in error
+    assert next_retry_at is not None
+    assert intake.close_stale_threads() == []
+    db.execute("UPDATE cmap.teams_intake SET next_retry_at = now() WHERE id = %s", (first["intake_id"],))
+    db.commit()
+    closed = intake.close_stale_threads()
+    assert len(closed) == 1
+    row = db.execute(
+        "SELECT state, retry_count, source_id::text, error FROM cmap.teams_intake WHERE id = %s",
+        (first["intake_id"],),
+    ).fetchone()
+    assert row == ("closed", 2, closed[0], None)
+    assert calls["n"] == 2
+    assert db.execute("SELECT count(*) FROM cmap.source").fetchone()[0] == 1
+    assert intake.close_stale_threads() == []
+    assert db.execute("SELECT count(*) FROM cmap.source").fetchone()[0] == 1
+
+
+def test_permanent_ingest_failure_is_not_retried(
+    db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-transient ingest failure is left ``failed`` at once, with no retry."""
+
+    def boom(**kwargs: Any) -> dict[str, Any]:
+        raise ValueError("bad contribution payload")
+
+    monkeypatch.setattr(intake, "ingest_bytes", boom)
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    db.execute(
+        "UPDATE cmap.teams_intake SET last_at = now() - interval '21 minutes' WHERE id = %s",
+        (first["intake_id"],),
+    )
+    db.commit()
+    assert intake.close_stale_threads() == []
+    state, attempts, error, next_retry_at = db.execute(
+        "SELECT state, retry_count, error, next_retry_at FROM cmap.teams_intake WHERE id = %s",
+        (first["intake_id"],),
+    ).fetchone()
+    assert state == "failed"
+    assert attempts == 1
+    assert "bad contribution payload" in error
+    assert next_retry_at is None
+    assert intake.close_stale_threads() == []
+
+
+def test_retry_budget_ends_failed_with_last_error(
+    db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Five transient failures leave the thread ``failed`` with the last error."""
+
+    def boom(**kwargs: Any) -> dict[str, Any]:
+        raise httpx.ReadTimeout("The read operation timed out")
+
+    monkeypatch.setattr(intake, "ingest_bytes", boom)
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    for _ in range(intake.MAX_ATTEMPTS):
+        db.execute(
+            "UPDATE cmap.teams_intake SET last_at = now() - interval '21 minutes', "
+            "next_retry_at = now() WHERE id = %s",
+            (first["intake_id"],),
+        )
+        db.commit()
+        assert intake.close_stale_threads() == []
+    state, attempts, error, next_retry_at = db.execute(
+        "SELECT state, retry_count, error, next_retry_at FROM cmap.teams_intake WHERE id = %s",
+        (first["intake_id"],),
+    ).fetchone()
+    assert state == "failed"
+    assert attempts == intake.MAX_ATTEMPTS
+    assert "timed out" in error
+    assert next_retry_at is None
+    assert intake.close_stale_threads() == []
 
 
 @pytest.fixture()
