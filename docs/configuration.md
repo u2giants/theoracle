@@ -56,7 +56,7 @@ Oracle 2 and the old workers were removed in #398 (2026-11-04); variables used o
 | `MICROSOFT_BOT_APP_PASSWORD` | Bot client secret/password used by Bot Framework auth. | Azure Bot registration / app registration secret | optional | required to add Oracle from Teams | Set in **Vercel** only. Never expose to the browser. |
 | `MICROSOFT_BOT_TENANT_ID` | Tenant ID for single-tenant Bot Framework auth. | Entra tenant ID | optional | optional | If unset, the bot auth is configured as multi-tenant. |
 
-`.env.local` lives at the **monorepo root**. Next.js, the migration runner, the seed, the smoke runners, and the wet-test runner all load it explicitly via `dotenv` from there. Next.js's default behavior of reading `.env.local` only from the app directory is overridden in `apps/web/next.config.ts`.
+`.env.local` lives at the **monorepo root**. Next.js, the migration runner, the smoke runners, and the wet-test runner all load it explicitly via `dotenv` from there. Next.js's default behavior of reading `.env.local` only from the app directory is overridden in `apps/web/next.config.ts`.
 
 
 ## Google Cloud / Vertex AI authentication
@@ -151,74 +151,9 @@ Magic-link delivery uses Brevo as the SMTP provider:
 
 Brevo's free tier (300 emails/day) is plenty for development.
 
-## Settings table (runtime config)
-
-Operational settings the Oracle reads at runtime live in the `settings` Postgres table. Each row is `(key, value::jsonb, description, updated_at)`. Seeded in `packages/db/src/seed.ts`. Many rows below were read only by the old chat and workers removed in #398 (2026-11-04); they remain in the database but nothing in the current web app reads them.
-
-| Key | Default | Purpose |
-|---|---|---|
-| `lull_window_seconds` | `60` | Seconds of silence before the Oracle may consider a "lull" interjection. |
-| `lull_gap_minimum_relevance` | `0.35` | Minimum cosine similarity between recent channel messages and an eligible open gap. Below this, the Oracle asks nothing. Gap vectors are search aids, not claim evidence. |
-| `oracle_cooldown_minutes` | `10` | Minimum minutes between Oracle interjections in the same channel. |
-| `max_oracle_interjections_per_hour` | `3` | Hard cap per channel per hour. |
-| `teams_live_recall_min_confidence_to_post` | `70` | Minimum model confidence required before the Recall live worker posts an Oracle question. Set to `101` to clamp live posting off without a deploy. |
-| `teams_live_recall_force_model_pass` | `false` | Test-only override that sends every live Recall utterance through the model gate. Keep false outside controlled debugging. |
-| `teams_live_recall_force_post` | `false` | Test-only override that posts utterances beginning with `Oracle test...` through Recall chat. Keep false outside controlled debugging. |
-| `teams_live_recall_disable_posting_limits` | `false` | Test-only override that bypasses live Recall cooldown and hourly caps. Keep false outside controlled debugging. |
-| `enable_live_contradiction_interjections` | `true` (post-R11) / `false` (pre-R11) | If false, contradictions are queued silently. R11 flips this to true on install per the live-interjection decision. |
-| `enable_group_chat_lull_questions` | `true` | If false, the Oracle never speaks proactively in group chats. |
-| `model_pool` | `[]` (empty array) | **Deprecated 2026-05-27** — replaced by the three per-stage keys below. Left in the DB if it exists; no code path reads it. |
-| `model_pool_interview` | `['anthropic/claude-haiku-4-5']` | Admin-curated approved chain for Interview. Pipeline dispatch tries the configured primary first, then the remaining pool entries in order. Empty is a runtime configuration error for pipeline callers. Interview filters to tools + structured output + vision + context >100K. |
-| `model_pool_extraction` | `['google/gemini-2.5-flash']` | Same, for Extraction. Extraction filters to structured output + context >100K; it intentionally does **not** require vision because uploaded images are first transcribed by `default_vision_route`, then Extraction receives text. Empty is a runtime configuration error. |
-| `model_pool_synthesis` | `['anthropic/claude-sonnet-4-6']` | Same, for Synthesis. Synthesis filters to context >400K + structured output + reasoning + output-cap support. Empty is a runtime configuration error. |
-| `enforce_model_capabilities` | `true` | When true, runtime route resolution rejects configured models that do not meet the slot requirements. Set false only for controlled debugging. The strict/deep-schema `workflow_read`, `macro`, and `model_merge` slots always enforce their requirements and ignore this bypass. |
-| `default_general_purpose_route` | `qwen/qwen3.7-max` | Required auxiliary primary model id/route for internal utility jobs such as taxonomy cluster naming. Resolution starts with this primary, then may continue through `model_pool_general` in approved order. An unset primary fails loudly. |
-| `model_pool_general` | `["qwen/qwen3.7-max","anthropic/claude-haiku-4-5-20251001","google/gemini-2.5-flash"]` | Approved ordered fallback pool for general utility work. It must contain the selected `default_general_purpose_route` primary. |
-| `entity_aware_retrieval_enabled` | absent / `false` | Opt-in chat retrieval planner. When exactly `true`, a bounded canonical-registry lookup and the configured `general` model route select named entities before claim search. This adds at most one model call when strict candidates exist. Keep off until live latency and cost pass the GAP-2 gate. |
-| `default_transcript_summary_route` | `deepseek/deepseek-v4-flash` | Dedicated auxiliary primary for on-demand Teams transcript picker summaries. `teams-transcript-summary` resolves this slot first; if the dedicated slot is not configured, it loudly logs and uses `general` as a compatibility path. |
-| `model_pool_transcript_summary` | `["deepseek/deepseek-v4-flash","qwen/qwen3.6-flash"]` | Approved ordered pool for Teams transcript picker preview summaries. The 2026-07-27 production audit proved both candidates resolve and DeepSeek dispatch has succeeded. |
-| `default_macro_route` | `openai/gpt-4.1-mini` | Reserved model for later inferential macro passes. The old `source-outline`, `macro-relationship-extraction`, and `source-coverage-audit` workers were deleted in Stage 3; workflow read and model merge use their own slots. |
-| `model_pool_macro` | `["openai/gpt-4.1-mini","openai/gpt-4.1","google/gemini-2.5-pro"]` | Reserved fallback chain for later inferential macro passes. Keep OpenAI first until the future Stage 7 schema is tested against real candidates. |
-| `default_workflow_read_route` | `openai/gpt-4.1` | Macro-first source workflow reader. `document-ingestion` awaits this pass before extraction, and the standalone Trigger task id is `source-workflow-read`. The output schema is flat nodes/edges/lanes/paths and is persisted to `source_workflow_maps`. OpenAI is primary because the 2026-07-07 Stage 2 gate proved this slot needs strict schema and because Gemini rejected the schema as too complex. Anthropic temperature request-shaping has since been fixed, but OpenAI remains the known-good primary for this gate. |
-| `model_pool_workflow_read` | `["openai/gpt-4.1","anthropic/claude-sonnet-5","google/gemini-2.5-pro"]` | Ordered fallback chain for the workflow-read slot. Stage gates require a bake-off before treating broader candidate quality as final. Runtime capability enforcement rejects Qwen/DeepSeek for missing strict JSON Schema enforcement and rejects Gemini for the complex workflow schema even if a stale pool setting includes it. |
-| `workflow_read_max_estimated_input_tokens` | `150000` | Estimated-token threshold above which the workflow reader processes chunks in sequential windows rather than truncating the source. |
-| `workflow_map_max_dropped_ratio` | `0.2` | If deterministic validation drops more than this fraction of map elements, the map is stored as `degraded` and document macro health is degraded. |
-| `source_reader_max_read_calls_per_source` | `40` | Fail-loud cap on segmentation plus detailed source-reader model calls for one immutable source. Checked before dispatch. |
-| `source_reader_max_input_tokens_per_source` | `500000` | Fail-loud cap on estimated input tokens across every source-reader call and repair for one immutable source. This is distinct from `workflow_read_max_estimated_input_tokens`, which controls when a single read is windowed. |
-| `source_reader_max_estimated_cost_usd_per_source` | `10` | Fail-loud cap on the source reader's pre-dispatch estimated input cost for one source. |
-| `source_reader_estimated_input_cost_per_million_tokens_usd` | `5` | Conservative configurable rate used to estimate source-reader input cost before dispatch. It is a budget guard, not provider billing truth. |
-| `source_reader_max_repair_attempts_per_source` | `1` | Maximum bounded repair attempts for one source. This shared allowance covers segmentation integrity repair and the optional R0.1 quote-copy repair. Repairs consume the same call/token/cost budgets. If the quote-copy repair cannot reserve budget, the strict original map is retained and the skip is recorded. |
-| `responsibility_postpass_max_quote_repairs_per_source` | `1` | Separate fail-loud R2 allowance for strict responsibility quote-copy repair. It cannot be consumed by segmentation or process repair and cannot exceed one. Calls still consume the shared read/token/cost caps. |
-| `responsibility_postpass_max_omission_retries_per_source` | `5` | Separate fail-loud R2 cap on source-driven omission retries across one source. This does not consume the quote-repair allowance. Calls still consume the shared read/token/cost caps. |
-| `responsibility_postpass_max_omission_retries_per_chunk` | `1` | Separate fail-loud R2 cap on omission retries for one chunk, preventing repeated retry loops over the same source text. |
-| `source_reader_max_concurrency_per_source` | `4` | Maximum concurrent detailed segment reads for one source. Results retain deterministic segment order. |
-| `require_workflow_map_for_ingestion` | `false` | When false, document ingestion falls back to blind claim extraction if every `workflow_read` candidate fails; the failed map remains visible through `macro_health='map_failed'` and the document gets a degraded processing note. When true, reader failure fails the document. |
-| `map_directed_extraction_enabled` | `true` | When true, document ingestion runs the source workflow reader before extraction, injects the map into every extraction window, and dedups map-referenced candidates by `(documentId, mapElementRef)`. When false, document ingestion uses the old blind document extraction path as an emergency comparison/fallback until Stage 5 retires it. |
-| `business_model_merge_enabled` | `false` | R1 fail-safe. No source map may create a shadow business-model proposal until its shape stage enables merge. |
-| `business_model_apply_enabled` | `false` | R1 fail-safe. Reviewed proposals cannot change the durable business model until the R6 apply gate passes. |
-| `business_model_serving_enabled` | `false` | R1 fail-safe. Employee answers cannot use the durable business model until the R7 serving gate passes. This is separate from provisional serving. |
-| `model_pool_vision` | `["qwen/qwen3-vl-235b-a22b-thinking","google/gemini-2.5-flash","anthropic/claude-sonnet-5"]` | Approved ordered fallback pool for image transcription. It must contain the selected `default_vision_route` primary. |
-| `default_translation_route` | `qwen/qwen-mt-plus` | Required auxiliary primary model id/route for bilingual claim rendering and Chinese review-question translation. Resolution may continue through `model_pool_translation` in approved order. An unset primary fails loudly, not with an English fallback. |
-| `model_pool_translation` | `["qwen/qwen-mt-plus","qwen/qwen3.7-max","google/gemini-2.5-flash"]` | Approved ordered fallback pool for bilingual claim translation and review-question translation. It must contain the selected `default_translation_route` primary. |
-| `default_vision_reasoning_effort` | _(unset)_ | Reasoning effort for the image-vision model. Most vision models ignore it; leave `off`/unset. Same `'off'\|'low'\|'medium'\|'high'` semantics as the stage effort keys. |
-| `default_interview_reasoning_effort` | _(unset)_ | One of `'off' \| 'low' \| 'medium' \| 'high'`. Unified across providers; each adapter translates to its native form (Anthropic `thinking.budget_tokens`, OpenAI `reasoning_effort`, Vertex `thinkingConfig.thinkingBudget`, Qwen `enable_thinking + thinking_budget`, DeepSeek: logged but not forwarded). Set in `/admin/settings` via the dropdown next to the model picker when the selected model has reasoning capability. See `docs/architecture.md` § "AI model adapters" for the per-provider translation table. |
-| `default_extraction_reasoning_effort` | _(unset)_ | Same, for the Extraction stage. |
-| `default_synthesis_reasoning_effort` | _(unset)_ | Same, for the Synthesis stage. |
-| `extraction_char_budget` | `24000` | Maximum formatted characters in one active conversation extraction window. The effective cap is also bounded by the smallest verified context window in the configured extraction model pool. Messages are never cut. |
-| `extraction_carry_in_count` | `12` | Number of prior complete/skipped same-channel messages included as non-quotable context for message extraction. Carry-in helps interpret continued conversations but cannot be cited as evidence. |
-| `extraction_window_overlap_messages` | `2` | Complete active messages repeated across adjacent oversized-conversation windows. Repeated messages keep their original evidence IDs and timestamps; the existing candidate identity prevents a second claim from overlap. |
-| `extraction_window_context_ratio` | `0.7` | Share of the smallest configured extraction model context available to formatted conversation text. The rest is reserved for the stable prompt, schema, provider framing, and output. Missing context metadata stops extraction clearly instead of guessing. |
-| `extraction_dispatch_mode` | `'sync'` | `'sync'` \| `'batch'`. When `'batch'`, the `claim-extraction-batch-submit` cron task gathers pending messages and submits them through the provider Batch API (OpenAI, Vertex, or Anthropic; D14) at ~50% off pricing with a 24-hour SLA; the always-on `claim-extraction-batch-drain` cron polls in-flight `provider_batch_jobs` rows and runs the existing validation + promotion pipeline. Qwen, DeepSeek, and the Google Gemini API adapter are sync-only in this app. The UI disables unsupported Batch choices, and the settings API rejects both enabling Batch for an unsupported provider and changing an active Batch route to one. A stale invalid setting makes both worker paths fail loudly with an admin action message; it never auto-flips configuration or silently stalls. **Flip via the UI**: `/admin/settings` → "Extraction dispatch mode" card. Vertex routes additionally need `GOOGLE_VERTEX_BATCH_GCS_BUCKET`; OpenAI and Anthropic need no extra storage. |
-
-Legacy `default_*_model` keys (`default_interview_model` / `default_extraction_model` / `default_synthesis_model`) have been removed from the seed. They were the pre-retrofit OpenRouter model identifiers and are no longer read by any code path. If they appear in your live DB from an older deploy, they're inert and can be deleted in a follow-up `DELETE FROM settings` migration.
-
 ## Feature flags
 
-We don't have a feature-flag service. Boolean settings in the `settings` table fill that role for now (`enable_live_contradiction_interjections`, `enable_group_chat_lull_questions`, and the `teams_live_recall_*` test overrides). Numeric settings can also act as safety clamps; for example `teams_live_recall_min_confidence_to_post=101` disables live Recall posting.
-
-Macro lens fan-out was deleted in macro-first Stage 3. Migration `89_map_directed_extraction_cleanup.sql` removes `macro_lenses_enabled`, the `macro_max_lens_*` settings, and `macro_outline_injection_enabled`.
-
-Macro validation tuning rows from `82_macro_validation_tuning_settings.sql` may still exist for historical compatibility, but the deleted lens and LLM macro writer paths no longer read the lens-dedup settings.
+We don't have a feature-flag service.
 
 ## Files that read configuration
 
@@ -231,7 +166,6 @@ Macro validation tuning rows from `82_macro_validation_tuning_settings.sql` may 
 - `packages/db/src/client.ts` — `DATABASE_URL`.
 - `packages/db/drizzle.config.ts` — `DIRECT_URL`.
 - `packages/db/src/migrate.ts` — `DIRECT_URL` and optional `ORACLE_RUN_VECTOR_INDEXES=1`.
-- `packages/db/src/seed.ts` — `DIRECT_URL`.
 
 If you add a new env var, update:
 1. `.env.example`
