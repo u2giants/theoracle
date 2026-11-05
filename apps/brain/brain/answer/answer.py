@@ -97,8 +97,6 @@ class AnswerCapReached(AnswerError):
 
 def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, Any]:
     """POST one frontier chat-completions request in JSON mode."""
-    if settings.openrouter_api_key is None:
-        raise AnswerError("OPENROUTER_API_KEY is not set")
     model = stage_model(settings, "answer")
     if model is None:
         raise AnswerError("BRAIN_CHAT_MODEL or BRAIN_FRONTIER_MODEL is not set")
@@ -110,7 +108,7 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
             "max_tokens": MAX_TOKENS,
             "response_format": {"type": "json_object"},
         },
-        api_key=settings.openrouter_api_key,
+        settings=settings,
         timeout=120.0,
         error_cls=AnswerError,
         label="frontier answer",

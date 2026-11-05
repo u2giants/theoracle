@@ -34,8 +34,6 @@ def load_visual_prompt() -> str:
 
 def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, Any]:
     """POST one chat-completions request and return the response body."""
-    if settings.openrouter_api_key is None:
-        raise VisionError("OPENROUTER_API_KEY is not set")
     model = stage_model(settings, "vision")
     if model is None:
         raise VisionError("BRAIN_VISION_MODEL is not set")
@@ -45,7 +43,7 @@ def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, 
             "messages": messages,
             "temperature": 0,
         },
-        api_key=settings.openrouter_api_key,
+        settings=settings,
         timeout=120.0,
         error_cls=VisionError,
         label="vision",
