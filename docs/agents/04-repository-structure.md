@@ -8,7 +8,7 @@ Code we own:
 
 - `apps/web/` — Next.js 16 App Router app, API routes, `/admin/employees`, Company Map UI
 - `packages/auth/` — Supabase auth helpers and employee identity linker
-- `packages/db/` — Drizzle schema, client, migrate/seed scripts
+- `packages/db/` — Drizzle schema, client, migrate scripts
 - `packages/shared/` — shared types/constants
 - `apps/brain/` — Python FastAPI Company Map service (Coolify)
 - Oracle 2 and the old workers were removed in #398 (2026-11-04).
@@ -50,19 +50,16 @@ Docs:
 
 Scripts:
 
-- `scripts/verify-catalog.ts` — provider/model catalog inspection
-- `scripts/refresh-catalog.ts` — model catalog refresh against the real DB
-- `packages/db/src/{migrate,seed,verify-identities,inspect-auth-users}.ts`
+- `packages/db/src/{migrate,verify-identities,inspect-auth-users}.ts`
 - `scripts/test-teams-transcript-access.ps1` — no-dep PowerShell probe: does the tenant grant the app Teams transcript access?
 - `scripts/diagnose-transcripts.ps1` — tries `getAllTranscripts` variants for an organizer (scheduled meetings only)
-- `scripts/create-adhoc-subscription.ps1` — one-off `adhocCalls/getAllTranscripts` subscription creation (webhook must be live first; the `teams-subscription-manager` worker is the production path)
-- `scripts/reevaluate-document.mjs` — guarded single-document re-evaluation: deletes a document's prior claims/chunks/candidates/batches/tags and resets it to `pending_processing` (DRY-RUN by default; `APPLY=1` to act; aborts if any target claim is in the Brain/a contradiction/a gap/multi-source). Run with the prod session-pooler URL: `PROD_URL=<pooler> DOCUMENT_ID=<id> APPLY=1 node scripts/reevaluate-document.mjs`, then trigger `document-ingestion`.
+- `scripts/create-adhoc-subscription.ps1` — one-off `adhocCalls/getAllTranscripts` subscription creation (webhook must be live first)
 
 Migrations:
 
 - `packages/db/src/schema.ts` — source of truth
 - `packages/db/migrations/0*.sql` — generated DDL
-- `packages/db/migrations/sql/*.sql` — hand-written constraints, views, data migrations, seeds
+- `packages/db/migrations/sql/*.sql` — hand-written constraints, extensions, RLS helpers and policies, data migrations
 
 Deployment files:
 
