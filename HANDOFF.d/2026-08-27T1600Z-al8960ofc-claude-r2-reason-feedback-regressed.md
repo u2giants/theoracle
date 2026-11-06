@@ -5,7 +5,7 @@ Status: **Regression fully contained. One owner decision remains.** The third cy
 it broke the completion stage outright: 13/30, and seven rows the 2026-08-11 run had matched were lost
 — the first preservation failure ever recorded. The feature is reverted, production code is back to
 known-good, and the 23/30 map is served again. Plan of record:
-[`../plan_r2_completion_recovery_cycle.md`](../plan_r2_completion_recovery_cycle.md).
+[`../plan_r2_completion_recovery_cycle.md`](https://github.com/u2giants/theoracle/blob/598804d26ec07b66844d92c431d208492a12c429/plan_r2_completion_recovery_cycle.md) (file removed in #422; link points at its last version).
 
 ## 0. Decisions only the owner can make
 

@@ -8,7 +8,7 @@ owner: codex/jev-integration-plan-final
 
 # TypeSafe Jev integration plan handoff
 
-Canonical plan: [`../plan_typesafe_jev_decision_layer.md`](../plan_typesafe_jev_decision_layer.md)
+Canonical plan: [`../plan_typesafe_jev_decision_layer.md`](https://github.com/u2giants/theoracle/blob/598804d26ec07b66844d92c431d208492a12c429/plan_typesafe_jev_decision_layer.md) (file removed in #422; link points at its last version)
 
 ## 0. ⚠️ DECISIONS ONLY THE OWNER CAN MAKE
 

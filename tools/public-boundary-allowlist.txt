@@ -1,0 +1,18 @@
+# Words exempt from the project-shaped-identifier rule in the ai-devops
+# public-boundary check (run on this repository by ai-doc-safety).
+#
+# Entries are one bare lowercase word per line, exact match. Every entry
+# names where the word appears here and why it is not a Supabase project
+# reference. Never add a word you cannot explain.
+
+# The JavaScript built-in "FinalizationRegistry", spelled lowercase.
+# Appears in HANDOFF.d/2026-11-05T1853Z-ah-desktop-mimo-company-map-step14-closeout.md
+# and, inside the npm dependency name "is-finalizationregistry", in
+# pnpm-lock.yaml — a generated lockfile that cannot be reworded.
+finalizationregistry
+
+# The public npm organization / protocol name for Model Context Protocol
+# (MCP), spelled lowercase. Appears in
+# HANDOFF.d/2026-10-30T1829Z-edge-dev-mimo-model-overhaul-bakeoff.md,
+# which discusses the MCP SDK npm scope. Not a project reference.
+modelcontextprotocol
