@@ -2,7 +2,13 @@
 
 ## 7. Task-to-file navigation: what to edit for common changes
 
-Oracle 2 and the old workers were removed in #398 (2026-11-04); rows that pointed at the deleted code were removed.
+Oracle 2 and the old workers were removed in #398. Oracle 2 entries below are
+historical context only: their routes, workers, tables, and numbered raw
+migrations are not current implementation or pending deployment instructions.
+The raw migrations were removed in #431; fresh databases do not recreate their
+hand-SQL-only objects. Current identity/department migration ownership is listed
+in `packages/db/migrations/sql/README.md`; current Company Map work is tracked
+in `plan_oracle_company_map.md`.
 
 | Task | Files to touch | Files not to touch |
 |---|---|---|

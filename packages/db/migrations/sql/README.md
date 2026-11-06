@@ -15,15 +15,21 @@ Drizzle generates table DDL only. It does not model:
 
 Everything in those categories lives here.
 
-## Scope: the live schema only
+## Scope: live identity schema and retired-table safeguards
 
 Oracle 2 is gone (issue #398). Its tables were dropped from production and its
 raw SQL — constraints, seeds, views, settings rows, taxonomy/extraction/macro
 DDL — was removed from this directory along with it (issue #431). What remains
-covers exactly the tables the live system uses:
+maintains the live identity tables:
 
 `public.employees`, `public.employee_identities`, `public.employee_departments`,
 `public.departments`, `public.employee_directory_roles`.
+
+Historical generated migrations still recreate retired Oracle 2 tables on fresh
+databases. `22_retired_oracle2_lockdown.sql` enables RLS and revokes client
+privileges on an explicit list of those tables when present; it preserves data
+and skips absent tables. It does not recreate removed hand-SQL-only objects.
+`63_departments_rls.sql` secures both department tables after their creation.
 
 The Company Map lives in the `cmap` schema and is owned by `apps/brain`; nothing
 here touches it.
@@ -74,9 +80,12 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `98_drop_deprecated_employee_identity_columns.sql`  | GAP-10 rerun-safe final removal of the three legacy identity columns after the live zero-data/dependency audit and rollback authentication proof passed. Explicitly drops the local unique constraint/index, then uses `DROP COLUMN IF EXISTS`. Applied in production release `30eed14`; a second full migration run and protected post-drop authentication passed. |
 | `99_vector_indexes.sql`                             | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. **Oracle 2 leftovers, kept only because the GAP-10 identity-cleanup contract asserts this file sorts after `98`.** It is opt-in (`ORACLE_RUN_VECTOR_INDEXES=1`) and its target tables no longer exist, so it is never applied — do not turn the flag on. |
 
+| `22_retired_oracle2_lockdown.sql` | RLS and client privilege revocation for retired tables recreated by generated migrations; skips missing tables. |
+| `63_departments_rls.sql` | Department directory reads for signed-in employees and admin writes, after table creation. |
+
 ## Anti-patterns
 
 - **Don't edit a prior migration file.** Add a new file with the next free prefix. Old files have already run against production. Exception: a whitelist CHECK that is dropped and re-added by a replayed file must be widened **in that same file** — a later file cannot widen it, because the earlier narrow `ADD CONSTRAINT` would fail on every rerun once a new value exists.
 - **Don't depend on a specific machine's data inside a 40+ file** unless the file is guarded by an existence check on that data (see `41_albert_post_merge_fix.sql`, which only fires if Albert's specific Supabase auth ids exist).
 - **Don't `DROP TABLE` here.** If a table must be removed, add a defensive `DROP TABLE IF EXISTS` and update `packages/db/src/schema.ts` in the same commit, and confirm no application code still references it.
-- **Don't reference a table outside the live schema.** A raw file that names a dropped Oracle 2 table fails the whole run at `Step 3` — that is exactly what issue #431 had to repair.
+- **Don't require a table outside the live schema to exist.** Retired-table safeguards must check existence before applying permissions. A raw file that names a dropped Oracle 2 table fails the whole run at `Step 3` — that is exactly what issue #431 had to repair.

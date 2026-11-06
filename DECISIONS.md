@@ -1,3 +1,11 @@
+> Oracle 2 retirement (#398 / #431): decisions below concerning the former
+> extraction, claims, macro, provider, and Teams pipelines are historical.
+> Their numbered hand-written migrations were removed, except the identity and
+> department files listed in `packages/db/migrations/sql/README.md`. References
+> to removed migrations are historical identifiers, not runnable files or current
+> fresh-database guarantees. In particular, migration 65 no longer recreates
+> document context columns, and migration 79 no longer creates macro tables.
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 46e5a2dad09283ec04e8dcd3ab30e44b250634da at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # SECURITY NOTE
 

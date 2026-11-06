@@ -377,42 +377,19 @@ The migration runner applies generated DDL plus hand-written SQL in deterministi
 Do not change because:
 Editing old generated files breaks replay expectations and production drift recovery.
 
-### The Drizzle snapshot was baselined at migration 0007 — some tables exist only via hand SQL
+### Historical Drizzle snapshots do not define the current live schema
 
-Looks like:
-`drizzle-kit generate` wants to CREATE tables that already exist in production —
-`departments`, `employee_departments`, `provider_batch_jobs`,
-`provider_response_sessions` — plus columns like `documents.context`,
-`model_runs.dispatch_mode`, `provider_cached_content.provider_metadata_json`.
-After the macro-understanding rollout, it may also want to re-emit the
-`source_outlines`, `source_groups`, `macro_relationships`, and
-`source_coverage_findings` tables from `sql/79_macro_understanding.sql`.
-It looks like a fresh, legitimate migration.
+Generated migrations and snapshots retain Oracle 2 history. Migration `0008`
+was a snapshot-only baseline; it does not create macro tables. The retired
+hand-written Oracle 2 migrations, including `79_macro_understanding.sql`, were
+removed in #431. Fresh databases no longer receive those hand-SQL-only objects.
+Only `departments` and `employee_departments` remain hand-SQL-owned via
+`61_departments.sql`. Generated migrations still create some retired tables;
+`22_retired_oracle2_lockdown.sql` denies client access to them when present.
 
-Actually:
-Those objects were added to `schema.ts` and materialized via **hand-written
-`migrations/sql/*.sql`** files, but were never captured in a *generated* Drizzle
-migration, so the Drizzle snapshot can drift behind `schema.ts`. Migration `0007`
-re-syncs the snapshot through the China bilingual layer, but its **SQL was
-trimmed by hand** to only the genuinely-new objects (`claim_translations`,
-`claims.source_lang`, `employees.locale`). Migration `0008_sour_agent_brand.sql`
-is intentionally SQL-empty: it exists only to commit Drizzle's generated
-`meta/0008_snapshot.json` after the macro tables were added to `schema.ts` by
-hand SQL. The macro tables are deliberately owned by hand-written
-`sql/79_macro_understanding.sql`; if a future generated migration includes them,
-hand-trim or explicitly document the reconciliation instead of replaying
-already-applied objects.
-
-Why:
-A fresh DB still gets those tables — the hand-written `sql/` files create them in
-the migrate runner's step 3 (after generated migrations in step 2). So both paths
-work: existing DBs already have them; fresh DBs get them from hand SQL.
-
-Do not change because:
-Do NOT "fix" a future `generate` by committing its full output if it re-emits
-`departments`/`provider_*`/macro tables/etc. — trim those statements (they already exist) and
-keep only your new objects, exactly as `0007` does. Re-emitting them breaks
-`pnpm db:migrate` on every already-migrated database.
+Compare future generated output with the current schema and retained SQL before
+shipping it. Do not replay historical snapshots to restore removed Oracle 2
+provider, document, model-run, or macro objects.
 
 ### Microsoft Graph Teams transcripts arrive after the call
 

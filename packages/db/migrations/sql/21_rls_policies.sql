@@ -7,11 +7,10 @@
 -- * Both live tables are gated through current_employee_id(), which joins
 --   through employee_identities.
 --
--- Oracle 2 is gone: the chat/document/intelligence tables this file used to
--- cover were dropped with the rest of that domain (issue #398), and their
--- policies are no longer defined anywhere. Only the tables the live system
--- still uses are covered here; `employee_directory_roles` has its own policies
--- in 21_employee_directory_roles_rls.sql.
+-- Employee and identity policies live here. Directory roles are secured in
+-- 21_employee_directory_roles_rls.sql; departments in 63_departments_rls.sql.
+-- 22_retired_oracle2_lockdown.sql denies client access to any retired tables
+-- recreated by historical generated migrations, skipping absent tables.
 
 -- ===========================================================================
 -- Employees
