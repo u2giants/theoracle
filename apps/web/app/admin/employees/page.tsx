@@ -8,6 +8,7 @@ import {
   departments,
   employees,
   employeeDepartments,
+  employeeDirectoryRoles,
   employeeIdentities,
 } from '@oracle/db/schema';
 import { coerceLocale } from '@oracle/shared';
@@ -51,6 +52,10 @@ export default async function AdminEmployeesPage() {
         identityProviders: sql<string | null>`
           string_agg(DISTINCT ${employeeIdentities.authProvider}::text, ', ')
         `,
+        // DesignFlow role names mirrored by the brain directory_sync job.
+        designFlowRoles: sql<string | null>`
+          string_agg(DISTINCT ${employeeDirectoryRoles.roleName}, ', ' ORDER BY ${employeeDirectoryRoles.roleName})
+        `,
         // Enum IDs from the new join table (authoritative for routing).
         departmentIds: sql<string[]>`
           coalesce(
@@ -67,6 +72,7 @@ export default async function AdminEmployeesPage() {
       })
       .from(employees)
       .leftJoin(employeeIdentities, eq(employeeIdentities.employeeId, employees.id))
+      .leftJoin(employeeDirectoryRoles, eq(employeeDirectoryRoles.employeeId, employees.id))
       .leftJoin(employeeDepartments, eq(employeeDepartments.employeeId, employees.id))
       .leftJoin(departments, eq(departments.id, employeeDepartments.departmentId))
       .groupBy(employees.id)
@@ -134,6 +140,7 @@ export default async function AdminEmployeesPage() {
                   <th className="py-2 pr-4">Name</th>
                   <th className="py-2 pr-4">Email</th>
                   <th className="py-2 pr-4">Role</th>
+                  <th className="py-2 pr-4">DesignFlow roles</th>
                   <th className="py-2 pr-4" title="Reader language. 中文 puts the employee in the China group (Chinese UI + auto-translated review questions).">Language</th>
                   <th className="py-2 pr-4 w-80">Department(s)</th>
                   <th className="py-2 pr-4">Access</th>
@@ -159,6 +166,7 @@ export default async function AdminEmployeesPage() {
                       <td className="py-2 pr-4 font-medium">{e.name}</td>
                       <td className="py-2 pr-4">{e.email}</td>
                       <td className="py-2 pr-4">{e.role}</td>
+                      <td className="py-2 pr-4">{e.designFlowRoles ?? '—'}</td>
                       <td className="py-2 pr-4">
                         <EmployeeLocaleForm
                           employeeId={e.id}

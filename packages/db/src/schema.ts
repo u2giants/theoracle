@@ -1,5 +1,6 @@
-// Drizzle schema for the four public tables the live system still uses:
-// employees, employee_identities, departments, employee_departments.
+// Drizzle schema for the public tables the live system still uses:
+// employees, employee_identities, employee_directory_roles, departments,
+// employee_departments.
 // The Company Map lives in the `cmap` schema and is owned by apps/brain.
 // IMPORTANT: do not change column names without coordinating raw SQL migrations.
 
@@ -142,6 +143,21 @@ export const employeeDepartments = pgTable(
   (t) => [primaryKey({ columns: [t.employeeId, t.departmentId] })],
 );
 
+// DesignFlow role names per employee, mirrored read-only from the shared
+// company directory by the brain `directory_sync` job (migration
+// sql/15_employee_directory_roles.sql owns the DDL). Replace-only from that
+// job — never hand-maintained. Oracle-only fields stay on `employees`.
+export const employeeDirectoryRoles = pgTable(
+  'employee_directory_roles',
+  {
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id, { onDelete: 'cascade' }),
+    roleName: text('role_name').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.employeeId, t.roleName] })],
+);
+
 // Admin-managed reviewer groups for sending a claim-review question to several
 // people at once. These are intentionally separate from org departments:
 // departments drive permissions and routing, while groups are lightweight
@@ -152,3 +168,4 @@ export type NewEmployee = typeof employees.$inferInsert;
 export type EmployeeIdentity = typeof employeeIdentities.$inferSelect;
 export type Department = typeof departments.$inferSelect;
 export type EmployeeDepartment = typeof employeeDepartments.$inferSelect;
+export type EmployeeDirectoryRole = typeof employeeDirectoryRoles.$inferSelect;

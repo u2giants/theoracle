@@ -31,7 +31,10 @@ export function ReviewClient() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    async function load() {
+      await refresh();
+    }
+    void load();
   }, [refresh]);
 
   async function resolve(flag: ReviewFlag) {

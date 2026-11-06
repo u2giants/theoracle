@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     brain_interview_weekly_cap: int = 2
     brain_web_base_url: str | None = None
     brain_import_dir: str = "/data/import"
+    # DesignFlow people/roles directory sync (DECISIONS.md
+    # D-dflow-directory-source-of-truth). Off until both the flag and the
+    # second-database URL are set.
+    dflow_directory_sync_enabled: bool = False
+    dflow_directory_database_url: str | None = None
 
 
 @lru_cache

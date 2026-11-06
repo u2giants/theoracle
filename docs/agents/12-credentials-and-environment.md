@@ -59,6 +59,8 @@
 | `MICROSOFT_BOT_APP_ID` | Azure Bot Framework app ID — enables `@The Oracle join` command from inside Teams | Vercel | optional | required for Teams-native bot |
 | `MICROSOFT_BOT_APP_PASSWORD` | Bot Framework client secret | Vercel | optional | required for Teams-native bot |
 | `MICROSOFT_BOT_TENANT_ID` | Tenant ID for single-tenant Bot Framework auth; omit for multi-tenant | Vercel | optional | optional |
+| `DFLOW_DIRECTORY_SYNC_ENABLED` | Feature flag for the brain DesignFlow people/roles directory sync job (default off) | `.env.local`, Coolify (brain) | optional | optional |
+| `DFLOW_DIRECTORY_DATABASE_URL` | Read-only connection to the shared company Supabase holding `api.oracle_user_directory` (a different database from Oracle's own); unset makes the sync a no-op | `.env.local`, Coolify (brain) | optional | optional |
 
 **Canonical OpenRouter credential:** vault `vibe_coding`, existing note
 `OpenRouter API Key - The Oracle (local .env.local)`, item
