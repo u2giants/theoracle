@@ -46,8 +46,10 @@ as a web app plus a background "brain" service.
   service ("brain") that owns the `cmap` (Company Map) schema.
 - Live web: `oracle.designflow.app` (the `*.vercel.app` host sits behind Vercel
   SSO and is not directly readable).
-- Live database project ref: `eqccjfbyrywsqkxxpjvg` (this is the application's
-  own database, **not** the shared company Supabase).
+- Live database project: the **CURRENT PROD** Supabase project for The Oracle.
+  Its ref is in the 1Password item title in §8 — read it there, never copy it
+  into a repo file. This is the application's own database, **not** the shared
+  company Supabase.
 - The old "Oracle 2" product (claims, gaps, taxonomy, extraction, macros,
   meetings) was removed earlier — issue
   https://github.com/u2giants/theoracle/issues/398 . What remains in the live
@@ -162,7 +164,7 @@ is also opt-in behind `ORACLE_RUN_VECTOR_INDEXES=1` and the runner always skips
 it in Step 3, so it can never block a run. Its README row says all this.
 
 **(c) The live production catalog is exactly five `public` tables.** Measured
-2026-11-06 against project `eqccjfbyrywsqkxxpjvg`:
+2026-11-06 against the CURRENT PROD project (ref in the 1Password item, §8):
 `departments`, `employee_departments`, `employee_directory_roles`,
 `employee_identities`, `employees`. Plus the 22 Company Map tables in `cmap`.
 Row counts at that time: 74 employees, 130 `employee_directory_roles`,
@@ -280,11 +282,13 @@ file will start running again and delete the `albert@popcre.com` employee row.
 - **1Password MCP is connected** (vault `vibe_coding`, vault id
   `pimcaogmxxzoafh7lsluj6uxkq`). Oracle production database credentials live in
   item id `qcuyabwseaptvuzvtjejffi2ou`, titled
-  `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, eqccjfbyrywsqkxxpjvg)`.
+  `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, …)` — the
+  trailing token in that title is the project ref; the title is the safe place
+  to read it from.
   Use field `oracle_session_pooler` as `DIRECT_URL` for migrations. **Do not**
   use item `gt537vxthxmeva64lfqku4mo6q` — that is the retired `oracle.old`
-  project `vokucjpanhvqunimlvsp`. Never print either value; pass them only as
-  `op://` references through `1password_op_run`.
+  project, and its title carries that project's ref. Never print either value;
+  pass them only as `op://` references through `1password_op_run`.
 - **Managed tool runtimes** are available via `$MIMO_PYTHON`, `$MIMO_NODE`,
   `$MIMO_RIPGREP_PATH`, etc.
 - **ai-devops toolkit** is installed (launchers under
