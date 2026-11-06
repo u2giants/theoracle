@@ -455,20 +455,6 @@ Without it the entire Teams-transcript feature produces zero promotable claims. 
 Do not change because:
 Reverting to strict-only re-breaks transcript extraction. If tightening is wanted, raise `fuzzyMinOverlap` or restrict `allowFuzzy` to transcript-sourced messages — don't remove it.
 
-### `raw_transcripts` is hand-written SQL, not in schema.ts
-
-Looks like:
-`raw_transcripts` (the original VTT per call) is missing from `packages/db/src/schema.ts`, and the ingestion worker reads/writes it with raw `sql` instead of Drizzle.
-
-Actually:
-It's defined only in the hand-written `packages/db/migrations/sql/62_raw_transcripts.sql` (idempotent `CREATE TABLE IF NOT EXISTS`), like the observability views. Keeping it out of `schema.ts` avoids a drizzle-kit drift entry for an ancillary raw-storage table the typed query layer never needs.
-
-Why:
-The VTT is stored so the whole pipeline stays re-runnable from true source after Microsoft expires the transcript (`messages` are a lossy transform). See `DECISIONS.md` D-raw-transcripts.
-
-Do not change because:
-Adding it to `schema.ts` would make drizzle-kit want to generate a migration for an already-applied hand-written table (drift). Leave it as hand-written SQL.
-
 ### The Oracle MCP server is lazy-loaded on purpose — `tools/list` stays at five tools
 
 Looks like:
