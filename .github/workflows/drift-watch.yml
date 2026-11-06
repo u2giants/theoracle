@@ -1,0 +1,68 @@
+# Drizzle journal drift watch (ai-devops #2367 step 4.2).
+#
+# Compares on-disk packages/db/migrations/0*.sql hashes against
+# drizzle.__drizzle_migrations in production. Catches migrations
+# applied outside `pnpm db:migrate` (e.g. via Supabase MCP, the
+# dashboard SQL editor, or `drizzle-kit push`).
+#
+# Runs AFTER merge, never on pull requests: PR checks must not depend
+# on a production database read (ai-devops #2367 step 4.2 separates
+# oracle CI from the production ledger). A red run on main is the
+# alert that the journal needs reconciling.
+name: Drift watch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/db/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/drift-watch.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  drift:
+    name: Drizzle journal drift check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fail fast when the production URL is missing
+        # The drift script skips gracefully without DIRECT_URL; refuse that
+        # here so this watch can never go vacuously green.
+        run: |
+          if [ -z "${PROD_DIRECT_URL}" ]; then
+            echo "::error::PROD_DIRECT_URL secret is not set; the drift watch cannot run."
+            exit 1
+          fi
+        env:
+          PROD_DIRECT_URL: ${{ secrets.PROD_DIRECT_URL }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Check journal drift against production
+        run: pnpm -w run db:check-drift
+        env:
+          DIRECT_URL: ${{ secrets.PROD_DIRECT_URL }}

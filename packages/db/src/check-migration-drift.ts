@@ -5,7 +5,8 @@
 // if any on-disk migration is missing from the journal (= someone applied
 // a migration outside `pnpm db:migrate` and the journal is now stale).
 //
-// Run as: `pnpm db:check-drift` — also wired into CI.
+// Run as: `pnpm db:check-drift` — also run by .github/workflows/drift-watch.yml
+// after merge (never on pull requests; PR checks stay production-read-free).
 //
 // Why this exists: see DECISIONS.md / CLAUDE.md → "Drizzle journal hygiene".
 // One drift incident reconciled on 2026-05-28; this guardrail catches the

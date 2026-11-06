@@ -70,12 +70,7 @@ jobs:
           OPENROUTER_API_KEY: ci-placeholder-openrouter-key
           TRIGGER_SECRET_KEY: ci-placeholder-trigger-key
 
-      - name: Drizzle journal drift check
-        # Compares on-disk packages/db/migrations/0*.sql hashes against
-        # drizzle.__drizzle_migrations in production. Catches migrations
-        # applied outside `pnpm db:migrate` (e.g. via Supabase MCP, the
-        # dashboard SQL editor, or `drizzle-kit push`).
-        # Skips gracefully when DIRECT_URL secret is missing.
-        run: pnpm -w run db:check-drift
-        env:
-          DIRECT_URL: ${{ secrets.PROD_DIRECT_URL }}
+      # The Drizzle journal drift check used to run here, which coupled every
+      # PR check to a production database read. It now runs in
+      # drift-watch.yml on push to main — CI is production-read-free
+      # (ai-devops #2367 step 4.2).
