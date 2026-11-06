@@ -41,7 +41,7 @@ registry and bounded consultant roles. The business goal is useful, auditable
 understanding with uncertainty preserved, not another collection of installed
 frameworks. Albert explicitly invoked implementation-plan-writer.
 
-Brief: [plan and STATUS](../plan_oracle_workflow_integrity.md).
+Brief: [plan and STATUS](https://github.com/u2giants/theoracle/blob/598804d26ec07b66844d92c431d208492a12c429/plan_oracle_workflow_integrity.md) (file removed in #422; link points at its last version).
 Portable publication URL:
 [workflow integrity plan](https://github.com/u2giants/theoracle/blob/codex/oracle-workflow-plan/plan_oracle_workflow_integrity.md).
 Read its STATUS first; W01 is the fresh-session entry point. This handoff is

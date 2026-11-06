@@ -21,7 +21,7 @@ and reviewed relationships are the current serving boundary.
 ## 2. Objective
 Following the whole-codebase audit in `bugs.md`, repair one connected answer path:
 licensed-product questions spanning owners, handoffs, approval conditions and exceptions.
-Execution specification: [plan](../plan_connected_business_answers.md).
+Execution specification: [plan](https://github.com/u2giants/theoracle/blob/598804d26ec07b66844d92c431d208492a12c429/plan_connected_business_answers.md) (file removed in #422; link points at its last version).
 
 ## 3. Current state
 Implementation locally complete in isolated branch `codex/connected-business-answers-20260920` at

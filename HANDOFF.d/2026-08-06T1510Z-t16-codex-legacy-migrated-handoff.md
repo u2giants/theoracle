@@ -705,8 +705,8 @@ must read the named plan's status table first and must not re-plan the work from
 
 | Known problem class | Canonical plan and exact owner |
 |---|---|
-| Macro-first redesign, R1–R10 | [Macro-first plan](../MACRO_FIRST_IMPLEMENTATION_PLAN.md) |
-| Completed bounded quote-copy repair and production proof | [Macro-first plan R0.1](../MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
+| Macro-first redesign, R1–R10 | [Macro-first plan](https://github.com/u2giants/theoracle/blob/598804d26ec07b66844d92c431d208492a12c429/MACRO_FIRST_IMPLEMENTATION_PLAN.md) |
+| Completed bounded quote-copy repair and production proof | [Macro-first plan R0.1](https://github.com/u2giants/theoracle/blob/598804d26ec07b66844d92c431d208492a12c429/MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
 | Stale workflow production script | [Reliability plan REL-1](../plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
 | False Teams transcript TODO comments | [Reliability plan REL-1](../plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
 | ERR-003 retired fan-out, closed by repository removal and deployed task inventory | [Reliability plan REL-2](../plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
