@@ -16,6 +16,8 @@ Claude Code uses .claudeignore. Other tools follow **What to ignore** in this fi
 
 **Chinese (Mandarin) integration (2026-11-08):** read [plan_chinese_integration.md](plan_chinese_integration.md) STATUS first; do not re-derive or re-plan. `china_imp.md` is prior art for the retired claims system.
 
+**Meeting-transcript triage pipeline (2026-11-08):** read [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md) STATUS first; do not re-derive or re-plan. Meeting corpus growth lives here (the document corpus is complete per the owner).
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of
