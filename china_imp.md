@@ -1,5 +1,11 @@
 # China Bilingual Implementation Plan (`china_imp.md`)
 
+> **Superseded for the current system (2026-11-08):** the live plan is
+> [plan_chinese_integration.md](plan_chinese_integration.md) (Company Map brain,
+> `cmap` schema) — read its STATUS table first. This file documents the retired
+> claims-system design and is kept for its principles only (one brain, quotes
+> never translated, English UI chrome, manual China group).
+
 Status: **Draft / proposal** — not yet implemented.
 Owner: Albert (u2giants).
 Last updated: 2026-06-16.

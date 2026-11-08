@@ -14,6 +14,8 @@ Claude Code uses .claudeignore. Other tools follow **What to ignore** in this fi
 
 **Current program (2026-10-27):** read [plan_oracle_company_map.md](plan_oracle_company_map.md) STATUS first; older plans were removed in #398.
 
+**Chinese (Mandarin) integration (2026-11-08):** read [plan_chinese_integration.md](plan_chinese_integration.md) STATUS first; do not re-derive or re-plan. `china_imp.md` is prior art for the retired claims system.
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of
