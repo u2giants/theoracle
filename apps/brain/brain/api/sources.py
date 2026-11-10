@@ -34,6 +34,7 @@ from brain.read.detect import (
     verify_office_zip,
 )
 from brain.resolve.resolve import _refresh_counts
+from brain.translate import cleanup_translations
 
 router = APIRouter()
 
@@ -479,6 +480,7 @@ def delete_source(
         )
         if touched:
             _refresh_counts(conn, touched)
+        cleanup_translations(conn)
         conn.commit()
     try:
         storage_mod.get_storage().delete(storage_path)

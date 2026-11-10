@@ -34,6 +34,7 @@ from brain.read.detect import detect_kind
 from brain.read.pipeline import read_chunks
 from brain.recommend.recommend import run_recommend
 from brain.resolve.resolve import run_resolve
+from brain.translate import cleanup_translations
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 SMOKE_TITLE_PREFIX = "[smoke] "
@@ -73,6 +74,7 @@ def _clear_prior_runs(digests: set[str]) -> None:
         if remaining == 0:
             conn.execute("DELETE FROM cmap.community")
             conn.execute("DELETE FROM cmap.open_question")
+        cleanup_translations(conn)
         conn.commit()
 
 

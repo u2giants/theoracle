@@ -27,7 +27,7 @@ from brain.embed import embed_texts
 from brain.graph.project import _load_edges, _load_entities
 from brain.lang import detect_language
 from brain.resolve.resolve import FrontierCapReached, _Frontier
-from brain.translate import upsert_translation
+from brain.translate import english_text, upsert_translation
 
 logger = logging.getLogger(__name__)
 
@@ -594,8 +594,8 @@ def _store(
     title_en = str(report.get("title_en") or "").strip()
     summary_en = str(report.get("summary_en") or "").strip()
     canonical = {
-        "title": title_en or report["title"],
-        "summary": summary_en or report["summary"],
+        "title": english_text(report["title"], title_en),
+        "summary": english_text(report["summary"], summary_en),
         "findings": findings,
         "open_questions": report["open_questions"],
     }
@@ -614,11 +614,15 @@ def _store(
         ),
     ).fetchone()
     community_id = str(row[0])
-    upsert_translation("community", community_id, "title", "en", canonical["title"])
-    upsert_translation("community", community_id, "summary", "en", canonical["summary"])
-    if canonical["title"] != report["title"] or detect_language(str(report["title"])) == "zh":
-        upsert_translation("community", community_id, "title", "zh-CN", report["title"])
-        upsert_translation("community", community_id, "summary", "zh-CN", report["summary"])
+    for field in ("title", "summary"):
+        upsert_translation(
+            "community", community_id, field, "en", canonical[field], conn=conn
+        )
+        source = str(report[field])
+        upsert_translation(
+            "community", community_id, field, "zh-CN",
+            source if detect_language(source) in ("zh", "mixed") else "", conn=conn,
+        )
     return community_id, dropped
 
 
@@ -675,7 +679,7 @@ def _split_report_md(report_md: str) -> tuple[str, str]:
 
 
 def _existing_reports(
-    conn: psycopg.Connection,
+    conn: psycopg.Connection, frontier: _Frontier | None = None,
 ) -> dict[tuple[int, frozenset[str]], dict[str, Any]]:
     """Community rows already stored, keyed by (level, entity set).
 
@@ -689,6 +693,43 @@ def _existing_reports(
     out: dict[tuple[int, frozenset[str]], dict[str, Any]] = {}
     for row in rows:
         title, summary = _split_report_md(row[3])
+        if frontier is not None:
+            fields = {"title": title or str(row[2]), "summary": summary}
+            for field, source in fields.items():
+                present = conn.execute(
+                    "SELECT 1 FROM cmap.translation WHERE kind = 'community' "
+                    "AND ref_id = %s AND field = %s AND lang = 'en'",
+                    (row[0], field),
+                ).fetchone()
+                if present:
+                    continue
+                companion = ""
+                if source and detect_language(source) != "en":
+                    result = frontier.ask(
+                        "Translate this stored prose into English. Return JSON with "
+                        'the key "english". Preserve its meaning.\n' + source
+                    )
+                    companion = str(result.get("english") or "").strip()
+                    if not companion:
+                        raise ValueError("Missing English translation")
+                fields[field] = english_text(source, companion)
+                upsert_translation(
+                    "community", str(row[0]), field, "en", fields[field], conn=conn
+                )
+                upsert_translation(
+                    "community", str(row[0]), field, "zh-CN",
+                    source if detect_language(source) in ("zh", "mixed") else "",
+                    conn=conn,
+                )
+            title, summary = fields["title"], fields["summary"]
+            tail = str(row[3]).partition("\n## Findings")[2]
+            markdown = f"# {title}\n\n{summary}"
+            if tail:
+                markdown += "\n## Findings" + tail
+            conn.execute(
+                "UPDATE cmap.community SET title = %s, report_md = %s WHERE id = %s",
+                (title, markdown, row[0]),
+            )
         findings = row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]")
         key = (int(row[1]), frozenset(str(item) for item in (row[5] or [])))
         out[key] = {
@@ -783,7 +824,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             by_community.setdefault(level0[node["id"]], []).append(node)
         stats["communities_l0"] = len(by_community)
         stats["communities_l1"] = len(set(level1.values()))
-        existing = _existing_reports(conn)
+        existing = _existing_reports(conn, frontier)
 
         # Contexts first, serially: identical input order to a serial pass.
         l0_items: list[tuple[int, list[str], tuple[int, frozenset[str]], str]] = []

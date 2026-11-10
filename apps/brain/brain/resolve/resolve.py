@@ -52,7 +52,7 @@ from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 from brain.lang import detect_language
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
-from brain.translate import upsert_translation
+from brain.translate import english_text, upsert_translation
 
 logger = logging.getLogger(__name__)
 
@@ -701,8 +701,11 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
     """
     rows = conn.execute(
         "SELECT id, entity_type, mention_count FROM cmap.entity "
-        "WHERE mention_count >= %s "
-        "AND described_at_count IS DISTINCT FROM mention_count",
+        "WHERE (mention_count >= %s "
+        "AND described_at_count IS DISTINCT FROM mention_count) "
+        "OR (description IS NOT NULL AND description <> '' AND NOT EXISTS "
+        "(SELECT 1 FROM cmap.translation t WHERE t.kind = 'entity' "
+        "AND t.ref_id = cmap.entity.id AND t.field = 'description' AND t.lang = 'en'))",
         (DESCRIBE_MIN_MENTIONS,),
     ).fetchall()
     template = DESCRIBE_PROMPT_PATH.read_text(encoding="utf-8")
@@ -732,10 +735,10 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             continue
         name = str(result.get("canonical_name") or "").strip()
         description, description_en, description_zh = describe_fields(result)
-        canonical_description = description_en or description
+        canonical_description = english_text(description, description_en)
         row = conn.execute(
             "UPDATE cmap.entity SET canonical_name = COALESCE(NULLIF(%s, ''), canonical_name), "
-            "description = COALESCE(NULLIF(%s, ''), description), described_at_count = %s "
+            "description = %s, described_at_count = %s "
             "WHERE id = %s RETURNING canonical_name, description",
             (name, canonical_description, mention_count, entity_id),
         ).fetchone()
@@ -751,12 +754,17 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             "UPDATE cmap.entity SET embedding = %s::vector WHERE id = %s",
             (vector_literal(vector), entity_id),
         )
+        upsert_translation(
+            "entity", entity_id, "description", "en", canonical_description, conn=conn
+        )
+        chinese = description_zh or (
+            description if detect_language(description) in ("zh", "mixed") else ""
+        )
+        upsert_translation(
+            "entity", entity_id, "description", "zh-CN",
+            chinese if canonical_description else "", conn=conn,
+        )
         conn.commit()
-        upsert_translation("entity", entity_id, "description", "en", canonical_description)
-        if description_zh:
-            upsert_translation("entity", entity_id, "description", "zh-CN", description_zh)
-        elif detect_language(description) == "zh":
-            upsert_translation("entity", entity_id, "description", "zh-CN", description)
         written += 1
     return written
 
