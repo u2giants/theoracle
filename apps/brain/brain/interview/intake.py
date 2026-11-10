@@ -22,6 +22,7 @@ from brain import storage as storage_mod
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
 from brain.interview import profile
+from brain.text_util import count_units
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def is_done(command: str) -> bool:
 
 
 def word_count(text: str) -> int:
-    return len(text.split())
+    return count_units(text)
 
 
 def is_personal(conversation_ref: dict[str, Any] | None) -> bool:
