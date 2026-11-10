@@ -55,7 +55,6 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
 @pytest.fixture()
 def enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(get_settings(), "brain_interview_enabled", True)
-    monkeypatch.setattr(get_settings(), "brain_interview_weekly_cap", 2)
     monkeypatch.setattr(tick_mod, "in_quiet_hours", lambda now=None: False)
 
 

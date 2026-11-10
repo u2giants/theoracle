@@ -34,6 +34,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 
 **Decisions by Albert that bind this plan (2026-11-08, from his chat, verbatim where quoted):**
 - The need: "can this system understand and speak chinese (to our china employees)?" — the answer today is no; this plan makes it yes.
+- 2026-11-10, Albert, verbatim: "take off the quota of questions per week" — the interview weekly quota (`BRAIN_INTERVIEW_WEEKLY_CAP`) is removed; this supersedes step 2.3's "weekly cap unchanged".
 - Earlier standing rules that still bind: every employee in the M365 tenant can reach The Oracle over Teams and feed it information; emails are @popcre.com work addresses; "any questions you have must be on the oracle site. we won't be shuttling text documents back and forth" (eval questions get approved on the site's eval page, never as chat files); permissions stay login + `is_admin` only; FalkorDB stays.
 
 ---

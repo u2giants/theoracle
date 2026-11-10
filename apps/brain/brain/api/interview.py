@@ -159,7 +159,7 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
     pool = get_pool()
     with pool.connection() as conn:
         switch = conn.execute("SELECT enabled FROM cmap.interview_setting WHERE id").fetchone()
-        reachable = reachable_employees(conn, settings.brain_interview_weekly_cap)
+        reachable = reachable_employees(conn)
         names = {
             str(eid): str(name)
             for eid, name in conn.execute(
@@ -243,7 +243,6 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
     return {
         "env_enabled": settings.brain_interview_enabled,
         "switch_enabled": bool(switch[0]) if switch else False,
-        "weekly_cap": settings.brain_interview_weekly_cap,
         "questions": questions,
         "employees": employees,
         "contributions": contributions,
