@@ -36,6 +36,17 @@ _CLOSER_CHARS = _CLOSES | {'"', "'"}
 
 _WHITESPACE_RUN = re.compile(r" +")
 
+# Traditional → Simplified codepoint fold for MATCHING only (never rewrite
+# stored text): the frequent business-vocabulary differences, OpenCC-style.
+_TRADITIONAL = "採購專業業務員工廠商品質檢驗報價訂單發票財務會計審批門關應給與開結東車馬鳥魚龍語話說讀寫學習種類樣機電腦網絡線條個們這麼對錯難輕重貴錢費資產總經營銷售買賣貨運輸送倉儲庫試測評估劃標準規則獎懲罰責權利義務議題論詞匯帳據證書頁碼號編輯錄檔案顧客供應鏈組織團隊部門區縣鄉鎮廠礦場園國團圓變化術語譯讀覽視聽聲響確認認識設計製作檢測量統計記錄報告會議談話討論決議執行情況權限認證登錄網絡安全"
+_SIMPLIFIED = "采购专业业务员工厂商品质检验报价订单发票财务会计审批门关应给与开结东车马鸟鱼龙语话说读写学习种类样机电脑网络线条个们这么对错难轻重贵钱费资产总经营销售买卖货运送仓储库试测试评估划标准规则奖惩罚责权利义务议题论词汇帐据证书页号码编辑录档案顾客供应链组织团队部门区县乡镇厂矿场园国团圆变化术语译读览视听声响确认认识设计制作检测量统计记录报告会议谈话讨论决议执行情况权限认证登录网络安全"
+
+
+def simplified_fold(text: str) -> str:
+    """Fold Traditional characters to Simplified for matching only."""
+    table = str.maketrans(_TRADITIONAL, _SIMPLIFIED)
+    return text.translate(table)
+
 
 def _advance_state(text: str, i: int, depth: int, straight: str | None) -> tuple[int, str | None]:
     """Update bracket depth / straight-quote state for text[i]."""
@@ -137,9 +148,10 @@ def fold_key(text: str) -> str:
     """Casefold and strip punctuation, keeping CJK codepoints and spaces.
 
     Punctuation (ASCII and full-width) becomes a space; CJK ideographs
-    survive so Chinese alias matching is possible at all.
+    survive so Chinese alias matching is possible at all. Traditional
+    characters fold to Simplified for matching only.
     """
-    folded = text.casefold().replace("'", "").replace("’", "")
+    folded = simplified_fold(text.casefold().replace("'", "").replace("’", ""))
     out: list[str] = []
     for ch in folded:
         if ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch == " ":

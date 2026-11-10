@@ -52,6 +52,7 @@ from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 from brain.lang import detect_language
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
+from brain.text_util import simplified_fold
 from brain.translate import upsert_translation
 
 logger = logging.getLogger(__name__)
@@ -329,10 +330,13 @@ def _assign(
         "UPDATE cmap.mention SET entity_id = %s WHERE id = %s", (entity_id, mention.id)
     )
     if mention.normalized_name:
+        lang = "zh-CN" if detect_language(mention.normalized_name) == "zh" else "en"
         conn.execute(
-            "INSERT INTO cmap.entity_alias (entity_id, entity_type, normalized_name) "
-            "VALUES (%s, %s, %s) ON CONFLICT (entity_type, normalized_name) DO NOTHING",
-            (entity_id, mention.entity_type, mention.normalized_name),
+            "INSERT INTO cmap.entity_alias "
+            "(entity_id, entity_type, normalized_name, lang, source) "
+            "VALUES (%s, %s, %s, %s, 'resolve') "
+            "ON CONFLICT (entity_type, normalized_name) DO NOTHING",
+            (entity_id, mention.entity_type, mention.normalized_name, lang),
         )
     touched.add(entity_id)
 
@@ -377,8 +381,12 @@ def _name_part_candidates(
 
 
 def compact_name(name: str) -> str:
-    """A name with case, spaces and punctuation dropped (``Click Up`` = ``ClickUp``)."""
-    return "".join(char for char in name.casefold() if char.isalnum())
+    """A name with case, spaces and punctuation dropped (``Click Up`` = ``ClickUp``).
+
+    Traditional characters fold to Simplified first, so ``採購流程`` and
+    ``采购流程`` compact alike (matching only; stored text is never rewritten).
+    """
+    return "".join(char for char in simplified_fold(name).casefold() if char.isalnum())
 
 
 def _token_in(short: str, long: str) -> bool:
@@ -583,7 +591,15 @@ def _judge(
     candidates: list[Candidate],
     frontier: _Frontier,
 ) -> str | None:
-    """Ask the judge once about the not-yet-asked candidates; record every verdict."""
+    """Ask the judge once about the not-yet-asked candidates; record every verdict.
+
+    An un-evidenced name (the surface never appears in its own quote) is
+    rejected before the judge runs: a fabricated name is never merged into a
+    real entity (plan step 1.4 adversarial row).
+    """
+    surface = mention.surface_name.strip()
+    if surface and surface not in mention.quote:
+        return None
     past = _past_decisions(conn, mention)
     for candidate in candidates:
         if past.get(candidate.id):
