@@ -22,20 +22,18 @@ from typing import Any
 
 from brain.config import get_settings
 from brain.db import get_pool
+from brain.interview.strings import strings
 from brain.llm import message_content, post_chat_with_rescue
 from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
 
-PROFILE_QUESTION = "First, so I know who I'm talking to: what department are you in, and what's your job title?"
-REPLY_PROFILE_THANKS = (
-    "Thanks, noted: {title}, {department}. Now tell me about something you handle "
-    "(who you get it from, what you do, who you pass it to)."
-)
-REPLY_PROFILE_THANKS_RAW = (
-    "Thanks, noted. Now tell me about something you handle "
-    "(who you get it from, what you do, who you pass it to)."
-)
+# English strings kept as module constants (tests and callers reference them);
+# replies are chosen through strings(lang) at the call sites (plan step 2.1).
+_EN = strings("en")
+PROFILE_QUESTION = _EN.profile_question
+REPLY_PROFILE_THANKS = _EN.profile_thanks
+REPLY_PROFILE_THANKS_RAW = _EN.profile_thanks_raw
 MODEL_TIMEOUT_SECONDS = 8.0
 # A longer reply to the profile question is a contribution, not an answer.
 MAX_ANSWER_WORDS = 25
@@ -43,7 +41,9 @@ MAX_ANSWER_WORDS = 25
 _SPLIT_PROMPT = (
     "An employee was asked for their department and job title. Return only JSON "
     '{"department": "...", "job_title": "..."} using their own words; use null '
-    "for anything they did not say. Do not guess."
+    "for anything they did not say. Do not guess. The employee may answer in "
+    "any language; return English department/job-title keys where possible, "
+    "else the original words."
 )
 
 
@@ -121,7 +121,7 @@ def _split(text: str) -> tuple[str | None, str | None]:
     return clean(data.get("department")), clean(data.get("job_title"))
 
 
-def record_answer(conn: Any, employee_id: str, text: str) -> str:
+def record_answer(conn: Any, employee_id: str, text: str, lang: str = "en") -> str:
     """Store the employee's answer; return the bot's thank-you reply."""
     raw = " ".join(text.split())[:300]
     department, job_title = _split(raw)
@@ -133,9 +133,10 @@ def record_answer(conn: Any, employee_id: str, text: str) -> str:
         (employee_id, department, job_title, raw),
     )
     conn.commit()
+    s = strings(lang)
     if department and job_title:
-        return REPLY_PROFILE_THANKS.format(title=job_title, department=department)
-    return REPLY_PROFILE_THANKS_RAW
+        return s.profile_thanks.format(title=job_title, department=department)
+    return s.profile_thanks_raw
 
 
 def _lookup(employee_id: str) -> Profile:

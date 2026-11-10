@@ -36,8 +36,10 @@ CREATE TABLE IF NOT EXISTS public.employees (
   name text,
   role text,
   is_admin boolean NOT NULL DEFAULT false,
-  disabled_at timestamp
+  disabled_at timestamp,
+  locale text
 );
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS locale text;
 CREATE TABLE IF NOT EXISTS public.employee_identities (
   id uuid PRIMARY KEY,
   employee_id uuid NOT NULL,
