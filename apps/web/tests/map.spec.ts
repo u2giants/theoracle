@@ -149,7 +149,7 @@ test('eval page shows runs, the per-question table and the change since last run
   await expect(page.getByTestId('eval-mean').first()).toHaveText(pct(ids.eval_mean));
   await expect(page.getByTestId('eval-mean').nth(1)).toHaveText(pct(ids.eval_first_mean));
   const results = page.getByTestId('eval-results');
-  await expect(results.locator('tbody tr')).toHaveCount(5);
+  await expect(results.locator('tbody tr')).toHaveCount(15);
   await expect(results).toContainText('Where does licensing approval stall and why?');
   await expect(page.getByTestId('eval-form')).toBeVisible();
   await page.screenshot({ path: resolve(SHOTS, '05-eval-page.png'), fullPage: true });
