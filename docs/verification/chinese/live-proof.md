@@ -72,11 +72,17 @@ refuses to guess what the data does not say.
 
 ## 3. zh employee conversation lands as a Teams contribution source — pending
 
-Needs the China-office employee Albert picks (see open items).
+Needs the China-office employee Albert picks (see open items). The China group
+is marked in Oracle as Billy Li, David Huang, Elise Sun, Emma Li, Kelly Hu,
+Wisdom Chen and (added 2026-11-10 on the owner's word) Yuchen Zhou.
 
 ## 4. zh interview question delivered → answer becomes a source — pending
 
-Same pick as item 3.
+Sampling questions queued in Oracle 2026-11-10 at the owner's direction:
+sample-round walkthrough and the sample-room date targeted at Emma Li, and the
+factory fix-confirmation round targeted at Yuchen Zhou (canonical English;
+they receive Chinese text at send time per step 2.3). The zh eval drafts were
+re-cut the same day onto China operations incl. the sampling process.
 
 ## 5. zh eval run — queued; calibration recorded
 

@@ -63,124 +63,118 @@
       ]
     },
     {
-      "question": "授权审批卡在哪个环节，为什么？",
+      "question": "样品从工厂提交到样品间走查的流程是怎样的？",
       "expected_points": [
-        "审批卡在授权方签署确认环节",
-        "需要授权经理杰西卡记录签署确认",
-        "授权方退回美术稿后要重新修改再提交"
+        "样品要先过内部审批（Samples Internal Approval）",
+        "样品意见记录之后才进样品间排期",
+        "样品间走查由相关同事一起确认"
       ],
       "expected_source_titles": [
-        "licensing-approval-procedure.pdf",
-        "teams-approval-2026-03-14.txt",
-        "licensing-approval-flowchart.png"
-      ]
-    },
-    {
-      "question": "谁负责记录授权方的签署确认，记录在哪里？",
-      "expected_points": [
-        "杰西卡作为授权经理负责记录签署确认",
-        "签署确认记录在美术稿台账中",
-        "记录签署确认要在创建采购订单之前完成"
-      ],
-      "expected_source_titles": [
-        "licensing-approval-procedure.pdf",
-        "teams-approval-2026-03-14.txt",
-        "licensing-approval-flowchart.png"
-      ]
-    },
-    {
-      "question": "授权方退回美术稿后会发生什么？",
-      "expected_points": [
-        "美术稿修改后重新提交",
-        "重新提交的方案回到同一个审批队列",
-        "每一次退回都会让签署确认再推迟数周"
-      ],
-      "expected_source_titles": [
-        "teams-approval-2026-03-14.txt",
-        "licensing-approval-flowchart.png"
-      ]
-    },
-    {
-      "question": "采购订单在什么条件下才能创建？",
-      "expected_points": [
-        "签署确认记录完成之前不能创建采购订单",
-        "没有采购订单，采购不能向供应商确认交期",
-        "签署确认变慢时延误由采购承担"
-      ],
-      "expected_source_titles": [
-        "teams-approval-2026-03-14.txt",
-        "licensing-approval-flowchart.png"
-      ]
-    },
-    {
-      "question": "授权方签署确认的时限要求是多久，实际又用了多久？",
-      "expected_points": [
-        "流程要求五个工作日内完成签署确认",
-        "草地小径系列实际等待了十个工作日以上",
-        "签署确认超时要按流程升级上报"
-      ],
-      "expected_source_titles": [
-        "licensing-approval-procedure.pdf",
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
         "teams-approval-2026-03-14.txt"
       ]
     },
     {
-      "question": "设计部和授权部门之间的交接是怎么进行的？",
+      "question": "销售要求打样是怎么触发的，之后由谁接手？",
       "expected_points": [
-        "设计部把概念方案包交给授权经理复核",
-        "复核通过后再由授权经理提交给授权方",
-        "交接中丢失的信息会拖慢签署确认"
+        "销售可以提出打样需求",
+        "打样需求转到技术设计跟进",
+        "打样结果影响销售的排期"
       ],
       "expected_source_titles": [
-        "licensing-approval-procedure.pdf",
-        "teams-approval-2026-03-14.txt",
-        "licensing-approval-flowchart.png"
+        "1781478944645-business-process.md"
       ]
     },
     {
-      "question": "为什么美术稿发布经常延误？",
+      "question": "样品间的日期由什么决定？错过会怎样？",
       "expected_points": [
-        "授权方签署确认迟迟不下来是主要原因",
-        "退回修改的循环让发布日期一再顺延",
-        "采购在没有采购订单前无法排产"
+        "样品间日期决定整套产品的排期",
+        "一个样品延误会让整套错过样品间日期",
+        "样品间排期由内部确认后定下"
       ],
       "expected_source_titles": [
-        "teams-approval-2026-03-14.txt",
-        "licensing-approval-flowchart.png"
-      ]
-    },
-    {
-      "question": "授权经理在审批流程中的职责是什么？",
-      "expected_points": [
-        "授权经理复核概念方案包并提交授权方",
-        "授权经理把签署确认记录到美术稿台账",
-        "授权经理在超时时负责升级上报"
-      ],
-      "expected_source_titles": [
-        "licensing-approval-procedure.pdf",
         "teams-approval-2026-03-14.txt"
       ]
     },
     {
-      "question": "首席财务官是谁？",
+      "question": "样品带回问题时，意见怎么回到工厂，谁确认修复？",
       "expected_points": [
-        "答案说明资料中没有提到首席财务官的身份",
-        "答案不猜测人名"
+        "样品问题的意见要回到工厂修改",
+        "修复后需要再确认才能进下一轮",
+        "样品问题会拖慢销售和设计的进度"
       ],
       "expected_source_titles": [
-        "licensing-approval-procedure.pdf",
-        "teams-approval-2026-03-14.txt"
+        "Teams contribution — Laura Arevalo — 2026-11-04",
+        "Interview answer — Laura Arevalo — 2026-11-04"
       ]
     },
     {
-      "question": "明年我们计划开设多少家新店？",
+      "question": "大货下单之前，样品确认要走到哪一步？",
       "expected_points": [
-        "答案说明资料中没有明年的开店计划数字",
+        "样品内部审批通过后才能进入下一步",
+        "下单依赖前面的样品确认",
+        "样品相关节点在流程图里有明确顺序"
+      ],
+      "expected_source_titles": [
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "1781478944645-business-process.md"
+      ]
+    },
+    {
+      "question": "打样环节里销售、技术设计和样品间是怎么交接的？",
+      "expected_points": [
+        "销售提出需求后交给技术设计",
+        "技术设计推进打样再交到样品间",
+        "交接不畅会直接影响样品间日期"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ]
+    },
+    {
+      "question": "Emma 提到会给工厂寄文件，这和流程文档里的打样步骤怎么对应？",
+      "expected_points": [
+        "Emma 会在需要时把文件发给工厂",
+        "寄文件是为了让工厂按意见修改样品",
+        "流程文档记录了打样的正式步骤"
+      ],
+      "expected_source_titles": [
+        "Teams contribution — Emma Li — 2026-11-05",
+        "1781478944645-business-process.md"
+      ]
+    },
+    {
+      "question": "整套产品在打样上延误时，影响会波及哪些环节？",
+      "expected_points": [
+        "延误会让整套错过样品间日期",
+        "销售排期会受影响",
+        "设计和买手的后续节点也被推后"
+      ],
+      "expected_source_titles": [
+        "teams-approval-2026-03-14.txt",
+        "1781478944645-business-process.md"
+      ]
+    },
+    {
+      "question": "每款产品平均要打样几轮？",
+      "expected_points": [
+        "答案说明资料中没有打样轮数的统计",
         "答案不猜测数字"
       ],
       "expected_source_titles": [
-        "licensing-approval-procedure.pdf",
-        "teams-approval-2026-03-14.txt"
+        "1781478944645-business-process.md"
+      ]
+    },
+    {
+      "question": "宁波办公室今年的打样预算是多少？",
+      "expected_points": [
+        "答案说明资料中没有打样预算的数据",
+        "答案不猜测数字"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md"
       ]
     }
   ]

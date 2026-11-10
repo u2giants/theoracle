@@ -20,9 +20,9 @@ from brain.eval.run import (
 )
 
 SEED_PATH = Path(__file__).resolve().parents[1] / "eval" / "questions.seed.json"
-ZH_QUESTION = "授权审批卡在哪个环节，为什么？"
-ZH_POINTS = ["审批卡在授权方签署确认环节", "需要授权经理杰西卡记录签署确认"]
-ZH_ANSWER = "审批卡在授权方签署确认环节 [1]。杰西卡负责记录签署确认 [2]。"
+ZH_QUESTION = "样品从工厂提交到样品间走查的流程是怎样的？"
+ZH_POINTS = ["样品要先过内部审批（Samples Internal Approval）", "样品意见记录之后才进样品间排期"]
+ZH_ANSWER = "样品要先过内部审批（Samples Internal Approval） [1]。样品意见记录之后才进样品间排期 [2]。"
 
 
 @pytest.fixture()
@@ -77,8 +77,8 @@ def test_eval_detects_broken_citations_zh(
     load_seed()
     answers, grader = _replay(monkeypatch)
     answers.answers[ZH_QUESTION] = ZH_ANSWER
-    grader.keywords[ZH_POINTS[0]] = ["签署确认"]
-    grader.keywords[ZH_POINTS[1]] = ["杰西卡"]
+    grader.keywords[ZH_POINTS[0]] = ["内部审批"]
+    grader.keywords[ZH_POINTS[1]] = ["样品间排期"]
 
     real_finalize = answer_mod._finalize_local
 
