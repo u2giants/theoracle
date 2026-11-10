@@ -122,6 +122,12 @@ ENTITY_TYPES: dict[str, str] = {
     "Product": "A product, SKU family or product class.",
 }
 
+# Mirrored from prompts/flat_extract.md: names and quotes are never translated.
+SOURCE_LANGUAGE_RULE = (
+    "Names and quotes are extracted verbatim in the language they appear in; "
+    "never translate a name or a quote."
+)
+
 
 class FlatError(RuntimeError):
     """Raised when the flat stage cannot classify or extract a chunk."""
@@ -183,7 +189,10 @@ def classify_prompt_hash() -> str:
 
 def extract_prompt_hash() -> str:
     """Prompt hash of the ScaleDown extract call."""
-    return _spec_hash("flat-extract:", {"entities": ENTITY_TYPES})
+    return _spec_hash(
+        "flat-extract:",
+        {"entities": ENTITY_TYPES, "rule": SOURCE_LANGUAGE_RULE},
+    )
 
 
 def frontier_prompt_hash() -> str:
@@ -202,7 +211,11 @@ def classify_body(text: str) -> dict[str, Any]:
 
 def extract_body(text: str) -> dict[str, Any]:
     """Return the ``/extract`` request body for one chunk."""
-    return {"text": text, "entities": ENTITY_TYPES}
+    entities = {
+        kind: f"{description} {SOURCE_LANGUAGE_RULE}"
+        for kind, description in ENTITY_TYPES.items()
+    }
+    return {"text": text, "entities": entities}
 
 
 def _post_scaledown(path: str, body: dict[str, Any], settings: Settings) -> dict[str, Any]:
