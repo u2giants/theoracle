@@ -78,13 +78,14 @@ Needs the China-office employee Albert picks (see open items).
 
 Same pick as item 3.
 
-## 5. zh eval run ✅ / in progress — see the run id recorded below
+## 5. zh eval run — queued; calibration recorded
 
 Ten zh draft questions (plan O4: 5 process, 3 cross-source, 2 negative) are
-seeded and graded language-neutrally. Run ids recorded in the plan STATUS row
-4.2; the fixture-replay calibration run is `25914471-8521-4d21-b465-d1540a154292`
-(mean 1.000 over 15 questions). The production run id and mean are appended
-below once the `evaluate` job finishes.
+seeded and graded language-neutrally. The fixture-replay calibration run is
+`25914471-8521-4d21-b465-d1540a154292` (mean 1.000 over all 15 questions).
+The production `evaluate` job `c0a1b5f5-33a8-4848-9c6c-571bdc014b15` was
+queued 2026-11-10 11:06 AM EST behind the fixture-corpus pipeline chain
+(classify/extract/relations); its run id and mean append here when it lands.
 
 ## Open items (not yet proof)
 
