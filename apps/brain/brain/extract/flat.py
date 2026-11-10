@@ -37,6 +37,7 @@ from brain.embed import embed_texts, vector_literal
 from brain.extract.normalize import normalize_name
 from brain.llm import post_chat_with_rescue
 from brain.seats import flat_model_chosen, stage_model
+from brain.text_util import sentence_spans
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +121,6 @@ ENTITY_TYPES: dict[str, str] = {
     "Licensor": "A brand or IP licensor.",
     "Product": "A product, SKU family or product class.",
 }
-
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 
 class FlatError(RuntimeError):
@@ -266,17 +265,13 @@ def sentence_containing(text: str, start: int, end: int) -> str | None:
     """Return the sentence of ``text`` that contains ``[start, end)``."""
     if start < 0 or end > len(text) or start >= end:
         return None
-    bounds = [0]
-    for match in _SENTENCE_END.finditer(text):
-        bounds.append(match.start())
-    bounds.append(len(text))
-    pairs = [(bounds[index], bounds[index + 1]) for index in range(len(bounds) - 1)]
-    for left, right in pairs:
+    spans = sentence_spans(text)
+    for left, right in spans:
         if left <= start and end <= right:
             sentence = text[left:right].strip()
             if sentence:
                 return sentence
-    for left, right in pairs:
+    for left, right in spans:
         if left <= start < right:
             sentence = text[left:right].strip()
             if sentence:

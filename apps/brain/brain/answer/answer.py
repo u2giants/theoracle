@@ -42,6 +42,7 @@ from brain.graph.communities import _tokens
 from brain.graph.project import connect as connect_graph
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
+from brain.text_util import fold_key, sentence_slices
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,7 @@ ROUTE_LABELS: list[dict[str, str]] = [
     },
 ]
 
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _MARKER = re.compile(r"\[(\d+)\]")
-_FOLDED_CHARS = re.compile(r"[^a-z0-9 ]+")
 
 
 class AnswerError(RuntimeError):
@@ -261,13 +260,7 @@ def _route_mode(question: str, settings: Settings, usage: dict[str, int]) -> str
 
 def _sentence_slices(text: str) -> list[tuple[str, str]]:
     """Split into ``(sentence, separator)`` pairs, keeping the whitespace."""
-    out: list[tuple[str, str]] = []
-    position = 0
-    for match in _SENTENCE_SPLIT.finditer(text):
-        out.append((text[position : match.start()], match.group()))
-        position = match.end()
-    out.append((text[position:], ""))
-    return out
+    return sentence_slices(text)
 
 
 def _renumber(answer_md: str, old_to_new: dict[int, int]) -> str:
@@ -406,8 +399,7 @@ def _closest_chunk(
 
 def _fold_question(question: str) -> str:
     """Casefold and strip punctuation so alias names can appear-match."""
-    text = question.casefold().replace("'", "")
-    return _FOLDED_CHARS.sub(" ", text)
+    return fold_key(question)
 
 
 def _select_entities(question: str, vector: list[float]) -> list[dict[str, Any]]:

@@ -20,6 +20,7 @@ from brain.read.chunk import (
     count_tokens,
     window_chunks,
 )
+from brain.text_util import sentence_slices
 
 
 class TranscriptError(ValueError):
@@ -215,27 +216,27 @@ def parse_turns(text: str) -> list[Turn]:
 
 def _split_long_turn(text: str) -> list[str]:
     """Split an over-long turn at sentence boundaries within the window."""
-    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    slices = [(sentence, sep) for sentence, sep in sentence_slices(text.strip()) if sentence.strip()]
     pieces: list[str] = []
-    current: list[str] = []
+    current: list[tuple[str, str]] = []
     tokens = 0
-    for sentence in sentences:
+    for sentence, sep in slices:
         sentence_tokens = count_tokens(sentence)
         if sentence_tokens > WINDOW_TOKENS:
             if current:
-                pieces.append(" ".join(current))
+                pieces.append("".join(part + gap for part, gap in current).strip())
                 current = []
                 tokens = 0
             pieces.extend(chunk.text for chunk in window_chunks(sentence, {}))
             continue
         if current and tokens + sentence_tokens > WINDOW_TOKENS:
-            pieces.append(" ".join(current))
+            pieces.append("".join(part + gap for part, gap in current).strip())
             current = []
             tokens = 0
-        current.append(sentence)
+        current.append((sentence, sep))
         tokens += sentence_tokens
     if current:
-        pieces.append(" ".join(current))
+        pieces.append("".join(part + gap for part, gap in current).strip())
     return pieces
 
 
