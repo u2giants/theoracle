@@ -1,0 +1,32 @@
+{
+  "top_label": "process",
+  "scores": {
+    "process": 0.92,
+    "responsibility": 0.35,
+    "rule": 0.3,
+    "reference": 0.2,
+    "problem": 0.25,
+    "decision": 0.05,
+    "chatter": 0.01
+  },
+  "entities": [
+    {"text": "采购审批流程", "type": "Process", "confidence": 0.95, "start": 0, "end": 6},
+    {"text": "采购部", "type": "Department", "confidence": 0.92, "start": 7, "end": 10},
+    {"text": "张三", "type": "Person", "confidence": 0.97, "start": 13, "end": 15},
+    {"text": "采购单", "type": "Artifact", "confidence": 0.9, "start": 19, "end": 22},
+    {"text": "李四", "type": "Person", "confidence": 0.97, "start": 26, "end": 28},
+    {"text": "ERP系统", "type": "System", "confidence": 0.93, "start": 34, "end": 40},
+    {"text": "王五", "type": "Person", "confidence": 0.97, "start": 45, "end": 47},
+    {"text": "五万元", "type": "Metric", "confidence": 0.88, "start": 61, "end": 64},
+    {"text": "总经理", "type": "Role", "confidence": 0.9, "start": 67, "end": 70}
+  ],
+  "structured_result": {
+    "Process": ["采购审批流程"],
+    "Department": ["采购部"],
+    "Person": ["张三", "李四", "王五"],
+    "Artifact": ["采购单"],
+    "System": ["ERP系统"],
+    "Metric": ["五万元"],
+    "Role": ["总经理"]
+  }
+}

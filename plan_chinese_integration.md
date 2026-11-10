@@ -19,7 +19,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 | 0.2 | CJK-safe sentence splitting, counting, folding | ✅ done | `apps/brain/tests/test_cjk_text.py` (6 tests green; full brain suite 244 green) | 2026-11-09 11:25 PM EST |
 | 0.3 | Fix bot/transcript CJK blockers (commands, word count, speaker regex) | ✅ done | `apps/brain/tests/test_intake_zh.py`, `test_inbound_zh.py`, `test_transcript_cjk.py` (9 tests green). Judgment: followup name guard checks name-shaped CJK runs (2-4 chars) by containment; longer CJK clauses never name-candidates so zh follow-ups cannot false-positive | 2026-11-10 12:20 AM EST |
 | 0.4 | CJK-safe chunk edges + name normalization | ✅ done | `apps/brain/tests/test_chunk_cjk.py`, `test_normalize_cjk.py`, `test_read_encoding.py` (7 tests green) | 2026-11-10 12:45 AM EST |
-| 1.1 | Extraction prompts: source-language names/quotes, English label keys | ⬜ open | — | — |
+| 1.1 | Extraction prompts: source-language names/quotes, English label keys | ✅ done | `apps/brain/tests/test_flat_zh.py` (2 tests green). ScaleDown zh verdict (2026-11-10, live on sample-zh-process.txt): STRONG — 8/8 obvious names, every name/quote verbatim in source bytes, English label keys intact; frontier z-ai/glm-5.3-flash also 8/8 verbatim. Live smoke landed `cmap.extraction` rows (scaledown/classify + scaledown/extract) with zh mention spans. No zh→frontier routing needed | 2026-11-10 1:20 AM EST |
 | 1.2 | Description/summary prompts language-neutral | ⬜ open | — | — |
 | 1.3 | `cmap.translation` sidecar + bilingual write path | ⬜ open | — | — |
 | 1.4 | Cross-lingual entity resolution (`cmap.entity_alias`) | ⬜ open | — | — |

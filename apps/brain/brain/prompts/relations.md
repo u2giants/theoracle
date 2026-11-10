@@ -26,6 +26,7 @@ Return JSON only:
 }
 new_mentions: only if something important was missed. Its type is one of Person, Role, Department, Process, Step, System, Artifact, Rule, Exception, Issue, Decision, Metric, Customer, Vendor, Licensor, Product. A relation may use an x key from new_mentions.
 Rules:
+- Names and quotes stay in the language they appear in; NEVER translate a name or a quote. Relation types and stance stay the English keys above even for Chinese text.
 - stance: policy = the text states how it is supposed to work; practice = the text describes how it actually happens; report = one person's account or complaint; inference = you are connecting things the text implies but does not state. Use inference sparingly and never above confidence 0.6.
 - quote must be copied exactly; if you cannot quote, do not record the relation.
 - Record disagreements as CONTRADICTS between the two statements' mentions.
