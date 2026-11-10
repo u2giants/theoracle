@@ -19,6 +19,7 @@ from brain.api.deps import User, current_user, require_admin
 from brain.db import get_pool
 from brain.graph.communities import _split_report_md
 from brain.graph.project import _load_edges
+from brain.translate import translations_for
 
 router = APIRouter()
 
@@ -257,6 +258,7 @@ def get_community(
         "graph": graph,
         "graph_version": int(row[7]),
         "children": [{"id": str(item[0]), "title": str(item[1] or "")} for item in children],
+        "translations": translations_for("community", key),
     }
 
 
@@ -381,6 +383,7 @@ def get_entity(
             for item in mentions
         ],
         "neighbours": neighbours,
+        "translations": translations_for("entity", key),
     }
 
 

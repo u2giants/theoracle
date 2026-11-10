@@ -32,6 +32,7 @@ EXPECTED_TABLES = {
     "interview_send",  # added by step 12 (sql/003_interviews.sql)
     "teams_intake",  # added by Teams build-out phase 1 (sql/006_teams_intake.sql)
     "review_flag",  # added by the Map review gate (sql/010_review_flags.sql)
+    "translation",  # added by the zh translation sidecar (sql/011_translation.sql)
 }
 
 

@@ -25,7 +25,9 @@ from brain.config import Settings, get_settings
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts
 from brain.graph.project import _load_edges, _load_entities
+from brain.lang import detect_language
 from brain.resolve.resolve import FrontierCapReached, _Frontier
+from brain.translate import upsert_translation
 
 logger = logging.getLogger(__name__)
 
@@ -589,6 +591,14 @@ def _store(
 ) -> tuple[str, int]:
     findings, dropped = _filter_findings(report, valid_sources)
     report["findings"] = findings
+    title_en = str(report.get("title_en") or "").strip()
+    summary_en = str(report.get("summary_en") or "").strip()
+    canonical = {
+        "title": title_en or report["title"],
+        "summary": summary_en or report["summary"],
+        "findings": findings,
+        "open_questions": report["open_questions"],
+    }
     row = conn.execute(
         "INSERT INTO cmap.community (level, parent_id, title, report_md, "
         "findings, entity_ids, graph_version) VALUES (%s, %s, %s, %s, %s, %s, %s) "
@@ -596,14 +606,20 @@ def _store(
         (
             level,
             parent_id,
-            report["title"],
-            _report_md(report),
+            canonical["title"],
+            _report_md(canonical),
             json.dumps(findings, ensure_ascii=False),
             entity_ids,
             graph_version,
         ),
     ).fetchone()
-    return str(row[0]), dropped
+    community_id = str(row[0])
+    upsert_translation("community", community_id, "title", "en", canonical["title"])
+    upsert_translation("community", community_id, "summary", "en", canonical["summary"])
+    if canonical["title"] != report["title"] or detect_language(str(report["title"])) == "zh":
+        upsert_translation("community", community_id, "title", "zh-CN", report["title"])
+        upsert_translation("community", community_id, "summary", "zh-CN", report["summary"])
+    return community_id, dropped
 
 
 def _store_open_questions(
