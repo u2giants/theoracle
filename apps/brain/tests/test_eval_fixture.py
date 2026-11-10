@@ -1,19 +1,20 @@
 """Evaluation harness on the fixture corpus (plan step 11).
 
-The five seed questions run through the real step-9 answer pipeline over the
-projected fixture corpus (procedure PDF, Teams transcript, flowchart PNG).
+The fifteen bilingual licensing fixture questions run through the real step-9
+answer pipeline over the projected fixture corpus (procedure PDF, Teams transcript, flowchart PNG).
 Model calls are replayed: answer prose comes from
 ``recorded/frontier/eval_answers.json`` and cites the quotes the pipeline put
 in the prompt; the grader replays ``recorded/frontier/eval_grade.json`` by
-applying the rule in ``prompts/grade.md`` mechanically (a point is covered
-only by a cited sentence holding its key words). This guards retrieval and
-citation logic, not model quality.
+using short keyword checks (a point is covered only by a cited sentence
+holding its key words). This guards retrieval and citation logic, not semantic
+grading or model quality. Production drafts are evaluated separately.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -41,6 +42,8 @@ from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
 from brain.graph.project import run_project
 from brain.resolve.resolve import run_resolve
+
+FIXTURE_SEED_PATH = Path(__file__).resolve().parent / "fixtures" / "eval.questions.json"
 
 QUOTES_MARKER = "QUOTES (verbatim, each with its chunk_id):\n"
 MARKER = re.compile(r"\[(\d+)\]")
@@ -165,28 +168,23 @@ def _replay(monkeypatch: pytest.MonkeyPatch) -> tuple[EvalAnswers, KeywordGrader
 def test_eval_fixture_mean_at_least_08(
     eval_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
 ) -> None:
-    """The seed questions (en + zh) score a mean of at least 0.8 on the fixtures."""
+    """Bilingual licensing fixture questions pass retrieval and citation checks.
+
+    Production China-operations drafts require a separate live evaluation.
+    """
     _fixture_corpus(db, monkeypatch)
-    assert load_seed() == 15
-    assert load_seed() == 0
+    assert load_seed(FIXTURE_SEED_PATH) == 15
+    assert load_seed(FIXTURE_SEED_PATH) == 0
     answers, grader = _replay(monkeypatch)
     run = run_eval()
     assert len(run["results"]) == 15
     assert len(answers.questions) == 15
     assert len(grader.prompts) == 15
     assert run["mean_score"] >= 0.8
-    fixture_titles = {
-        "licensing-approval-procedure.pdf",
-        "teams-approval-2026-03-14.txt",
-        "licensing-approval-flowchart.png",
-    }
     for item in run["results"]:
         assert item["error"] is None
         assert item["mode_used"] == "local"
-        # The zh China-ops questions cite production sources and are proven by
-        # the live eval run; this fixture corpus can only cover the en five.
-        if set(item["expected_sources"]) <= fixture_titles:
-            assert item["expected_sources_cited"] == item["expected_sources"]
+        assert item["expected_sources_cited"] == item["expected_sources"]
     stored = db.execute(
         "SELECT mean_score, results, prompt_hashes, graph_version, models "
         "FROM cmap.eval_run"
@@ -218,7 +216,7 @@ def test_eval_detects_broken_citations(
 ) -> None:
     """Citation validation that drops valid quotes pulls the score under 0.8."""
     _fixture_corpus(db, monkeypatch)
-    load_seed()
+    load_seed(FIXTURE_SEED_PATH)
     _replay(monkeypatch)
     real_finalize = answer_mod._finalize_local
 
@@ -273,7 +271,7 @@ def test_answer_failure_scores_zero_and_run_continues(
     eval_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
 ) -> None:
     """A question whose answer fails scores 0 with the error kept."""
-    load_seed()
+    load_seed(FIXTURE_SEED_PATH)
     del db
 
     def failing(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -361,7 +359,7 @@ def test_evaluate_job_records_usage(
 ) -> None:
     """The worker's ``evaluate`` job runs the eval and stores its summary."""
     _fixture_corpus(db, monkeypatch)
-    load_seed()
+    load_seed(FIXTURE_SEED_PATH)
     _replay(monkeypatch)
     from brain.worker import run_handler
 

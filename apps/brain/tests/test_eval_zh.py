@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_eval_fixture import _fixture_corpus, _replay
+from test_eval_fixture import FIXTURE_SEED_PATH, _fixture_corpus, _replay
 
 from brain.answer import answer as answer_mod
 from brain.config import get_settings
@@ -74,11 +74,8 @@ def test_eval_detects_broken_citations_zh(
     eval_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
 ) -> None:
     _fixture_corpus(db, monkeypatch)
-    load_seed()
-    answers, grader = _replay(monkeypatch)
-    answers.answers[ZH_QUESTION] = ZH_ANSWER
-    grader.keywords[ZH_POINTS[0]] = ["内部审批"]
-    grader.keywords[ZH_POINTS[1]] = ["样品间排期"]
+    load_seed(FIXTURE_SEED_PATH)
+    _replay(monkeypatch)
 
     real_finalize = answer_mod._finalize_local
 
@@ -93,6 +90,10 @@ def test_eval_detects_broken_citations_zh(
     monkeypatch.setattr(answer_mod, "_finalize_local", broken_finalize)
     run = run_eval()
     assert run["mean_score"] < 0.8
-    zh_results = [item for item in run["results"] if ZH_QUESTION in str(item.get("question"))]
-    assert zh_results
+    zh_results = [
+        item for item in run["results"]
+        if any("一" <= ch <= "鿿" for ch in item["question"])
+    ]
+    assert len(zh_results) == 10
+    assert sum(item["score"] for item in zh_results) / len(zh_results) < 0.8
     assert any("(uncited)" in str(item["answer_md"]) for item in zh_results)

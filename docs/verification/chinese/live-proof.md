@@ -84,11 +84,17 @@ factory fix-confirmation round targeted at Yuchen Zhou (canonical English;
 they receive Chinese text at send time per step 2.3). The zh eval drafts were
 re-cut the same day onto China operations incl. the sampling process.
 
-## 5. zh eval run — queued; calibration recorded
+## 5. zh eval run — replacement questions not yet proven
 
-Ten zh draft questions (plan O4: 5 process, 3 cross-source, 2 negative) are
-seeded and graded language-neutrally. The fixture-replay calibration run is
-`25914471-8521-4d21-b465-d1540a154292` (mean 1.000 over all 15 questions).
+Ten China-operations zh questions remain unverified production drafts, including
+source coverage and the two negative expectations. Licensing-demo transcript
+references were removed; missing source expectations must be established from
+real evidence, not invented. Local replay uses a separate bilingual licensing
+fixture seed and does not validate these production drafts or semantic quality.
+
+Historical calibration `25914471-8521-4d21-b465-d1540a154292` (mean 1.000)
+used the replaced licensing-demo questions. It is not proof for the re-cut drafts.
+No completed evaluation of the replacement questions is recorded here.
 The production `evaluate` job `c0a1b5f5-33a8-4848-9c6c-571bdc014b15` was
 queued 2026-11-10 11:06 AM EST behind the fixture-corpus pipeline chain
 (classify/extract/relations); its run id and mean append here when it lands.

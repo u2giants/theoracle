@@ -71,9 +71,9 @@
       ],
       "expected_source_titles": [
         "1781478944645-business-process.md",
-        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
-        "teams-approval-2026-03-14.txt"
-      ]
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "销售要求打样是怎么触发的，之后由谁接手？",
@@ -84,7 +84,8 @@
       ],
       "expected_source_titles": [
         "1781478944645-business-process.md"
-      ]
+      ],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "样品间的日期由什么决定？错过会怎样？",
@@ -93,9 +94,8 @@
         "一个样品延误会让整套错过样品间日期",
         "样品间排期由内部确认后定下"
       ],
-      "expected_source_titles": [
-        "teams-approval-2026-03-14.txt"
-      ]
+      "expected_source_titles": [],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "样品带回问题时，意见怎么回到工厂，谁确认修复？",
@@ -107,7 +107,8 @@
       "expected_source_titles": [
         "Teams contribution — Laura Arevalo — 2026-11-04",
         "Interview answer — Laura Arevalo — 2026-11-04"
-      ]
+      ],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "大货下单之前，样品确认要走到哪一步？",
@@ -119,7 +120,8 @@
       "expected_source_titles": [
         "1779386018838-Pop_Creations_Flow_12112025__1_.png",
         "1781478944645-business-process.md"
-      ]
+      ],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "打样环节里销售、技术设计和样品间是怎么交接的？",
@@ -131,7 +133,8 @@
       "expected_source_titles": [
         "1781478944645-business-process.md",
         "1779386018838-Pop_Creations_Flow_12112025__1_.png"
-      ]
+      ],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "Emma 提到会给工厂寄文件，这和流程文档里的打样步骤怎么对应？",
@@ -143,7 +146,8 @@
       "expected_source_titles": [
         "Teams contribution — Emma Li — 2026-11-05",
         "1781478944645-business-process.md"
-      ]
+      ],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "整套产品在打样上延误时，影响会波及哪些环节？",
@@ -153,9 +157,9 @@
         "设计和买手的后续节点也被推后"
       ],
       "expected_source_titles": [
-        "teams-approval-2026-03-14.txt",
         "1781478944645-business-process.md"
-      ]
+      ],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "每款产品平均要打样几轮？",
@@ -165,7 +169,8 @@
       ],
       "expected_source_titles": [
         "1781478944645-business-process.md"
-      ]
+      ],
+      "evidence_status": "unverified-production-draft"
     },
     {
       "question": "宁波办公室今年的打样预算是多少？",
@@ -175,7 +180,8 @@
       ],
       "expected_source_titles": [
         "1781478944645-business-process.md"
-      ]
+      ],
+      "evidence_status": "unverified-production-draft"
     }
   ]
 }
