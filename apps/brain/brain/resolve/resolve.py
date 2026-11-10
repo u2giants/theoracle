@@ -679,6 +679,18 @@ def _refresh_counts(conn: psycopg.Connection, entity_ids: set[str]) -> None:
     )
 
 
+def describe_fields(result: dict[str, Any]) -> tuple[str, str, str]:
+    """(description in the evidence language, English companion, Chinese companion).
+
+    The companions exist so the translation sidecar (plan step 1.3) can store
+    both languages without a second model call.
+    """
+    description = str(result.get("description") or "").strip()
+    description_en = str(result.get("description_en") or "").strip()
+    description_zh = str(result.get("description_zh") or "").strip()
+    return description, description_en, description_zh
+
+
 def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
     """Rewrite description and canonical name for entities with ≥3 new-count mentions.
 
@@ -717,7 +729,13 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             logger.warning("describe skipped for entity %s: %s", entity_id, exc)
             continue
         name = str(result.get("canonical_name") or "").strip()
-        description = str(result.get("description") or "").strip()
+        description, description_en, description_zh = describe_fields(result)
+        logger.debug(
+            "describe companions for %s: en=%s zh=%s",
+            entity_id,
+            bool(description_en),
+            bool(description_zh),
+        )
         row = conn.execute(
             "UPDATE cmap.entity SET canonical_name = COALESCE(NULLIF(%s, ''), canonical_name), "
             "description = COALESCE(NULLIF(%s, ''), description), described_at_count = %s "

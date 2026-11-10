@@ -20,7 +20,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 | 0.3 | Fix bot/transcript CJK blockers (commands, word count, speaker regex) | ✅ done | `apps/brain/tests/test_intake_zh.py`, `test_inbound_zh.py`, `test_transcript_cjk.py` (9 tests green). Judgment: followup name guard checks name-shaped CJK runs (2-4 chars) by containment; longer CJK clauses never name-candidates so zh follow-ups cannot false-positive | 2026-11-10 12:20 AM EST |
 | 0.4 | CJK-safe chunk edges + name normalization | ⬜ open | — | — |
 | 1.1 | Extraction prompts: source-language names/quotes, English label keys | ⬜ open | — | — |
-| 1.2 | Description/summary prompts language-neutral | ⬜ open | — | — |
+| 1.2 | Description/summary prompts language-neutral | ✅ done | `apps/brain/tests/test_describe_language.py` (3 tests green; full suite 256 green). Model contract: `description` in the language of the quotes + `description_en` / `description_zh` companions (community `title_en`/`summary_en`); parsers capture companions for the 1.3 sidecar | 2026-11-10 2:00 AM EST |
 | 1.3 | `cmap.translation` sidecar + bilingual write path | ⬜ open | — | — |
 | 1.4 | Cross-lingual entity resolution (`cmap.entity_alias`) | ⬜ open | — | — |
 | 2.1 | Teams bot speaks the employee's language (strings + zh commands) | ⬜ open | — | — |
