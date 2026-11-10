@@ -56,6 +56,7 @@ def _clean_bot(db: Any):
         "cmap.interview_send, cmap.teams_intake"
     )
     db.execute("UPDATE cmap.interview_setting SET enabled = true")
+    db.execute("UPDATE public.employees SET locale = NULL")
     db.execute(
         "INSERT INTO cmap.employee_flags (employee_id, department, job_title, profile_answer, "
         "profile_asked_at) VALUES (%s, 'Design', 'Designer', 'Designer in Design', now())",
@@ -63,6 +64,8 @@ def _clean_bot(db: Any):
     )
     db.commit()
     yield
+    db.execute("UPDATE public.employees SET locale = NULL")
+    db.commit()
 
 
 def _set_locale(db: Any, locale: str | None) -> None:

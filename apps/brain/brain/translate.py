@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from brain.db import get_pool
 
-VALID_KINDS = ("entity", "community", "edge")
+VALID_KINDS = ("entity", "community", "edge", "question")
 VALID_LANGS = ("en", "zh-CN")
 
 
