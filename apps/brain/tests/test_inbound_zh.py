@@ -7,9 +7,9 @@ from typing import Any
 import pytest
 from conftest import fake_embeddings
 
-from brain.interview import intake
 from brain.interview.followup import invented_names
-from brain.interview.inbound import REPLY_SKIPPED, REPLY_STOPPED, handle_inbound
+from brain.interview.inbound import handle_inbound
+from brain.interview.strings import strings
 
 EMPLOYEE_ID = "00000000-0000-4000-8000-0000000000b1"
 EMPLOYEE_EMAIL = "employee@test.invalid"
@@ -40,7 +40,11 @@ def test_zh_stop_skip_done_commands(
 ) -> None:
     fake_embeddings(monkeypatch)
     reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="停止")
-    assert reply == {"handled": True, "reply": REPLY_STOPPED, "employee_id": EMPLOYEE_ID}
+    assert reply == {
+        "handled": True,
+        "reply": strings("zh-CN").reply_stopped,
+        "employee_id": EMPLOYEE_ID,
+    }
     paused = db.execute(
         "SELECT interviews_paused FROM cmap.employee_flags WHERE employee_id = %s",
         (EMPLOYEE_ID,),
@@ -59,7 +63,7 @@ def test_zh_stop_skip_done_commands(
     db.commit()
     reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="跳过")
     assert reply["handled"] is True
-    assert reply["reply"] == REPLY_SKIPPED
+    assert reply["reply"] == strings("zh-CN").reply_skipped
 
     first = handle_inbound(
         email=EMPLOYEE_EMAIL,
@@ -69,7 +73,7 @@ def test_zh_stop_skip_done_commands(
     assert first["handled"] is True
     assert "intake_id" in first
     done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="完成")
-    assert done["reply"] == intake.REPLY_DONE
+    assert done["reply"] == strings("zh-CN").reply_done
     assert "source_id" in done
 
 
@@ -79,7 +83,7 @@ def test_command_word_inside_sentence_ignored(db: Any) -> None:
         conversation_ref=CONVERSATION_REF,
         text="这个流程需要停止后重启，我来继续跟进后续的入库确认。",
     )
-    assert reply["reply"] != REPLY_STOPPED
+    assert reply["reply"] not in (strings("zh-CN").reply_stopped, strings("en").reply_stopped)
     paused = db.execute(
         "SELECT interviews_paused FROM cmap.employee_flags WHERE employee_id = %s",
         (EMPLOYEE_ID,),

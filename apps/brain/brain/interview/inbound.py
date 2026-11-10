@@ -19,6 +19,7 @@ from psycopg.types.json import Json
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
 from brain.interview import followup, intake, profile
+from brain.interview.strings import reply_language, strings
 from brain.text_util import fold_key
 
 ANSWER_WINDOW_DAYS = 7
@@ -28,12 +29,12 @@ EASTERN = ZoneInfo("America/New_York")
 # Oracle and feed information in; canonical emails are @popcre.com.
 TENANT_EMAIL_DOMAIN = "popcre.com"
 
-REPLY_STOPPED = (
-    "Got it, The Oracle will not send you more questions. "
-    "Ask an admin to turn them back on any time."
-)
-REPLY_SKIPPED = "No problem, skipped."
-REPLY_ANSWERED = "Thanks, that's recorded."
+# English strings kept as module constants (tests and callers reference them);
+# replies are chosen through strings(lang) at the call sites (plan step 2.1).
+_EN = strings("en")
+REPLY_STOPPED = _EN.reply_stopped
+REPLY_SKIPPED = _EN.reply_skipped
+REPLY_ANSWERED = _EN.reply_answered
 
 _STOP_COMMANDS = {"stop", "停止", "暂停"}
 _SKIP_COMMANDS = {"skip", "跳过"}
@@ -44,8 +45,8 @@ def _command(text: str) -> str:
     return fold_key(text)
 
 
-def _find_employee(conn: Any, email: str | None) -> tuple[str, str] | None:
-    """Return ``(employee_id, name)`` for an active employee with this email.
+def _find_employee(conn: Any, email: str | None) -> tuple[str, str, str | None] | None:
+    """Return ``(employee_id, name, locale)`` for an active employee with this email.
 
     Teams signs people in with their work address while ``employees.email``
     may hold another one, so every linked identity email also matches
@@ -55,7 +56,7 @@ def _find_employee(conn: Any, email: str | None) -> tuple[str, str] | None:
     if not email:
         return None
     row = conn.execute(
-        "SELECT e.id::text, COALESCE(e.name, e.email) FROM public.employees e "
+        "SELECT e.id::text, COALESCE(e.name, e.email), e.locale FROM public.employees e "
         "LEFT JOIN public.employee_identities ei ON ei.employee_id = e.id "
         "WHERE e.disabled_at IS NULL AND ("
         "lower(e.email) = lower(%s) OR lower(ei.email) = lower(%s)) "
@@ -64,10 +65,12 @@ def _find_employee(conn: Any, email: str | None) -> tuple[str, str] | None:
     ).fetchone()
     if row is None:
         return None
-    return str(row[0]), str(row[1])
+    return str(row[0]), str(row[1]), str(row[2]) if row[2] else None
 
 
-def _ensure_employee(conn: Any, email: str | None, name: str | None) -> tuple[str, str] | None:
+def _ensure_employee(
+    conn: Any, email: str | None, name: str | None
+) -> tuple[str, str, str | None] | None:
     """Create a minimal employee row for a tenant address that has none.
 
     Owner ruling 2026-11-02: all employees in the M365 tenant can feed
@@ -86,7 +89,7 @@ def _ensure_employee(conn: Any, email: str | None, name: str | None) -> tuple[st
         (str(uuid.uuid4()), address, display),
     ).fetchone()
     conn.commit()
-    return str(row[0]), display
+    return str(row[0]), display, None
 
 
 def store_conversation_ref(
@@ -110,42 +113,56 @@ def _transcript_text(question: str, employee_name: str, answer: str) -> str:
     return f"{ORACLE_SPEAKER}: {question_line}\n{speaker}: {answer_line}\n"
 
 
-def _thread_reply(conn: Any, thread_id: str) -> str:
+def _thread_reply(conn: Any, thread_id: str, lang: str) -> str:
     """A grounded follow-up (kept in the thread) or the plain acknowledgement."""
+    s = strings(lang)
     row = conn.execute(
         "SELECT employee_id::text FROM cmap.teams_intake WHERE id = %s", (thread_id,)
     ).fetchone()
     who = profile.get_profile(conn, str(row[0])).label() if row else None
     question = followup.next_followup(conn, intake.thread_turns(conn, thread_id), who)
     if question is None:
-        return intake.REPLY_ACK
+        return s.reply_ack
     intake.append_turn(conn, thread_id, followup.ORACLE_SPEAKER, question)
-    return f"Got it. {question} (Or say done.)"
+    return s.thread_followup.format(question=question)
 
 
 def _volunteer(
-    conn: Any, employee_id: str, employee_name: str, text: str, command: str, personal: bool
+    conn: Any,
+    employee_id: str,
+    employee_name: str,
+    text: str,
+    command: str,
+    personal: bool,
+    lang: str,
+    locale: str | None,
 ) -> dict[str, Any]:
     """No question pending and no open thread: greeting, new thread, or fall through."""
+    s = strings(lang)
     unhandled = {"handled": False, "reply": None, "employee_id": employee_id}
     if not personal or intake.is_join_request(text):
         return unhandled
     if intake.is_greeting(command):
-        reply = intake.REPLY_INTRO
+        reply = s.reply_intro
         if not profile.get_profile(conn, employee_id).complete:
             profile.mark_asked(conn, employee_id)
-            reply = f"{intake.REPLY_INTRO_SHORT} {profile.PROFILE_QUESTION}"
+            reply = f"{s.reply_intro_short} {s.profile_question}"
         return {"handled": True, "reply": reply, "employee_id": employee_id}
     if intake.is_done(command):
-        return {"handled": True, "reply": intake.REPLY_NOTHING_OPEN, "employee_id": employee_id}
+        return {"handled": True, "reply": s.reply_nothing_open, "employee_id": employee_id}
     if intake.word_count(text) < intake.MIN_CONTRIBUTION_WORDS:
         return unhandled
-    thread_id = intake.start_thread(conn, employee_id, employee_name, text)
+    # Thread pin: a Chinese opening message keeps the thread Chinese even
+    # when the employee's locale is English (plan step 2.1, O1 fallback).
+    pinned = lang if lang == "zh-CN" and (locale or "").strip() != "zh-CN" else None
+    thread_id = intake.start_thread(
+        conn, employee_id, employee_name, text, lang=pinned
+    )
     if not profile.get_profile(conn, employee_id).asked:
         profile.mark_asked(conn, employee_id)
-        reply = f"Got it, keep going any time. {profile.PROFILE_QUESTION}"
+        reply = f"{s.reply_keep_going} {s.profile_question}"
     else:
-        reply = _thread_reply(conn, thread_id)
+        reply = _thread_reply(conn, thread_id, lang)
     return {
         "handled": True,
         "reply": reply,
@@ -169,9 +186,10 @@ def handle_inbound(
             employee = _ensure_employee(conn, email, name)
         if employee is None:
             return {"handled": False, "reply": None, "employee_id": None}
-        employee_id, employee_name = employee
+        employee_id, employee_name, locale = employee
         if conversation_ref:
             store_conversation_ref(conn, employee_id, conversation_ref)
+        lang = reply_language(locale, text)
         command = _command(text)
         if command in _STOP_COMMANDS:
             conn.execute(
@@ -181,7 +199,11 @@ def handle_inbound(
                 (employee_id,),
             )
             conn.commit()
-            return {"handled": True, "reply": REPLY_STOPPED, "employee_id": employee_id}
+            return {
+                "handled": True,
+                "reply": strings(lang).reply_stopped,
+                "employee_id": employee_id,
+            }
         personal = intake.is_personal(conversation_ref)
         if personal and not intake.is_join_request(text) and command not in _SKIP_COMMANDS and not intake.is_done(command):
             who = profile.get_profile(conn, employee_id)
@@ -198,20 +220,22 @@ def handle_inbound(
             ):
                 return {
                     "handled": True,
-                    "reply": profile.record_answer(conn, employee_id, text),
+                    "reply": profile.record_answer(conn, employee_id, text, lang=lang),
                     "employee_id": employee_id,
                     "profile": True,
                 }
         thread = intake.open_thread(conn, employee_id) if personal else None
         if thread is not None and not thread[1]:
             thread_id = thread[0]
+            pinned = intake.thread_lang(conn, thread_id)
+            thread_lang = pinned or lang
             if intake.is_join_request(text):
                 return {"handled": False, "reply": None, "employee_id": employee_id}
             if intake.is_done(command):
                 source_id = intake.close_thread(thread_id)
                 return {
                     "handled": True,
-                    "reply": intake.REPLY_DONE,
+                    "reply": strings(thread_lang).reply_done,
                     "employee_id": employee_id,
                     "intake_id": thread_id,
                     "source_id": source_id,
@@ -219,7 +243,7 @@ def handle_inbound(
             intake.append_turn(conn, thread_id, employee_name, text)
             return {
                 "handled": True,
-                "reply": _thread_reply(conn, thread_id),
+                "reply": _thread_reply(conn, thread_id, thread_lang),
                 "employee_id": employee_id,
                 "intake_id": thread_id,
             }
@@ -233,7 +257,9 @@ def handle_inbound(
             (employee_id, ANSWER_WINDOW_DAYS),
         ).fetchone()
         if row is None:
-            return _volunteer(conn, employee_id, employee_name, text, command, personal)
+            return _volunteer(
+                conn, employee_id, employee_name, text, command, personal, lang, locale
+            )
         question_id, question = str(row[0]), str(row[1])
         if command in _SKIP_COMMANDS:
             conn.execute(
@@ -245,7 +271,7 @@ def handle_inbound(
             conn.commit()
             return {
                 "handled": True,
-                "reply": REPLY_SKIPPED,
+                "reply": strings(lang).reply_skipped,
                 "employee_id": employee_id,
                 "question_id": question_id,
             }
@@ -270,7 +296,7 @@ def handle_inbound(
         conn.commit()
     return {
         "handled": True,
-        "reply": REPLY_ANSWERED,
+        "reply": strings(lang).reply_answered,
         "employee_id": employee_id,
         "question_id": question_id,
         "source_id": source["id"],

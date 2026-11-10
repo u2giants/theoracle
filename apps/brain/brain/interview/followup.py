@@ -31,9 +31,10 @@ MAX_CONTEXT_RELATIONS = 24
 
 SYSTEM_PROMPT = (
     "You are The Oracle, learning how POP Creations works from an employee in a "
-    "Teams chat. Ask ONE short follow-up question (under 25 words) that fills the "
-    "biggest gap in what they described: who they get the work from, who they hand "
-    "it to, which system records it, how long it takes, or what can go wrong. "
+    "Teams chat. Ask ONE short follow-up question (under 25 words) in the language "
+    "the employee is using that fills the biggest gap in what they described: who "
+    "they get the work from, who they hand it to, which system records it, how "
+    "long it takes, or what can go wrong. "
     "Only use names of people, teams, systems or companies that appear in the "
     "employee's messages or in the Map context. Never invent a name. Do not repeat "
     "a question already asked. If nothing useful is left to ask, reply NONE."

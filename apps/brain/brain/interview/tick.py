@@ -27,13 +27,13 @@ import psycopg
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.extract.normalize import normalize_name
+from brain.interview.strings import reply_language, strings
 
 logger = logging.getLogger(__name__)
 
-MESSAGE_TEMPLATE = (
-    "Quick question from The Oracle (reply in one or two sentences, or 'skip'; "
-    "reply 'stop' to pause these): {question}"
-)
+# English kept as the module constant (tests and callers reference it);
+# sends choose strings(lang) per employee (plan step 2.1).
+MESSAGE_TEMPLATE = strings("en").message_template
 
 TICK_INTERVAL_SECONDS = 3600
 
@@ -231,7 +231,18 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
                 result["unrouted"] += 1
                 continue
             try:
-                _post_proactive(target.employee_id, MESSAGE_TEMPLATE.format(question=text), cfg)
+                locale_row = conn.execute(
+                    "SELECT locale FROM public.employees WHERE id = %s",
+                    (target.employee_id,),
+                ).fetchone()
+                lang = reply_language(
+                    str(locale_row[0]) if locale_row and locale_row[0] else None
+                )
+                _post_proactive(
+                    target.employee_id,
+                    strings(lang).message_template.format(question=text),
+                    cfg,
+                )
             except InterviewUnreachableError as exc:
                 logger.warning("interview target %s unreachable: %s", target.employee_id, exc)
                 conn.execute(

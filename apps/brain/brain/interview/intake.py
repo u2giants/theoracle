@@ -22,6 +22,7 @@ from brain import storage as storage_mod
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
 from brain.interview import profile
+from brain.interview.strings import strings
 from brain.text_util import count_units
 
 logger = logging.getLogger(__name__)
@@ -30,18 +31,14 @@ SILENCE_MINUTES = 20
 MIN_CONTRIBUTION_WORDS = 12
 MAX_ATTEMPTS = 5
 
-REPLY_INTRO = (
-    "Hi, I'm The Oracle. I learn how POP Creations works from the people who do "
-    "the work. Tell me about something you handle (who you get it from, what "
-    "you do, who you pass it to) and I'll add it to the Company Map."
-)
-REPLY_INTRO_SHORT = (
-    "Hi, I'm The Oracle. I learn how POP Creations works from the people who do "
-    "the work and add it to the Company Map."
-)
-REPLY_ACK = "Got it — keep going, or say done."
-REPLY_DONE = "Thanks, that's recorded. Message me any time you have more."
-REPLY_NOTHING_OPEN = "There is nothing open to finish. Tell me how something works and I'll record it."
+# English strings kept as module constants (tests and callers reference them);
+# replies are chosen through strings(lang) at the call sites (plan step 2.1).
+_EN = strings("en")
+REPLY_INTRO = _EN.reply_intro
+REPLY_INTRO_SHORT = _EN.reply_intro_short
+REPLY_ACK = _EN.reply_ack
+REPLY_DONE = _EN.reply_done
+REPLY_NOTHING_OPEN = _EN.reply_nothing_open
 
 _GREETINGS = {
     "hi", "hello", "hey", "hiya", "yo", "hi there", "hello there", "hey there",
@@ -102,13 +99,24 @@ def open_thread(conn: Any, employee_id: str) -> tuple[str, bool] | None:
     return str(row[0]), bool(row[1])
 
 
-def start_thread(conn: Any, employee_id: str, speaker: str, text: str) -> str:
+def start_thread(
+    conn: Any, employee_id: str, speaker: str, text: str, lang: str | None = None
+) -> str:
     row = conn.execute(
-        "INSERT INTO cmap.teams_intake (employee_id, turns) VALUES (%s, %s) RETURNING id::text",
-        (employee_id, Json([_turn(speaker, text)])),
+        "INSERT INTO cmap.teams_intake (employee_id, turns, lang) VALUES (%s, %s, %s) "
+        "RETURNING id::text",
+        (employee_id, Json([_turn(speaker, text)]), lang),
     ).fetchone()
     conn.commit()
     return str(row[0])
+
+
+def thread_lang(conn: Any, thread_id: str) -> str | None:
+    """The language pinned when the thread opened, if any."""
+    row = conn.execute(
+        "SELECT lang FROM cmap.teams_intake WHERE id = %s", (thread_id,)
+    ).fetchone()
+    return str(row[0]) if row and row[0] else None
 
 
 def append_turn(conn: Any, thread_id: str, speaker: str, text: str) -> None:
