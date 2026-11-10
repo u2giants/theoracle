@@ -544,6 +544,20 @@ Translating evidence would break verbatim provenance; auto-translating every cla
 Do not change because:
 Feeding a translated quote into validation, or adding a locale branch to `getBrainSectionSnippets`, or auto-translating on approval, each reverses a deliberate decision. The locale-rendering SQL fragments live in `buildPlanMetadataFilters()` precisely so the parity guard forces both retrieval branches to stay in lockstep — add new locale logic there, not in one branch.
 
+### The Company Map brain speaks Chinese per employee; quotes and names never translate
+
+Looks like:
+A `zh-CN` employee sees Chinese descriptions on the Map and gets Chinese bot replies, so it looks like the system translates content on read — or that a separate Chinese map exists for the Ningbo office.
+
+Actually:
+One brain, one map. Chinese lives in three bounded places (plan `plan_chinese_integration.md`, steps 2.1/1.3/1.1): (1) `brain/interview/strings.py` — every Teams-bot string written natively per `public.employees.locale`, with a per-thread pin (`cmap.teams_intake.lang`, migration `013`) when a Chinese opening message arrives from an English-locale employee; (2) the `cmap.translation` sidecar (migration `011`) — write-time companions (`description_en`/`description_zh`, `title_en`/`summary_en`) with English canonical prose kept in the existing columns and zh-CN rows rendered by the Map's `pickText` when the viewer's locale is `zh-CN`; (3) extraction and resolution keep names and quotes verbatim in their source language — `normalize_name` strips full-width punctuation but never rewrites text, cross-lingual identity is alias rows (`cmap.entity_alias.lang`, migration `012`), and Traditional folds to Simplified only inside match keys (`text_util.simplified_fold`). UI chrome stays English; interview questions for zh employees are translated once through the answer seat and cached (`kind='question'`, migration `014`).
+
+Why:
+Quotes are evidence and must round-trip byte-for-byte; canonical names stay source-language so the map reflects the documents; native per-locale strings keep operational instructions ("say done" / 「完成」) unambiguous; one brain keeps Chinese and English knowledge as neighbours on the same map.
+
+Do not change because:
+Translating a quote breaks the quote validator; machine-rewriting canonical names into English splits identity; folding trad→simp into stored text rewrites evidence; a per-view model call makes the Map slow and non-reproducible; a Chinese map fork fragments the company picture. `china_imp.md` holds the retired claims-system design (principles only — its "Brain synthesis is English-only" line is what this layer replaces).
+
 ### The macro/holistic layer runs on its OWN model slot, and Gemini can't serve it
 
 Looks like:
