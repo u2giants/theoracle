@@ -9,7 +9,6 @@ it does not handle falls through to the bot's existing join-meeting command.
 
 from __future__ import annotations
 
-import re
 import uuid
 from datetime import datetime
 from typing import Any
@@ -20,6 +19,7 @@ from psycopg.types.json import Json
 from brain.api.sources import ingest_bytes
 from brain.db import get_pool
 from brain.interview import followup, intake, profile
+from brain.text_util import fold_key
 
 ANSWER_WINDOW_DAYS = 7
 ORACLE_SPEAKER = "The Oracle"
@@ -35,12 +35,13 @@ REPLY_STOPPED = (
 REPLY_SKIPPED = "No problem, skipped."
 REPLY_ANSWERED = "Thanks, that's recorded."
 
-_WORD = re.compile(r"[^a-z]+")
+_STOP_COMMANDS = {"stop", "停止", "暂停"}
+_SKIP_COMMANDS = {"skip", "跳过"}
 
 
 def _command(text: str) -> str:
-    """Lower-case the message and strip punctuation for stop/skip matching."""
-    return _WORD.sub(" ", text.casefold()).strip()
+    """Casefold and strip punctuation for stop/skip matching; keeps CJK."""
+    return fold_key(text)
 
 
 def _find_employee(conn: Any, email: str | None) -> tuple[str, str] | None:
@@ -172,7 +173,7 @@ def handle_inbound(
         if conversation_ref:
             store_conversation_ref(conn, employee_id, conversation_ref)
         command = _command(text)
-        if command == "stop":
+        if command in _STOP_COMMANDS:
             conn.execute(
                 "INSERT INTO cmap.employee_flags (employee_id, interviews_paused) "
                 "VALUES (%s, true) ON CONFLICT (employee_id) DO UPDATE SET "
@@ -182,7 +183,7 @@ def handle_inbound(
             conn.commit()
             return {"handled": True, "reply": REPLY_STOPPED, "employee_id": employee_id}
         personal = intake.is_personal(conversation_ref)
-        if personal and not intake.is_join_request(text) and command not in ("skip", "done"):
+        if personal and not intake.is_join_request(text) and command not in _SKIP_COMMANDS and not intake.is_done(command):
             who = profile.get_profile(conn, employee_id)
             pending = conn.execute(
                 "SELECT 1 FROM cmap.open_question WHERE state = 'asked' AND target_employee_id = %s "
@@ -234,7 +235,7 @@ def handle_inbound(
         if row is None:
             return _volunteer(conn, employee_id, employee_name, text, command, personal)
         question_id, question = str(row[0]), str(row[1])
-        if command == "skip":
+        if command in _SKIP_COMMANDS:
             conn.execute(
                 "UPDATE cmap.open_question SET state = 'open', target_employee_id = NULL, "
                 "asked_at = NULL, skipped_by = array_append(skipped_by, %s::uuid) "

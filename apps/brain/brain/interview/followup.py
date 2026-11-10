@@ -53,21 +53,43 @@ _COMMON = {
     "else", "between", "one", "next",
 }
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z'&.-]*")
+_CJK_RUN = re.compile(r"[一-鿿]+")
 
 
 def capitalized_names(text: str) -> set[str]:
-    """Capitalized words that are not common words: candidate names."""
-    return {
+    """Capitalized words that are not common words, plus name-shaped CJK runs.
+
+    A CJK run is name-shaped at 2-4 characters (Chinese person names); longer
+    runs are clauses and never name candidates, so real questions pass.
+    """
+    names = {
         word.casefold()
         for word in (m.group(0).rstrip(".") for m in _TOKEN.finditer(text))
         if word[:1].isupper() and word.casefold() not in _COMMON
     }
+    for run in _CJK_RUN.findall(text):
+        if 2 <= len(run) <= 4 and run not in _COMMON:
+            names.add(run)
+    return names
 
 
 def invented_names(question: str, allowed_text: str) -> set[str]:
-    """Names in ``question`` that appear nowhere in ``allowed_text``."""
+    """Names in ``question`` that appear nowhere in ``allowed_text``.
+
+    Latin names match as tokens; CJK name-shaped runs match as substrings.
+    Longer CJK clauses are not treated as names, so real Chinese questions
+    never false-positive here (a missed fabricated name is caught later by
+    the resolve judge).
+    """
     allowed = {w.casefold().rstrip(".") for w in _TOKEN.findall(allowed_text)}
-    return {name for name in capitalized_names(question) if name not in allowed}
+    out = set()
+    for name in capitalized_names(question):
+        if name[:1].isascii():
+            if name not in allowed:
+                out.add(name)
+        elif name not in allowed_text:
+            out.add(name)
+    return out
 
 
 def map_context(conn: Any, employee_text: str) -> list[str]:
