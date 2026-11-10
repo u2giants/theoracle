@@ -13,6 +13,7 @@ from test_resolve import _mention, _unit
 from brain.config import get_settings
 from brain.resolve import resolve as resolve_mod
 from brain.resolve.resolve import describe_fields, run_resolve
+from brain.translate import translations_for
 
 ZH_DESCRIPTION = "采购审批流程是采购部发起的内部审批流程。"
 EN_DESCRIPTION = "The purchasing approval process is the internal approval flow."
@@ -72,8 +73,12 @@ def test_zh_quotes_produce_zh_description(
     fake_embeddings(monkeypatch)
     _seed_three(db, "采购审批流程", ZH_QUOTE, "zh-desc")
     run_resolve()
-    row = db.execute("SELECT description FROM cmap.entity").fetchone()
-    assert row[0] == ZH_DESCRIPTION
+    row = db.execute("SELECT id, description FROM cmap.entity").fetchone()
+    entity_id = str(row[0])
+    # English canonical in the column (plan L6); the Chinese prose is kept
+    # in the translation sidecar verbatim.
+    assert row[1] == EN_DESCRIPTION
+    assert translations_for("entity", entity_id)["zh-CN"]["description"] == ZH_DESCRIPTION
 
 
 def test_en_companion_returned() -> None:

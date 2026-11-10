@@ -49,8 +49,10 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
+from brain.lang import detect_language
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
+from brain.translate import upsert_translation
 
 logger = logging.getLogger(__name__)
 
@@ -730,17 +732,12 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             continue
         name = str(result.get("canonical_name") or "").strip()
         description, description_en, description_zh = describe_fields(result)
-        logger.debug(
-            "describe companions for %s: en=%s zh=%s",
-            entity_id,
-            bool(description_en),
-            bool(description_zh),
-        )
+        canonical_description = description_en or description
         row = conn.execute(
             "UPDATE cmap.entity SET canonical_name = COALESCE(NULLIF(%s, ''), canonical_name), "
             "description = COALESCE(NULLIF(%s, ''), description), described_at_count = %s "
             "WHERE id = %s RETURNING canonical_name, description",
-            (name, description, mention_count, entity_id),
+            (name, canonical_description, mention_count, entity_id),
         ).fetchone()
         # The embedding follows the rewritten text, one entity per call so a
         # cap-hit interruption cannot leave a described entity stale (step-6
@@ -755,6 +752,11 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             (vector_literal(vector), entity_id),
         )
         conn.commit()
+        upsert_translation("entity", entity_id, "description", "en", canonical_description)
+        if description_zh:
+            upsert_translation("entity", entity_id, "description", "zh-CN", description_zh)
+        elif detect_language(description) == "zh":
+            upsert_translation("entity", entity_id, "description", "zh-CN", description)
         written += 1
     return written
 
