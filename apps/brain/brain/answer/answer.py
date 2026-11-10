@@ -68,14 +68,15 @@ ROUTE_LABELS: list[dict[str, str]] = [
     {
         "name": "specific",
         "rubric": (
-            "asks about a particular person, process, system, document or step"
+            "asks about a particular person, process, system, document or step. "
+            "具体问题/事实查询"
         ),
     },
     {
         "name": "broad",
         "rubric": (
             "asks about patterns, biggest problems, overview, 'across the "
-            "company', comparisons between departments"
+            "company', comparisons between departments. 全局/跨部门梳理"
         ),
     },
 ]

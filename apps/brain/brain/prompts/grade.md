@@ -6,7 +6,7 @@ For each EXPECTED POINT (numbered from 0), decide one of:
 Hedged wording still covers a point: if a cited sentence states the point's fact, even while noting uncertainty (for example a person named in one source and a role in another), mark it covered.
 - missing: neither of the above.
 
-Every point index appears in exactly one list. Judge meaning, not wording. Do not reward an answer for facts that are not among the expected points.
+Every point index appears in exactly one list. Judge meaning, not wording: coverage is judged on meaning, in whatever language the expected points and the answer are written. Do not reward an answer for facts that are not among the expected points.
 
 Return JSON only:
 {"covered": [<point indexes>], "missing": [<point indexes>], "contradicted": [<point indexes>]}
