@@ -15,6 +15,7 @@ stay open and show on the admin page for manual routing.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,7 +29,7 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.extract.normalize import normalize_name
 from brain.interview.strings import reply_language, strings
-from brain.llm import post_chat_with_rescue
+from brain.llm import post_chat_with_rescue, resolve_provider
 from brain.seats import stage_model
 from brain.translate import translations_for, upsert_translation
 
@@ -207,7 +208,7 @@ def _post_proactive(employee_id: str, text: str, settings: Settings) -> None:
 def _translate_question(question: str, settings: Settings) -> str:
     """One zh-CN translation of an interview question via the answer seat."""
     model = stage_model(settings, "answer")
-    if not model or not settings.openrouter_api_key:
+    if not model or not resolve_provider(model, settings)[1]:
         return ""
     prompt = (
         "Translate the interview QUESTION below into Simplified Chinese, keeping "
@@ -237,16 +238,28 @@ def _localized_question(
     lang: str,
     settings: Settings,
 ) -> str:
-    """The question in ``lang``; zh-CN translations are cached write-once."""
+    """Cache immutable source-text versions; legacy unversioned rows are ignored."""
     if lang != "zh-CN":
         return text
-    cached = (translations_for("question", question_id).get("zh-CN") or {}).get("text", "")
-    if cached.strip():
-        return cached.strip()
-    translated = _translate_question(text, settings)
-    if translated:
-        upsert_translation("question", question_id, "text", "zh-CN", translated)
-        return translated
+    field = "text:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    try:
+        # A nested transaction isolates cache errors (including an older kind
+        # CHECK) so the outer tick can still send English and record delivery.
+        with conn.transaction():
+            # Serialize cache misses for this question before paying for a call.
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                ("interview-translation:" + question_id,),
+            )
+            cached = (translations_for("question", question_id, conn=conn).get("zh-CN") or {}).get(field, "")
+            if cached.strip():
+                return cached.strip()
+            translated = _translate_question(text, settings)
+            if translated:
+                upsert_translation("question", question_id, field, "zh-CN", translated, conn=conn)
+                return translated
+    except (RuntimeError, httpx.HTTPError, psycopg.Error) as exc:
+        logger.warning("interview question %s translation failed: %s", question_id, exc)
     return text
 
 
