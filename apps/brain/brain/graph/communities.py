@@ -25,6 +25,7 @@ from brain.config import Settings, get_settings
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts
 from brain.graph.project import _load_edges, _load_entities
+from brain.lang import english_canonical
 from brain.resolve.resolve import FrontierCapReached, _Frontier
 
 logger = logging.getLogger(__name__)
@@ -533,6 +534,7 @@ def _ask_report(
     if not isinstance(open_questions, list):
         open_questions = []
     return {
+        "raw_response": result,
         "title": str(result.get("title") or "").strip() or "Untitled area",
         "title_en": str(result.get("title_en") or "").strip(),
         "summary": str(result.get("summary") or "").strip(),
@@ -544,7 +546,9 @@ def _ask_report(
 
 def _report_md(report: dict[str, Any]) -> str:
     """Render one stored report as Markdown."""
-    lines = [f"# {report['title']}", "", report["summary"], "", "## Findings"]
+    title = english_canonical(report["title"], report.get("title_en", ""))
+    summary = english_canonical(report["summary"], report.get("summary_en", ""))
+    lines = [f"# {title}", "", summary, "", "## Findings"]
     for finding in report["findings"]:
         lines.append(
             f"- **[{finding.get('kind', '')}]** {finding.get('text', '')} "
@@ -591,16 +595,18 @@ def _store(
     report["findings"] = findings
     row = conn.execute(
         "INSERT INTO cmap.community (level, parent_id, title, report_md, "
-        "findings, entity_ids, graph_version) VALUES (%s, %s, %s, %s, %s, %s, %s) "
+        "findings, entity_ids, graph_version, report_payload) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb) "
         "RETURNING id",
         (
             level,
             parent_id,
-            report["title"],
+            english_canonical(report["title"], report.get("title_en", "")),
             _report_md(report),
             json.dumps(findings, ensure_ascii=False),
             entity_ids,
             graph_version,
+            json.dumps(report.get("raw_response", report), ensure_ascii=False),
         ),
     ).fetchone()
     return str(row[0]), dropped
@@ -642,7 +648,11 @@ def _store_open_questions(
         conn.execute(
             "INSERT INTO cmap.open_question (question, why, entity_ids, state) "
             "VALUES (%s, %s, %s, 'open')",
-            (question, report["title"], entity_ids),
+            (
+                question,
+                english_canonical(report["title"], report.get("title_en", "")),
+                entity_ids,
+            ),
         )
         stored.append(new_vector)
         written += 1

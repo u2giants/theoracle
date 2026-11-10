@@ -49,6 +49,7 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
+from brain.lang import english_canonical
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
 
@@ -729,18 +730,19 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             logger.warning("describe skipped for entity %s: %s", entity_id, exc)
             continue
         name = str(result.get("canonical_name") or "").strip()
-        description, description_en, description_zh = describe_fields(result)
-        logger.debug(
-            "describe companions for %s: en=%s zh=%s",
-            entity_id,
-            bool(description_en),
-            bool(description_zh),
-        )
+        description, description_en, _ = describe_fields(result)
         row = conn.execute(
             "UPDATE cmap.entity SET canonical_name = COALESCE(NULLIF(%s, ''), canonical_name), "
-            "description = COALESCE(NULLIF(%s, ''), description), described_at_count = %s "
+            "description = COALESCE(NULLIF(%s, ''), description), "
+            "describe_payload = %s::jsonb, described_at_count = %s "
             "WHERE id = %s RETURNING canonical_name, description",
-            (name, description, mention_count, entity_id),
+            (
+                name,
+                english_canonical(description, description_en),
+                json.dumps(result, ensure_ascii=False),
+                mention_count,
+                entity_id,
+            ),
         ).fetchone()
         # The embedding follows the rewritten text, one entity per call so a
         # cap-hit interruption cannot leave a described entity stale (step-6

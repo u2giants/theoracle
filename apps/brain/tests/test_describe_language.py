@@ -72,8 +72,12 @@ def test_zh_quotes_produce_zh_description(
     fake_embeddings(monkeypatch)
     _seed_three(db, "采购审批流程", ZH_QUOTE, "zh-desc")
     run_resolve()
-    row = db.execute("SELECT description FROM cmap.entity").fetchone()
-    assert row[0] == ZH_DESCRIPTION
+    row = db.execute("SELECT description, describe_payload FROM cmap.entity").fetchone()
+    assert row[0] == EN_DESCRIPTION
+    assert row[1]["description"] == ZH_DESCRIPTION
+    assert row[1]["description_en"] == EN_DESCRIPTION
+    assert "IN THE LANGUAGE OF THE QUOTES" in fake.describe_prompts[0]
+    assert ZH_QUOTE in fake.describe_prompts[0]
 
 
 def test_en_companion_returned() -> None:
@@ -109,3 +113,4 @@ def test_en_source_unchanged(
     run_resolve()
     row = db.execute("SELECT canonical_name, description FROM cmap.entity").fetchone()
     assert row == ("Artwork Log", "Described.")
+    assert "IN THE LANGUAGE OF THE QUOTES" in fake.describe_prompts[0]

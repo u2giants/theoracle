@@ -73,3 +73,10 @@ def detect_language(text: str) -> str:
     if not cjk:
         return "en"
     return "mixed"
+
+
+def english_canonical(source: str, companion: str) -> str:
+    """Keep Chinese prose out of English columns when a companion is missing."""
+    if not companion and detect_language(source) in {"zh", "mixed"}:
+        raise ValueError("Chinese prose requires an English companion")
+    return companion or source

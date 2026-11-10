@@ -38,6 +38,7 @@ from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import ENTITY_TYPES
 from brain.extract.normalize import normalize_name
+from brain.lang import english_canonical
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
 
@@ -507,7 +508,7 @@ def _write_result(result: ChunkResult, prompt_hash: str, model: str) -> None:
                     ids[relation.from_key],
                     ids[relation.to_key],
                     relation.rel_type,
-                    relation.description,
+                    english_canonical(relation.description, relation.description_en),
                     relation.stance,
                     relation.confidence,
                     relation.quote,
