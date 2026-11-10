@@ -165,15 +165,15 @@ def _replay(monkeypatch: pytest.MonkeyPatch) -> tuple[EvalAnswers, KeywordGrader
 def test_eval_fixture_mean_at_least_08(
     eval_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
 ) -> None:
-    """The five seed questions score a mean of at least 0.8 on the fixtures."""
+    """The seed questions (en + zh) score a mean of at least 0.8 on the fixtures."""
     _fixture_corpus(db, monkeypatch)
-    assert load_seed() == 5
+    assert load_seed() == 15
     assert load_seed() == 0
     answers, grader = _replay(monkeypatch)
     run = run_eval()
-    assert len(run["results"]) == 5
-    assert len(answers.questions) == 5
-    assert len(grader.prompts) == 5
+    assert len(run["results"]) == 15
+    assert len(answers.questions) == 15
+    assert len(grader.prompts) == 15
     assert run["mean_score"] >= 0.8
     for item in run["results"]:
         assert item["error"] is None
@@ -185,7 +185,7 @@ def test_eval_fixture_mean_at_least_08(
     ).fetchall()
     assert len(stored) == 1
     assert stored[0][0] == pytest.approx(run["mean_score"])
-    assert len(stored[0][1]) == 5
+    assert len(stored[0][1]) == 15
     assert set(stored[0][2]) == {
         "answer_local.md",
         "answer_global.md",
@@ -366,4 +366,4 @@ def test_evaluate_job_records_usage(
         "SELECT payload FROM cmap.job WHERE id = %s", (job_id,)
     ).fetchone()[0]
     assert payload["usage"]["mean_score"] >= 0.8
-    assert payload["usage"]["grade_calls"] == 5
+    assert payload["usage"]["grade_calls"] == 15

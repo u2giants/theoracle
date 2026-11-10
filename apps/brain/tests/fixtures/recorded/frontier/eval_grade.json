@@ -1,19 +1,141 @@
 {
   "keywords": {
-    "Approval stalls at the licensor sign-off step": ["stall", "sign-off"],
-    "The Licensing Manager (Jessica) has to record the sign-off": ["jessica", "record"],
-    "A licensor rejection sends the package back through a rework loop": ["reject", "rework"],
-    "Jessica, the Licensing Manager, records the sign-off": ["jessica", "records"],
-    "The sign-off is recorded in the Artwork Log": ["artwork log"],
-    "Recording the sign-off comes before the purchase order is created": ["before", "po"],
-    "The package is fixed and resubmitted": ["fix", "resubmit"],
-    "The resubmitted package goes back into the same approval queue": ["same queue"],
-    "Each rejection adds weeks to the sign-off date": ["weeks"],
-    "The procedure expects sign-off within five business days": ["five business days"],
-    "The Meadow Lane set has waited ten business days or more": ["meadow lane", "ten"],
-    "The procedure calls for escalation when sign-off is late": ["escalat"],
-    "A purchase order cannot be cut until the sign-off is recorded": ["cannot cut a po"],
-    "Buyers cannot commit a ship date to the vendor without the purchase order": ["ship date", "vendor"],
-    "Buyers absorb the delay when sign-off is slow": ["delay"]
+    "Approval stalls at the licensor sign-off step": [
+      "stall",
+      "sign-off"
+    ],
+    "The Licensing Manager (Jessica) has to record the sign-off": [
+      "jessica",
+      "record"
+    ],
+    "A licensor rejection sends the package back through a rework loop": [
+      "reject",
+      "rework"
+    ],
+    "Jessica, the Licensing Manager, records the sign-off": [
+      "jessica",
+      "records"
+    ],
+    "The sign-off is recorded in the Artwork Log": [
+      "artwork log"
+    ],
+    "Recording the sign-off comes before the purchase order is created": [
+      "before",
+      "po"
+    ],
+    "The package is fixed and resubmitted": [
+      "fix",
+      "resubmit"
+    ],
+    "The resubmitted package goes back into the same approval queue": [
+      "same queue"
+    ],
+    "Each rejection adds weeks to the sign-off date": [
+      "weeks"
+    ],
+    "The procedure expects sign-off within five business days": [
+      "five business days"
+    ],
+    "The Meadow Lane set has waited ten business days or more": [
+      "meadow lane",
+      "ten"
+    ],
+    "The procedure calls for escalation when sign-off is late": [
+      "escalat"
+    ],
+    "A purchase order cannot be cut until the sign-off is recorded": [
+      "cannot cut a po"
+    ],
+    "Buyers cannot commit a ship date to the vendor without the purchase order": [
+      "ship date",
+      "vendor"
+    ],
+    "Buyers absorb the delay when sign-off is slow": [
+      "delay"
+    ],
+    "审批卡在授权方签署确认环节": [
+      "审批卡在授权方签署确认环节"
+    ],
+    "需要授权经理杰西卡记录签署确认": [
+      "需要授权经理杰西卡记录签署确认"
+    ],
+    "授权方退回美术稿后要重新修改再提交": [
+      "授权方退回美术稿后要重新修改再提交"
+    ],
+    "杰西卡作为授权经理负责记录签署确认": [
+      "杰西卡作为授权经理负责记录签署确认"
+    ],
+    "签署确认记录在美术稿台账中": [
+      "签署确认记录在美术稿台账中"
+    ],
+    "记录签署确认要在创建采购订单之前完成": [
+      "记录签署确认要在创建采购订单之前完成"
+    ],
+    "美术稿修改后重新提交": [
+      "美术稿修改后重新提交"
+    ],
+    "重新提交的方案回到同一个审批队列": [
+      "重新提交的方案回到同一个审批队列"
+    ],
+    "每一次退回都会让签署确认再推迟数周": [
+      "每一次退回都会让签署确认再推迟数周"
+    ],
+    "签署确认记录完成之前不能创建采购订单": [
+      "签署确认记录完成之前不能创建采购订单"
+    ],
+    "没有采购订单，采购不能向供应商确认交期": [
+      "没有采购订单，采购不能向供应商确认交期"
+    ],
+    "签署确认变慢时延误由采购承担": [
+      "签署确认变慢时延误由采购承担"
+    ],
+    "流程要求五个工作日内完成签署确认": [
+      "流程要求五个工作日内完成签署确认"
+    ],
+    "草地小径系列实际等待了十个工作日以上": [
+      "草地小径系列实际等待了十个工作日以上"
+    ],
+    "签署确认超时要按流程升级上报": [
+      "签署确认超时要按流程升级上报"
+    ],
+    "设计部把概念方案包交给授权经理复核": [
+      "设计部把概念方案包交给授权经理复核"
+    ],
+    "复核通过后再由授权经理提交给授权方": [
+      "复核通过后再由授权经理提交给授权方"
+    ],
+    "交接中丢失的信息会拖慢签署确认": [
+      "交接中丢失的信息会拖慢签署确认"
+    ],
+    "授权方签署确认迟迟不下来是主要原因": [
+      "授权方签署确认迟迟不下来是主要原因"
+    ],
+    "退回修改的循环让发布日期一再顺延": [
+      "退回修改的循环让发布日期一再顺延"
+    ],
+    "采购在没有采购订单前无法排产": [
+      "采购在没有采购订单前无法排产"
+    ],
+    "授权经理复核概念方案包并提交授权方": [
+      "授权经理复核概念方案包并提交授权方"
+    ],
+    "授权经理把签署确认记录到美术稿台账": [
+      "授权经理把签署确认记录到美术稿台账"
+    ],
+    "授权经理在超时时负责升级上报": [
+      "授权经理在超时时负责升级上报"
+    ],
+    "答案说明资料中没有提到首席财务官的身份": [
+      "答案说明资料中没有提到首席财务官的身份"
+    ],
+    "答案不猜测人名": [
+      "答案不猜测人名"
+    ],
+    "答案说明资料中没有明年的开店计划数字": [
+      "答案说明资料中没有明年的开店计划数字"
+    ],
+    "答案不猜测数字": [
+      "答案不猜测数字"
+    ]
   }
 }
