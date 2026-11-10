@@ -38,7 +38,8 @@ def test_count_units_chinese_sentence() -> None:
 def test_fold_key_keeps_cjk() -> None:
     assert fold_key("采购流程是怎样的？") == "采购流程是怎样的"
     assert "采购流程" in fold_key("帮我查一下 采购流程 的进度。")
-    assert fold_key("採購流程！") == "採購流程"
+    # Traditional folds to Simplified for matching only (step 1.4).
+    assert fold_key("採購流程！") == "采购流程"
 
 
 def test_english_behaviour_unchanged() -> None:
