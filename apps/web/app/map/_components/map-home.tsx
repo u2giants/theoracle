@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { brainGet, type CommunityCard, type Finding } from './brain';
+import { brainGet, pickText, type CommunityCard, type Finding } from './brain';
 import { LoadState, Markdown, SourceChip, StanceBadge } from './bits';
 
 type Company = {
@@ -14,7 +14,7 @@ type Company = {
   issues: Finding[];
 };
 
-export function MapHome({ isAdmin }: { isAdmin: boolean }) {
+export function MapHome({ isAdmin, lang = '' }: { isAdmin: boolean; lang?: string }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [cards, setCards] = useState<CommunityCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,14 +113,18 @@ export function MapHome({ isAdmin }: { isAdmin: boolean }) {
             >
               <Card className="h-full transition hover:border-foreground/40">
                 <CardHeader>
-                  <CardTitle className="text-base">{card.title}</CardTitle>
+                  <CardTitle className="text-base">
+          {pickText(card.translations, lang, 'title', card.title)}
+        </CardTitle>
                   <CardDescription>
                     {card.finding_count} finding{card.finding_count === 1 ? '' : 's'} ·{' '}
                     {card.entity_count} things
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="line-clamp-4 text-sm text-muted-foreground">{card.summary}</p>
+                  <p className="line-clamp-4 text-sm text-muted-foreground">
+          {pickText(card.translations, lang, 'summary', card.summary)}
+        </p>
                 </CardContent>
               </Card>
             </Link>

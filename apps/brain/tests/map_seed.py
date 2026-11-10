@@ -159,6 +159,34 @@ def seed_map(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     }
 
 
+ZH_ENTITY_DESCRIPTION = "杰西卡负责授权方审批的签署环节。"
+ZH_COMMUNITY_TITLE = "授权审批交接"
+ZH_COMMUNITY_SUMMARY = "设计部与授权部门之间的审批交接流程。"
+
+
+def seed_translations(db: Any, ids: dict[str, Any]) -> dict[str, Any]:
+    """zh-CN sidecar rows for the 3.1 browser test (plan step 3.1)."""
+    rows = [
+        ("entity", ids.get("jessica_id"), "description", "zh-CN", ZH_ENTITY_DESCRIPTION),
+        ("community", ids.get("licensing_community_id"), "title", "zh-CN", ZH_COMMUNITY_TITLE),
+        ("community", ids.get("licensing_community_id"), "summary", "zh-CN", ZH_COMMUNITY_SUMMARY),
+    ]
+    for kind, ref_id, field, lang, text in rows:
+        if ref_id:
+            db.execute(
+                "INSERT INTO cmap.translation (kind, ref_id, field, lang, text) "
+                "VALUES (%s, %s, %s, %s, %s) "
+                "ON CONFLICT (kind, ref_id, field, lang) DO UPDATE SET text = EXCLUDED.text",
+                (kind, ref_id, field, lang, text),
+            )
+    db.commit()
+    return {
+        "zh_entity_description": ZH_ENTITY_DESCRIPTION,
+        "zh_community_title": ZH_COMMUNITY_TITLE,
+        "zh_community_summary": ZH_COMMUNITY_SUMMARY,
+    }
+
+
 # Browser-test employee (the Playwright fake auth server signs this user in).
 # Columns match the web app's Drizzle ``employees`` / ``employee_identities``
 # so the Next.js login lookup and the brain's admin lookup both resolve it.
@@ -194,6 +222,28 @@ INSERT INTO public.employee_identities (id, employee_id, auth_user_id, email) VA
   ('00000000-0000-4000-8000-0000000000e3', '00000000-0000-4000-8000-0000000000e1',
    '00000000-0000-4000-8000-0000000000e2', 'map-e2e@test.invalid')
 ON CONFLICT (id) DO NOTHING;
+CREATE TABLE IF NOT EXISTS public.departments (
+  id text PRIMARY KEY,
+  display_label varchar(120) NOT NULL,
+  description text,
+  head_employee_id uuid,
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.employee_departments (
+  employee_id uuid NOT NULL,
+  department_id text NOT NULL,
+  added_at timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY (employee_id, department_id)
+);
+CREATE TABLE IF NOT EXISTS public.employee_directory_roles (
+  employee_id uuid NOT NULL,
+  role_name text NOT NULL,
+  PRIMARY KEY (employee_id, role_name)
+);
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS departments text[] NOT NULL DEFAULT '{}';
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS created_at timestamp NOT NULL DEFAULT now();
+ALTER TABLE public.employee_identities ADD COLUMN IF NOT EXISTS auth_provider text;
 """
 
 
@@ -298,7 +348,8 @@ INTERVIEW_ANSWER = "Ilona books it every Monday."
 def _reset(db: Any) -> None:
     db.execute(
         "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
-        "cmap.graph_version, cmap.eval_question, cmap.eval_run CASCADE"
+        "cmap.graph_version, cmap.eval_question, cmap.eval_run, cmap.translation, "
+        "cmap.review_flag CASCADE"
     )
     db.commit()
 
@@ -319,6 +370,7 @@ def main() -> None:
     settings = get_settings()
     with psycopg.connect(settings.database_url, connect_timeout=5) as db:
         db.execute(E2E_EMPLOYEE_SQL)
+        db.execute("UPDATE public.employees SET locale = 'en'")
         db.commit()
         _reset(db)
         with pytest.MonkeyPatch.context() as monkeypatch:
@@ -326,6 +378,7 @@ def main() -> None:
             ids.update(seed_eval(db, monkeypatch))
         ids.update(seed_interviews(db, ids["jessica_id"]))
         ids.update(seed_recommendations(db))
+        ids.update(seed_translations(db, ids))
     print(json.dumps(ids))
 
 

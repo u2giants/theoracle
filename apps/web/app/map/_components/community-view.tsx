@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { brainGet, type CommunityDetail } from './brain';
+import { brainGet, pickText, type CommunityDetail } from './brain';
 import { LoadState, Markdown, SourceChip, StanceBadge } from './bits';
 import { CommunityGraph, type GraphRelation } from './community-graph';
 import { EntityDrawer } from './entity-panel';
@@ -11,9 +11,11 @@ import { MarkWrongButton, relationItemId } from './mark-wrong';
 export function CommunityView({
   communityId,
   isAdmin,
+  lang = '',
 }: {
   communityId: string;
   isAdmin: boolean;
+  lang?: string;
 }) {
   const [community, setCommunity] = useState<CommunityDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export function CommunityView({
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <section className="space-y-4">
             <h1 className="text-2xl font-semibold" data-testid="community-title">
-              {community.title}
+              {pickText(community.translations, lang, 'title', community.title)}
             </h1>
             <MarkWrongButton
               isAdmin={isAdmin}
@@ -54,7 +56,12 @@ export function CommunityView({
               itemId={community.id}
             />
             <Markdown
-              text={(community.report_md.split('\n## Findings')[0] ?? '').replace(/^# .*\n+/, '')}
+              text={pickText(
+                community.translations,
+                lang,
+                'summary',
+                (community.report_md.split('\n## Findings')[0] ?? '').replace(/^# .*\n+/, ''),
+              )}
             />
             <div>
               <h2 className="mb-2 font-semibold">Findings</h2>
@@ -133,7 +140,7 @@ export function CommunityView({
           </section>
         </div>
       )}
-      <EntityDrawer entityId={selected} isAdmin={isAdmin} onClose={close} />
+      <EntityDrawer entityId={selected} isAdmin={isAdmin} onClose={close} lang={lang} />
     </main>
   );
 }
