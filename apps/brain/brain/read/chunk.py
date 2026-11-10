@@ -61,10 +61,13 @@ def window_chunks(text: str, locator: dict[str, Any]) -> list[Chunk]:
             space = piece.find(" ")
             if 0 <= space < len(piece) - 1:
                 piece = piece[space + 1 :]
+            # No whitespace (spaceless CJK): snap to the character boundary.
+            piece = piece.lstrip("�")
         if end < total:
             space = piece.rfind(" ")
             if space > 0:
                 piece = piece[:space]
+            piece = piece.rstrip("�")
         piece = piece.strip()
         if piece:
             chunks.append(Chunk(dict(locator), piece, count_tokens(piece)))
