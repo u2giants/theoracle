@@ -161,7 +161,8 @@
       "question": "每款产品平均要打样几轮？",
       "expected_points": [
         "答案说明资料中没有打样轮数的统计",
-        "答案不猜测数字"
+        "答案不猜测数字",
+        "答案说明下一步应该向谁确认"
       ],
       "expected_source_titles": [
         "1781478944645-business-process.md"
@@ -171,7 +172,8 @@
       "question": "宁波办公室今年的打样预算是多少？",
       "expected_points": [
         "答案说明资料中没有打样预算的数据",
-        "答案不猜测数字"
+        "答案不猜测数字",
+        "答案说明下一步应该向谁确认"
       ],
       "expected_source_titles": [
         "1781478944645-business-process.md"
