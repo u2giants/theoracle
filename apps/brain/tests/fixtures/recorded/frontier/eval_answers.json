@@ -4,6 +4,16 @@
     "Who records the licensor sign-off, and where is it recorded?": "Jessica, the Licensing Manager, records the licensor sign-off [1]. The sign-off is filed in the Artwork Log [2]. The flowchart puts recording the sign-off before Create PO [3].",
     "What happens when the licensor rejects an artwork package?": "When the licensor rejects a package, design fixes it and resubmits it [1]. The corrected package goes back into the same queue [2]. Every bounce adds about three weeks to the sign-off date [3].",
     "How long should licensor sign-off take, and how long does it take in practice?": "The procedure says sign-off takes five business days [1]. The Meadow Lane set has already waited ten business days [2]. The procedure also says Jessica escalates on day six [3].",
-    "Why can't buyers raise a purchase order while licensing approval is pending?": "Buyers cannot cut a PO until the sign-off is recorded in the Artwork Log [1]. Without a PO the buyer cannot commit a ship date to the vendor [2]. The buyers end up absorbing the delay [3]."
+    "Why can't buyers raise a purchase order while licensing approval is pending?": "Buyers cannot cut a PO until the sign-off is recorded in the Artwork Log [1]. Without a PO the buyer cannot commit a ship date to the vendor [2]. The buyers end up absorbing the delay [3].",
+    "授权审批卡在哪个环节，为什么？": "审批卡在授权方签署确认环节 [1]。需要授权经理杰西卡记录签署确认 [2]。授权方退回美术稿后要重新修改再提交 [3]。",
+    "谁负责记录授权方的签署确认，记录在哪里？": "杰西卡作为授权经理负责记录签署确认 [1]。签署确认记录在美术稿台账中 [2]。记录签署确认要在创建采购订单之前完成 [3]。",
+    "授权方退回美术稿后会发生什么？": "美术稿修改后重新提交 [1]。重新提交的方案回到同一个审批队列 [2]。每一次退回都会让签署确认再推迟数周 [3]。",
+    "采购订单在什么条件下才能创建？": "签署确认记录完成之前不能创建采购订单 [1]。没有采购订单，采购不能向供应商确认交期 [2]。签署确认变慢时延误由采购承担 [3]。",
+    "授权方签署确认的时限要求是多久，实际又用了多久？": "流程要求五个工作日内完成签署确认 [1]。草地小径系列实际等待了十个工作日以上 [2]。签署确认超时要按流程升级上报 [3]。",
+    "设计部和授权部门之间的交接是怎么进行的？": "设计部把概念方案包交给授权经理复核 [1]。复核通过后再由授权经理提交给授权方 [2]。交接中丢失的信息会拖慢签署确认 [3]。",
+    "为什么美术稿发布经常延误？": "授权方签署确认迟迟不下来是主要原因 [1]。退回修改的循环让发布日期一再顺延 [2]。采购在没有采购订单前无法排产 [3]。",
+    "授权经理在审批流程中的职责是什么？": "授权经理复核概念方案包并提交授权方 [1]。授权经理把签署确认记录到美术稿台账 [2]。授权经理在超时时负责升级上报 [3]。",
+    "首席财务官是谁？": "答案说明资料中没有提到首席财务官的身份 [1]。答案不猜测人名 [2]。",
+    "明年我们计划开设多少家新店？": "答案说明资料中没有明年的开店计划数字 [1]。答案不猜测数字 [2]。"
   }
 }
