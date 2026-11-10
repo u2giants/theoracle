@@ -3,6 +3,22 @@
 
 export type Stance = 'policy' | 'practice' | 'report' | 'inference';
 
+export type Translations = Record<string, Record<string, string>>;
+
+/** Prefer the viewer-language field from the sidecar; else the canonical text. */
+export function pickText(
+  translations: Translations | undefined,
+  lang: string,
+  field: string,
+  fallback: string,
+): string {
+  if (lang === 'zh-CN') {
+    const zh = translations?.['zh-CN']?.[field];
+    if (zh) return zh;
+  }
+  return fallback;
+}
+
 export type SourceRef = { id: string; title: string };
 
 export type Finding = {
@@ -21,6 +37,7 @@ export type CommunityCard = {
   summary: string;
   finding_count: number;
   entity_count: number;
+  translations?: Translations;
 };
 
 export type GraphNode = {
@@ -57,6 +74,7 @@ export type CommunityDetail = {
   findings: Finding[];
   graph: GraphPayload;
   children: { id: string; title: string }[];
+  translations?: Translations;
 };
 
 export type Quote = {
@@ -94,6 +112,7 @@ export type EntityDetail = {
     string,
     { entity_id: string; name: string; type: string; direction: 'in' | 'out'; quotes: Quote[] }[]
   >;
+  translations?: Translations;
 };
 
 export type SourceChunks = {

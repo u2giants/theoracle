@@ -12,7 +12,7 @@ export default async function EntityPage({ params }: { params: Promise<{ id: str
       <Link href="/map" className="text-sm underline">
         ← Company Map
       </Link>
-      <EntityPanel entityId={id} isAdmin={me.isAdmin} />
+      <EntityPanel entityId={id} isAdmin={me.isAdmin} lang={me.locale === 'zh-CN' ? 'zh-CN' : ''} />
     </main>
   );
 }

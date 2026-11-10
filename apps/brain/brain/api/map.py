@@ -217,6 +217,7 @@ def list_communities(
                 "summary": summary,
                 "finding_count": len(_findings(row[5])),
                 "entity_count": int(row[6] or 0),
+                "translations": translations_for("community", str(row[0])),
             }
         )
     cards.sort(key=lambda card: (-card["finding_count"], -card["entity_count"], card["title"]))

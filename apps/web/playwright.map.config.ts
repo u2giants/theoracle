@@ -52,6 +52,7 @@ export default defineConfig({
         NEXT_PUBLIC_SUPABASE_URL: authUrl,
         NEXT_PUBLIC_SUPABASE_ANON_KEY: 'map-e2e-anon-key',
         DATABASE_URL: e2eEnv.databaseUrl,
+        DIRECT_URL: e2eEnv.databaseUrl,
         BRAIN_BASE_URL: `http://127.0.0.1:${e2eEnv.brainPort}`,
         BRAIN_SHARED_TOKEN: e2eEnv.brainToken,
         NEXT_TELEMETRY_DISABLED: '1',

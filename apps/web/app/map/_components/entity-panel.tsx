@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { brainGet, sourceHref, type EntityDetail, type Quote } from './brain';
+import { brainGet, pickText, sourceHref, type EntityDetail, type Quote } from './brain';
 import { LoadState, SourceChip, StanceBadge } from './bits';
 import { MarkWrongButton, relationItemId } from './mark-wrong';
 
@@ -26,7 +26,15 @@ function QuoteLink({ quote }: { quote: Quote }) {
   );
 }
 
-export function EntityPanel({ entityId, isAdmin }: { entityId: string; isAdmin: boolean }) {
+export function EntityPanel({
+  entityId,
+  isAdmin,
+  lang = '',
+}: {
+  entityId: string;
+  isAdmin: boolean;
+  lang?: string;
+}) {
   const [entity, setEntity] = useState<EntityDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,7 +68,11 @@ export function EntityPanel({ entityId, isAdmin }: { entityId: string; isAdmin: 
           <MarkWrongButton isAdmin={isAdmin} itemType="entity" itemId={entity.id} />
         </div>
       </div>
-      {entity.description && <p className="text-sm">{entity.description}</p>}
+      {entity.description && (
+        <p className="text-sm">
+          {pickText(entity.translations, lang, 'description', entity.description)}
+        </p>
+      )}
       {entity.aliases.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold">Also called</h3>
@@ -135,10 +147,12 @@ export function EntityDrawer({
   entityId,
   isAdmin,
   onClose,
+  lang = '',
 }: {
   entityId: string | null;
   isAdmin: boolean;
   onClose: () => void;
+  lang?: string;
 }) {
   useEffect(() => {
     if (!entityId) return;
@@ -165,7 +179,7 @@ export function EntityDrawer({
           Close
         </button>
       </div>
-      <EntityPanel key={entityId} entityId={entityId} isAdmin={isAdmin} />
+      <EntityPanel key={entityId} entityId={entityId} isAdmin={isAdmin} lang={lang} />
     </aside>
   );
 }

@@ -18,6 +18,9 @@ type Seed = {
   interview_answer: string;
   rec_licensing: string;
   rec_small: string;
+  zh_entity_description: string;
+  zh_community_title: string;
+  zh_community_summary: string;
 };
 
 const SHOTS = resolve(WEB_DIR, 'tests', '__screenshots__', 'map');
@@ -272,4 +275,37 @@ test('admin marks entity and relation wrong and resolves them on the review page
   await expect(rows).toHaveCount(1);
   await expect(page.getByTestId('review-note')).toContainText('This hand-off is made up');
   await page.screenshot({ path: resolve(SHOTS, '11-review-resolved.png'), fullPage: true });
+});
+
+test('zh locale shows translations and keeps chrome English', async ({ page, context }) => {
+  const ids = seed();
+  await signIn(context);
+
+  // The admin Language dropdown puts this employee in the China group.
+  await page.goto('/admin/employees');
+  const localeSelect = page.locator('select[name="locale"]').first();
+  await expect(localeSelect).toBeVisible({ timeout: 60_000 });
+  await localeSelect.selectOption('zh-CN');
+  // The form submits on change; wait for the server action to confirm.
+  await expect(page.getByText('Saved.').first()).toBeVisible({ timeout: 30_000 });
+
+  await page.goto(`/map/community/${ids.licensing_community_id}`);
+  await expect(page.getByTestId('community-title')).toHaveText(ids.zh_community_title, {
+    timeout: 60_000,
+  });
+  await expect(page.getByText(ids.zh_community_summary)).toBeVisible();
+  // Chrome stays English.
+  await expect(page.getByText('← Company Map')).toBeVisible();
+  await expect(page.getByText('Findings')).toBeVisible();
+  await page.screenshot({ path: resolve(SHOTS, '12-zh-community.png'), fullPage: true });
+
+  await page.goto(`/map/entity/${ids.jessica_id}`);
+  await expect(page.getByText(ids.zh_entity_description)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('← Company Map')).toBeVisible();
+  await page.screenshot({ path: resolve(SHOTS, '13-zh-entity.png'), fullPage: true });
+
+  // Back to English for any later run sharing the database.
+  await page.goto('/admin/employees');
+  await page.locator('select[name="locale"]').first().selectOption('en');
+  await expect(page.getByText('Saved.').first()).toBeVisible({ timeout: 30_000 });
 });
