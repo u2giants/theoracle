@@ -7,14 +7,14 @@ survival in folds); Chinese text stops being destroyed or ignored.
 
 from __future__ import annotations
 
-import re
+import unicodedata
 
 from brain.lang import is_cjk
 
 # ASCII terminators need whitespace (or end of text) after them, matching the
 # historical `(?<=[.!?])\s+` behaviour; full-width terminators form a boundary
 # with zero or more whitespace after them, because Chinese writes none.
-_ASCII_TERMINATORS = ".!?;"
+_ASCII_TERMINATORS = ".!?"
 _FULLWIDTH_TERMINATORS = "。！？；…"
 _ALL_TERMINATORS = set(_ASCII_TERMINATORS + _FULLWIDTH_TERMINATORS)
 
@@ -33,8 +33,6 @@ _OPEN_TO_CLOSE = {
 }
 _CLOSES = set(_OPEN_TO_CLOSE.values())
 _CLOSER_CHARS = _CLOSES | {'"', "'"}
-
-_WHITESPACE_RUN = re.compile(r" +")
 
 
 def _advance_state(text: str, i: int, depth: int, straight: str | None) -> tuple[int, str | None]:
@@ -61,8 +59,6 @@ def _scan_sentences(text: str) -> list[tuple[int, int, str]]:
     straight: str | None = None
     n = len(text)
     start = 0
-    while start < n and text[start].isspace():
-        start += 1
     i = start
     while i < n:
         ch = text[i]
@@ -79,7 +75,13 @@ def _scan_sentences(text: str) -> list[tuple[int, int, str]]:
                     k += 1
                     while k < n and text[k] in _CLOSER_CHARS:
                         k += 1
-                boundary = k
+                closing_depth, closing_straight = depth, straight
+                for offset in range(i, k):
+                    closing_depth, closing_straight = _advance_state(
+                        text, offset, closing_depth, closing_straight
+                    )
+                if closing_depth == 0 and closing_straight is None:
+                    boundary = k
             elif depth == 0 and straight is None:
                 if ch in _FULLWIDTH_TERMINATORS or i + 1 == n or text[i + 1].isspace():
                     boundary = i + 1
@@ -102,13 +104,13 @@ def _scan_sentences(text: str) -> list[tuple[int, int, str]]:
 
 
 def sentence_spans(text: str) -> list[tuple[int, int]]:
-    """Start/end offsets of each sentence inside ``text``."""
-    return [(start, end) for start, end, _ in _scan_sentences(text)]
+    """Contiguous sentence offsets, including following whitespace."""
+    return [(start, end + len(sep)) for start, end, sep in _scan_sentences(text)]
 
 
 def sentence_slices(text: str) -> list[tuple[str, str]]:
     """Split into (sentence, separator) pairs, keeping the whitespace."""
-    return [(text[start:end], sep) for start, end, sep in _scan_sentences(text)]
+    return [(text[start:end], sep) for start, end, sep in _scan_sentences(text)] or [("", "")]
 
 
 def split_sentences(text: str) -> list[str]:
@@ -130,7 +132,10 @@ def count_units(text: str) -> int:
             rest.append(" ")
         else:
             rest.append(ch)
-    return cjk + len("".join(rest).split())
+    return cjk + sum(
+        any(unicodedata.category(ch)[0] not in "PS" for ch in word)
+        for word in "".join(rest).split()
+    )
 
 
 def fold_key(text: str) -> str:
@@ -139,13 +144,15 @@ def fold_key(text: str) -> str:
     Punctuation (ASCII and full-width) becomes a space; CJK ideographs
     survive so Chinese alias matching is possible at all.
     """
-    folded = text.casefold().replace("'", "").replace("’", "")
+    folded = text.casefold().replace("'", "")
     out: list[str] = []
+    in_punctuation = False
     for ch in folded:
-        if ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch == " ":
+        if ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch == " " or is_cjk(ch):
             out.append(ch)
-        elif is_cjk(ch):
-            out.append(ch)
+            in_punctuation = False
         else:
-            out.append(" ")
-    return _WHITESPACE_RUN.sub(" ", "".join(out)).strip()
+            if not in_punctuation:
+                out.append(" ")
+            in_punctuation = True
+    return "".join(out)

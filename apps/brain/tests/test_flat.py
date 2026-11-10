@@ -292,3 +292,9 @@ def test_frontier_prompt_uses_classify_rubrics() -> None:
     assert "{{chunk_text}}" in prompt
     for label in CLASSIFY_LABELS:
         assert f"- {label['name']}: {label['rubric']}" in prompt
+
+
+def test_sentence_containing_whitespace_offsets() -> None:
+    assert sentence_containing("One. Two", 4, 5) == "One."
+    assert sentence_containing("  One. Two", 0, 1) == "One."
+    assert sentence_containing("  One. Two", 7, 10) == "Two"

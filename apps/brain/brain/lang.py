@@ -7,8 +7,20 @@ Korean hangul are never reported as zh.
 
 from __future__ import annotations
 
-_CJK_START = 0x4E00
-_CJK_END = 0x9FFF  # CJK Unified Ideographs (一-鿿)
+_CJK_RANGES = (
+    (0x3400, 0x4DBF),  # Extension A
+    (0x4E00, 0x9FFF),  # Unified Ideographs
+    (0xF900, 0xFAFF),  # Compatibility Ideographs
+    (0x20000, 0x2A6DF),  # Extension B
+    (0x2A700, 0x2B73F),  # Extension C
+    (0x2B740, 0x2B81F),  # Extension D
+    (0x2B820, 0x2CEAF),  # Extension E
+    (0x2CEB0, 0x2EBEF),  # Extension F
+    (0x2EBF0, 0x2EE5F),  # Extension I
+    (0x2F800, 0x2FA1F),  # Compatibility supplement
+    (0x30000, 0x3134F),  # Extension G
+    (0x31350, 0x323AF),  # Extension H
+)
 _KANA_START = 0x3040
 _KANA_END = 0x30FF  # Hiragana + Katakana
 _HANGUL_RANGES = ((0x1100, 0x11FF), (0x3130, 0x318F), (0xAC00, 0xD7AF))
@@ -19,7 +31,7 @@ ZH_SHARE_THRESHOLD = 0.4
 
 def is_cjk(ch: str) -> bool:
     """True when ch is a single CJK Unified Ideograph."""
-    return len(ch) == 1 and _CJK_START <= ord(ch) <= _CJK_END
+    return len(ch) == 1 and any(start <= ord(ch) <= end for start, end in _CJK_RANGES)
 
 
 def _is_kana(ch: str) -> bool:

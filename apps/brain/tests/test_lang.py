@@ -41,3 +41,12 @@ def test_helpers() -> None:
     assert cjk_ratio("purchasing") == 0.0
     assert cjk_ratio("采 a") == 0.5
     assert cjk_ratio("") == 0.0
+
+
+def test_extended_cjk_helpers() -> None:
+    for ch in ("㐀", "𠀀", "豈", "丽", "𰀀"):
+        assert is_cjk(ch)
+        assert cjk_ratio(ch) == 1.0
+        assert detect_language(ch) == "zh"
+    assert not is_cjk("㌀")
+    assert not is_cjk("😀")
