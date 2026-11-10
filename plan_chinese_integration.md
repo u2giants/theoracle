@@ -15,7 +15,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 
 | Step | Title | State | Evidence / blocker | Updated (EDT) |
 |---|---|---|---|---|
-| 0.1 | Language detection utility (`brain/lang.py`) | ⬜ open | — | — |
+| 0.1 | Language detection utility (`brain/lang.py`) | ✅ done | `apps/brain/tests/test_lang.py` (6 tests green; full brain suite 238 green) | 2026-11-09 10:52 PM EST |
 | 0.2 | CJK-safe sentence splitting, counting, folding | ⬜ open | — | — |
 | 0.3 | Fix bot/transcript CJK blockers (commands, word count, speaker regex) | ⬜ open | — | — |
 | 0.4 | CJK-safe chunk edges + name normalization | ⬜ open | — | — |
