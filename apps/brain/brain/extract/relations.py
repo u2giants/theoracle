@@ -121,6 +121,7 @@ class Relation:
     stance: str
     confidence: float
     quote: str
+    description_en: str = ""
 
 
 @dataclass
@@ -239,6 +240,7 @@ def validate_response(
         stance = str(item.get("stance") or "")
         quote = str(item.get("quote") or "")
         description = str(item.get("description") or "").strip()
+        description_en = str(item.get("description_en") or "").strip()
         confidence = _confidence(item.get("confidence"))
         if rel_type not in REL_TYPES or stance not in STANCES:
             continue
@@ -259,6 +261,7 @@ def validate_response(
                 stance=stance,
                 confidence=confidence,
                 quote=quote,
+                description_en=description_en,
             )
         )
     return relations, new_mentions

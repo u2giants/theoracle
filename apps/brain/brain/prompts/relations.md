@@ -17,7 +17,8 @@ PASSAGE:
 Return JSON only:
 {"relations": [
   {"from": "m1", "to": "m4", "type": "PERFORMS|OWNS|PART_OF|PRECEDES|HANDS_OFF_TO|DEPENDS_ON|USES|PRODUCES|APPLIES_TO|EXCEPT_WHEN|CAUSES|BLOCKED_BY|CONTRADICTS|MENTIONS",
-   "description": "<one sentence in plain English>",
+   "description": "<one sentence in the language of the quotes>",
+   "description_en": "<the same sentence in English; empty when description is already English>",
    "stance": "policy|practice|report|inference",
    "confidence": 0.0-1.0,
    "quote": "<exact substring of PASSAGE that supports this>"}
