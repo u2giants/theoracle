@@ -47,9 +47,15 @@ _GREETINGS = {
     "hi", "hello", "hey", "hiya", "yo", "hi there", "hello there", "hey there",
     "good morning", "good afternoon", "good evening", "morning", "howdy",
     "hi oracle", "hello oracle", "hey oracle", "hi the oracle", "hello the oracle",
+    "你好", "您好", "在吗", "你在吗", "你好呀", "嗨", "哈喽",
+    "你好 oracle", "oracle 你好",
 }
-_DONE = {"done", "that s all", "thats all", "that is all", "finished", "end", "i m done", "im done"}
-_JOIN = re.compile(r"^(join|listen|start|bring oracle in)\b", re.IGNORECASE)
+_DONE = {
+    "done", "that s all", "thats all", "that is all", "finished", "end",
+    "i m done", "im done",
+    "完成", "完成了", "好了", "说完了", "结束", "就这些", "做完了", "就这样",
+}
+_JOIN = re.compile(r"^(?:join\b|listen\b|start\b|bring oracle in\b|加入|拉我进|开始)", re.IGNORECASE)
 _TEAMS_URL = re.compile(r"https://teams\.microsoft\.com/", re.IGNORECASE)
 
 

@@ -17,7 +17,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 |---|---|---|---|---|
 | 0.1 | Language detection utility (`brain/lang.py`) | ✅ done | `apps/brain/tests/test_lang.py` (6 tests green; full brain suite 238 green) | 2026-11-09 10:52 PM EST |
 | 0.2 | CJK-safe sentence splitting, counting, folding | ✅ done | `apps/brain/tests/test_cjk_text.py` (6 tests green; full brain suite 244 green) | 2026-11-09 11:25 PM EST |
-| 0.3 | Fix bot/transcript CJK blockers (commands, word count, speaker regex) | ⬜ open | — | — |
+| 0.3 | Fix bot/transcript CJK blockers (commands, word count, speaker regex) | ✅ done | `apps/brain/tests/test_intake_zh.py`, `test_inbound_zh.py`, `test_transcript_cjk.py` (9 tests green). Judgment: followup name guard checks name-shaped CJK runs (2-4 chars) by containment; longer CJK clauses never name-candidates so zh follow-ups cannot false-positive | 2026-11-10 12:20 AM EST |
 | 0.4 | CJK-safe chunk edges + name normalization | ⬜ open | — | — |
 | 1.1 | Extraction prompts: source-language names/quotes, English label keys | ⬜ open | — | — |
 | 1.2 | Description/summary prompts language-neutral | ⬜ open | — | — |

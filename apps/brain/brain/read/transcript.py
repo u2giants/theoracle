@@ -153,7 +153,7 @@ def _turns_from_vtt(raw: str) -> list[Turn]:
             speaker = voiced.group(1).strip()
             joined = re.sub(r"</v>", "", voiced.group(2)).strip()
         else:
-            named = re.match(r"([^:]{1,60}):\s+(.*)$", joined)
+            named = re.match(r"(.{1,60}?)[:：]\s*(.+)$", joined)
             if named:
                 speaker = named.group(1).strip()
                 joined = named.group(2).strip()
@@ -174,7 +174,7 @@ def _turns_from_speaker_lines(raw: str) -> list[Turn]:
         stripped = line.strip()
         if not stripped:
             continue
-        named = re.match(r"^([^:]{1,60}):\s+(.*)$", stripped)
+        named = re.match(r"^(.{1,60}?)[:：]\s*(.+)$", stripped)
         if named:
             turns.append(
                 Turn(
