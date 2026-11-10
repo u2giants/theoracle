@@ -49,6 +49,7 @@ type Contribution = {
 type Overview = {
   env_enabled: boolean;
   switch_enabled: boolean;
+  weekly_cap: number;
   questions: Question[];
   employees: Employee[];
   contributions?: Contribution[];
@@ -130,8 +131,8 @@ export function QuestionsClient() {
               </p>
             )}
             <p className="text-sm text-muted-foreground">
-              Questions go out over Teams; The Oracle opens the 1:1 chat if there
-              is not one yet.
+              Questions go only to people who messaged The Oracle bot first, at most{' '}
+              {data.weekly_cap} per person per week.
             </p>
             <Button
               variant="outline"
