@@ -77,7 +77,6 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
 @pytest.fixture()
 def enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(get_settings(), "brain_interview_enabled", True)
-    monkeypatch.setattr(get_settings(), "brain_interview_weekly_cap", 2)
     monkeypatch.setattr(tick_mod, "in_quiet_hours", lambda now=None: False)
 
 
@@ -154,7 +153,10 @@ def _states(db: Any) -> dict[str, str]:
     }
 
 
-def test_weekly_cap(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None:
+def test_questions_send_without_weekly_quota(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """Owner 2026-11-10: no weekly quota — every open question goes out."""
     person = _person(db, EMPLOYEE_NAME)
     licensing = _thing(db, "Licensing approval")
     _relate(db, person, licensing, sources=2)
@@ -162,22 +164,15 @@ def test_weekly_cap(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None
     assert _connect()["reply"] == intake.REPLY_INTRO
 
     first = run_interview_tick()
-    assert first["asked"] == 2
-    assert first["unrouted"] == 1
-    assert [employee for employee, _ in sent] == [EMPLOYEE_ID, EMPLOYEE_ID]
+    assert first["asked"] == 3
+    assert [employee for employee, _ in sent] == [EMPLOYEE_ID] * 3
     assert sent[0][1] == MESSAGE_TEMPLATE.format(question="Who signs off step 0?")
     states = _states(db)
-    assert [states[qid] for qid in ids] == ["asked", "asked", "open"]
+    assert [states[qid] for qid in ids] == ["asked", "asked", "asked"]
 
     second = run_interview_tick()
     assert second["asked"] == 0
-    assert len(sent) == 2
-
-    db.execute("UPDATE cmap.interview_send SET sent_at = now() - interval '8 days'")
-    db.commit()
-    third = run_interview_tick()
-    assert third["asked"] == 1
-    assert _states(db)[ids[2]] == "asked"
+    assert len(sent) == 3
 
 
 def test_most_connected_person_is_chosen(
@@ -394,19 +389,6 @@ def test_admin_overview_pause_and_route(
     assert client.post(
         "/interview/settings", json={"enabled": False}, headers=admin_headers
     ).json() == {"switch_enabled": False}
-
-
-def test_skipped_questions_still_count_toward_cap(
-    db: Any, enabled: None, sent: list[tuple[str, str]]
-) -> None:
-    person = _person(db, EMPLOYEE_NAME)
-    for n in range(5):
-        _question(db, f"Question {n}?", [person])
-    _connect()
-    for _ in range(5):
-        run_interview_tick()
-        handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip")
-    assert len(sent) == 2
 
 
 def test_work_email_matches_identity_row(db: Any) -> None:

@@ -8,9 +8,8 @@ employee the bot can reach, and asks them through the Next.js proactive route.
 Guardrail: nothing is sent unless ``BRAIN_INTERVIEW_ENABLED`` is true. The
 employee does not have to message first — when no conversation is stored yet
 (Teams never delivered a conversation update and they never opened the chat),
-the web layer opens the 1:1 chat itself on first send. Weekly cap per
-employee: ``BRAIN_INTERVIEW_WEEKLY_CAP``. Questions with no reachable target
-stay open and show on the admin page for manual routing.
+the web layer opens the 1:1 chat itself on first send. Questions with no
+reachable target stay open and show on the admin page for manual routing.
 """
 
 from __future__ import annotations
@@ -123,12 +122,12 @@ def _person_names(conn: psycopg.Connection, entity_id: str, canonical: str) -> s
     return names
 
 
-def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]:
+def reachable_employees(conn: psycopg.Connection) -> dict[str, Target]:
     """Employees the bot may write to now, keyed by normalised name.
 
-    Reachable = not paused, and asked fewer than ``cap`` questions sent in the
-    last 7 days (skipped ones included, from ``cmap.interview_send``). The
-    conversation reference is optional: without one the web layer opens the
+    Reachable = not paused. The weekly question quota was removed on the
+    owner's word (2026-11-10: "take off the quota of questions per week").
+    The conversation reference is optional: without one the web layer opens the
     chat at first send (measured 2026-11-04: 11 Teams-licensed employees kept
     the app but never got questions because their install conversation update
     never arrived).
@@ -141,10 +140,7 @@ def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]
         LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id
         WHERE e.disabled_at IS NULL AND e.name IS NOT NULL
           AND NOT COALESCE(f.interviews_paused, false)
-          AND (SELECT count(*) FROM cmap.interview_send s
-               WHERE s.employee_id = e.id AND s.sent_at > now() - interval '7 days') < %s
         """,
-        (cap,),
     ).fetchall()
     out: dict[str, Target] = {}
     for employee_id, name, ref in rows:
@@ -267,7 +263,7 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
             "FROM cmap.open_question WHERE state = 'open' ORDER BY created_at, id"
         ).fetchall()
         for qid, text, entity_ids, manual, skipped in questions:
-            reachable = reachable_employees(conn, cfg.brain_interview_weekly_cap)
+            reachable = reachable_employees(conn)
             target = select_target(
                 conn,
                 {
