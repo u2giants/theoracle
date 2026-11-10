@@ -534,7 +534,9 @@ def _ask_report(
         open_questions = []
     return {
         "title": str(result.get("title") or "").strip() or "Untitled area",
+        "title_en": str(result.get("title_en") or "").strip(),
         "summary": str(result.get("summary") or "").strip(),
+        "summary_en": str(result.get("summary_en") or "").strip(),
         "findings": [item for item in findings if isinstance(item, dict)],
         "open_questions": [str(item) for item in open_questions if str(item).strip()],
     }
