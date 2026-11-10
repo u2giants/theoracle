@@ -33,8 +33,15 @@ MAX_READ_ERROR_CHARS = 2000
 
 
 def _decode_text(data: bytes) -> str:
-    """Decode a text source, tolerating a UTF-8 BOM."""
-    return data.decode("utf-8-sig", errors="replace")
+    """Decode a text source: UTF-8 (with BOM), then GB18030, then replace."""
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode("gb18030")
+    except UnicodeDecodeError:
+        return data.decode("utf-8-sig", errors="replace")
 
 
 def read_chunks(kind: str, data: bytes, usage: dict[str, int] | None = None) -> list[Chunk]:

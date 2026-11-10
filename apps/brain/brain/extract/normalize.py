@@ -11,11 +11,15 @@ from __future__ import annotations
 import re
 import string
 
+from brain.lang import is_cjk
+
 HONORIFICS = frozenset(
     {"mr", "mrs", "ms", "miss", "mx", "dr", "prof", "sir", "madam"}
 )
 
-_PUNCT_TABLE = str.maketrans("", "", string.punctuation)
+_PUNCT_TABLE = str.maketrans(
+    "", "", string.punctuation + "，。、；：？！（）【】「」『』“”‘’《》〈〉～…"
+)
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -48,5 +52,7 @@ def normalize_name(surface: str, entity_type: str) -> str:
     if words and words[0] in HONORIFICS:
         words.pop(0)
     if entity_type != "Person":
-        words = [_singularise(word) for word in words]
+        words = [
+            word if any(is_cjk(ch) for ch in word) else _singularise(word) for word in words
+        ]
     return " ".join(words)
