@@ -99,14 +99,7 @@ finished files are removed, so removal is part of the work, not paperwork:
   one handoff per phase. Without the successor rule that is nine open files for
   ONE workstream. The plan document is the durable record; the handoff is only
   the baton. Retire the baton you just took.
-- **Standing exception — the legacy archive.**
-  `HANDOFF.d/2026-08-06T1510Z-t16-codex-legacy-migrated-handoff.md` (~185 KB) is NOT a session
-  baton and no successor session will ever retire it. It is pre-2026-08-06 history, and it is kept
-  for exactly one reason: it holds the only full text of the open `GAP-1`…`GAP-14` and
-  `REL-1`…`REL-9` register. **The moment that register is moved into a real plan document with a
-  STATUS table, delete this archive file in the same commit that lands the plan.** Git history
-  keeps it. Do not leave both — a duplicated register is how a stale copy silently wins. Until then
-  it stays, and it does not count toward the threshold below.
+- **Legacy archive retired (2026-11-11).** The pre-2026-08-06 archive handoff was deleted once the `GAP-1`…`GAP-14` and `REL-1`…`REL-9` registers were confirmed to live in `plan_deferred_product_and_infrastructure_gaps.md` and `plan_repo_reliability_and_release_gaps.md`. Dead ends from it and the other retired pre-Company-Map handoffs: [`docs/history/retired-handoffs-2026-11-11.md`](docs/history/retired-handoffs-2026-11-11.md).
 - **No handoff count cap:** Albert's August 13, 2026 ruling, preserved in the
   `handoff-writer` skill, supersedes the former five-file threshold. Retire only
   eligible predecessors under the successor rule; retain unrelated open work.
