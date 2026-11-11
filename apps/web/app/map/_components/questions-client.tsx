@@ -8,8 +8,8 @@ import { brainGet, brainPost, sourceHref } from './brain';
 
 // Admin page for the open-question queue (plan step 12): open questions and
 // who each will go to, asked/answered history, a pause switch per employee
-// and the global on/off switch. The bot only ever writes to employees who
-// messaged it first, and only while interviews are turned on.
+// and the global on/off switch. The bot can open a new 1:1 chat, and only
+// writes while interviews are turned on.
 
 type Question = {
   id: string;
@@ -49,7 +49,7 @@ type Contribution = {
 type Overview = {
   env_enabled: boolean;
   switch_enabled: boolean;
-  weekly_cap: number;
+  weekly_cap?: number;
   questions: Question[];
   employees: Employee[];
   contributions?: Contribution[];
@@ -131,8 +131,10 @@ export function QuestionsClient() {
               </p>
             )}
             <p className="text-sm text-muted-foreground">
-              Questions go only to people who messaged The Oracle bot first, at most{' '}
-              {data.weekly_cap} per person per week.
+              The Oracle opens the 1:1 chat if there is not one yet.{' '}
+              {data.weekly_cap != null
+                ? `At most ${data.weekly_cap} questions per person in the last 7 days.`
+                : 'The weekly question limit is unavailable.'}
             </p>
             <Button
               variant="outline"
@@ -178,8 +180,15 @@ export function QuestionsClient() {
                     >
                       <option value="">Automatic</option>
                       {connected.map((e) => (
-                        <option key={e.employee_id} value={e.employee_id}>
+                        <option
+                          key={e.employee_id}
+                          value={e.employee_id}
+                          disabled={data.weekly_cap != null && e.asked_last_7_days >= data.weekly_cap}
+                        >
                           {e.name}
+                          {data.weekly_cap != null && e.asked_last_7_days >= data.weekly_cap
+                            ? ' — weekly limit reached'
+                            : ''}
                         </option>
                       ))}
                     </select>
@@ -259,10 +268,10 @@ export function QuestionsClient() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="font-semibold">People the bot can reach</h2>
+            <h2 className="font-semibold">People with stored Teams chats</h2>
             {connected.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Nobody yet. A person becomes reachable after they message The Oracle bot in Teams.
+                No stored chats yet. The Oracle can open a 1:1 chat when it sends a question.
               </p>
             )}
             <ul className="space-y-1 text-sm" data-testid="interview-employees">
