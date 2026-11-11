@@ -72,6 +72,7 @@ Items the audit marked inferred (not reproduced): Office files with links/charts
 3. Continue A2–A7, then A8 (re-read everything, record the baseline score in `docs/verification/repair/A8-baseline.md`). You'll know Phase A worked when no source shows as read with nothing extracted, no jobs are failed, and the new score is recorded.
 4. Start a fresh session after A8 (plan cut point), then Phase B, then C–J per the STATUS table's "needs" column.
 5. Tick the phase on issue #520 only with a live-proof artifact.
+6. Deferred at wrap-up (owner asked 2026-11-11 "why are we doing checks on documentation-only?"): pull requests that change only Markdown still run the web build, Vercel preview and AI review (seen on https://github.com/u2giants/theoracle/pull/521, about ten minutes, proving nothing). Add a documentation-only skip to https://github.com/u2giants/theoracle/blob/main/.github/workflows/pr-check.yml and https://github.com/u2giants/theoracle/blob/main/.github/workflows/ai-review.yml (path filters or an early-exit job that still reports success), and an ignored-build rule for Vercel in https://github.com/u2giants/theoracle/blob/main/vercel.json. Do it in the same PR as step A1. You'll know it worked when a Markdown-only pull request shows its checks finishing in under a minute and is mergeable.
 
 ## 7. Constraints and gotchas in force
 
