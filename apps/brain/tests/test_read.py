@@ -142,6 +142,159 @@ def test_blank_pdf_page_uses_vision(monkeypatch) -> None:
     assert "Approved by J. Smith 2026-03-14" in chunks[1].text
 
 
+MIXED_PAGE_LINES = [
+    "Sample hand-off between the design room and the licensing desk.",
+    "The designer uploads the artwork and records the style number.",
+    "The licensing desk checks the artwork against the style guide.",
+    "Rejected artwork returns to the designer with written reasons.",
+    "Approved artwork moves to the buyer, who may then release the order.",
+    "The drawing below shows the same hand-off as boxes and arrows.",
+]
+
+
+def build_text_and_drawing_pdf(lines: list[str]) -> bytes:
+    """Return a one-page PDF with text lines above a large filled drawing.
+
+    The drawing is a 400 x 300 point rectangle on a 612 x 792 page (about a
+    quarter of the page), standing in for a diagram on a text page.
+    """
+    operations = ["BT", "/F1 11 Tf", "72 740 Td"]
+    for index, line in enumerate(lines):
+        if index:
+            operations.append("0 -15 Td")
+        operations.append(f"({line}) Tj")
+    operations += ["ET", "0.8 g", "100 100 400 300 re", "f"]
+    stream = "\n".join(operations).encode("latin-1")
+    bodies = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n"
+        + stream
+        + b"\nendstream",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets: list[int] = []
+    for number, body in enumerate(bodies, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref_at = len(out)
+    out += f"xref\n0 {len(bodies) + 1}\n".encode()
+    out += b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {len(bodies) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref_at}\n%%EOF\n"
+    ).encode()
+    return bytes(out)
+
+
+def test_mixed_page_text_and_diagram_both_read(monkeypatch) -> None:
+    """A page with plenty of text AND a large drawing is read both ways.
+
+    The page's own text stays, and the vision description of the drawing is
+    appended to it (repair plan A6); before, 200 characters of text kept the
+    page off the vision reader and the diagram was lost.
+    """
+    calls = fake_vision(monkeypatch, "vision_flowchart.json")
+    data = build_text_and_drawing_pdf(MIXED_PAGE_LINES)
+    chunks = read_pdf(data)
+    assert len(calls) == 1
+    text = "\n".join(chunk.text for chunk in chunks)
+    assert len("".join(MIXED_PAGE_LINES)) > 200
+    for line in MIXED_PAGE_LINES:
+        assert line in text
+    assert "FLOWCHART (swimlanes: Design, Licensing, Buyer)." in text
+    assert "->" in text
+    assert text.index(MIXED_PAGE_LINES[0]) < text.index("FLOWCHART")
+    assert all(chunk.locator == {"page": 1, "visual": True} for chunk in chunks)
+
+
+def test_text_only_page_stays_off_vision(monkeypatch) -> None:
+    """A text page with no drawing is still read without the vision reader."""
+    calls = fake_vision(monkeypatch, "vision_flowchart.json")
+    data = (FIXTURES_DIR / "licensing-approval-procedure.pdf").read_bytes()
+    chunks = read_pdf(data)
+    assert calls == []
+    assert all("visual" not in chunk.locator for chunk in chunks)
+
+
+def test_unreadable_regions_recorded(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    user_headers: dict[str, str],
+    monkeypatch,
+    db,
+) -> None:
+    """What the vision reader could not read is stored on the source.
+
+    The notes land in ``cmap.source.read_notes->'unreadable_regions'`` as
+    ``{locator, note}`` objects and the source page's endpoint returns them.
+    """
+    from brain.read import vision
+
+    note = "Handwritten margin note beside the second box is illegible."
+
+    def _post_chat(messages, settings):
+        del messages, settings
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "page_text": "Design room to licensing desk",
+                                "diagram": None,
+                                "unreadable_regions": note,
+                            }
+                        )
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 20},
+        }
+
+    monkeypatch.setattr(vision, "_post_chat", _post_chat)
+    fake_embeddings(monkeypatch)
+
+    response = client.post(
+        "/sources",
+        headers=admin_headers,
+        files={
+            "file": (
+                "design-handoff.pdf",
+                build_text_and_drawing_pdf(MIXED_PAGE_LINES),
+                "application/pdf",
+            )
+        },
+    )
+    assert response.status_code == 200, response.text
+    job_id, source_id = db.execute(
+        "SELECT id::text, payload->>'source_id' FROM cmap.job WHERE kind = 'read_source'"
+    ).fetchone()
+    before = db.execute(
+        "SELECT read_notes FROM cmap.source WHERE id = %s", (source_id,)
+    ).fetchone()
+    assert before[0] == {}
+
+    handle_read_source(
+        {"id": job_id, "kind": "read_source", "payload": {"source_id": source_id}}
+    )
+
+    regions = db.execute(
+        "SELECT read_notes->'unreadable_regions' FROM cmap.source WHERE id = %s",
+        (source_id,),
+    ).fetchone()[0]
+    assert regions == [{"locator": {"page": 1}, "note": note}]
+
+    body = client.get(f"/sources/{source_id}/chunks", headers=user_headers).json()
+    assert body["source"]["read_notes"] == {"unreadable_regions": regions}
+    assert any("Design room to licensing desk" in c["text"] for c in body["chunks"])
+
+
 def test_image_flowchart_renders_edges(monkeypatch) -> None:
     """The flowchart PNG becomes one chunk of rendered ``->`` diagram edges."""
     calls = fake_vision(monkeypatch, "vision_flowchart.json")

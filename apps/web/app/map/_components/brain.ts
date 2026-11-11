@@ -126,6 +126,9 @@ export type SourceChunks = {
     effective_date: string | null;
     created_at: string | null;
     read_state: string;
+    read_notes?: {
+      unreadable_regions?: { locator: Record<string, unknown> | null; note: string }[];
+    } | null;
   };
   chunks: {
     id: string;
