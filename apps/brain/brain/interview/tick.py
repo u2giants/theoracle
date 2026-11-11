@@ -175,52 +175,54 @@ def select_target(
             if target.employee_id == str(manual) and target.employee_id not in skipped:
                 return target
         return None
+    if question.get("department") is not None:
+        # Vetted question: ask whoever the vetting picked, never a bystander.
+        return _suggested_target(conn, question, reachable, skipped)
     ids = [str(item) for item in question.get("entity_ids") or []]
     if not ids:
         return None
-    departments = _question_departments(conn, ids)
     for entity_id, canonical, score in conn.execute(
         _PERSON_WEIGHT_SQL, {"ids": ids}
     ).fetchall():
-        # Only people the question itself names. Being loosely connected to the
-        # topic (e.g. the owner, who appears everywhere) is not enough.
+        # Hand-entered question: only people it names itself.
         if int(score) < 1000:
             continue
         for name in _person_names(conn, entity_id, str(canonical)):
             target = reachable.get(name)
-            if target is None or target.employee_id in skipped:
-                continue
-            if not _department_fits(conn, target.employee_id, departments):
-                continue
-            return target
+            if target is not None and target.employee_id not in skipped:
+                return target
     return None
 
 
-def _question_departments(conn: psycopg.Connection, ids: list[str]) -> set[str]:
-    """Department hints of the sources the question's entities come from."""
+def _suggested_target(
+    conn: psycopg.Connection,
+    question: dict[str, Any],
+    reachable: dict[str, Target],
+    skipped: set[str],
+) -> Target | None:
+    """The person the vetting named, else the department's least-asked member."""
+    person = str(question.get("suggested_person") or "").strip()
+    if person:
+        target = reachable.get(normalize_name(person, "Person"))
+        if target is not None and target.employee_id not in skipped:
+            return target
+    department = str(question.get("department") or "").strip()
+    if not department:
+        return None
+    by_id = {target.employee_id: target for target in reachable.values()}
     rows = conn.execute(
-        "SELECT DISTINCT lower(trim(s.department_hint)) FROM cmap.mention m "
-        "JOIN cmap.chunk ch ON ch.id = m.chunk_id JOIN cmap.source s ON s.id = ch.source_id "
-        "WHERE m.entity_id = ANY(%s::uuid[]) AND s.department_hint IS NOT NULL "
-        "AND trim(s.department_hint) <> ''",
-        (ids,),
+        "SELECT e.id::text FROM public.employees e "
+        "LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id "
+        "WHERE e.disabled_at IS NULL AND lower(trim(COALESCE(NULLIF(trim(f.department), ''), NULLIF(trim(to_jsonb(e)->>'department'), '')))) = lower(%s) "
+        "ORDER BY (SELECT max(s.sent_at) FROM cmap.interview_send s "
+        "WHERE s.employee_id = e.id) NULLS FIRST, e.name",
+        (department,),
     ).fetchall()
-    return {str(row[0]) for row in rows if row[0]}
-
-
-def _department_fits(conn: psycopg.Connection, employee_id: str, departments: set[str]) -> bool:
-    """False only when both sides are known and share no department."""
-    if not departments:
-        return True
-    row = conn.execute(
-        "SELECT lower(trim(COALESCE(f.department, e.department, ''))) FROM public.employees e "
-        "LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id WHERE e.id = %s",
-        (employee_id,),
-    ).fetchone()
-    mine = str(row[0]) if row and row[0] else ""
-    if not mine:
-        return True
-    return any(mine in dep or dep in mine for dep in departments)
+    for (employee_id,) in rows:
+        target = by_id.get(str(employee_id))
+        if target is not None and target.employee_id not in skipped:
+            return target
+    return None
 
 
 def _busy_employees(conn: psycopg.Connection) -> set[str]:
@@ -328,11 +330,15 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
             result["quiet_hours"] = True
             return result
         questions = conn.execute(
-            "SELECT id::text, question, entity_ids, target_employee_id::text, skipped_by "
-            "FROM cmap.open_question WHERE state = 'open' ORDER BY created_at, id"
+            "SELECT id::text, question, entity_ids, target_employee_id::text, skipped_by, "
+            "suggested_person, department "
+            "FROM cmap.open_question WHERE state = 'open' "
+            # Never-vetted questions go out only when an admin routed them by hand.
+            "AND (priority IS NOT NULL OR target_employee_id IS NOT NULL) "
+            "ORDER BY priority DESC NULLS LAST, created_at, id"
         ).fetchall()
         busy = _busy_employees(conn)
-        for qid, text, entity_ids, manual, skipped in questions:
+        for qid, text, entity_ids, manual, skipped, person, department in questions:
             # Re-read the switch every question so turning it off stops a run.
             if not interviews_enabled(conn, cfg):
                 result["stopped"] = True
@@ -350,6 +356,8 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
                     "entity_ids": entity_ids,
                     "target_employee_id": manual,
                     "skipped_by": skipped,
+                    "suggested_person": person,
+                    "department": department,
                 },
                 reachable,
             )

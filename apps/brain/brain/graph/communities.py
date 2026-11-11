@@ -37,6 +37,9 @@ KNOWLEDGE_PROMPT_PATH = PROMPTS_DIR / "knowledge_check.md"
 PASSAGES_PER_QUESTION = 4
 PASSAGE_CHARS = 600
 CHECK_BATCH = 15
+MIN_IMPORTANCE = 3
+MAX_QUESTIONS_PER_AREA = 3
+MAX_PEOPLE_IN_CHECK = 30
 
 RESOLUTION_L0 = 1.0
 RESOLUTION_L1 = 0.5
@@ -635,27 +638,59 @@ def _closest_passages(conn: psycopg.Connection, vector: list[float]) -> list[str
     return [" ".join(str(row[0]).split())[:PASSAGE_CHARS] for row in rows]
 
 
-def unanswered_by_knowledge(
+def _departments(conn: psycopg.Connection) -> list[str]:
+    """The departments active employees say they work in (their own wording)."""
+    rows = conn.execute(
+        # to_jsonb: the directory's own department column is optional.
+        "SELECT DISTINCT trim(COALESCE(NULLIF(trim(f.department), ''), NULLIF(trim(to_jsonb(e)->>'department'), ''))) "
+        "FROM public.employees e LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id "
+        "WHERE e.disabled_at IS NULL AND COALESCE(NULLIF(trim(f.department), ''), NULLIF(trim(to_jsonb(e)->>'department'), '')) IS NOT NULL "
+        "ORDER BY 1"
+    ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def _area_people(conn: psycopg.Connection, entity_ids: list[str]) -> list[str]:
+    """Names of the people who belong to one area."""
+    if not entity_ids:
+        return []
+    rows = conn.execute(
+        "SELECT canonical_name FROM cmap.entity WHERE entity_type = 'Person' "
+        "AND id = ANY(%s::uuid[]) ORDER BY canonical_name LIMIT %s",
+        (entity_ids, MAX_PEOPLE_IN_CHECK),
+    ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def vet_questions(
     conn: psycopg.Connection,
     questions: list[str],
+    people: list[str],
     frontier: _Frontier,
     settings: Settings,
-) -> list[str]:
-    """Keep only the questions nothing the brain already knows answers.
+) -> dict[str, dict[str, Any]]:
+    """Vet candidate questions against everything the brain knows.
 
-    Each question is checked against the closest passages anywhere in the
-    brain (documents and employees' earlier answers). When the check cannot
-    run, nothing is kept: an unchecked question is never sent to anyone.
+    Returns ``{question: {answered, importance, person, department}}`` for the
+    questions the check actually judged. A question missing from the result
+    was not checked (model or embedding failure) and must not be stored.
     """
     if not questions:
-        return []
+        return {}
     try:
         vectors = embed_texts(questions, settings)
-    except Exception:  # noqa: BLE001 - fail closed, never fail the run
-        logger.warning("knowledge check could not embed; dropping %d questions", len(questions))
-        return []
-    template = KNOWLEDGE_PROMPT_PATH.read_text(encoding="utf-8")
-    kept: list[str] = []
+    except Exception:  # noqa: BLE001 - never fail the run
+        logger.warning("question vetting could not embed %d questions", len(questions))
+        return {}
+    departments = _departments(conn)
+    template = (
+        KNOWLEDGE_PROMPT_PATH.read_text(encoding="utf-8")
+        .replace("{{people}}", "\n".join(people) or "(none)")
+        .replace("{{departments}}", "\n".join(departments) or "(none)")
+    )
+    by_lower = {dep.lower(): dep for dep in departments}
+    people_lower = {name.lower(): name for name in people}
+    out: dict[str, dict[str, Any]] = {}
     for start in range(0, len(questions), CHECK_BATCH):
         batch = questions[start : start + CHECK_BATCH]
         blocks = []
@@ -666,15 +701,42 @@ def unanswered_by_knowledge(
             blocks.append(f"{number}. {question}\n{passages or '  (no passages)'}")
         try:
             result = frontier.ask(template.replace("{{candidates}}", "\n\n".join(blocks)))
-        except Exception:  # noqa: BLE001 - fail closed, never fail the run
-            logger.warning("knowledge check failed; dropping %d questions", len(batch))
+        except Exception:  # noqa: BLE001 - never fail the run
+            logger.warning("question vetting failed for %d questions", len(batch))
             continue
-        answered = result.get("answered")
-        if not isinstance(answered, list):
+        results = result.get("results")
+        if not isinstance(results, list):
             continue
-        done = {int(item) for item in answered if str(item).strip().isdigit()}
-        kept.extend(q for number, q in enumerate(batch, start=1) if number not in done)
-    return kept
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            try:
+                number = int(item.get("n"))
+                importance = int(item.get("importance"))
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= number <= len(batch):
+                continue
+            out[batch[number - 1]] = {
+                "answered": bool(item.get("answered")),
+                "importance": max(1, min(5, importance)),
+                "person": people_lower.get(str(item.get("person") or "").strip().lower(), ""),
+                "department": by_lower.get(
+                    str(item.get("department") or "").strip().lower(), ""
+                ),
+            }
+    return out
+
+
+def _worth_asking(verdicts: dict[str, dict[str, Any]], limit: int) -> list[str]:
+    """Unanswered, important questions — the most important ``limit`` of them."""
+    good = [
+        question
+        for question, verdict in verdicts.items()
+        if not verdict["answered"] and verdict["importance"] >= MIN_IMPORTANCE
+    ]
+    good.sort(key=lambda question: -verdicts[question]["importance"])
+    return good[: max(0, limit)]
 
 
 def _store_open_questions(
@@ -685,7 +747,7 @@ def _store_open_questions(
     settings: Settings,
     seen: set[str],
 ) -> int:
-    """Store the report's questions that the brain cannot already answer.
+    """Store the report's few questions that matter and the brain cannot answer.
 
     ``seen`` holds this run's questions only, so one gap raised by several
     reports in the same run is stored once.
@@ -696,12 +758,22 @@ def _store_open_questions(
         if key and key not in seen:
             seen.add(key)
             fresh.append(question)
+    verdicts = vet_questions(conn, fresh, _area_people(conn, entity_ids), frontier, settings)
     written = 0
-    for question in unanswered_by_knowledge(conn, fresh, frontier, settings):
+    for question in _worth_asking(verdicts, MAX_QUESTIONS_PER_AREA):
+        verdict = verdicts[question]
         conn.execute(
-            "INSERT INTO cmap.open_question (question, why, entity_ids, state) "
-            "VALUES (%s, %s, %s, 'open')",
-            (question, report["title"], entity_ids),
+            "INSERT INTO cmap.open_question "
+            "(question, why, entity_ids, state, priority, suggested_person, department) "
+            "VALUES (%s, %s, %s, 'open', %s, %s, %s)",
+            (
+                question,
+                report["title"],
+                entity_ids,
+                verdict["importance"],
+                verdict["person"] or None,
+                verdict["department"],
+            ),
         )
         written += 1
     return written
@@ -714,23 +786,54 @@ def _refresh_open_questions(
     frontier: _Frontier,
     settings: Settings,
 ) -> int:
-    """Retire questions the brain now knows the answer to, or that a rebuild replaced.
+    """Retire waiting questions that no longer deserve to be asked.
 
-    A rebuilt area's questions are regenerated from current knowledge, so the
+    A rebuilt area's questions were regenerated from current knowledge, so its
     old unasked ones go. Unasked questions of areas kept as they were are
-    re-checked against current knowledge (new uploads and answers may cover them).
+    vetted again: answered or unimportant ones go, and each area keeps at most
+    ``MAX_QUESTIONS_PER_AREA``. A question the check could not judge stays as
+    it is.
     """
     rows = conn.execute(
         "SELECT id::text, question, entity_ids FROM cmap.open_question "
-        "WHERE state = 'open' AND target_employee_id IS NULL AND created_at < %s",
+        "WHERE state = 'open' AND target_employee_id IS NULL AND created_at < %s "
+        "ORDER BY created_at, id",
         (run_started,),
     ).fetchall()
-    retire = [qid for qid, _q, ids in rows if frozenset(str(i) for i in (ids or [])) not in kept_sets]
-    remaining = [(qid, q) for qid, q, ids in rows if qid not in set(retire)]
-    still_open = set(
-        unanswered_by_knowledge(conn, [q for _qid, q in remaining], frontier, settings)
-    )
-    retire += [qid for qid, q in remaining if q not in still_open]
+    retire: list[str] = []
+    areas: dict[frozenset[str], list[tuple[str, str, list[str]]]] = {}
+    for qid, question, ids in rows:
+        key = frozenset(str(item) for item in (ids or []))
+        if key not in kept_sets:
+            retire.append(str(qid))
+        else:
+            areas.setdefault(key, []).append((str(qid), str(question), list(ids or [])))
+    for members in areas.values():
+        ids_by_question: dict[str, str] = {}
+        for qid, question, _ids in members:
+            if question in ids_by_question:
+                retire.append(qid)
+            else:
+                ids_by_question[question] = qid
+        verdicts = vet_questions(
+            conn,
+            list(ids_by_question),
+            _area_people(conn, [str(item) for item in members[0][2]]),
+            frontier,
+            settings,
+        )
+        keep = set(_worth_asking(verdicts, MAX_QUESTIONS_PER_AREA))
+        for question, verdict in verdicts.items():
+            qid = ids_by_question[question]
+            if question not in keep:
+                retire.append(qid)
+                continue
+            conn.execute(
+                "UPDATE cmap.open_question SET priority = %s, suggested_person = %s, "
+                "department = %s WHERE id = %s",
+                (verdict["importance"], verdict["person"] or None, verdict["department"], qid),
+            )
+        conn.commit()
     if retire:
         conn.execute(
             "UPDATE cmap.open_question SET state = 'dismissed' WHERE id = ANY(%s::uuid[])",

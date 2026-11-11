@@ -40,10 +40,12 @@ class FakeReport:
         self.open_questions = open_questions if open_questions is not None else []
         self.prompts: list[str] = []
         self.answered: list[str] = []
+        self.importance: dict[str, int] = {}
+        self.department = ""
 
     @staticmethod
     def _candidates(prompt: str) -> list[str]:
-        body = prompt.split("<<<", 1)[1]
+        body = prompt.split("CANDIDATES:\n<<<", 1)[1].rsplit(">>>", 1)[0]
         return [block.split("\n", 1)[0] for block in body.strip().split("\n\n")]
 
     def __call__(
@@ -52,13 +54,21 @@ class FakeReport:
         del settings
         prompt = str(messages[-1]["content"])
         self.prompts.append(prompt)
-        if prompt.startswith("KNOWLEDGE CHECK"):
-            answered = [
-                n for n, line in enumerate(self._candidates(prompt), start=1)
-                if any(a in line for a in self.answered)
+        if prompt.startswith("QUESTION VETTING"):
+            results = [
+                {
+                    "n": n,
+                    "answered": any(a in line for a in self.answered),
+                    "importance": next(
+                        (v for k, v in self.importance.items() if k in line), 4
+                    ),
+                    "person": "",
+                    "department": self.department,
+                }
+                for n, line in enumerate(self._candidates(prompt), start=1)
             ]
             return {
-                "choices": [{"message": {"content": json.dumps({"answered": answered})}}],
+                "choices": [{"message": {"content": json.dumps({"results": results})}}],
                 "usage": {"total_tokens": 5},
             }
         answer = {
@@ -310,6 +320,34 @@ def test_question_the_brain_can_answer_is_not_stored(
     rows = [r[0] for r in db.execute("SELECT question FROM cmap.open_question").fetchall()]
     assert written == 1
     assert rows == ["When is the cutoff?"]
+
+
+def test_only_the_few_important_questions_are_kept(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Owner 2026-11-10: not a question for every small gap — the few that matter."""
+    from brain.config import get_settings
+    from brain.graph import communities as comm
+    from brain.resolve.resolve import _Frontier
+
+    fake_embeddings(monkeypatch)
+    fake = _fake(monkeypatch)
+    fake.importance = {"trivia": 2, "core": 5}
+    fake.department = ""
+    report = {
+        "title": "r",
+        "open_questions": ["trivia one?", "ok a?", "ok b?", "ok c?", "core gap?"],
+    }
+    written = comm._store_open_questions(
+        db, report, [], _Frontier(get_settings(), "reports"), get_settings(), set()
+    )
+    db.commit()
+    rows = db.execute(
+        "SELECT question, priority, department FROM cmap.open_question ORDER BY priority DESC"
+    ).fetchall()
+    assert written == comm.MAX_QUESTIONS_PER_AREA == len(rows)
+    assert rows[0] == ("core gap?", 5, "")
+    assert all("trivia" not in row[0] for row in rows)
 
 
 def test_failed_knowledge_check_stores_nothing(
