@@ -10,7 +10,7 @@ read-when: starting or continuing any brain repair or consultant feature; read S
 Written 2026-11-11, 7:50 AM EST, by Claude (Fable 5.2) on edge-dev3 for Albert Hazan.
 Program issue: [u2giants/theoracle#520](https://github.com/u2giants/theoracle/issues/520) (one checklist item per phase; no child issues unless a phase is handed to a separate session).
 Source audit (read it once, it is the evidence base): [docs/audit-2026-11-11-oracle-goals.md](docs/audit-2026-11-11-oracle-goals.md).
-Registered handoff: [HANDOFF.d/2026-11-11T1247Z-edge-dev3-claude-oracle-repair-plan.md](HANDOFF.d/2026-11-11T1247Z-edge-dev3-claude-oracle-repair-plan.md).
+Registered handoff: [HANDOFF.d/2026-11-11T2217Z-edge-dev3-claude-repair-phase-a-a8-baseline.md](HANDOFF.d/2026-11-11T2217Z-edge-dev3-claude-repair-phase-a-a8-baseline.md).
 Predecessor program (complete except owner acceptance): [plan_oracle_company_map.md](plan_oracle_company_map.md). Its Part 3 defines the tables and pipeline this plan modifies; read the step it names when this plan points there.
 
 **Who this is written for:** a fresh AI session with no memory of the audit conversation. Every step names files, the intended behaviour, and a test. If a step forces you to invent a design that is not written here, stop and record the gap in STATUS.
@@ -77,6 +77,9 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 | J2 | Numbers in answers and recommendations | J1 | ⬜ open | | |
 | J3 | Measured before/after for recommendations | J2, I3 | ⬜ open | | |
 
+**Drift log (each phase's finisher re-reads every later phase to plan-end and records what changed for them):**
+- 2026-11-11 (Phase A): `cmap` SQL is applied at brain start-up since #528 (before that it was a manual `python -m brain.migrate`); SQL 016–018 are used, **next free number is 019**. `read_state` is now `queued|reading|extracting|read|partial|failed` and failed passages are rows in `cmap.extraction` with `error` set — B4's health panel reads these, and admin actions `POST /sources/reread-all`, `/sources/{id}/reread`, `/jobs/retry-failed` already exist. `cmap.source.read_notes` exists (A6); E1 adds its drop-reason counts under a new key there. CSV/TSV are stored as kind `text` and routed at read time (affects A5-style readers and D1's file-metadata dates). A full re-read re-creates entities, so entity row ids change: C3's "re-point recommendations and flags" and G1's content-based keys must not assume ids survive, and F1's `gap_key` must be content-based. H5's job retry/backoff half is done in A2 (`worker.finish_job`); H5 still owns the second provider and spend cap; a full re-read costs roughly 30–36k tokens per passage on the current flat seat (about five hours for 314 passages). The Meta API rejects OpenRouter-only request parameters (H5 second-provider work must gate parameters per provider, see `llm.py`).
+
 **Business acceptance:** after Phase A8, after C5, and after I4, Albert (and Ilona if he wishes) looks at the site. No other step needs a human.
 
 ---
@@ -110,7 +113,7 @@ Today it does not. An audit on 2026-11-11 found the Oracle scores **0.38 out of 
 - `apps/brain/` — Python 3.12 service (FastAPI + one background worker thread in the same process, `B/__main__.py:21`). Owns reading, extraction, the map, answering, interviews, recommendations. Deployed as Coolify service `oracle-brain` (app uuid `uge6pfm4qapktivto4981mtg`) at `https://oracle-brain.designflow.app`; image built by `.github/workflows/brain-image.yml` to GHCR.
 - `apps/web/` — Next.js app on Vercel at `https://oracle.designflow.app`. Supabase Auth login. Company Map pages under `W/map/` (`ask`, `community`, `entity`, `eval`, `questions`, `recommendations`, `review`, `source`, `sources`). It renders and proxies to the brain; no reasoning lives here.
 - Teams bot: `W/api/teams/bot/messages/route.ts` (inbound) and `W/api/teams/bot/proactive/route.ts` (outbound).
-- Data: the Oracle's **own** Supabase Postgres project, schema `cmap` (NOT the shared company database; the `shared-db` rules do not apply to `cmap`). Schema files are `B/sql/001…015_*.sql`, applied idempotently at start-up by `B/migrate.py`. FalkorDB graph `company` is a projection rebuilt from Postgres (`B/graph/project.py`).
+- Data: the Oracle's **own** Supabase Postgres project, schema `cmap` (NOT the shared company database; the `shared-db` rules do not apply to `cmap`). Schema files are `B/sql/001…015_*.sql`, applied idempotently at start-up by `B/migrate.py` (wired into `B/__main__.py` by #528). FalkorDB graph `company` is a projection rebuilt from Postgres (`B/graph/project.py`).
 - The pipeline, in order, each a job kind in table `cmap.job` run by `B/worker.py`: `read_source` (`B/read/pipeline.py`) → flat extraction of mentions (`B/extract/flat.py`) → relationships (`B/extract/relations.py`) → entity resolution (`B/resolve/resolve.py`) → graph projection (`B/graph/project.py`) → clustering and summaries (`B/graph/communities.py`) → recommendations (`B/recommend/recommend.py`). Answers: `B/answer/answer.py`. Interviews: `B/interview/*.py`. Self-test: `B/eval/run.py`.
 - Vocabulary: a **source** is one document/transcript/interview answer; a **chunk** (called "passage" in owner-facing text) is ~400 tokens of a source; an **entity** is one real-world thing (16 types: Person, Role, Department, Process, Step, Decision, Rule, Exception, Issue, System, Artifact, Metric, Product, Customer, Vendor, Licensor); a **relation** is a typed link between two entities with a verbatim quote; a **community** is a cluster of entities with a written report, at level 0 (small), 1 (area), 2 (whole company); `graph_version` increments on each projection.
 - Models: reached through OpenRouter; ids come only from environment/seat settings (`B/seats.py`, `B/config.py`). Seats: chat, frontier (heavy work), flat, vision, embed, eval (grader).
@@ -226,7 +229,7 @@ Everything below is committed, on `main`, and deployed. Nothing in this plan is 
 - (Albert, 2026-10-30) Chat seat is the Claude model; heavy work is a cheaper non-Claude model; grader seat is fixed so scores stay comparable. Model ids live only in env/seat settings — never in code (memory rule `no-hardcoded-model-names-in-adapters`).
 - (Albert, 2026-11-10) Weekly interview quota stays on. Eval questions are approved on the site's eval page, never as chat files.
 - (Albert, 2026-11-11) Domains are by part/function of the company and exist to keep unrelated material out of the context window.
-- (This plan, 2026-11-11) Postgres is the source of truth; every new concept is a `cmap` table/column added by a new idempotent `B/sql/0NN_*.sql` file (next free number is 016); FalkorDB is always re-derivable.
+- (This plan, 2026-11-11) Postgres is the source of truth; every new concept is a `cmap` table/column added by a new idempotent `B/sql/0NN_*.sql` file (next free number is 019); FalkorDB is always re-derivable.
 - (This plan) Every new model call goes through `B/llm.py` and a seat from `B/seats.py`; every new prompt is a file in `B/prompts/` and is covered by `T/test_prompts.py`.
 - (This plan) Human corrections always win over extraction and survive every rebuild (G1).
 - (This plan) Pass bar: mean ≥ 0.6 on the owner-approved set with zero unsupported sentences counted as passes; release gate fails on a drop of more than 0.05 from the last accepted run.
@@ -239,7 +242,7 @@ Everything below is committed, on `main`, and deployed. Nothing in this plan is 
 
 ## 9. The plan
 
-General rules for every step: branch from `main`, one PR per step (small steps in one phase may share a PR), `uv run ruff check . && uv run pytest` green in `apps/brain`, Playwright map test green when `W/map/**` changes, merge, confirm the deployed version (`.github/workflows/verify-live-version.yml`), then run the step's **live gate** against production read-only and save the output under `docs/verification/repair/<step>.md`. Update STATUS in the same PR.
+General rules for every step: when a phase finishes, its implementer re-reads every downstream phase to the end of this plan and records any drift in the Drift log under STATUS before starting the next phase; branch from `main`, one PR per step (small steps in one phase may share a PR), `uv run ruff check . && uv run pytest` green in `apps/brain`, Playwright map test green when `W/map/**` changes, merge, confirm the deployed version (`.github/workflows/verify-live-version.yml`), then run the step's **live gate** against production read-only and save the output under `docs/verification/repair/<step>.md`. Update STATUS in the same PR.
 
 ### Phase A — stop the bleeding
 
