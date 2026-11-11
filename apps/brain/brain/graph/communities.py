@@ -639,7 +639,7 @@ def _store_open_questions(
     existing = [
         str(row[0])
         for row in conn.execute(
-            "SELECT question FROM cmap.open_question WHERE state = 'open'"
+            "SELECT question FROM cmap.open_question"
         ).fetchall()
     ]
     missing = list(

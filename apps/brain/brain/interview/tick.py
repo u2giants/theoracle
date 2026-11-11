@@ -40,6 +40,12 @@ MODEL_TIMEOUT_SECONDS = 8.0
 
 TICK_INTERVAL_SECONDS = 3600
 
+# Human pacing (owner 2026-11-10): one question in flight per person, and at
+# most DAILY_CAP asked per person per New York day. A reply always answers the
+# single outstanding question, so it cannot land on the wrong one.
+DAILY_CAP = 3
+OUTSTANDING_DAYS = 3
+
 # Build-out phase 3: never message people 8 PM–8 AM New York time or on weekends.
 EASTERN = ZoneInfo("America/New_York")
 QUIET_START_HOUR = 20
@@ -168,14 +174,73 @@ def select_target(
     ids = [str(item) for item in question.get("entity_ids") or []]
     if not ids:
         return None
-    for entity_id, canonical, _score in conn.execute(
+    departments = _question_departments(conn, ids)
+    for entity_id, canonical, score in conn.execute(
         _PERSON_WEIGHT_SQL, {"ids": ids}
     ).fetchall():
+        # Only people the question itself names. Being loosely connected to the
+        # topic (e.g. the owner, who appears everywhere) is not enough.
+        if int(score) < 1000:
+            continue
         for name in _person_names(conn, entity_id, str(canonical)):
             target = reachable.get(name)
-            if target is not None and target.employee_id not in skipped:
-                return target
+            if target is None or target.employee_id in skipped:
+                continue
+            if not _department_fits(conn, target.employee_id, departments):
+                continue
+            return target
     return None
+
+
+def _question_departments(conn: psycopg.Connection, ids: list[str]) -> set[str]:
+    """Department hints of the sources the question's entities come from."""
+    rows = conn.execute(
+        "SELECT DISTINCT lower(trim(s.department_hint)) FROM cmap.mention m "
+        "JOIN cmap.chunk ch ON ch.id = m.chunk_id JOIN cmap.source s ON s.id = ch.source_id "
+        "WHERE m.entity_id = ANY(%s::uuid[]) AND s.department_hint IS NOT NULL "
+        "AND trim(s.department_hint) <> ''",
+        (ids,),
+    ).fetchall()
+    return {str(row[0]) for row in rows if row[0]}
+
+
+def _department_fits(conn: psycopg.Connection, employee_id: str, departments: set[str]) -> bool:
+    """False only when both sides are known and share no department."""
+    if not departments:
+        return True
+    row = conn.execute(
+        "SELECT lower(trim(COALESCE(f.department, e.department, ''))) FROM public.employees e "
+        "LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id WHERE e.id = %s",
+        (employee_id,),
+    ).fetchone()
+    mine = str(row[0]) if row and row[0] else ""
+    if not mine:
+        return True
+    return any(mine in dep or dep in mine for dep in departments)
+
+
+def _busy_employees(conn: psycopg.Connection) -> set[str]:
+    """People with a question still waiting, or already at today's cap."""
+    busy = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT DISTINCT target_employee_id FROM cmap.open_question "
+            "WHERE state = 'asked' AND target_employee_id IS NOT NULL "
+            "AND asked_at > now() - make_interval(days => %s)",
+            (OUTSTANDING_DAYS,),
+        ).fetchall()
+    }
+    busy |= {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT employee_id FROM cmap.interview_send "
+            "WHERE (sent_at AT TIME ZONE 'America/New_York')::date = "
+            "(now() AT TIME ZONE 'America/New_York')::date "
+            "GROUP BY employee_id HAVING count(*) >= %s",
+            (DAILY_CAP,),
+        ).fetchall()
+    }
+    return busy
 
 
 def _post_proactive(employee_id: str, text: str, settings: Settings) -> None:
@@ -262,8 +327,19 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
             "SELECT id::text, question, entity_ids, target_employee_id::text, skipped_by "
             "FROM cmap.open_question WHERE state = 'open' ORDER BY created_at, id"
         ).fetchall()
+        busy = _busy_employees(conn)
         for qid, text, entity_ids, manual, skipped in questions:
-            reachable = reachable_employees(conn)
+            # Re-read the switch every question so turning it off stops a run.
+            if not interviews_enabled(conn, cfg):
+                result["stopped"] = True
+                break
+            reachable = {
+                key: value
+                for key, value in reachable_employees(conn).items()
+                if value.employee_id not in busy
+            }
+            if not reachable:
+                break
             target = select_target(
                 conn,
                 {
@@ -314,6 +390,7 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
                 (target.employee_id, qid),
             )
             conn.commit()
+            busy.add(target.employee_id)
             result["asked"] += 1
         conn.commit()
     return result
