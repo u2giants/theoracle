@@ -23,7 +23,7 @@ import tiktoken
 
 from brain.config import Settings, get_settings
 from brain.db import enqueue_job, get_pool
-from brain.embed import embed_texts
+from brain.embed import embed_texts, vector_literal
 from brain.graph.project import _load_edges, _load_entities
 from brain.lang import detect_language
 from brain.resolve.resolve import FrontierCapReached, _Frontier
@@ -33,6 +33,10 @@ logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 REPORT_PROMPT_PATH = PROMPTS_DIR / "community_report.md"
+KNOWLEDGE_PROMPT_PATH = PROMPTS_DIR / "knowledge_check.md"
+PASSAGES_PER_QUESTION = 4
+PASSAGE_CHARS = 600
+CHECK_BATCH = 15
 
 RESOLUTION_L0 = 1.0
 RESOLUTION_L1 = 0.5
@@ -43,7 +47,6 @@ MAX_COMMUNITY = 150
 MAX_CONTEXT_TOKENS = 12000
 MAX_EDGES_IN_CONTEXT = 40
 MAX_QUOTES_IN_CONTEXT = 25
-DEDUPE_COSINE = 0.9
 REPORT_WORKERS = 6
 
 SCOPE_L0 = "one area of how a company operates"
@@ -622,47 +625,119 @@ def _store(
     return community_id, dropped
 
 
+def _closest_passages(conn: psycopg.Connection, vector: list[float]) -> list[str]:
+    """The passages in the whole brain nearest one question."""
+    rows = conn.execute(
+        "SELECT text FROM cmap.chunk WHERE embedding IS NOT NULL "
+        "ORDER BY embedding <=> %s::vector LIMIT %s",
+        (vector_literal(vector), PASSAGES_PER_QUESTION),
+    ).fetchall()
+    return [" ".join(str(row[0]).split())[:PASSAGE_CHARS] for row in rows]
+
+
+def unanswered_by_knowledge(
+    conn: psycopg.Connection,
+    questions: list[str],
+    frontier: _Frontier,
+    settings: Settings,
+) -> list[str]:
+    """Keep only the questions nothing the brain already knows answers.
+
+    Each question is checked against the closest passages anywhere in the
+    brain (documents and employees' earlier answers). When the check cannot
+    run, nothing is kept: an unchecked question is never sent to anyone.
+    """
+    if not questions:
+        return []
+    try:
+        vectors = embed_texts(questions, settings)
+    except Exception:  # noqa: BLE001 - fail closed, never fail the run
+        logger.warning("knowledge check could not embed; dropping %d questions", len(questions))
+        return []
+    template = KNOWLEDGE_PROMPT_PATH.read_text(encoding="utf-8")
+    kept: list[str] = []
+    for start in range(0, len(questions), CHECK_BATCH):
+        batch = questions[start : start + CHECK_BATCH]
+        blocks = []
+        for number, (question, vector) in enumerate(
+            zip(batch, vectors[start : start + CHECK_BATCH], strict=True), start=1
+        ):
+            passages = "\n".join(f"  - {text}" for text in _closest_passages(conn, vector))
+            blocks.append(f"{number}. {question}\n{passages or '  (no passages)'}")
+        try:
+            result = frontier.ask(template.replace("{{candidates}}", "\n\n".join(blocks)))
+        except Exception:  # noqa: BLE001 - fail closed, never fail the run
+            logger.warning("knowledge check failed; dropping %d questions", len(batch))
+            continue
+        answered = result.get("answered")
+        if not isinstance(answered, list):
+            continue
+        done = {int(item) for item in answered if str(item).strip().isdigit()}
+        kept.extend(q for number, q in enumerate(batch, start=1) if number not in done)
+    return kept
+
+
 def _store_open_questions(
     conn: psycopg.Connection,
     report: dict[str, Any],
     entity_ids: list[str],
+    frontier: _Frontier,
     settings: Settings,
-    cache: dict[str, list[float]] | None = None,
+    seen: set[str],
 ) -> int:
-    """Insert deduped open questions (cosine >= 0.9 counts as the same).
+    """Store the report's questions that the brain cannot already answer.
 
-    ``cache`` maps question text to its vector for the whole job, so each
-    distinct question is embedded once: one batched call per report, and the
-    total embedding work grows linearly with the number of questions (#344).
+    ``seen`` holds this run's questions only, so one gap raised by several
+    reports in the same run is stored once.
     """
-    vectors = cache if cache is not None else {}
-    existing = [
-        str(row[0])
-        for row in conn.execute(
-            "SELECT question FROM cmap.open_question"
-        ).fetchall()
-    ]
-    missing = list(
-        dict.fromkeys(
-            text for text in existing + list(report["open_questions"]) if text not in vectors
-        )
-    )
-    if missing:
-        vectors.update(zip(missing, embed_texts(missing, settings), strict=True))
-    stored = [vectors[text] for text in existing]
-    written = 0
+    fresh = []
     for question in report["open_questions"]:
-        new_vector = vectors[question]
-        if any(_cosine(new_vector, other) >= DEDUPE_COSINE for other in stored):
-            continue
+        key = " ".join(question.lower().split())
+        if key and key not in seen:
+            seen.add(key)
+            fresh.append(question)
+    written = 0
+    for question in unanswered_by_knowledge(conn, fresh, frontier, settings):
         conn.execute(
             "INSERT INTO cmap.open_question (question, why, entity_ids, state) "
             "VALUES (%s, %s, %s, 'open')",
             (question, report["title"], entity_ids),
         )
-        stored.append(new_vector)
         written += 1
     return written
+
+
+def _refresh_open_questions(
+    conn: psycopg.Connection,
+    run_started: Any,
+    kept_sets: set[frozenset[str]],
+    frontier: _Frontier,
+    settings: Settings,
+) -> int:
+    """Retire questions the brain now knows the answer to, or that a rebuild replaced.
+
+    A rebuilt area's questions are regenerated from current knowledge, so the
+    old unasked ones go. Unasked questions of areas kept as they were are
+    re-checked against current knowledge (new uploads and answers may cover them).
+    """
+    rows = conn.execute(
+        "SELECT id::text, question, entity_ids FROM cmap.open_question "
+        "WHERE state = 'open' AND target_employee_id IS NULL AND created_at < %s",
+        (run_started,),
+    ).fetchall()
+    retire = [qid for qid, _q, ids in rows if frozenset(str(i) for i in (ids or [])) not in kept_sets]
+    remaining = [(qid, q) for qid, q, ids in rows if qid not in set(retire)]
+    still_open = set(
+        unanswered_by_knowledge(conn, [q for _qid, q in remaining], frontier, settings)
+    )
+    retire += [qid for qid, q in remaining if q not in still_open]
+    if retire:
+        conn.execute(
+            "UPDATE cmap.open_question SET state = 'dismissed' WHERE id = ANY(%s::uuid[])",
+            (retire,),
+        )
+    conn.commit()
+    return len(retire)
 
 
 def _split_report_md(report_md: str) -> tuple[str, str]:
@@ -758,9 +833,12 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         "reports_failed": 0,
         "findings_dropped": 0,
         "open_questions": 0,
+        "open_questions_retired": 0,
     }
-    question_vectors: dict[str, list[float]] = {}
+    seen_questions: set[str] = set()
+    kept_sets: set[frozenset[str]] = set()
     with get_pool().connection() as conn:
+        run_started = conn.execute("SELECT now()").fetchone()[0]
         nodes = _load_entities(conn)
         if not nodes:
             stats.update(frontier.usage)
@@ -799,6 +877,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             report: dict[str, Any] | None,
         ) -> tuple[dict[str, Any], str]:
             if key in existing:
+                kept_sets.add(key[1])
                 stored = existing[key]
                 row_id = stored["row_id"]
                 conn.execute(
@@ -814,7 +893,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 )
                 stats["findings_dropped"] += dropped
                 stats["open_questions"] += _store_open_questions(
-                    conn, stored, member_ids, cfg, question_vectors
+                    conn, stored, member_ids, frontier, cfg, seen_questions
                 )
                 conn.commit()
             else:
@@ -877,6 +956,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         ask_index = 0
         for level1_id, _report_rows, member_ids, key, _context in level1_items:
             if key in existing:
+                kept_sets.add(key[1])
                 row_id = existing[key]["row_id"]
                 conn.execute(
                     "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
@@ -899,7 +979,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             stats["findings_dropped"] += dropped
             stats["reports"] += 1
             stats["open_questions"] += _store_open_questions(
-                conn, report, member_ids, cfg, question_vectors
+                conn, report, member_ids, frontier, cfg, seen_questions
             )
             conn.commit()
 
@@ -914,6 +994,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
 
         company_key = (2, frozenset(str(item) for item in entity_ids))
         if company_key in existing:
+            kept_sets.add(company_key[1])
             company_row = existing[company_key]["row_id"]
             conn.execute(
                 "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
@@ -934,7 +1015,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             )
             stats["findings_dropped"] += dropped
             stats["open_questions"] += _store_open_questions(
-                conn, company, entity_ids, cfg, question_vectors
+                conn, company, entity_ids, frontier, cfg, seen_questions
             )
         stats["reports"] += 1
         conn.execute(
@@ -942,6 +1023,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             (company_row,),
         )
         conn.commit()
+        stats["open_questions_retired"] = _refresh_open_questions(
+            conn, run_started, kept_sets, frontier, cfg
+        )
     stats.update(frontier.usage)
     return stats
 

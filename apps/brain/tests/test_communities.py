@@ -39,12 +39,28 @@ class FakeReport:
         self.findings = findings if findings is not None else []
         self.open_questions = open_questions if open_questions is not None else []
         self.prompts: list[str] = []
+        self.answered: list[str] = []
+
+    @staticmethod
+    def _candidates(prompt: str) -> list[str]:
+        body = prompt.split("<<<", 1)[1]
+        return [block.split("\n", 1)[0] for block in body.strip().split("\n\n")]
 
     def __call__(
         self, messages: list[dict[str, Any]], settings: Any, max_tokens: int = 4000
     ) -> dict[str, Any]:
         del settings
-        self.prompts.append(str(messages[-1]["content"]))
+        prompt = str(messages[-1]["content"])
+        self.prompts.append(prompt)
+        if prompt.startswith("KNOWLEDGE CHECK"):
+            answered = [
+                n for n, line in enumerate(self._candidates(prompt), start=1)
+                if any(a in line for a in self.answered)
+            ]
+            return {
+                "choices": [{"message": {"content": json.dumps({"answered": answered})}}],
+                "usage": {"total_tokens": 5},
+            }
         answer = {
             "title": self.title,
             "summary": (
@@ -274,41 +290,85 @@ def test_fixture_report_context_covers_pdf_and_transcript(
     assert "Top 10 cross-department issues" in fake.prompts[-1]
 
 
-def test_open_question_embeddings_grow_linearly(
+def test_question_the_brain_can_answer_is_not_stored(
     monkeypatch: pytest.MonkeyPatch, db: Any
 ) -> None:
-    """#344: N distinct open questions cost N embedded texts, not N^2."""
+    """Owner 2026-11-10: if the brain already knows the answer, there is no question."""
     from brain.config import get_settings
     from brain.graph import communities as comm
+    from brain.resolve.resolve import _Frontier
 
-    embedded: list[str] = []
+    fake_embeddings(monkeypatch)
 
-    def _embed(texts: list[str], settings: Any) -> list[list[float]]:
-        embedded.extend(texts)
-        out = []
-        for text in texts:
-            vec = [0.0] * 64
-            vec[int(text.split()[-1]) % 64] = 1.0  # distinct axis per question
-            out.append(vec)
-        return out
+    fake = _fake(monkeypatch)
+    fake.answered = ["Who owns the sign-off?"]
+    report = {"title": "r", "open_questions": ["Who owns the sign-off?", "When is the cutoff?"]}
+    written = comm._store_open_questions(
+        db, report, [], _Frontier(get_settings(), "reports"), get_settings(), set()
+    )
+    db.commit()
+    rows = [r[0] for r in db.execute("SELECT question FROM cmap.open_question").fetchall()]
+    assert written == 1
+    assert rows == ["When is the cutoff?"]
 
-    monkeypatch.setattr(comm, "embed_texts", _embed)
 
-    def _run(n: int) -> int:
-        db.execute("DELETE FROM cmap.open_question")
-        db.commit()
-        embedded.clear()
-        cache: dict[str, list[float]] = {}
-        for start in range(0, n, 4):
-            report = {
-                "title": "r",
-                "open_questions": [f"question {i}" for i in range(start, start + 4)],
-            }
-            comm._store_open_questions(db, report, [], get_settings(), cache)
-        db.commit()
-        stored = db.execute("SELECT count(*) FROM cmap.open_question").fetchone()[0]
-        assert stored == n
-        return len(embedded)
+def test_failed_knowledge_check_stores_nothing(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    from brain.config import get_settings
+    from brain.graph import communities as comm
+    from brain.resolve.resolve import _Frontier
 
-    assert _run(16) == 16
-    assert _run(48) == 48  # 3x the questions, exactly 3x the embedding work
+    fake_embeddings(monkeypatch)
+
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _boom)
+    report = {"title": "r", "open_questions": ["When is the cutoff?"]}
+    written = comm._store_open_questions(
+        db, report, [], _Frontier(get_settings(), "reports"), get_settings(), set()
+    )
+    assert written == 0
+
+
+def test_rerun_retires_answered_and_replaced_questions(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Old unasked questions go when their area is rebuilt or the brain learns the answer."""
+    from brain.config import get_settings
+    from brain.graph import communities as comm
+    from brain.resolve.resolve import _Frontier
+
+    fake_embeddings(monkeypatch)
+
+    fake = _fake(monkeypatch)
+    kept = "00000000-0000-4000-8000-000000000001"
+    for text, ids in (
+        ("Rebuilt area question?", ["00000000-0000-4000-8000-000000000002"]),
+        ("Now answered question?", [kept]),
+        ("Still unknown question?", [kept]),
+    ):
+        db.execute(
+            "INSERT INTO cmap.open_question (question, why, entity_ids, created_at) "
+            "VALUES (%s, 'old', %s, now() - interval '1 day')",
+            (text, ids),
+        )
+    db.commit()
+    fake.answered = ["Now answered question?"]
+    retired = comm._refresh_open_questions(
+        db,
+        db.execute("SELECT now()").fetchone()[0],
+        {frozenset([kept])},
+        _Frontier(get_settings(), "reports"),
+        get_settings(),
+    )
+    states = dict(db.execute("SELECT question, state FROM cmap.open_question").fetchall())
+    assert retired == 2
+    assert states == {
+        "Rebuilt area question?": "dismissed",
+        "Now answered question?": "dismissed",
+        "Still unknown question?": "open",
+    }
+
+
