@@ -31,6 +31,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
 | Known runtime failure, stale verification code, migration drift, missing production proof, or release automation | `plan_repo_reliability_and_release_gaps.md` (read its STATUS table first), `AGENT_ERROR_LOG.md`, affected code, `docs/deployment.md` when release behavior changes | Historical handoff blocks except for evidence |
 | Deferred product or infrastructure gap: taxonomy apply, entity-aware retrieval, Authentik, China review/search, attachment cache, Vertex GCS, eval UI, provider batch, secret rotation, identity cleanup | `plan_deferred_product_and_infrastructure_gaps.md` (read its STATUS table first), the affected topic doc and source files | Macro-first supporting history unless the gap changes macro evidence or serving |
+| Fix an Oracle quality defect or build a consultant feature: answer accuracy, data domains/business functions, source dates and versions, contradictions, relationships and ordered flows, gap finding and interviews, corrections, Teams Q&A, briefings, operational numbers | `plan_oracle_repair_and_consultant_upgrade.md` (read its STATUS table first), `docs/audit-2026-11-11-oracle-goals.md`, the affected `apps/brain/brain` files | Legacy `packages/*` claim code |
 
 Rules:
 - MUST be task-based.
