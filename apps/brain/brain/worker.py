@@ -99,6 +99,32 @@ def finish_job(job_id: Any, error: str | None) -> None:
         conn.commit()
 
 
+# A restart (every deploy) kills the job in flight and leaves it 'running'
+# forever. Once the previous container is certainly gone, jobs that were
+# already running before this process started go back to the queue.
+ORPHAN_GRACE_SECONDS = 180.0
+
+
+def boot_time() -> Any:
+    """The database clock now; jobs started before it belong to a dead process."""
+    with get_pool().connection() as conn:
+        return conn.execute("SELECT now()").fetchone()[0]
+
+
+def requeue_orphans(started_before: Any) -> int:
+    """Requeue jobs left 'running' by a process that no longer exists."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "UPDATE cmap.job SET state = 'queued', started_at = NULL "
+            "WHERE state = 'running' AND started_at < %s RETURNING id",
+            (started_before,),
+        ).fetchall()
+        conn.commit()
+    if rows:
+        logger.warning("requeued %d job(s) orphaned by a restart", len(rows))
+    return len(rows)
+
+
 def run_worker(stop: threading.Event) -> None:
     """Claim, run and record jobs until ``stop`` is set; sleep 2 s when idle.
 
@@ -107,8 +133,20 @@ def run_worker(stop: threading.Event) -> None:
     configured, and closes Teams intake threads quiet for 20 minutes.
     """
     last_schedule_check = 0.0
+    started = time.monotonic()
+    booted_at: Any = None
+    orphans_swept = False
     while not stop.is_set():
         now = time.monotonic()
+        if not orphans_swept:
+            try:
+                if booted_at is None:
+                    booted_at = boot_time()
+                if now - started >= ORPHAN_GRACE_SECONDS:
+                    requeue_orphans(booted_at)
+                    orphans_swept = True
+            except Exception as exc:
+                logger.warning("orphaned job sweep failed: %s", exc)
         if now - last_schedule_check >= SCHEDULE_CHECK_SECONDS:
             last_schedule_check = now
             try:
