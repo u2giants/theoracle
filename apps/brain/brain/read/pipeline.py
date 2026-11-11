@@ -17,16 +17,19 @@ from brain.embed import embed_and_store
 from brain.read.chunk import Chunk, window_chunks
 from brain.read.cleanup import drop_orphaned, touched_entities
 from brain.read.detect import (
+    KIND_CSV,
     KIND_DOCX,
     KIND_IMAGE,
     KIND_PDF,
     KIND_PPTX,
     KIND_TEXT,
     KIND_TRANSCRIPT,
+    KIND_TSV,
     KIND_XLSX,
+    read_kind,
 )
 from brain.read.image import read_image
-from brain.read.office import read_docx, read_pptx, read_xlsx
+from brain.read.office import read_delimited, read_docx, read_pptx, read_xlsx
 from brain.read.pdf import read_pdf
 from brain.read.state import NO_CONTENT_ERROR, set_read_state
 from brain.read.transcript import read_transcript
@@ -61,6 +64,8 @@ def read_chunks(kind: str, data: bytes, usage: dict[str, int] | None = None) -> 
         return read_pptx(data, usage)
     if kind == KIND_TRANSCRIPT:
         return read_transcript(_decode_text(data))
+    if kind in (KIND_CSV, KIND_TSV):
+        return read_delimited(_decode_text(data), kind)
     if kind == KIND_TEXT:
         return window_chunks(_decode_text(data), {})
     raise ValueError(f"unsupported source kind {kind!r}")
@@ -138,7 +143,7 @@ def handle_read_source(job: dict[str, Any]) -> None:
     notes = start_read_notes()
     try:
         data = storage_mod.get_storage().download(storage_path)
-        chunks = read_chunks(kind, data, usage)
+        chunks = read_chunks(read_kind(kind, storage_path), data, usage)
         _record_read_notes(source_id, notes)
         pairs = _store_chunks(source_id, chunks)
         if not pairs:
