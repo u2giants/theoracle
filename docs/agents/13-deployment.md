@@ -19,7 +19,7 @@ How deployment works today:
 2. `pr-check.yml` installs dependencies, runs `verify:vercel-contract`, builds `@oracle/web`, runs the remaining DB guards, then runs `pnpm db:check-drift` against production (requires `PROD_DIRECT_URL`; skips gracefully if absent).
 3. Vercel auto-deploys the web app from GitHub using `vercel.json` (`pnpm run build:vercel`).
 4. The brain image is built and published by `brain-image.yml`; Coolify runs it.
-5. Database migrations are applied manually with `pnpm db:migrate` before shipping code that depends on them. Hand-written `migrations/sql/*.sql` files MAY be applied via Supabase MCP `apply_migration`; generated `0NNN_*.sql` files MUST go through `pnpm db:migrate` (otherwise the journal drifts — see incident 2026-05-28).
+5. The brain applies its own `cmap` schema (`apps/brain/brain/sql/*.sql`, idempotent) at every start-up (`brain/__main__.py`); a failure stops the new container. The web app's database migrations are applied manually with `pnpm db:migrate` before shipping code that depends on them. Hand-written `migrations/sql/*.sql` files MAY be applied via Supabase MCP `apply_migration`; generated `0NNN_*.sql` files MUST go through `pnpm db:migrate` (otherwise the journal drifts — see incident 2026-05-28).
 
 Rollback:
 
