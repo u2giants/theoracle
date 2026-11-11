@@ -64,3 +64,26 @@ def test_all_tables_exist() -> None:
         ).fetchall()
     found = {name for (name,) in rows}
     assert found == EXPECTED_TABLES
+
+
+def test_service_start_applies_schema_before_worker(monkeypatch) -> None:
+    """The service applies the schema first; a failure stops the start-up."""
+    import pytest
+
+    from brain import __main__ as entry
+
+    order: list[str] = []
+    monkeypatch.setattr(entry, "migrate", lambda: order.append("migrate"))
+    monkeypatch.setattr(entry, "run_worker", lambda stop: order.append("worker"))
+    monkeypatch.setattr(entry.uvicorn, "run", lambda *a, **k: order.append("serve"))
+    entry.main()
+    assert order[0] == "migrate" and "serve" in order
+
+    def _boom() -> None:
+        raise RuntimeError("database unreachable")
+
+    order.clear()
+    monkeypatch.setattr(entry, "migrate", _boom)
+    with pytest.raises(RuntimeError):
+        entry.main()
+    assert order == []

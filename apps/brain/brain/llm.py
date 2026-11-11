@@ -95,6 +95,10 @@ def post_chat_with_rescue(
             rescue = dict(body)
             budget = int(body.get("max_tokens") or 0) * 2
             rescue["max_tokens"] = max(budget, _MIN_RESCUE_MAX_TOKENS)
-            rescue.setdefault("reasoning", dict(_RESCUE_REASONING))
+            # ``reasoning`` is an OpenRouter parameter; Meta's direct API
+            # rejects it with a 400, which turned every empty reply into a
+            # failed passage (seen in production 2026-11-11).
+            if base_url == OPENROUTER_BASE_URL:
+                rescue.setdefault("reasoning", dict(_RESCUE_REASONING))
             body = rescue
     raise error_cls(f"{label} response has no message content")
