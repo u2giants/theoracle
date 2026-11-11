@@ -9,7 +9,10 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from typing import Any
 
+import psycopg
+import pytest
 from conftest import (
     FIXTURES_DIR,
     fake_embeddings,
@@ -357,11 +360,11 @@ def test_five_fixtures_reach_read_state(
         "SELECT kind, read_state, read_error FROM cmap.source ORDER BY kind"
     ).fetchall()
     assert [(kind, state) for kind, state, _ in rows] == [
-        ("docx", "read"),
-        ("image", "read"),
-        ("pdf", "read"),
-        ("transcript", "read"),
-        ("xlsx", "read"),
+        ("docx", "extracting"),
+        ("image", "extracting"),
+        ("pdf", "extracting"),
+        ("transcript", "extracting"),
+        ("xlsx", "extracting"),
     ]
     assert all(error is None for _, _, error in rows)
 
@@ -391,3 +394,31 @@ def test_five_fixtures_reach_read_state(
         "SELECT count(*) FROM cmap.chunk WHERE embedding IS NOT NULL"
     ).fetchone()
     assert embedded[0] == sum(per_kind.values())
+
+
+def test_source_with_no_content_is_failed_not_read(
+    db: psycopg.Connection,
+    storage: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repair A2/A7: a source that yields no passages is never shown as read."""
+    fake_embeddings(monkeypatch)
+    storage.upload("test/empty.txt", b"   \n\n  ", "text/plain")
+    source_id = str(
+        db.execute(
+            "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes) "
+            "VALUES ('text', 'empty', 'test/empty.txt', 'empty-sha', 7) RETURNING id"
+        ).fetchone()[0]
+    )
+    db.commit()
+    handle_read_source({"id": None, "payload": {"source_id": source_id}})
+    state, error = db.execute(
+        "SELECT read_state, read_error FROM cmap.source WHERE id = %s", (source_id,)
+    ).fetchone()
+    assert (state, error) == ("failed", "no readable content")
+    assert (
+        db.execute(
+            "SELECT count(*) FROM cmap.job WHERE kind = 'classify_extract'"
+        ).fetchone()[0]
+        == 0
+    )

@@ -25,6 +25,7 @@ from brain import storage as storage_mod
 from brain.api.deps import User, admin_or_service, current_user, require_admin
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
+from brain.read.cleanup import drop_orphaned, touched_entities
 from brain.read.detect import (
     KIND_DOCX,
     KIND_PPTX,
@@ -33,7 +34,6 @@ from brain.read.detect import (
     detect_kind,
     verify_office_zip,
 )
-from brain.resolve.resolve import _refresh_counts
 
 router = APIRouter()
 
@@ -460,25 +460,11 @@ def delete_source(
         if row is None:
             raise HTTPException(status_code=404, detail="source not found")
         storage_path = row[0]
-        touched = {
-            str(r[0])
-            for r in conn.execute(
-                "SELECT DISTINCT m.entity_id FROM cmap.mention m "
-                "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
-                "WHERE ch.source_id = %s AND m.entity_id IS NOT NULL",
-                (str(source_id),),
-            ).fetchall()
-        }
+        touched = touched_entities(conn, str(source_id))
         conn.execute("DELETE FROM cmap.source WHERE id = %s", (str(source_id),))
         # Scoped to this source's entities on purpose: mention-less orphans from
         # earlier deletions stay until the owner's keep-vs-hide decision (#255).
-        conn.execute(
-            "DELETE FROM cmap.entity e WHERE e.id = ANY(%s::uuid[]) "
-            "AND NOT EXISTS (SELECT 1 FROM cmap.mention m WHERE m.entity_id = e.id)",
-            (list(touched),),
-        )
-        if touched:
-            _refresh_counts(conn, touched)
+        drop_orphaned(conn, touched)
         conn.commit()
     try:
         storage_mod.get_storage().delete(storage_path)
@@ -486,3 +472,80 @@ def delete_source(
         pass
     enqueue_job("project", {"removed_source_id": str(source_id)})
     return {"id": str(source_id), "deleted": True}
+
+
+def _queue_reread(conn: Any, source_ids: list[str]) -> int:
+    """Queue ``read_source`` for each source that has none waiting or running."""
+    queued = 0
+    for source_id in source_ids:
+        row = conn.execute(
+            "INSERT INTO cmap.job (kind, payload) "
+            "SELECT 'read_source', jsonb_build_object('source_id', %s::text) "
+            "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'read_source' "
+            "AND payload->>'source_id' = %s AND state IN ('queued', 'running')) RETURNING id",
+            (source_id, source_id),
+        ).fetchone()
+        if row is not None:
+            conn.execute(
+                "UPDATE cmap.source SET read_state = 'queued', read_error = NULL WHERE id = %s",
+                (source_id,),
+            )
+            queued += 1
+    return queued
+
+
+@router.post("/sources/reread-all")
+def reread_all_sources(
+    user: Annotated[User, Depends(require_admin)],
+) -> dict[str, Any]:
+    """Queue a fresh read of every source (repair plan A8).
+
+    The single worker reads them one at a time, so this is throttled by
+    construction; each source's old passages and what was extracted from
+    them are replaced, never duplicated.
+    """
+    del user
+    with get_pool().connection() as conn:
+        ids = [
+            str(row[0])
+            for row in conn.execute("SELECT id FROM cmap.source ORDER BY created_at").fetchall()
+        ]
+        queued = _queue_reread(conn, ids)
+        conn.commit()
+    return {"sources": len(ids), "queued": queued}
+
+
+@router.post("/sources/{source_id}/reread")
+def reread_source(
+    source_id: UUID,
+    user: Annotated[User, Depends(require_admin)],
+) -> dict[str, Any]:
+    """Queue a fresh read of one source (the sources page "retry" button)."""
+    del user
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM cmap.source WHERE id = %s", (str(source_id),)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="source not found")
+        queued = _queue_reread(conn, [str(source_id)])
+        conn.commit()
+    return {"id": str(source_id), "queued": bool(queued)}
+
+
+@router.post("/jobs/retry-failed")
+def retry_failed_jobs(
+    user: Annotated[User, Depends(require_admin)],
+) -> dict[str, Any]:
+    """Put every failed job back on the queue with its retries restored."""
+    del user
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "UPDATE cmap.job SET state = 'queued', attempts = 0, run_after = now(), "
+            "started_at = NULL, finished_at = NULL WHERE state = 'failed' RETURNING kind"
+        ).fetchall()
+        conn.commit()
+    kinds: dict[str, int] = {}
+    for (kind,) in rows:
+        kinds[str(kind)] = kinds.get(str(kind), 0) + 1
+    return {"requeued": len(rows), "by_kind": kinds}

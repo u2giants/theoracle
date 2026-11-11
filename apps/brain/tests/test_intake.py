@@ -6,6 +6,7 @@ import io
 import re
 import zipfile
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from conftest import FIXTURES_DIR
@@ -349,3 +350,27 @@ def test_requires_shared_token(client: TestClient) -> None:
     """Without the proxy's shared token nothing is served."""
     response = client.get("/sources")
     assert response.status_code == 401
+
+
+def test_delete_answer_source(db: Any, client: Any, admin_headers: dict[str, str]) -> None:
+    """Repair A7: deleting a source that is an interview answer works; the
+    question keeps its answer text and loses only the link."""
+    source_id = db.execute(
+        "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes) "
+        "VALUES ('transcript', 'interview answer', 'test/answer.txt', 'answer-sha', 10) "
+        "RETURNING id"
+    ).fetchone()[0]
+    question_id = db.execute(
+        "INSERT INTO cmap.open_question (question, why, entity_ids, state, answer, "
+        "answer_source_id) VALUES ('Who signs off?', 'unknown owner', '{}', 'answered', "
+        "'Jessica does', %s) RETURNING id",
+        (source_id,),
+    ).fetchone()[0]
+    db.commit()
+    response = client.delete(f"/sources/{source_id}", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    db.commit()
+    assert db.execute(
+        "SELECT answer, answer_source_id FROM cmap.open_question WHERE id = %s",
+        (question_id,),
+    ).fetchone() == ("Jessica does", None)

@@ -25,6 +25,7 @@ import json
 import logging
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,6 +40,13 @@ from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import ENTITY_TYPES
 from brain.extract.normalize import normalize_name
 from brain.llm import post_chat_with_rescue
+from brain.read import state as read_state
+from brain.read.state import (
+    clear_chunk_failure,
+    finish_source,
+    record_chunk_failure,
+    with_retries,
+)
 from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
@@ -402,6 +410,7 @@ def _process_chunk(
             if attempt == CALL_ATTEMPTS:
                 raise
             logger.warning("relations call failed (%s); retrying chunk %s", exc, chunk_id)
+            time.sleep(read_state.BACKOFF_SECONDS * 2 ** (attempt - 1))
     by_key = {item.key: item for item in known}
     relations, new_mentions = validate_response(text, by_key, payload)
     return ChunkResult(
@@ -481,6 +490,14 @@ def _write_result(result: ChunkResult, prompt_hash: str, model: str) -> None:
     """Write one chunk's new mentions, relations and raw response together."""
     ids = {key: item.mention_id for key, item in result.known.items()}
     with get_pool().connection() as conn:
+        # A chunk is extracted again only when the prompt changed: its old
+        # relations are replaced, never added to (repair plan A8).
+        conn.execute("DELETE FROM cmap.relation WHERE chunk_id = %s", (result.chunk_id,))
+        conn.execute(
+            "DELETE FROM cmap.extraction WHERE chunk_id = %s AND stage = 'relations' "
+            "AND prompt_hash <> %s",
+            (result.chunk_id, prompt_hash),
+        )
         for mention in result.new_mentions:
             row = conn.execute(
                 "INSERT INTO cmap.mention "
@@ -513,6 +530,7 @@ def _write_result(result: ChunkResult, prompt_hash: str, model: str) -> None:
                     relation.quote,
                 ),
             )
+        clear_chunk_failure(conn, result.chunk_id, "relations")
         conn.execute(
             "INSERT INTO cmap.extraction (chunk_id, stage, prompt_hash, model, payload) "
             "VALUES (%s, 'relations', %s, %s, %s) "
@@ -570,19 +588,36 @@ def handle_relations(job: dict[str, Any]) -> None:
             pending.append((chunk_id, text, previous_text, chunk_mentions))
         previous_text = text
 
-    first_error: BaseException | None = None
+    cap_error: FrontierCapReached | None = None
     written = 0
+    failed = 0
     relation_count = 0
+
+    def _one(item: tuple[str, str, str, list[tuple[str, str, str]]]) -> ChunkResult:
+        """Extract, embed and store one chunk's relations."""
+        result = _process_chunk(*item, counters)
+        with_retries(
+            lambda: _embed_new_mentions(result, counters),
+            f"embedding new mentions of chunk {item[0]}",
+        )
+        _write_result(result, prompt_hash, stage_model(settings, "relations"))
+        return result
+
     with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-        futures = [pool.submit(_process_chunk, *item, counters) for item in pending]
+        futures = {pool.submit(_one, item): item[0] for item in pending}
         for future in as_completed(futures):
             try:
                 result = future.result()
-                _embed_new_mentions(result, counters)
-                _write_result(result, prompt_hash, stage_model(settings, "relations"))
-            except Exception as exc:  # keep finished chunks; fail the job after
-                if first_error is None:
-                    first_error = exc
+            except FrontierCapReached as exc:
+                # Not the chunk's fault: the job is resumed once the cap allows.
+                cap_error = exc
+                continue
+            except Exception as exc:
+                # Keep every finished chunk; note this one and carry on, so a
+                # single bad call never stops the chain (repair plan A2).
+                failed += 1
+                logger.warning("relations chunk %s failed for good: %s", futures[future], exc)
+                record_chunk_failure(futures[future], "relations", str(exc))
                 continue
             written += 1
             relation_count += len(result.relations)
@@ -596,8 +631,10 @@ def handle_relations(job: dict[str, Any]) -> None:
         relation_count,
         counters.usage,
     )
-    if first_error is not None:
-        raise first_error
+    if cap_error is not None:
+        raise cap_error
+    state = finish_source(source_id)
+    logger.info("relations source=%s finished as %s (failed chunks=%d)", source_id, state, failed)
     _enqueue_resolve()
 
 

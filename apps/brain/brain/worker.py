@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from brain.chain import handle_ensure_chain, maybe_queue_ensure_chain
 from brain.db import get_pool
 from brain.directory_sync import handle_directory_sync, maybe_queue_directory_sync
 from brain.eval.run import handle_evaluate
@@ -41,6 +42,7 @@ HANDLERS: dict[str, Handler] = {
     "interview_tick": handle_interview_tick,
     "reembed": handle_reembed,
     "directory_sync": handle_directory_sync,
+    "ensure_chain": handle_ensure_chain,
 }
 
 
@@ -50,7 +52,7 @@ def claim_next_job() -> dict[str, Any] | None:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, kind, payload FROM cmap.job "
+                "SELECT id, kind, payload, attempts FROM cmap.job "
                 "WHERE state = 'queued' AND run_after <= now() "
                 "ORDER BY created_at "
                 "FOR UPDATE SKIP LOCKED "
@@ -60,7 +62,7 @@ def claim_next_job() -> dict[str, Any] | None:
             if row is None:
                 conn.rollback()
                 return None
-            job_id, kind, payload = row
+            job_id, kind, payload, attempts = row
             cur.execute(
                 "UPDATE cmap.job "
                 "SET state = 'running', attempts = attempts + 1, started_at = now() "
@@ -72,6 +74,7 @@ def claim_next_job() -> dict[str, Any] | None:
         "id": job_id,
         "kind": kind,
         "payload": payload,
+        "attempts": int(attempts) + 1,
     }
     return job
 
@@ -84,19 +87,61 @@ def run_handler(job: dict[str, Any]) -> None:
     handler(job)
 
 
-def finish_job(job_id: Any, error: str | None) -> None:
-    """Mark a job done, or failed with its error text."""
-    state = "failed"
-    if error is None:
-        state = "done"
+MAX_ATTEMPTS = 3
+RETRY_BASE_SECONDS = 300.0
+
+
+def finish_job(job_id: Any, error: str | None) -> str:
+    """Mark a job done; on error retry it with backoff, then mark it failed.
+
+    A failed job goes back to the queue until it has been tried
+    ``MAX_ATTEMPTS`` times, waiting 5 minutes x 4^(tries so far - 1) first
+    (5 min, then 20 min). Its error text is kept either way. Returns the
+    state written.
+    """
     pool = get_pool()
     with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE cmap.job SET state = %s, error = %s, finished_at = now() WHERE id = %s",
-                (state, error, job_id),
+        if error is None:
+            conn.execute(
+                "UPDATE cmap.job SET state = 'done', error = NULL, finished_at = now() "
+                "WHERE id = %s",
+                (job_id,),
             )
+            conn.commit()
+            return "done"
+        row = conn.execute(
+            "UPDATE cmap.job SET "
+            "state = CASE WHEN attempts < %s THEN 'queued' ELSE 'failed' END, "
+            "run_after = CASE WHEN attempts < %s "
+            "  THEN now() + make_interval(secs => %s * power(4, GREATEST(attempts, 1) - 1)) "
+            "  ELSE run_after END, "
+            "started_at = CASE WHEN attempts < %s THEN NULL ELSE started_at END, "
+            "finished_at = CASE WHEN attempts < %s THEN NULL ELSE now() END, "
+            "error = %s WHERE id = %s RETURNING state",
+            (MAX_ATTEMPTS, MAX_ATTEMPTS, RETRY_BASE_SECONDS, MAX_ATTEMPTS, MAX_ATTEMPTS, error, job_id),
+        ).fetchone()
         conn.commit()
+    return str(row[0]) if row else "failed"
+
+
+FINISH_ATTEMPTS = 3
+
+
+def record_result(job_id: Any, error: str | None) -> None:
+    """Write the job's result, retrying a failed write (repair plan A7).
+
+    If every try fails the job stays ``running`` and the orphan sweep puts it
+    back on the queue at the next start.
+    """
+    for attempt in range(1, FINISH_ATTEMPTS + 1):
+        try:
+            finish_job(job_id, error)
+            return
+        except Exception as exc:
+            logger.warning(
+                "could not record job %s result (try %d): %s", job_id, attempt, exc
+            )
+            time.sleep(min(2.0 * attempt, 5.0))
 
 
 # A restart (every deploy) kills the job in flight and leaves it 'running'
@@ -128,7 +173,9 @@ def requeue_orphans(started_before: Any) -> int:
 def run_worker(stop: threading.Event) -> None:
     """Claim, run and record jobs until ``stop`` is set; sleep 2 s when idle.
 
-    About once a minute it also queues the hourly ``interview_tick`` (a no-op
+    A job that raises is retried with backoff before it is marked failed.
+    About once a minute it also queues the hourly ``ensure_chain`` (heals work
+    left behind), queues the hourly ``interview_tick`` (a no-op
     while ``BRAIN_INTERVIEW_ENABLED`` is false), queues ``directory_sync`` when
     configured, and closes Teams intake threads quiet for 20 minutes.
     """
@@ -158,6 +205,10 @@ def run_worker(stop: threading.Event) -> None:
             except Exception as exc:
                 logger.warning("directory sync scheduling failed: %s", exc)
             try:
+                maybe_queue_ensure_chain()
+            except Exception as exc:
+                logger.warning("chain healing scheduling failed: %s", exc)
+            try:
                 close_stale_threads()
             except Exception as exc:
                 logger.warning("teams intake sweep failed: %s", exc)
@@ -176,7 +227,4 @@ def run_worker(stop: threading.Event) -> None:
         except Exception as exc:
             logger.exception("job %s failed", job["id"])
             error = str(exc)
-        try:
-            finish_job(job["id"], error)
-        except Exception as exc:
-            logger.warning("could not record job %s result: %s", job["id"], exc)
+        record_result(job["id"], error)
