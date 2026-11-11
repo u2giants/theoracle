@@ -19,6 +19,7 @@ from brain.api.deps import User, current_user, require_admin
 from brain.db import get_pool
 from brain.graph.communities import _split_report_md
 from brain.graph.project import _load_edges
+from brain.graph.version import current_graph_version
 from brain.translate import translations_for
 
 router = APIRouter()
@@ -37,12 +38,7 @@ def _uuid(value: str, label: str) -> str:
         raise HTTPException(status_code=404, detail=f"{label} not found") from exc
 
 
-def _current_version(conn: Any) -> int | None:
-    """The newest graph version that has communities, or None when empty."""
-    row = conn.execute("SELECT MAX(graph_version) FROM cmap.community").fetchone()
-    if row is None or row[0] is None:
-        return None
-    return int(row[0])
+_current_version = current_graph_version
 
 
 def _findings(raw: Any) -> list[dict[str, Any]]:

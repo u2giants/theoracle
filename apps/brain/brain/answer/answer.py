@@ -40,6 +40,7 @@ from brain.extract import flat as flat_mod
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 from brain.graph.communities import _tokens
 from brain.graph.project import connect as connect_graph
+from brain.graph.version import current_graph_version
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
 from brain.text_util import fold_key, sentence_slices
@@ -723,12 +724,20 @@ def _report_summary(report_md: str) -> str:
 
 
 def _load_reports() -> list[dict[str, Any]]:
-    """The level-1 community reports plus the company report."""
+    """The current map's level-1 community reports plus its company report.
+
+    Only rows stamped with the current graph version are read: older builds'
+    reports stay in the table for a while and must never reach an answer.
+    """
     with get_pool().connection() as conn:
+        version = current_graph_version(conn)
+        if version is None:
+            return []
         rows = conn.execute(
             "SELECT id::text, level, title, report_md, findings "
-            "FROM cmap.community WHERE level IN (1, 2) "
-            "ORDER BY level, title"
+            "FROM cmap.community WHERE level IN (1, 2) AND graph_version = %s "
+            "ORDER BY level, title",
+            (version,),
         ).fetchall()
     reports: list[dict[str, Any]] = []
     for report_id, level, title, report_md, findings in rows:

@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     brain_scaledown_enabled: bool = False
     brain_shared_token: str | None = None
     brain_max_frontier_calls_per_job: int | None = None
+    # Delete reports superseded more than one build ago at the end of each
+    # successful community build (repair plan A1). Off keeps every old report.
+    brain_community_prune_enabled: bool = True
     brain_interview_enabled: bool = False
     brain_interview_weekly_cap: int = 2
     brain_web_base_url: str | None = None
