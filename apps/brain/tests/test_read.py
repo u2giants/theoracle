@@ -893,7 +893,7 @@ def test_tsv_upload_reads_as_table(
     kind, state = db.execute(
         "SELECT kind, read_state FROM cmap.source WHERE id = %s", (source_id,)
     ).fetchone()
-    assert (kind, state) == ("text", "read")
+    assert (kind, state) == ("text", "extracting")
     text = db.execute(
         "SELECT text FROM cmap.chunk WHERE source_id = %s", (source_id,)
     ).fetchone()[0]

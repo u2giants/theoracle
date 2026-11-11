@@ -161,6 +161,12 @@ Read by `apps/brain/brain/config.py`, passed through `apps/brain/deploy/compose.
 |---|---|---|
 | `BRAIN_COMMUNITY_PRUNE_ENABLED` | `true` | Step A1. After each successful summary build, delete stored summaries older than the newest two map versions unless a recommendation or review flag points at them. `false` keeps every old summary (answers still read only the current version). |
 
+Admin actions added by Phase A (brain API, reached through the web proxy and the sources page):
+`POST /sources/reread-all`, `POST /sources/{id}/reread`, `POST /jobs/retry-failed`.
+A source's `read_state` is one of `queued`, `reading`, `extracting`, `read`, `partial`, `failed`
+(`apps/brain/brain/read/state.py`). The hourly `ensure_chain` job (`apps/brain/brain/chain.py`)
+re-queues pipeline work left behind.
+
 ## Feature flags
 
 We don't have a feature-flag service.

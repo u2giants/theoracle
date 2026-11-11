@@ -15,7 +15,7 @@ type SourceRow = {
   bytes: number;
   department_hint: string | null;
   effective_date: string | null;
-  read_state: 'queued' | 'read' | 'failed';
+  read_state: 'queued' | 'reading' | 'extracting' | 'read' | 'partial' | 'failed';
   read_error: string | null;
   created_at: string | null;
 };
@@ -24,6 +24,9 @@ type LogLine = { text: string; ok: boolean };
 
 const READ_STATE_STYLES: Record<SourceRow['read_state'], string> = {
   queued: 'bg-amber-100 text-amber-900',
+  reading: 'bg-sky-100 text-sky-900',
+  extracting: 'bg-sky-100 text-sky-900',
+  partial: 'bg-orange-100 text-orange-900',
   read: 'bg-emerald-100 text-emerald-900',
   failed: 'bg-red-100 text-red-900',
 };
@@ -186,6 +189,23 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
     await refresh();
   }
 
+  async function postAction(path: string, label: string) {
+    setBusy('delete');
+    try {
+      const response = await fetch(path, { method: 'POST' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        appendLog(body.detail ?? body.error ?? `${label} failed (${response.status})`, false);
+      } else {
+        appendLog(`${label}: queued`, true);
+      }
+    } catch {
+      appendLog(`${label} failed`, false);
+    }
+    setBusy('idle');
+    await refresh();
+  }
+
   return (
     <div className="space-y-6">
       <Card>
@@ -290,10 +310,36 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
               {loaded ? `${sources.length} source(s) in the map queue` : 'Loading…'}
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={refresh}>
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            {isAdmin && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy !== 'idle'}
+                  onClick={() => postAction('/api/brain/jobs/retry-failed', 'Retry failed jobs')}
+                >
+                  Retry failed jobs
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy !== 'idle'}
+                  onClick={() => {
+                    if (window.confirm('Read every source again? This takes a while.')) {
+                      void postAction('/api/brain/sources/reread-all', 'Re-read everything');
+                    }
+                  }}
+                >
+                  Re-read everything
+                </Button>
+              </>
+            )}
+            <Button variant="outline" size="sm" onClick={refresh}>
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {loadError && <p className="text-sm text-red-700">{loadError}</p>}
@@ -340,7 +386,22 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
                         {source.created_at ? source.created_at.slice(0, 10) : '—'}
                       </td>
                       {isAdmin && (
-                        <td className="py-2 text-right">
+                        <td className="whitespace-nowrap py-2 text-right">
+                          {(source.read_state === 'failed' || source.read_state === 'partial') && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={busy !== 'idle'}
+                              onClick={() =>
+                                postAction(
+                                  `/api/brain/sources/${source.id}/reread`,
+                                  `${source.title}: retry`,
+                                )
+                              }
+                            >
+                              Retry
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
