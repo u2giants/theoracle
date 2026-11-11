@@ -410,3 +410,90 @@ def test_rerun_retires_answered_and_replaced_questions(
     }
 
 
+
+
+def _stale_report(db: Any, version: int, title: str, level: int = 1) -> str:
+    row = db.execute(
+        "INSERT INTO cmap.community (level, title, report_md, findings, "
+        "entity_ids, graph_version) VALUES (%s, %s, '# x', '[]', '{}', %s) RETURNING id",
+        (level, title, version),
+    ).fetchone()
+    db.commit()
+    return str(row[0])
+
+
+def test_old_versions_pruned(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
+    """Repair A1: a successful build deletes reports older than two versions.
+
+    Reports a recommendation or a review flag still points at are kept, and a
+    report left on the current version that this build did not choose stops
+    counting as current.
+    """
+    _seed_approval_map(db)
+    for _ in range(3):
+        run_project()
+    current = db.execute("SELECT MAX(version) FROM cmap.graph_version").fetchone()[0]
+    assert current >= 3
+    ancient = _stale_report(db, current - 2, "ancient")
+    ancient_child = _stale_report(db, current - 2, "ancient child", level=0)
+    previous = _stale_report(db, current - 1, "previous")
+    recommended = _stale_report(db, current - 2, "has a recommendation")
+    flagged = _stale_report(db, current - 2, "has a review flag")
+    leftover = _stale_report(db, current, "same version, not chosen")
+    db.execute(
+        "UPDATE cmap.community SET parent_id = %s WHERE id = %s",
+        (ancient, ancient_child),
+    )
+    db.execute(
+        "UPDATE cmap.community SET parent_id = %s WHERE id = %s", (ancient, previous)
+    )
+    db.execute(
+        "INSERT INTO cmap.recommendation (community_id, problem, explanations, "
+        "options, experiment) VALUES (%s, 'p', '[]', '[]', '{}')",
+        (recommended,),
+    )
+    db.execute(
+        "INSERT INTO cmap.review_flag (item_type, item_id) VALUES ('community', %s)",
+        (flagged,),
+    )
+    db.commit()
+    _fake(monkeypatch)
+    stats = run_communities()
+    left = {
+        str(row[0]): int(row[1])
+        for row in db.execute("SELECT id, graph_version FROM cmap.community").fetchall()
+    }
+    assert ancient not in left and ancient_child not in left
+    assert stats["communities_pruned"] == 2
+    assert left[previous] == current - 1
+    assert recommended in left and flagged in left
+    assert left[leftover] == current - 1
+    built = [version for version in left.values() if version == current]
+    assert len(built) == stats["reports"]
+    assert (
+        db.execute(
+            "SELECT parent_id FROM cmap.community WHERE id = %s", (previous,)
+        ).fetchone()[0]
+        is None
+    )
+
+
+def test_prune_can_be_switched_off(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
+    """BRAIN_COMMUNITY_PRUNE_ENABLED=false keeps every old report."""
+    monkeypatch.setenv("BRAIN_COMMUNITY_PRUNE_ENABLED", "false")
+    get_settings.cache_clear()
+    try:
+        _seed_approval_map(db)
+        for _ in range(3):
+            run_project()
+        current = db.execute("SELECT MAX(version) FROM cmap.graph_version").fetchone()[0]
+        ancient = _stale_report(db, current - 2, "ancient")
+        _fake(monkeypatch)
+        stats = run_communities()
+        assert "communities_pruned" not in stats
+        assert db.execute(
+            "SELECT 1 FROM cmap.community WHERE id = %s", (ancient,)
+        ).fetchone()
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()

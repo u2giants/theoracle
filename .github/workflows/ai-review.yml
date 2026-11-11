@@ -13,7 +13,32 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    # Markdown-only pull requests skip the review (owner 2026-11-11).
+    name: Change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          docs_only=false
+          files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qv '\.md$'; then
+            docs_only=true
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs_only=$docs_only"
+
   review:
+    needs: scope
+    if: needs.scope.outputs.docs_only != 'true'
     uses: popcre/ai-devops/.github/workflows/ai-review.yml@main
     with:
       runner_labels: '["self-hosted", "edge-dev3"]'

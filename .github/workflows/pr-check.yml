@@ -24,8 +24,37 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  scope:
+    # A pull request that changes only Markdown proves nothing by building the
+    # web app (owner 2026-11-11). This job finishes in seconds; the build job
+    # is then skipped, which GitHub reports as a passing check.
+    name: Change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          docs_only=false
+          if [ -n "$PR" ]; then
+            files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')
+            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qv '\.md$'; then
+              docs_only=true
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs_only=$docs_only"
+
   build:
     name: Build @oracle/web
+    needs: scope
+    if: needs.scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

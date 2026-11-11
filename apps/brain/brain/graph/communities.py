@@ -1122,15 +1122,67 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             )
         stats["reports"] += 1
         conn.execute(
-            "UPDATE cmap.community SET parent_id = %s WHERE level = 1",
-            (company_row,),
+            "UPDATE cmap.community SET parent_id = %s WHERE id = ANY(%s::uuid[])",
+            (company_row, list(level1_rows.values())),
         )
         conn.commit()
         stats["open_questions_retired"] = _refresh_open_questions(
             conn, run_started, kept_sets, frontier, cfg
         )
+        if cfg.brain_community_prune_enabled:
+            selected = [*row_ids.values(), *level1_rows.values(), company_row]
+            stats["communities_pruned"] = prune_old_versions(
+                conn, graph_version, selected
+            )
+            conn.commit()
     stats.update(frontier.usage)
     return stats
+
+
+KEEP_VERSIONS = 2
+
+
+def prune_old_versions(
+    conn: psycopg.Connection, graph_version: int, selected: list[str]
+) -> int:
+    """Delete reports superseded more than one build ago; return the count.
+
+    Runs only after a successful build. ``selected`` is every report this
+    build chose (new or reused). A report left at the current version number
+    that this build did not choose (two builds of one projection) is first
+    moved back one version, so "current" stays exactly this build's choice.
+    Reports older than the newest ``KEEP_VERSIONS`` versions are deleted
+    unless a recommendation or a review flag still points at them.
+    """
+    conn.execute(
+        "UPDATE cmap.community SET graph_version = %s "
+        "WHERE graph_version >= %s AND NOT (id = ANY(%s::uuid[]))",
+        (graph_version - 1, graph_version, selected),
+    )
+    doomed = [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT c.id FROM cmap.community c WHERE c.graph_version <= %s "
+            "AND NOT EXISTS (SELECT 1 FROM cmap.recommendation r "
+            "                WHERE r.community_id = c.id) "
+            "AND NOT EXISTS (SELECT 1 FROM cmap.review_flag f "
+            "                WHERE f.item_type = 'community' AND f.item_id = c.id::text)",
+            (graph_version - KEEP_VERSIONS,),
+        ).fetchall()
+    ]
+    if not doomed:
+        return 0
+    conn.execute(
+        "UPDATE cmap.community SET parent_id = NULL "
+        "WHERE parent_id = ANY(%s::uuid[]) AND NOT (id = ANY(%s::uuid[]))",
+        (doomed, doomed),
+    )
+    conn.execute(
+        "DELETE FROM cmap.translation WHERE kind = 'community' AND ref_id = ANY(%s)",
+        (doomed,),
+    )
+    conn.execute("DELETE FROM cmap.community WHERE id = ANY(%s::uuid[])", (doomed,))
+    return len(doomed)
 
 
 def _group_summaries(

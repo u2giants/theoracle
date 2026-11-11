@@ -3,5 +3,6 @@
   "framework": "nextjs",
   "buildCommand": "pnpm run build:vercel",
   "installCommand": "pnpm install --frozen-lockfile=false",
-  "outputDirectory": "apps/web/.next"
+  "outputDirectory": "apps/web/.next",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude,glob)**/*.md'"
 }

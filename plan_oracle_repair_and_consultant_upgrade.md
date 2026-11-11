@@ -18,7 +18,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 
 | Step | Title | Needs | State | Evidence / blocker | Updated (EST) |
 |---|---|---|---|---|---|
-| A1 | Company-wide answers read only the current map | — | ⬜ open | | |
+| A1 | Company-wide answers read only the current map | — | 🟡 code merged; live gate pending A8 rebuild | `T/test_answer.py::test_global_ignores_superseded_reports`, `T/test_communities.py::test_old_versions_pruned`; reuse confirmed to stamp the new version (`communities.py` `_finish_l0`); live count + score land in `docs/verification/repair/A1.md` | 2026-11-11 10:05 AM EST |
 | A2 | Failed reading is retried and never shows as "read" | — | ⬜ open | | |
 | A3 | Passage splitter loses no text | — | ⬜ open | | |
 | A4 | Office files with links/charts are read | — | ⬜ open | | |

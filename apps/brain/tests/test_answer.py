@@ -677,3 +677,53 @@ def test_global_word_source_id_dropped(answer_env: None, db: Any) -> None:
     )
     assert kept == []
     assert "(uncited)" in md
+
+
+def test_global_ignores_superseded_reports(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Repair A1: a company-wide answer reads only the current map version.
+
+    Two builds left contradictory company reports behind. The answer must be
+    built from, and cite, only the newer one.
+    """
+    fake_embeds(monkeypatch, {})
+    old = _seed_text(db, "Approvals take two days.", "old")
+    new = _seed_text(db, "Approvals take three weeks.", "new")
+    for version, title, text, source in (
+        (1, "Company (old build)", "Approvals are fast, two days", old),
+        (2, "Company", "Approvals are slow, three weeks", new),
+    ):
+        for level in (1, 2):
+            db.execute(
+                "INSERT INTO cmap.community (level, parent_id, title, report_md, "
+                "findings, entity_ids, graph_version) "
+                "VALUES (%s, NULL, %s, %s, %s, %s, %s)",
+                (
+                    level,
+                    f"{title} L{level}",
+                    f"# {title}\n\nSummary.\n\n## Findings",
+                    json.dumps(
+                        [
+                            {
+                                "text": f"{text} (level {level})",
+                                "kind": "bottleneck",
+                                "stance": "report",
+                                "source_ids": [source],
+                            }
+                        ]
+                    ),
+                    [],
+                    version,
+                ),
+            )
+    db.commit()
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    result = answer_question("How long do approvals take?", "global", [])
+    assert result["mode_used"] == "global"
+    assert "three weeks" in result["answer_md"]
+    assert "two days" not in result["answer_md"]
+    assert {item["source_id"] for item in result["citations"]} == {new}
+    assert all("old build" not in item["title"] for item in result["communities"])
+    assert all("two days" not in prompt for prompt in fake.prompts)

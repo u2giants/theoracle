@@ -151,6 +151,16 @@ Magic-link delivery uses Brevo as the SMTP provider:
 
 Brevo's free tier (300 emails/day) is plenty for development.
 
+## Brain service settings added by the repair plan
+
+Read by `apps/brain/brain/config.py`, passed through `apps/brain/deploy/compose.coolify.yaml`
+(plan_oracle_repair_and_consultant_upgrade.md §12). The older brain variables are listed in
+`plan_oracle_company_map.md` §12.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BRAIN_COMMUNITY_PRUNE_ENABLED` | `true` | Step A1. After each successful summary build, delete stored summaries older than the newest two map versions unless a recommendation or review flag points at them. `false` keeps every old summary (answers still read only the current version). |
+
 ## Feature flags
 
 We don't have a feature-flag service.

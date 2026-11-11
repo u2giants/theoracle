@@ -23,6 +23,7 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.embed import embed_texts
 from brain.graph.communities import _cosine, _fit
+from brain.graph.version import current_graph_version
 from brain.resolve.resolve import FrontierCapReached, _Frontier
 
 logger = logging.getLogger(__name__)
@@ -205,13 +206,13 @@ def _normalise(
 
 def _candidates(conn: psycopg.Connection) -> list[dict[str, Any]]:
     """Qualifying findings from the current level-1 and company reports."""
-    version_row = conn.execute("SELECT MAX(graph_version) FROM cmap.community").fetchone()
-    if version_row is None or version_row[0] is None:
+    version = current_graph_version(conn)
+    if version is None:
         return []
     rows = conn.execute(
         "SELECT id, level, title, report_md, findings, entity_ids FROM cmap.community "
         "WHERE level IN (1, 2) AND graph_version = %s ORDER BY level DESC, title",
-        (int(version_row[0]),),
+        (version,),
     ).fetchall()
     out: list[dict[str, Any]] = []
     for community_id, level, title, report_md, findings, entity_ids in rows:
