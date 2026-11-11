@@ -180,3 +180,28 @@ def test_no_api_key_raises_for_meta_model(
             error_cls=_Boom,
             label="unit",
         )
+
+
+def test_rescue_for_meta_model_sends_no_reasoning_parameter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Meta's direct API rejects ``reasoning`` with a 400; the rescue retry for
+    a Meta model only raises the budget (production 2026-11-11)."""
+    seen: list[dict[str, Any]] = []
+
+    def fake_post(url: str, **kw: Any) -> _Resp:
+        seen.append(kw["json"])
+        if "reasoning" in kw["json"]:
+            return _Resp({"error": {"message": "unknown parameter `reasoning`"}}, 400)
+        return _Resp(_body(None if len(seen) == 1 else "ok"))
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    out = llm.post_chat_with_rescue(
+        {"model": "meta-model-api/some-model", "messages": [], "max_tokens": 4000},
+        settings=_settings(),
+        timeout=5.0,
+        error_cls=_Boom,
+        label="unit",
+    )
+    assert llm.message_content(out) == "ok"
+    assert seen[1]["max_tokens"] == 8000 and "reasoning" not in seen[1]
