@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     brain_shared_token: str | None = None
     brain_max_frontier_calls_per_job: int | None = None
     brain_interview_enabled: bool = False
+    brain_interview_weekly_cap: int = 2
     brain_web_base_url: str | None = None
     brain_import_dir: str = "/data/import"
     # DesignFlow people/roles directory sync (DECISIONS.md
