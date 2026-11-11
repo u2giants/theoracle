@@ -38,6 +38,7 @@ export function SourceViewer({ sourceId, chunkId }: { sourceId: string; chunkId:
     );
   }
   const { source, chunks } = data;
+  const unreadable = source.read_notes?.unreadable_regions ?? [];
   return (
     <main className="mx-auto max-w-4xl space-y-4 p-6">
       <Link href="/map" className="text-sm underline">
@@ -58,6 +59,22 @@ export function SourceViewer({ sourceId, chunkId }: { sourceId: string; chunkId:
           {` · ${chunks.length} passage${chunks.length === 1 ? '' : 's'}`}
         </p>
       </header>
+      {unreadable.length > 0 ? (
+        <section
+          className="rounded border border-amber-500 bg-amber-50 p-3"
+          data-testid="source-unreadable"
+        >
+          <h2 className="text-sm font-semibold">Parts that could not be read</h2>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+            {unreadable.map((region, index) => (
+              <li key={index}>
+                {describeLocator(region.locator) ? `${describeLocator(region.locator)}: ` : ''}
+                {region.note}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <ol className="space-y-3">
         {chunks.map((chunk) => {
           const active = chunk.id === chunkId;

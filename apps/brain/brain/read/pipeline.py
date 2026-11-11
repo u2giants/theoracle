@@ -30,6 +30,7 @@ from brain.read.office import read_docx, read_pptx, read_xlsx
 from brain.read.pdf import read_pdf
 from brain.read.state import NO_CONTENT_ERROR, set_read_state
 from brain.read.transcript import read_transcript
+from brain.read.vision import start_read_notes
 
 MAX_READ_ERROR_CHARS = 2000
 
@@ -106,6 +107,17 @@ def _record_usage(job_id: Any, usage: dict[str, int]) -> None:
         conn.commit()
 
 
+def _record_read_notes(source_id: str, notes: list[dict[str, Any]]) -> None:
+    """Store what the readers could not read on the source (repair plan A6)."""
+    pool = get_pool()
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE cmap.source SET read_notes = %s WHERE id = %s",
+            (Json({"unreadable_regions": notes} if notes else {}), source_id),
+        )
+        conn.commit()
+
+
 def handle_read_source(job: dict[str, Any]) -> None:
     """Read one source: chunk, embed, mark extracting, queue extraction."""
     payload = job.get("payload") or {}
@@ -123,9 +135,11 @@ def handle_read_source(job: dict[str, Any]) -> None:
     kind, storage_path = row
     usage: dict[str, int] = {}
     set_read_state(source_id, "reading", None)
+    notes = start_read_notes()
     try:
         data = storage_mod.get_storage().download(storage_path)
         chunks = read_chunks(kind, data, usage)
+        _record_read_notes(source_id, notes)
         pairs = _store_chunks(source_id, chunks)
         if not pairs:
             # Nothing to extract: never show an empty source as read.
