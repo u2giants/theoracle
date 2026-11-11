@@ -1,3 +1,10 @@
+---
+summary: "Step 14 evidence: first real-corpus Company Map run on the hosted brain with the eight imported files."
+kind: proof
+status: done
+read-when: checking proof that the pipeline ran end to end on real data
+---
+
 # Company Map — first real-corpus run (step 14)
 
 Hosted brain: `oracle-brain` on Coolify (health `{"ok":true,"db":true,"graph":true}`);

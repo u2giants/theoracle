@@ -1,3 +1,10 @@
+---
+summary: "Current repair and consultant-upgrade plan (#520): phased fixes for answer quality, domains, dates, relationships, interviews and corrections."
+kind: plan
+status: open
+read-when: starting or continuing any brain repair or consultant feature; read STATUS first
+---
+
 # Oracle repair and consultant-grade upgrade — implementation plan
 
 Written 2026-11-11, 7:50 AM EST, by Claude (Fable 5.2) on edge-dev3 for Albert Hazan.

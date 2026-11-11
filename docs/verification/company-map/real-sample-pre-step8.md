@@ -1,3 +1,10 @@
+---
+summary: "Real-sample trial of 2026-10-29 before step 8: canonical node counts and hand-checked merges."
+kind: proof
+status: done
+read-when: reviewing entity-merge quality evidence from before step 8
+---
+
 # Real-sample trial before step 8 (drift checkpoint follow-up)
 
 Run 2026-10-29 ~2:40 AM EDT by MiMo on edge-dev, in response to the step-6

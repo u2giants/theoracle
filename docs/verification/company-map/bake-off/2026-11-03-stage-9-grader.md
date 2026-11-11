@@ -1,3 +1,10 @@
+---
+summary: Results of the stage 9 evaluation-grader bake-off of 2026-11-03 for BRAIN_EVAL_MODEL.
+kind: proof
+status: done
+read-when: checking which model grades self-test answers and why
+---
+
 # Stage 9 — eval grader bake-off (2026-11-03)
 
 Stage: `brain/eval/run.py` `grade_answer` (prompt `prompts/grade.md`, JSON mode, temperature 0, max_tokens 800, 3 attempts, shared empty-content rescue), model set per run via `BRAIN_EVAL_MODEL`.

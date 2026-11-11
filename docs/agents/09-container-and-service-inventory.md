@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 9: every runtime service (Vercel functions, MCP endpoint, brain on Coolify, Supabase) with owner, id and image source."
+kind: living
+status: current
+read-when: asking what runs where, or adding or changing a runtime service
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 54e0d84ebd77240e6a923d120260e36033d21121 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 

@@ -1,3 +1,10 @@
+---
+summary: "Results of the stage 4 relationship-extraction bake-off of 2026-11-03: winner Muse Spark, runner-up GLM, with recall and precision."
+kind: proof
+status: done
+read-when: checking the relationship-extraction model choice
+---
+
 # Stage 4 — relationship extraction bake-off (2026-11-03)
 
 Run 11:41 AM – 12:24 PM EST on 2026-11-03 on the test services host. Owner request (Albert, 2026-11-03): "i want to evaluate new models for all stages."

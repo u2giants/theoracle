@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 8: main entities and the external identifiers for Vercel, Supabase, Trigger.dev, storage buckets and related systems."
+kind: living
+status: current
+read-when: needing a project id, bucket name, table identity or other external identifier
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 0e294b1fe5fb26736c2fa82394f821b30de41f5d at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 

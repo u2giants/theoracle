@@ -1,3 +1,10 @@
+---
+summary: "Runtime failure log for the retired Trigger.dev worker system: error signatures, root causes, evidence and fix status (ERR entries)."
+kind: ops
+status: stale
+read-when: tracing an old worker failure entry or a reliability-plan row that cites an ERR id
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 22182e260f866634a24d93a238c45c2b2dbe3d63 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # AGENT_ERROR_LOG.md — runtime failures for a coding agent to fix
 

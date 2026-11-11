@@ -1,3 +1,10 @@
+---
+summary: July 2026 protocol for empirically choosing a model for each pass of the retired macro-first pipeline; superseded by the Company Map job brief.
+kind: archive
+status: done
+read-when: a decision or handoff cites MODEL_BAKEOFF_SPEC.md
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 7f5f1594bab124dc20fe0a6a784cda18025ebcb5 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # MODEL BAKE-OFF SPEC — choosing the best model for every pass, empirically
 
@@ -170,7 +177,7 @@ and diagnose before proceeding (this is a pipeline health alarm, not a model iss
 ### 5.1 BO-1 Vision transcription
 
 An existing, more detailed plan for this exact bake-off already exists:
-**`test_code_changes.md` (Test 2)** — 5 vision models head-to-head on transcription
+**`docs/history/test_code_changes.md` (Test 2)** — 5 vision models head-to-head on transcription
 quality AND prompt-cache effectiveness, with ground truth and a scoring rubric.
 **Follow that document for BO-1**; it predates this spec and is more specific about
 cache metrics. Additions from this spec that override/extend it:

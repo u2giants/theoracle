@@ -1,3 +1,10 @@
+---
+summary: "Rules for hand-written SQL migrations: run after Drizzle output, lexical order, must be idempotent, what belongs here and numbering."
+kind: ops
+status: current
+read-when: adding or editing a hand-written SQL migration
+---
+
 # Hand-written SQL migrations
 
 These files run **after** Drizzle's auto-generated migrations on every `pnpm db:migrate` invocation. They are applied in **lex order by filename**, and they must be **idempotent** — every invocation of `pnpm db:migrate` runs every file in this directory (with two exceptions noted below). The runner is `packages/db/src/migrate.ts`.

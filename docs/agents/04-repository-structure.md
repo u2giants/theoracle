@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 4: which directories are owned code, generated code, vendor code, build output, docs, scripts and migrations."
+kind: living
+status: current
+read-when: locating code or deciding whether a directory is safe to edit
+---
+
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 4. Repository structure
@@ -13,6 +20,9 @@ Code we own:
 - `apps/brain/` — Python FastAPI Company Map service (Coolify)
 - Oracle 2 and the old workers were removed in #398 (2026-11-04).
 - `docs/` — project documentation
+  - `docs/INDEX.md` — generated index of every document (from headers; `ai-doc-health --repo . --fix-index`; never hand-edit)
+  - `docs/history/` — retired specs, audits and test plans moved from the root on 2026-11-11 (`MODEL_BAKEOFF_SPEC.md`, `bugs.md`, `scaledown-report.md`, `test_code_changes.md`)
+  - `docs/decisions/` — older `DECISIONS.md` entries (Phase 0 through D14), moved verbatim
 - root markdown files — `README.md`, `AGENTS.md`, `CLAUDE.md`, `DECISIONS.md`,
   supporting design/history files, and `china_imp.md`
 

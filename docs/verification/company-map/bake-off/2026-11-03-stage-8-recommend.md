@@ -1,3 +1,10 @@
+---
+summary: "Results of the stage 8 recommendations bake-off of 2026-11-03: winner GPT-6 Luna, runner-up GLM 5.3 Flash."
+kind: proof
+status: done
+read-when: checking the recommendations model choice
+---
+
 # Stage 8 — Recommendations bake-off (2026-11-03)
 
 Function under test: `brain/recommend/recommend.py` `run_recommend`, one candidate per run via `BRAIN_FRONTIER_MODEL`. Judge: `anthropic/claude-sonnet-5.5` (fixed). Run 11:41 AM – 2:21 PM EST on the test services host.

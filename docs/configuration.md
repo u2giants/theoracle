@@ -1,3 +1,10 @@
+---
+summary: Every environment variable and runtime setting, where it comes from and what fails when it is missing, including answer budgets and model settings.
+kind: living
+status: current
+read-when: adding or changing configuration, env vars, secrets or feature flags
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 44b7702303709c660fbd02ef33d9601f2f03b453 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Configuration
 

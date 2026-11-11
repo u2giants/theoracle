@@ -1,3 +1,10 @@
+---
+summary: "Record of the August 2026 workflow-read model bake-off for the responsibility reader of the retired pipeline: candidates, scores, decision."
+kind: archive
+status: done
+read-when: a handoff or decision cites the workflow-read bake-off
+---
+
 # Workflow-read model bake-off
 
 ## R2 responsibility-path decision — 2026-08-06

@@ -1,3 +1,10 @@
+---
+summary: "ScaleDown analysis of 2026-10-27: which AI calls in the old and new code could move to small-model classify and extract endpoints."
+kind: archive
+status: done
+read-when: the Company Map plan cites the ScaleDown call-by-call analysis
+---
+
 # ScaleDown Migration Plan — oracle
 > Generated: 2026-10-27T23:11:03.812Z
 > Report version: 1

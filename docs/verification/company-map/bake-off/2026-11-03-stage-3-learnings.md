@@ -1,3 +1,10 @@
+---
+summary: What the stage 3 flat-extraction bake-off session of 2026-11-03 learned about method and pitfalls.
+kind: proof
+status: done
+read-when: re-running the flat-extraction comparison
+---
+
 # Stage 3 flat extraction: what the 2026-11-03 session learned
 
 Session ran 11:39 AM – 5:05 PM EST on 2026-11-03 on the test services host. Owner: Albert Hazan. Raw numbers and method are in

@@ -1,3 +1,10 @@
+---
+summary: "Local setup and routine commands: prerequisites, .env.local, install, typecheck, build, tests and brain service development."
+kind: living
+status: current
+read-when: setting up, running or testing the repository locally
+---
+
 # Development
 
 This file covers local setup and the routine commands that reflect the current repo.

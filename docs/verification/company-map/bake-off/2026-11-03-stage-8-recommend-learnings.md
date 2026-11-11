@@ -1,3 +1,10 @@
+---
+summary: Method lessons, traps and costs from the stage 8 recommendations bake-off of 2026-11-03.
+kind: proof
+status: done
+read-when: re-running the recommendations comparison
+---
+
 # Stage 8 bake-off — what we learned (2026-11-03)
 
 This is a companion to the [stage-8 results](2026-11-03-stage-8-recommend.md) (PR #342). It records the method lessons, traps, and costs from running the stage-8 recommendations bake-off, so that the next model bake-off or production scale-up does not repeat them.

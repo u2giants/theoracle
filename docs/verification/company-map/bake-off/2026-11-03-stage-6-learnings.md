@@ -1,3 +1,10 @@
+---
+summary: Learnings from the stage 6 community-reports bake-off, chiefly the 4,000-token output cap finding.
+kind: proof
+status: done
+read-when: re-running the community-report comparison or changing its output limit
+---
+
 # Stage 6 (community reports) bake-off — what we learned
 
 Date: 2026-11-03 (run 11:40 AM–12:20 PM EST). Results: [2026-11-03-stage-6-community-reports.md](2026-11-03-stage-6-community-reports.md) and its `.json`. Follow-up issue: [#347](https://github.com/u2giants/theoracle/issues/347).

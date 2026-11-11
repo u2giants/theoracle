@@ -1,3 +1,10 @@
+---
+summary: Lessons from the stage 5 entity-resolution bake-off of 2026-11-03, including how resolve works for future evaluations.
+kind: proof
+status: done
+read-when: re-running or changing the entity-resolution evaluation
+---
+
 # Stage 5 (entity resolution) bake-off — lessons learned (2026-11-03)
 
 Companion to [the stage-5 results](2026-11-03-stage-5-resolve.md) and [its JSON](2026-11-03-stage-5-resolve.json). Follow-up issue: [u2giants/theoracle#353](https://github.com/u2giants/theoracle/issues/353).

@@ -1,3 +1,10 @@
+---
+summary: "Live production proof of 2026-11-10 for the Chinese integration plan step 4.2: what was run and what was observed."
+kind: proof
+status: done
+read-when: checking evidence that Chinese reading and answering work in production
+---
+
 # Chinese (Mandarin) integration — live proof (plan step 4.2)
 
 Written 2026-11-10 by MiMo (ah-desktop session `ses_ffe5e3c778c43ffeJNqN2nnAd4`).

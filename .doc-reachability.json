@@ -1,0 +1,5 @@
+{
+  "roots": ["AGENTS.md", "README.md", "CLAUDE.md", "HANDOFF.md"],
+  "preferred_root": "AGENTS.md",
+  "exclude": ["HANDOFF.d/**", "**/archive/**", ".claude/**", ".github/**", ".cache/**", "node_modules/**", "apps/brain/brain/prompts/**", "THIRD_PARTY_NOTICES.md"]
+}

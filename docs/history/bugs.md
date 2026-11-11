@@ -1,3 +1,10 @@
+---
+summary: Audit of 2026-09-20 on why the old Oracle extracted statements but did not understand the business as a whole.
+kind: archive
+status: done
+read-when: a handoff cites bugs.md or you need the pre-Company-Map audit reasoning
+---
+
 # Why Oracle does not yet understand the business holistically
 
 Audit date: 2026-09-20. Reviewed upstream `u2giants/theoracle` commit

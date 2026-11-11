@@ -1,3 +1,10 @@
+---
+summary: "Open plan for triaging meeting transcripts before they enter the Company Map: steps, verification gates and STATUS table."
+kind: plan
+status: open
+read-when: working on meeting-transcript intake or triage; read STATUS first
+---
+
 # Meeting-transcript triage pipeline — implementation plan
 
 Written 2026-11-08, 1:10 PM EST, by MiMo (ah-desktop session `ses_ffe5e4443fa74ffeHY8R68xzp4`) for Albert Hazan.

@@ -1,3 +1,10 @@
+---
+summary: "Phase 3 task-gate pilot record of 2026-09-09: scope, routing measurement and before/after sizes."
+kind: proof
+status: done
+read-when: reviewing how the task-gate declaration was introduced here
+---
+
 # Phase 3 task-gate pilot — `u2giants/theoracle`
 
 ## Scope and routing measurement

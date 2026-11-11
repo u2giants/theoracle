@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 7: for each common change (database field, admin page, auth, env, model picker) which files to touch and which to avoid."
+kind: living
+status: current
+read-when: about to edit source and need to know which files a change belongs in
+---
+
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 7. Task-to-file navigation: what to edit for common changes

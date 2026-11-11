@@ -1,3 +1,10 @@
+---
+summary: "Job brief for choosing a model for every Company Map stage: stage requirements, candidates, bake-off protocol and results table."
+kind: spec
+status: current
+read-when: choosing or re-evaluating the model for a pipeline stage or editing the model page
+---
+
 # THE ORACLE — Company Map model stages: job brief
 
 **Written 2026-10-30, by MiMo on edge-dev, for Albert Hazan.**

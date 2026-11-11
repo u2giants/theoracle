@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 3: full table of which documents to read, and which to skip, for each kind of task."
+kind: living
+status: current
+read-when: deciding which document to open for a task
+---
+
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 3. Documentation map: what to read for each task
@@ -28,7 +35,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Continue unfinished work | `AGENTS.md`, `HANDOFF.md`, docs named inside `HANDOFF.md` | Unrelated plans |
 | Work in a subfolder with its own README | `AGENTS.md`, that folder-level `README.md`, and only broader docs referenced there | Other folder-level READMEs |
 | Claude Code session | `CLAUDE.md`, then `AGENTS.md` | Other docs unless task requires them |
-| Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
+| Documentation-only cleanup | `AGENTS.md`, `README.md`, [`docs/INDEX.md`](../INDEX.md) (generated; find documents here first), affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present; finish with `ai-doc-health --repo .` clean | Source files except as needed to verify accuracy |
 | Known runtime failure, stale verification code, migration drift, missing production proof, or release automation | `plan_repo_reliability_and_release_gaps.md` (read its STATUS table first), `AGENT_ERROR_LOG.md`, affected code, `docs/deployment.md` when release behavior changes | Historical handoff blocks except for evidence |
 | Deferred product or infrastructure gap: taxonomy apply, entity-aware retrieval, Authentik, China review/search, attachment cache, Vertex GCS, eval UI, provider batch, secret rotation, identity cleanup | `plan_deferred_product_and_infrastructure_gaps.md` (read its STATUS table first), the affected topic doc and source files | Macro-first supporting history unless the gap changes macro evidence or serving |
 | Fix an Oracle quality defect or build a consultant feature: answer accuracy, data domains/business functions, source dates and versions, contradictions, relationships and ordered flows, gap finding and interviews, corrections, Teams Q&A, briefings, operational numbers | `plan_oracle_repair_and_consultant_upgrade.md` (read its STATUS table first), `docs/audit-2026-11-11-oracle-goals.md`, the affected `apps/brain/brain` files | Legacy `packages/*` claim code |

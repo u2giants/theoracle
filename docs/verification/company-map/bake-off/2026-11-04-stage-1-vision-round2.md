@@ -1,3 +1,10 @@
+---
+summary: "Round 2 of the stage 1 vision bake-off (2026-11-04): seven diagrams, ten candidate models, production prompt."
+kind: proof
+status: done
+read-when: checking the latest diagram-reading model comparison
+---
+
 # Stage 1 vision bake-off, round 2 (2026-11-04)
 
 Albert asked at 4:30 PM EST: "do a new bake-off for diagram reading." This file
