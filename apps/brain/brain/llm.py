@@ -5,7 +5,9 @@ and come back with ``content: null`` (measured 2026-10-30: claude-haiku-5.5
 answers returned no message content on 2 of 5 eval questions; deepseek and
 qwen reasoning tiers broke the relations stage the same way). One rescue retry
 doubles the token budget and asks for low hidden reasoning; a second empty
-response raises the caller's error class.
+response raises the caller's error class. The ``reasoning`` field is
+OpenRouter's own; Meta's direct API answers 400 "unknown parameter" to it
+(issue #526), so that route's rescue gets the bigger budget only.
 
 Provider routing (issue #426): model ids starting with ``meta-model-api/``
 go to Meta's direct API with ``BRAIN_META_API_KEY``; everything else goes
@@ -35,6 +37,11 @@ def resolve_provider(model: str | None, settings: Settings) -> tuple[str, str | 
     if model and model.startswith(_META_PROVIDER_PREFIX):
         return META_BASE_URL, settings.brain_meta_api_key
     return OPENROUTER_BASE_URL, settings.openrouter_api_key
+
+
+def accepts_reasoning_param(base_url: str) -> bool:
+    """Whether the provider route understands OpenRouter's ``reasoning`` field."""
+    return base_url == OPENROUTER_BASE_URL
 
 
 def strip_provider_prefix(model: str) -> str:
@@ -95,6 +102,7 @@ def post_chat_with_rescue(
             rescue = dict(body)
             budget = int(body.get("max_tokens") or 0) * 2
             rescue["max_tokens"] = max(budget, _MIN_RESCUE_MAX_TOKENS)
-            rescue.setdefault("reasoning", dict(_RESCUE_REASONING))
+            if accepts_reasoning_param(base_url):
+                rescue.setdefault("reasoning", dict(_RESCUE_REASONING))
             body = rescue
     raise error_cls(f"{label} response has no message content")

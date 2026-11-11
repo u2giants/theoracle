@@ -131,6 +131,32 @@ def test_empty_content_rescued_with_bigger_budget_and_hidden_reasoning(
     assert seen[1]["reasoning"] == {"effort": "low", "exclude": True}
 
 
+def test_meta_route_rescue_never_sends_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #526: Meta's direct API rejects ``reasoning`` with a 400."""
+    seen: list[dict[str, Any]] = []
+
+    def fake_post(url: str, **kw: Any) -> _Resp:
+        seen.append(kw["json"])
+        if len(seen) == 1:
+            return _Resp(_body(None))
+        return _Resp(_body('{"relations": []}'))
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    out = llm.post_chat_with_rescue(
+        {"model": "meta-model-api/muse-spark-1.3", "messages": [], "max_tokens": 4000},
+        settings=_settings(),
+        timeout=5.0,
+        error_cls=_Boom,
+        label="unit",
+    )
+    assert llm.message_content(out) == '{"relations": []}'
+    assert len(seen) == 2
+    assert seen[1]["max_tokens"] == 8000
+    assert "reasoning" not in seen[1]
+
+
 def test_rescue_budget_never_drops_below_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
