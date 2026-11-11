@@ -6,7 +6,7 @@ owner: claude/oracle-code-audit-c1b3b1
 
 # Handoff — Oracle audit done, repair and consultant-upgrade plan written, nothing built yet (2026-11-11)
 
-Written 2026-11-11, 8:05 AM EST, edge-dev3, Claude (Fable 5.2).
+Written 2026-11-11, 7:50 AM EST, edge-dev3, Claude (Fable 5.2).
 Plan (read its STATUS table first; do not re-derive or re-plan):
 [plan_oracle_repair_and_consultant_upgrade.md](https://github.com/u2giants/theoracle/blob/main/plan_oracle_repair_and_consultant_upgrade.md).
 Evidence: [docs/audit-2026-11-11-oracle-goals.md](https://github.com/u2giants/theoracle/blob/main/docs/audit-2026-11-11-oracle-goals.md).
