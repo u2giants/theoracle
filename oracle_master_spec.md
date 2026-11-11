@@ -1,3 +1,10 @@
+---
+summary: "Original V4.1 master product specification for The Oracle: knowledge graph, authentication, row security and production readiness contract."
+kind: spec
+status: current
+read-when: checking product intent or resolving a conflict between code and the product spec
+---
+
 # MASTER DEVELOPMENT SPECIFICATION: “THE ORACLE”
 
 **Project:** POP Creations / Spruce Line Enterprise Knowledge Graph  

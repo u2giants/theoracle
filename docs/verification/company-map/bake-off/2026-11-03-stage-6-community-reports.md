@@ -1,3 +1,10 @@
+---
+summary: "Results of the stage 6 community-reports bake-off of 2026-11-03: six candidates graded on twelve reports."
+kind: proof
+status: done
+read-when: checking the community-report model choice
+---
+
 # Stage 6 — Community reports bake-off (2026-11-03)
 
 Owner request (Albert, 2026-11-03): "Claude Sonnet 4.5 is an old model, i don't want to use that anymore. i want to evaluate new models for all stages."

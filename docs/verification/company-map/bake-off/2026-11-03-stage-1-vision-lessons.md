@@ -1,3 +1,10 @@
+---
+summary: "Lessons from the stage 1 vision bake-off of 2026-11-03: method, traps and what to change on a re-run."
+kind: proof
+status: done
+read-when: re-running or questioning the diagram-reading model choice
+---
+
 # Stage 1 vision bake-off: what we learned (2026-11-03)
 
 This is the companion to the

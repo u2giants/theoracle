@@ -1,3 +1,10 @@
+---
+summary: Owner-facing review of 2026-10-27 of the 16-step consultant plan and its code; the findings that led to the Company Map plan.
+kind: proof
+status: done
+read-when: needing the reasoning behind replacing the old consultant plan
+---
+
 # Review of the Oracle consultant plan (#24) and its implementation — October 27, 2026
 
 Written for Albert. Plain findings, then recommendations. Evidence references are for the next AI session, not for Albert to open.
@@ -40,7 +47,7 @@ Written for Albert. Plain findings, then recommendations. Evidence references ar
 
 **2. No thin journey, no atomic-claim grading.** Agreed, and the earlier recommendation is withdrawn. The first deliverable is the whole corpus ingested and a company-level map produced: departments, roles, processes, hand-offs, systems, recurring pain points, with each item linked to the sources behind it. Nobody grades individual claims. People react to the map.
 
-**3. ScaleDown.** Yes, for a large share of the volume. Report saved at `scaledown-report.md`. What ScaleDown can take: classifying every passage and transcript turn by type (process, responsibility, rule, reference, complaint, decision); pulling flat facts out of each passage (people, roles, systems, steps, artifacts, metrics, dates, quotes); labeling things (policy vs. practice vs. complaint, department, contradiction yes/no); compressing retrieved context before a frontier call; per-chunk summaries once summarization leaves private preview. By call count that is roughly 70–80% of all model calls. What must stay with a frontier model: inferring relationships between facts (what hands off to what, what depends on what, what is an exception), merging the same entity under different names across documents, writing the community/department/company summaries, answering questions, generating recommendations, and running interviews. Diagrams and flowcharts need a vision model; ScaleDown has none.
+**3. ScaleDown.** Yes, for a large share of the volume. Report saved at `docs/history/scaledown-report.md`. What ScaleDown can take: classifying every passage and transcript turn by type (process, responsibility, rule, reference, complaint, decision); pulling flat facts out of each passage (people, roles, systems, steps, artifacts, metrics, dates, quotes); labeling things (policy vs. practice vs. complaint, department, contradiction yes/no); compressing retrieved context before a frontier call; per-chunk summaries once summarization leaves private preview. By call count that is roughly 70–80% of all model calls. What must stay with a frontier model: inferring relationships between facts (what hands off to what, what depends on what, what is an exception), merging the same entity under different names across documents, writing the community/department/company summaries, answering questions, generating recommendations, and running interviews. Diagrams and flowcharts need a vision model; ScaleDown has none.
 
 **4. No complicated permissions.** Agreed. Keep ordinary login and an admin role. Delete the candidate/confirmed credential split, the TLS and custody layers, the authority-grant chain, the seccomp sandbox, and the 2,300 refusal checks. That is roughly a third of the current product code and most of the test suite.
 

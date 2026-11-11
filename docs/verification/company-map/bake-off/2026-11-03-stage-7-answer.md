@@ -1,3 +1,10 @@
+---
+summary: Results of the stage 7 question-answering bake-off of 2026-11-03 for BRAIN_CHAT_MODEL on twenty draft questions.
+kind: proof
+status: done
+read-when: checking the answer-model choice
+---
+
 # Stage 7 bake-off — question answering (2026-11-03)
 
 Stage: `brain/answer/answer.py` `answer_question`, model from `BRAIN_CHAT_MODEL`.

@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 14: past incidents and near-misses with impact, root cause, recovery and the rule each one added."
+kind: living
+status: current
+read-when: investigating a bug or touching providers, migrations, webhooks or secrets
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 57dfcaea5f2566777749fd0179a87da346c623a0 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 

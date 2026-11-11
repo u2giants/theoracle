@@ -1,3 +1,10 @@
+---
+summary: "Follow-up measurements of 2026-11-04 for the nine-stage bake-off: larger samples and repeat runs on cloned databases."
+kind: proof
+status: done
+read-when: checking whether a bake-off result held on a larger sample
+---
+
 # Bake-off follow-ups (2026-11-04)
 
 Follow-up measurements for the 2026-11-03 nine-stage bake-off, run on the test

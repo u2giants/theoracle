@@ -1,3 +1,10 @@
+---
+summary: "Results of the stage 3 flat-extraction fallback bake-off of 2026-11-03: candidates, pricing and scores."
+kind: proof
+status: done
+read-when: checking the flat-extraction fallback model choice
+---
+
 # Stage 3 — Flat extraction (frontier fallback) bake-off, 2026-11-03
 
 Run 11:40 AM – 12:10 PM EST on the test services host. Owner request (2026-11-03): evaluate new models for all stages; claude-sonnet-4.5 retired.

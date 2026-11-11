@@ -1,3 +1,10 @@
+---
+summary: "Results of the stage 1 vision transcription bake-off of 2026-11-03: candidates, scores and winner for BRAIN_VISION_MODEL."
+kind: proof
+status: done
+read-when: checking which model reads images and diagrams and why
+---
+
 # Stage 1 — Vision transcription bake-off (2026-11-03)
 
 Setting: `BRAIN_VISION_MODEL`. Code path: `apps/brain/brain/read/vision.py`, prompt

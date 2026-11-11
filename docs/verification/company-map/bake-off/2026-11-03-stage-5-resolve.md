@@ -1,3 +1,10 @@
+---
+summary: "Results of the stage 5 entity-resolution bake-off of 2026-11-03: four candidates, winner GPT-6 Luna."
+kind: proof
+status: done
+read-when: checking the entity-resolution model choice
+---
+
 # Stage 5 — Entity resolution bake-off (2026-11-03)
 
 Winner: **openai/gpt-6-luna**. Runner-up: **meta/muse-spark-1.3-contributor**.

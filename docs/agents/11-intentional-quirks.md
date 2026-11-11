@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 11: intentional quirks and non-obvious decisions, each with looks-like, actually, why and do-not-change notes."
+kind: living
+status: current
+read-when: code looks wrong, duplicated or odd and you are about to change it
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 01fbd5ed7cd3c947744cc7121b533254cb20a9dd at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 

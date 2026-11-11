@@ -1,3 +1,10 @@
+---
+summary: "Deploy and release path as it exists today: runtime targets, release flow, migrations, brain image, verification and rollback."
+kind: living
+status: current
+read-when: changing deployment, CI, release steps or rolling back
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 6c7f33f50901b0f10bd7ce5b9c91a27161707487 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Deployment
 

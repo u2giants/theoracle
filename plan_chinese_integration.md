@@ -1,3 +1,10 @@
+---
+summary: "Open plan for Mandarin support in the Company Map brain: language detection, CJK-safe reading, bilingual content, Chinese bot and evaluation."
+kind: plan
+status: open
+read-when: working on any Chinese-language step; read STATUS first
+---
+
 # Chinese (Mandarin) integration — implementation plan
 
 Written 2026-11-08, 12:20 PM EST, by MiMo (ah-desktop session `ses_ffe5e4443fa74ffeHY8R68xzp4`) for Albert Hazan.

@@ -1,10 +1,17 @@
+---
+summary: "Company Map v3 program plan: goal, schemas, pipeline steps 1-14 and STATUS; complete except owner acceptance."
+kind: plan
+status: open
+read-when: needing the tables, pipeline or step definitions of the Company Map; read STATUS first
+---
+
 # Oracle Company Map — implementation plan (v3 program)
 
 Written 2026-10-27, 10:50 PM EDT, by Claude (Fable 5.1) on edge-dev3 for Albert Hazan.
 Parent issue: [u2giants/theoracle#240](https://github.com/u2giants/theoracle/issues/240) (children #241–#255, one per step; the old parent #24 is history).
 Registered handoff: [HANDOFF.d/2026-10-28T2023Z-edge-dev-mimo-company-map-step4-flat.md](HANDOFF.d/2026-10-28T2023Z-edge-dev-mimo-company-map-step4-flat.md).
 Background review that produced this plan: [docs/review-2026-10-27-consultant-plan-and-code.md](docs/review-2026-10-27-consultant-plan-and-code.md).
-ScaleDown call-by-call analysis: [scaledown-report.md](scaledown-report.md).
+ScaleDown call-by-call analysis: [scaledown-report.md](docs/history/scaledown-report.md).
 
 **Who this is written for:** an implementing model of GLM 5.1 or Sol 6.1 class, working in a fresh session with no memory of this conversation. Every step names files, exact schemas, exact JSON shapes, exact prompts and an exact test. If a step forces you to invent a design, stop and record the gap in STATUS instead of guessing.
 

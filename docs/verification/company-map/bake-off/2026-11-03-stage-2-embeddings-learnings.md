@@ -1,3 +1,10 @@
+---
+summary: Learnings and reproduction notes from the stage 2 embeddings bake-off of 2026-11-03.
+kind: proof
+status: done
+read-when: re-running the embeddings comparison
+---
+
 # Stage 2 — Embeddings bake-off: full learnings and reproduction notes
 
 Companion to the results report

@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 15: pending-work table with status, item and owner or next action, pointing at the owning plan for each row."
+kind: living
+status: current
+read-when: continuing unfinished work or choosing what to do next
+---
+
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 15. Pending work

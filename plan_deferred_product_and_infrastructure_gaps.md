@@ -1,3 +1,10 @@
+---
+summary: Canonical register of deferred product, infrastructure and security gaps (GAP-1 to GAP-14) with status and blockers.
+kind: plan
+status: open
+read-when: a task cites a GAP id or touches a deferred product or infrastructure gap
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b92334d000a32b2b160bc3e10d3e16b8b0de4a59 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Deferred Product and Infrastructure Gaps Plan
 

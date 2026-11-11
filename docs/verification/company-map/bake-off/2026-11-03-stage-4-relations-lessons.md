@@ -1,3 +1,10 @@
+---
+summary: Lessons from the stage 4 relationship-extraction bake-off of 2026-11-03.
+kind: proof
+status: done
+read-when: re-running the relationship-extraction comparison
+---
+
 # Stage 4 relationship extraction — what the bake-off taught us (2026-11-03)
 
 These are the session's lessons from the stage-4 bake-off (11:40 AM – 1:55 PM EST,

@@ -1,3 +1,10 @@
+---
+summary: July 2026 test plan for vision transcription and claim extraction on a swimlane diagram in the retired claims pipeline.
+kind: archive
+status: done
+read-when: a handoff or the old bake-off spec cites test_code_changes.md
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob c1856701902f15a4199870677bcbaa86b8bbebc9 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # test_code_changes.md — Vision transcription & claim-extraction test plan
 

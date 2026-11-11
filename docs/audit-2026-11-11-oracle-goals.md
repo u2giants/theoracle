@@ -1,3 +1,10 @@
+---
+summary: "Audit of the brain against the owner's goals on 2026-11-11: graded verdict per goal and the numbered defects the repair plan fixes."
+kind: proof
+status: done
+read-when: working a repair-plan step and needing the evidence behind a defect
+---
+
 # Oracle audit against the owner's goals — 2026-11-11
 
 Written 2026-11-11, 7:45 AM EST, by Claude (Fable 5.2) for Albert Hazan.

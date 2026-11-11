@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 12: every environment variable with purpose, where it is stored and whether dev and production need it; no values."
+kind: living
+status: current
+read-when: adding, renaming or debugging an environment variable or credential
+---
+
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 
 ## 12. Credentials and environment

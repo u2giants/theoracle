@@ -1,3 +1,10 @@
+---
+summary: How to read secrets from the vibe_coding 1Password vault through the MCP server or the op CLI, with secret-reference format.
+kind: ops
+status: current
+read-when: "a task needs a secret, an op:// reference or 1Password setup"
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 97dcebd3a2a33fe04b522ba4ec946c8172e000fc at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # Using 1Password in this repo
 

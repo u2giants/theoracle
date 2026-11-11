@@ -1,3 +1,10 @@
+---
+summary: Fixture micro-evaluation outputs of 2026-11-01 that feed the model bake-off results table.
+kind: proof
+status: done
+read-when: tracing a bake-off number back to its micro-eval evidence
+---
+
 # Model bake-off — fixture micro-evals (2026-11-01)
 
 Protocol: `docs/company-map/model-stage-job-brief.md` §5, cheapest evidence

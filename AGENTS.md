@@ -1,10 +1,14 @@
 # AGENTS.md — The Oracle Developer Guide
 
-Read this first. It is the canonical operating guide for developers and AI coding sessions working in `C:\repos\oracle`.
+The complete document index is [`docs/INDEX.md`](docs/INDEX.md), generated from document headers. Search it for your topic's keywords (or read it) before opening or searching any other document. Open a document only when its summary matches your task.
+
+Read this first. It is the canonical operating guide for developers and AI coding sessions working in `u2giants/theoracle`. This file is a router: detail lives in `docs/` and is found through the index.
+
+Every new Markdown file opens with the four-key header (`summary`, `kind`, `status`, `read-when`); then regenerate the index with `ai-doc-health --repo . --fix-index` (never hand-edit `docs/INDEX.md`). Rules: `.doc-health.json`, and `docs/doc-health.md` in `popcre/ai-devops`.
 
 ## 1. Project summary
 
-The Oracle is an evidence-backed enterprise knowledge graph for POP Creations / Spruce Line. Employees interact with it through chat and document uploads; workers extract operational claims with quote-level evidence; deterministic validators gate promotion into approved claims; synthesis workers maintain traceable Brain sections; admin screens review runs, caches, claims, gaps, contradictions, and taxonomy proposals. The outcome that matters is explainable business knowledge: every important answer or synthesis artifact must be traceable back to messages, document chunks, or approved claims.
+The Oracle is the Company Map for POP Creations / Spruce Line. It reads company source documents and meeting transcripts into a map of how the business works, answers employee questions from that map, and interviews employees over Teams to fill gaps. Moving parts: the Next.js web app on Vercel (`apps/web`), the Python brain service on Coolify (`apps/brain`), and Supabase for database, auth and storage. The outcome that matters is explainable business knowledge: every fact keeps a verbatim quote and its source. The older claims system, Trigger.dev workers and Oracle 2 were removed in #398 (2026-11-04).
 
 ## 2. AI tool notes
 
@@ -14,7 +18,7 @@ Claude Code uses .claudeignore. Other tools follow **What to ignore** in this fi
 
 **Current program (2026-10-27):** read [plan_oracle_company_map.md](plan_oracle_company_map.md) STATUS first; older plans were removed in #398.
 
-**Repair and consultant-grade upgrade (2026-11-11):** read [plan_oracle_repair_and_consultant_upgrade.md](plan_oracle_repair_and_consultant_upgrade.md) STATUS first; do not re-derive or re-plan. It owns every defect in `docs/audit-2026-11-11-oracle-goals.md` (answer quality, data domains, dates, relationships, interviews, corrections, consultant features).
+**Repair and consultant-grade upgrade (2026-11-11):** read [plan_oracle_repair_and_consultant_upgrade.md](plan_oracle_repair_and_consultant_upgrade.md) STATUS first; do not re-derive or re-plan. It owns every defect in [`docs/audit-2026-11-11-oracle-goals.md`](docs/audit-2026-11-11-oracle-goals.md) (answer quality, data domains, dates, relationships, interviews, corrections, consultant features).
 
 **Chinese (Mandarin) integration (2026-11-08):** read [plan_chinese_integration.md](plan_chinese_integration.md) STATUS first; do not re-derive or re-plan. `china_imp.md` is prior art for the retired claims system.
 
@@ -29,16 +33,16 @@ to "AGENTS.md §N" means the file below. Read only the file(s) your task needs.
 
 | Section | File | Read it when |
 |---|---|---|
-| §3 Documentation map (full task → docs table and its rules) | `docs/agents/03-documentation-map.md` | Choosing which topic doc, plan, or handoff to read for a task; adding, removing, or renaming docs (the map must be updated) |
-| §4 Repository structure | `docs/agents/04-repository-structure.md` | Finding where code, docs, plans, or scripts live |
-| §7 Task-to-file navigation | `docs/agents/07-task-to-file-navigation.md` | Deciding which files to edit for a common change (workers, Teams/Recall, UI, APIs) |
-| §8 Data model and external identifiers | `docs/agents/08-data-model-and-external-identifiers.md` | Schema, migrations, external IDs, data flow |
-| §9 Container and service inventory | `docs/agents/09-container-and-service-inventory.md` | Which services/projects exist and where they run |
-| §11 Intentional quirks and non-obvious decisions | `docs/agents/11-intentional-quirks.md` | **Before changing any behavior** that looks odd — model routing, providers, retrieval, extraction, quotes, migrations, MCP, Teams, caches, China layer |
-| §12 Credentials and environment | `docs/agents/12-credentials-and-environment.md` | Env vars, secrets, 1Password, local `.env.local`, production database access |
-| §13 Deployment, incl. **Release & CI/CD policy** | `docs/agents/13-deployment.md` | **Before any commit, push, branch/PR decision, deploy, worker deploy, or migration** — it holds the binding branch model, release path, and migration-path rules |
-| §14 Critical incidents | `docs/agents/14-critical-incidents.md` | Investigating a bug/incident; touching providers, migrations, Drizzle journal, batch, webhooks, Trigger.dev environments, or Entra secrets |
-| §15 Pending work | `docs/agents/15-pending-work.md` | Continuing unfinished work, choosing what to do next, or updating status |
+| §3 Documentation map (full task → docs table and its rules) | [`docs/agents/03-documentation-map.md`](docs/agents/03-documentation-map.md) | Choosing which topic doc, plan, or handoff to read for a task; adding, removing, or renaming docs (the map must be updated) |
+| §4 Repository structure | [`docs/agents/04-repository-structure.md`](docs/agents/04-repository-structure.md) | Finding where code, docs, plans, or scripts live |
+| §7 Task-to-file navigation | [`docs/agents/07-task-to-file-navigation.md`](docs/agents/07-task-to-file-navigation.md) | Deciding which files to edit for a common change (workers, Teams/Recall, UI, APIs) |
+| §8 Data model and external identifiers | [`docs/agents/08-data-model-and-external-identifiers.md`](docs/agents/08-data-model-and-external-identifiers.md) | Schema, migrations, external IDs, data flow |
+| §9 Container and service inventory | [`docs/agents/09-container-and-service-inventory.md`](docs/agents/09-container-and-service-inventory.md) | Which services/projects exist and where they run |
+| §11 Intentional quirks and non-obvious decisions | [`docs/agents/11-intentional-quirks.md`](docs/agents/11-intentional-quirks.md) | **Before changing any behavior** that looks odd — model routing, providers, retrieval, extraction, quotes, migrations, MCP, Teams, caches, China layer |
+| §12 Credentials and environment | [`docs/agents/12-credentials-and-environment.md`](docs/agents/12-credentials-and-environment.md) | Env vars, secrets, 1Password, local `.env.local`, production database access |
+| §13 Deployment, incl. **Release & CI/CD policy** | [`docs/agents/13-deployment.md`](docs/agents/13-deployment.md) | **Before any commit, push, branch/PR decision, deploy, worker deploy, or migration** — it holds the binding branch model, release path, and migration-path rules |
+| §14 Critical incidents | [`docs/agents/14-critical-incidents.md`](docs/agents/14-critical-incidents.md) | Investigating a bug/incident; touching providers, migrations, Drizzle journal, batch, webhooks, Trigger.dev environments, or Entra secrets |
+| §15 Pending work | [`docs/agents/15-pending-work.md`](docs/agents/15-pending-work.md) | Continuing unfinished work, choosing what to do next, or updating status |
 
 Always-read rules that stay in this file: §1, §2, the five-minute orientation, task
 declaration, §3a handoffs, §5 Prime Directive, §6, §10 ignore rules, and the host/server

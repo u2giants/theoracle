@@ -1,3 +1,10 @@
+---
+summary: "Plan from 2026-11-02 to let every tenant employee feed the Company Map through the Teams bot: inbound capture, follow-ups, weekly tick."
+kind: plan
+status: open
+read-when: working on Teams interview intake or the outbound question tick
+---
+
 # Teams interview build-out — implementation plan
 
 Written 2026-11-02 (EST). Owner direction (Albert, verbatim): "we have to build

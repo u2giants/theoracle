@@ -1,3 +1,10 @@
+---
+summary: "Current system design of the Company Map: web app, brain service, database schemas, pipeline stages and data flow after the #398 removal."
+kind: living
+status: current
+read-when: changing system design, data flow or how the web app and brain interact
+---
+
 # Architecture
 
 System design for The Oracle Company Map. Current plan and status:

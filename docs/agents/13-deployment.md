@@ -1,3 +1,10 @@
+---
+summary: "AGENTS.md section 13: real deploy path (Vercel web, Coolify brain image, Supabase), rollback, and the binding release, branch and migration policy."
+kind: living
+status: current
+read-when: before any commit, push, branch or pull-request decision, deploy or migration
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob b5e39e1305331da62607e6aae51de8c2ffdfe884 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 <!-- Moved verbatim from AGENTS.md (issue #22). AGENTS.md is the router. -->
 

@@ -1,3 +1,10 @@
+---
+summary: Lessons from the stage 7 question-answering bake-off of 2026-11-03 and what a re-run should do differently.
+kind: proof
+status: done
+read-when: before re-running the answer-model comparison
+---
+
 # Stage 7 (question answering) bake-off — lessons learned
 
 Companion to [`2026-11-03-stage-7-answer.md`](2026-11-03-stage-7-answer.md) (results) and its `.json`.

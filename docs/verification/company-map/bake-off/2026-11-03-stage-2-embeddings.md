@@ -1,3 +1,10 @@
+---
+summary: "Results of the stage 2 embeddings bake-off of 2026-11-03: candidates, availability, price and scores."
+kind: proof
+status: done
+read-when: checking which embedding model was chosen and why
+---
+
 # Stage 2 — Embeddings bake-off (2026-11-03)
 
 Run 11:41–11:42 AM EST on the test services host. Machine-readable twin:

@@ -1,3 +1,10 @@
+---
+summary: "Step 13 verification: recommendations gate tests and a live run on a throwaway map."
+kind: proof
+status: done
+read-when: checking evidence for the recommendations step
+---
+
 # Step 13 verification — recommendations
 
 Recorded 2026-10-30 2:07 AM EDT, edge-dev3, Claude (implementer). Issue #254.

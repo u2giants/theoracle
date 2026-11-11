@@ -1,3 +1,10 @@
+---
+summary: "What it took on 2026-11-02 to make Teams messaging work in both directions: three stacked problems, fixes and live proof."
+kind: proof
+status: done
+read-when: debugging Teams bot inbound or outbound delivery
+---
+
 # Teams two-way communication — what it took (2026-11-02)
 
 The owner asked the bot "hi" from his own Teams account and asked for a reply

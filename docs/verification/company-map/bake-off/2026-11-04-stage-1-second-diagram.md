@@ -1,3 +1,10 @@
+---
+summary: Stage 1 vision check on a second dense real diagram (2026-11-04) to test whether the ranking held.
+kind: proof
+status: done
+read-when: questioning the diagram-reading ranking
+---
+
 # Stage 1 vision: second dense real diagram (#363, 2026-11-04)
 
 The stage 1 ranking rested on one dense real diagram (the Edge Home flowchart).

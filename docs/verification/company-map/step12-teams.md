@@ -1,3 +1,10 @@
+---
+summary: "Step 12 verification: open-question queue and Teams interviews, automated gate and end-to-end proof."
+kind: proof
+status: done
+read-when: checking evidence for the Teams interview step
+---
+
 # Step 12 verification — open-question queue and Teams interviews
 
 Recorded 2026-10-30, 1:45 AM EDT, edge-dev3, Claude (implementer). Issue #253.

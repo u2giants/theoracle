@@ -1,3 +1,10 @@
+---
+summary: Executable plan and record for deploying FalkorDB on Coolify (both roles deployed 2026-10-15), with checks and reviewer findings.
+kind: plan
+status: done
+read-when: investigating how the FalkorDB services, networks or backups were set up
+---
+
 <!-- Privacy rendering: infrastructure references are non-executable publication placeholders. Original Git blob 00ef1f4a7ac739c48ab8a8cf9cd07b0d38c30e35 at ab73ef791ad48f187fa5d2998428aec99ce6bd82; exact originals are retained in the #27 private custody archive. No obligations, authority, timing or acceptance are changed. -->
 # FalkorDB on Coolify — executable deployment plan (DRAFT, not executed)
 

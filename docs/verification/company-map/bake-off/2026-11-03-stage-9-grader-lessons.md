@@ -1,3 +1,10 @@
+---
+summary: Reasoning and method details from the stage 9 evaluation-grader bake-off of 2026-11-03.
+kind: proof
+status: done
+read-when: re-running or questioning the grader model choice
+---
+
 # Stage 9 grader bake-off — what we learned (2026-11-03)
 
 Companion to the results in

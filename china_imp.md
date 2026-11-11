@@ -1,3 +1,10 @@
+---
+summary: Superseded June 2026 design for the China bilingual claim layer on the retired claims system; kept for its principles only.
+kind: archive
+status: done
+read-when: a code comment cites china_imp.md or you need the original bilingual rationale
+---
+
 # China Bilingual Implementation Plan (`china_imp.md`)
 
 > **Superseded for the current system (2026-11-08):** the live plan is
