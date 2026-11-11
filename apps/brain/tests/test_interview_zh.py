@@ -74,8 +74,8 @@ def _question(db: Any, text: str) -> str:
         ("Test Employee",),
     ).fetchone()[0]
     row = db.execute(
-        "INSERT INTO cmap.open_question (question, why, entity_ids) "
-        "VALUES (%s, 'test', %s) RETURNING id::text",
+        "INSERT INTO cmap.open_question (question, why, entity_ids, priority) "
+        "VALUES (%s, 'test', %s, 3) RETURNING id::text",
         (text, [person]),
     ).fetchone()
     db.commit()

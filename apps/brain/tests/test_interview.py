@@ -132,11 +132,20 @@ def _relate(db: Any, a: str, b: str, sources: int) -> None:
     db.commit()
 
 
-def _question(db: Any, text: str, entity_ids: list[str]) -> str:
+def _question(
+    db: Any,
+    text: str,
+    entity_ids: list[str],
+    *,
+    priority: int | None = 3,
+    person: str | None = None,
+    department: str | None = None,
+) -> str:
     row = db.execute(
-        "INSERT INTO cmap.open_question (question, why, entity_ids) VALUES (%s, 'test', %s) "
-        "RETURNING id::text",
-        (text, entity_ids),
+        "INSERT INTO cmap.open_question "
+        "(question, why, entity_ids, priority, suggested_person, department) "
+        "VALUES (%s, 'test', %s, %s, %s, %s) RETURNING id::text",
+        (text, entity_ids, priority, person, department),
     ).fetchone()
     db.commit()
     return str(row[0])
@@ -218,6 +227,70 @@ def test_weekly_cap(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None
         db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE state = 'asked'")
         db.commit()
     assert len(sent) == 2
+
+
+def test_unvetted_question_is_never_sent(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    person = _person(db, EMPLOYEE_NAME)
+    _question(db, "Never checked?", [person], priority=None)
+    _connect()
+    assert run_interview_tick()["asked"] == 0
+    assert sent == []
+
+
+def test_vetted_question_goes_to_its_department_not_a_bystander(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """Owner 2026-11-10: licensing questions go to Licensing, not whoever is in the area."""
+    bystander = _person(db, "Test Admin")
+    db.execute(
+        "INSERT INTO cmap.employee_flags (employee_id, department) VALUES (%s, 'Licensing') "
+        "ON CONFLICT (employee_id) DO UPDATE SET department = 'Licensing'",
+        (EMPLOYEE_ID,),
+    )
+    db.commit()
+    _question(db, "Who signs licensing approvals?", [bystander], department="licensing")
+    _question(db, "Nobody fits this one?", [bystander], department="")
+    _connect()
+    handle_inbound(email="admin@test.invalid", conversation_ref=CONVERSATION_REF, text="hi")
+
+    result = run_interview_tick()
+    assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
+    assert result["unrouted"] == 1
+
+
+def test_more_important_question_goes_first(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    person = _person(db, EMPLOYEE_NAME)
+    _question(db, "Minor detail?", [person], priority=3)
+    _question(db, "Core gap?", [person], priority=5)
+    _connect()
+    run_interview_tick()
+    assert sent == [(EMPLOYEE_ID, MESSAGE_TEMPLATE.format(question="Core gap?"))]
+
+
+def test_unrelated_reply_is_not_saved_as_the_answer(
+    db: Any, enabled: None, sent: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner 2026-11-10: a reply about something else must not become the answer."""
+    from brain.interview import inbound as inbound_mod
+
+    person = _person(db, EMPLOYEE_NAME)
+    qid = _question(db, "Who approves samples?", [person])
+    _connect()
+    run_interview_tick()
+    monkeypatch.setattr(inbound_mod, "classify_reply", lambda question, reply: "other")
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="thanks")
+    assert _states(db)[qid] == "asked"
+
+    monkeypatch.setattr(inbound_mod, "classify_reply", lambda question, reply: "dont_know")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="No idea, not my area."
+    )
+    assert reply["reply"] == inbound_mod.REPLY_SKIPPED
+    assert _states(db)[qid] == "open"
 
 
 def test_stop_pauses(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None:

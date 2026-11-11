@@ -9,18 +9,26 @@ it does not handle falls through to the bot's existing join-meeting command.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from psycopg.types.json import Json
 
+from brain.answer.answer import parse_model_json
 from brain.api.sources import ingest_bytes
+from brain.config import get_settings
 from brain.db import get_pool
 from brain.interview import followup, intake, profile
 from brain.interview.strings import reply_language, strings
+from brain.llm import message_content, post_chat_with_rescue
+from brain.seats import stage_model
 from brain.text_util import fold_key
+
+logger = logging.getLogger(__name__)
 
 ANSWER_WINDOW_DAYS = 7
 ORACLE_SPEAKER = "The Oracle"
@@ -38,6 +46,45 @@ REPLY_ANSWERED = _EN.reply_answered
 
 _STOP_COMMANDS = {"stop", "停止", "暂停"}
 _SKIP_COMMANDS = {"skip", "跳过"}
+
+
+REPLY_CHECK_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "reply_check.md"
+REPLY_CHECK_TIMEOUT_SECONDS = 8.0
+
+
+def classify_reply(question: str, reply: str) -> str:
+    """``answer``, ``dont_know`` or ``other`` for a reply to a pending question.
+
+    When the check cannot run the reply counts as an answer: only one question
+    is ever pending per person, so that is by far the likeliest reading.
+    """
+    settings = get_settings()
+    model = stage_model(settings, "answer")
+    if not model or not settings.openrouter_api_key:
+        return "answer"
+    prompt = (
+        REPLY_CHECK_PROMPT.read_text(encoding="utf-8")
+        .replace("{{question}}", question)
+        .replace("{{reply}}", reply)
+    )
+    try:
+        body = post_chat_with_rescue(
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 60,
+                "temperature": 0,
+            },
+            settings=settings,
+            timeout=REPLY_CHECK_TIMEOUT_SECONDS,
+            error_cls=RuntimeError,
+            label="reply check",
+        )
+        kind = str(parse_model_json(message_content(body), ()).get("kind") or "")
+    except Exception:  # noqa: BLE001 - a failed check must not lose the reply
+        logger.warning("reply check failed; treating the reply as an answer")
+        return "answer"
+    return kind if kind in {"answer", "dont_know", "other"} else "answer"
 
 
 def _command(text: str) -> str:
@@ -261,7 +308,14 @@ def handle_inbound(
                 conn, employee_id, employee_name, text, command, personal, lang, locale
             )
         question_id, question = str(row[0]), str(row[1])
-        if command in _SKIP_COMMANDS:
+        kind = "dont_know" if command in _SKIP_COMMANDS else classify_reply(question, text)
+        if kind == "other":
+            # Not an answer: the question stays pending and the message is
+            # handled like any other thing the employee tells the bot.
+            return _volunteer(
+                conn, employee_id, employee_name, text, command, personal, lang, locale
+            )
+        if kind == "dont_know":
             conn.execute(
                 "UPDATE cmap.open_question SET state = 'open', target_employee_id = NULL, "
                 "asked_at = NULL, skipped_by = array_append(skipped_by, %s::uuid) "
