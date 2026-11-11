@@ -105,8 +105,10 @@ def _drop(graph_client: FalkorDB) -> Graph:
 def _load_entities(conn: psycopg.Connection) -> list[dict[str, Any]]:
     """Every entity as one node row."""
     rows = conn.execute(
-        "SELECT id, entity_type, canonical_name, description, "
-        "mention_count, source_count FROM cmap.entity"
+        "SELECT e.id, e.entity_type, e.canonical_name, e.description, "
+        "e.mention_count, e.source_count FROM cmap.entity e "
+        # An entity nothing mentions any more is not part of the map (repair A7).
+        "WHERE EXISTS (SELECT 1 FROM cmap.mention m WHERE m.entity_id = e.id)"
     ).fetchall()
     nodes: list[dict[str, Any]] = []
     for entity_id, entity_type, name, description, mentions, sources in rows:

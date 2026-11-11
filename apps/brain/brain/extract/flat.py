@@ -23,7 +23,7 @@ import logging
 import re
 import threading
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,8 @@ from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.normalize import normalize_name
 from brain.llm import post_chat_with_rescue
+from brain.read.cleanup import drop_orphaned
+from brain.read.state import clear_chunk_failure, record_chunk_failure, with_retries
 from brain.seats import flat_model_chosen, stage_model
 from brain.text_util import sentence_spans
 
@@ -131,6 +133,10 @@ SOURCE_LANGUAGE_RULE = (
 
 class FlatError(RuntimeError):
     """Raised when the flat stage cannot classify or extract a chunk."""
+
+
+class FlatCapReached(FlatError):
+    """The per-job model-call cap was hit; the job resumes where it stopped."""
 
 
 @dataclass
@@ -400,7 +406,7 @@ class _CallCounters:
         with self.lock:
             used = self.usage.get("frontier_calls", 0)
             if used >= cap:
-                raise FlatError(
+                raise FlatCapReached(
                     f"BRAIN_MAX_FRONTIER_CALLS_PER_JOB cap of {cap} reached; "
                     "the job can be resumed once the cap is raised"
                 )
@@ -566,6 +572,29 @@ def _load_done_state(
     return done, classify_payloads
 
 
+def _replace_previous(conn: Any, outcome: ChunkOutcome) -> None:
+    """Remove what an earlier extraction of this chunk left (repair plan A8).
+
+    A chunk is extracted again only when the prompt changed. Its old mentions
+    (and the relations hanging off them) are replaced, never added to; the
+    chunk's relations are then extracted afresh from the new mentions.
+    """
+    touched = {
+        str(row[0])
+        for row in conn.execute(
+            "DELETE FROM cmap.mention WHERE chunk_id = %s RETURNING entity_id",
+            (outcome.chunk_id,),
+        ).fetchall()
+        if row[0] is not None
+    }
+    conn.execute(
+        "DELETE FROM cmap.extraction WHERE chunk_id = %s AND "
+        "(stage = 'relations' OR (stage = 'flat' AND prompt_hash <> ALL(%s)))",
+        (outcome.chunk_id, [classify_prompt_hash(), *(r.prompt_hash for r in outcome.records)]),
+    )
+    drop_orphaned(conn, touched)
+
+
 def _write_outcome(outcome: ChunkOutcome) -> None:
     """Write one chunk's records and mentions in a single transaction."""
     pool = get_pool()
@@ -588,6 +617,9 @@ def _write_outcome(outcome: ChunkOutcome) -> None:
                     Json(record.payload),
                 ),
             )
+        clear_chunk_failure(conn, outcome.chunk_id, "flat")
+        if outcome.extract_done:
+            _replace_previous(conn, outcome)
         for mention in outcome.mentions:
             conn.execute(
                 "INSERT INTO cmap.mention "
@@ -642,27 +674,50 @@ def handle_classify_extract(job: dict[str, Any]) -> None:
         pending.append((chunk_id, text, classify_done))
 
     outcomes: list[ChunkOutcome] = []
-    with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-        futures = [
-            pool.submit(_process_chunk, chunk_id, text, counters, classify_done)
-            for chunk_id, text, classify_done in pending
-        ]
-        for future in futures:
-            outcomes.append(future.result())
+    failed = 0
+    cap_error: FlatCapReached | None = None
 
-    _embed_outcomes(outcomes, counters)
-    for outcome in outcomes:
+    def _one(chunk_id: str, text: str, classify_done: dict[str, Any] | None) -> ChunkOutcome:
+        """Extract, embed and store one chunk; its result is safe at once."""
+        outcome = with_retries(
+            lambda: _process_chunk(chunk_id, text, counters, classify_done),
+            f"flat extraction of chunk {chunk_id}",
+            fatal=(FlatCapReached,),
+        )
+        _embed_outcomes([outcome], counters)
         _write_outcome(outcome)
+        return outcome
+
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+        futures = {
+            pool.submit(_one, chunk_id, text, classify_done): chunk_id
+            for chunk_id, text, classify_done in pending
+        }
+        for future in as_completed(futures):
+            try:
+                outcomes.append(future.result())
+            except FlatCapReached as exc:
+                # Not the chunk's fault: the job is resumed once the cap allows.
+                cap_error = exc
+            except Exception as exc:
+                # One bad chunk never costs the source its other chunks.
+                failed += 1
+                logger.warning("flat chunk %s failed for good: %s", futures[future], exc)
+                record_chunk_failure(futures[future], "flat", str(exc))
+
     _record_usage(job.get("id"), counters.usage)
-    if job.get("id") is not None:
-        enqueue_job("relations", {"source_id": source_id})
     logger.info(
-        "classify_extract source=%s chunks=%d mentions=%d usage=%s",
+        "classify_extract source=%s chunks=%d mentions=%d failed=%d usage=%s",
         source_id,
         len(chunks),
         sum(len(outcome.mentions) for outcome in outcomes),
+        failed,
         counters.usage,
     )
+    if cap_error is not None:
+        raise cap_error
+    if job.get("id") is not None:
+        enqueue_job("relations", {"source_id": source_id})
 
 
 def _embed_outcomes(outcomes: list[ChunkOutcome], counters: _CallCounters) -> None:

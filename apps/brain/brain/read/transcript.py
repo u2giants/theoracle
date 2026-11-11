@@ -167,6 +167,30 @@ def _turns_from_vtt(raw: str) -> list[Turn]:
     return turns
 
 
+MAX_SPEAKER_WORDS = 5
+_SPEAKER_LINE = re.compile(r"^(.{1,60}?)(?::\s+|：\s*)(.+)$")
+_CLOCK_TIME = re.compile(r"\d\s*[:：]\s*\d")
+
+
+def _speaker_line(line: str) -> re.Match[str] | None:
+    """Match "Speaker: text" at the start of a line, or None.
+
+    A label is a short name: at most five words, no clock time in it, and
+    its colon is followed by a space (a full-width colon needs none). So
+    "We agreed at 3:15 to ship" is speech, not a speaker called
+    "We agreed at 3" (repair plan A7).
+    """
+    named = _SPEAKER_LINE.match(line)
+    if named is None:
+        return None
+    label = named.group(1).strip()
+    if not label or len(label.split()) > MAX_SPEAKER_WORDS:
+        return None
+    if _CLOCK_TIME.search(label):
+        return None
+    return named
+
+
 def _turns_from_speaker_lines(raw: str) -> list[Turn]:
     """Build turns from plain "Speaker: text" lines."""
     turns: list[Turn] = []
@@ -174,7 +198,7 @@ def _turns_from_speaker_lines(raw: str) -> list[Turn]:
         stripped = line.strip()
         if not stripped:
             continue
-        named = re.match(r"^(.{1,60}?)[:：]\s*(.+)$", stripped)
+        named = _speaker_line(stripped)
         if named:
             turns.append(
                 Turn(

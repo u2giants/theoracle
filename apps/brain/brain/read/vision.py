@@ -11,6 +11,7 @@ import base64
 import io
 import json
 import re
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +24,64 @@ from brain.seats import stage_model
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "read_visual.md"
 
 
+MAX_NOTE_CHARS = 500
+
+_UNREADABLE: ContextVar[list[dict[str, Any]] | None] = ContextVar(
+    "read_unreadable_regions", default=None
+)
+
+
 class VisionError(RuntimeError):
     """Raised when the vision model cannot transcribe a page."""
+
+
+def start_read_notes() -> list[dict[str, Any]]:
+    """Start collecting unreadable-region notes for the current read job.
+
+    Returns the list every later ``visual_read`` in this context appends to;
+    each entry is ``{"locator": {...}, "note": "..."}``. Calling it again
+    starts a fresh list, so one job never inherits another's notes.
+    """
+    notes: list[dict[str, Any]] = []
+    _UNREADABLE.set(notes)
+    return notes
+
+
+def note_unreadable(locator: dict[str, Any] | None, note: str) -> None:
+    """Record one part of a source that could not be read, if collecting."""
+    notes = _UNREADABLE.get()
+    text = note.strip()
+    if notes is None or not text:
+        return
+    notes.append({"locator": dict(locator or {}), "note": text[:MAX_NOTE_CHARS]})
+
+
+def unreadable_notes(value: Any) -> list[str]:
+    """Normalise the model's ``unreadable_regions`` into a list of notes.
+
+    The prompt asks for a short string; models also return a list of strings
+    or of objects, so all three shapes are accepted.
+    """
+    if isinstance(value, str):
+        items: list[Any] = [value]
+    elif isinstance(value, list):
+        items = value
+    elif isinstance(value, dict):
+        items = [value]
+    else:
+        return []
+    out: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            text = item.get("note") or item.get("description") or item.get("text")
+            if not isinstance(text, str):
+                text = json.dumps(item, ensure_ascii=False, sort_keys=True)
+        else:
+            text = str(item) if item is not None else ""
+        text = text.strip()
+        if text:
+            out.append(text)
+    return out
 
 
 def load_visual_prompt() -> str:
@@ -94,12 +151,15 @@ def visual_read(
     media_type: str = "image/png",
     settings: Settings | None = None,
     usage: dict[str, int] | None = None,
+    locator: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Transcribe one page image.
 
     Returns ``{"page_text", "diagram", "unreadable_regions"}`` exactly as the
     prompt specifies. ``usage`` collects token counts when the caller passes a
-    dict (plan §11: log tokens per job).
+    dict (plan §11: log tokens per job). Any ``unreadable_regions`` are
+    recorded against ``locator`` for the read job that is collecting notes
+    (``start_read_notes``), so missing content is never silently dropped.
     """
     cfg = settings if settings is not None else get_settings()
     image_bytes, media_type = flatten_alpha(image_bytes, media_type)
@@ -129,7 +189,10 @@ def visual_read(
         tokens = reported.get("total_tokens")
         if isinstance(tokens, int):
             usage["vision_tokens"] = usage.get("vision_tokens", 0) + tokens
-    return parse_visual_json(content)
+    visual = parse_visual_json(content)
+    for note in unreadable_notes(visual.get("unreadable_regions")):
+        note_unreadable(locator, note)
+    return visual
 
 
 def render_diagram(diagram: dict[str, Any]) -> str:

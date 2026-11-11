@@ -18,6 +18,11 @@ KIND_PPTX = "pptx"
 KIND_TEXT = "text"
 KIND_IMAGE = "image"
 KIND_TRANSCRIPT = "transcript"
+# Read-time kinds for delimited tables. A .csv/.tsv source is stored with
+# kind ``text`` (the kinds ``cmap.source`` allows); ``read_kind`` routes it to
+# the table reader when it is read.
+KIND_CSV = "csv"
+KIND_TSV = "tsv"
 
 VALID_KINDS = frozenset(
     {
@@ -31,7 +36,10 @@ VALID_KINDS = frozenset(
     }
 )
 
-MAX_OFFICE_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+# The one expanded-size limit for Office files: intake checks it here and the
+# reader (brain.read.office) enforces the same number, so a file accepted at
+# upload is never refused for size when it is read.
+MAX_OFFICE_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
 
 _EXTENSION_KINDS: dict[str, str] = {
     ".pdf": KIND_PDF,
@@ -41,6 +49,7 @@ _EXTENSION_KINDS: dict[str, str] = {
     ".txt": KIND_TEXT,
     ".md": KIND_TEXT,
     ".csv": KIND_TEXT,
+    ".tsv": KIND_TEXT,
     ".json": KIND_TEXT,
     ".log": KIND_TEXT,
     ".png": KIND_IMAGE,
@@ -51,6 +60,8 @@ _EXTENSION_KINDS: dict[str, str] = {
     ".svg": KIND_IMAGE,
     ".vtt": KIND_TRANSCRIPT,
 }
+
+_TABLE_EXTENSIONS: dict[str, str] = {".csv": KIND_CSV, ".tsv": KIND_TSV}
 
 _ZIP_KINDS = frozenset({KIND_DOCX, KIND_XLSX, KIND_PPTX})
 
@@ -144,6 +155,17 @@ def detect_kind(filename: str, head: bytes) -> str:
         raise DetectError(
             f"file extension is {ext} but the bytes are not readable text"
         )
+    return kind
+
+
+def read_kind(kind: str, filename: str) -> str:
+    """Return the reader to use for a stored source of ``kind``.
+
+    A ``text`` source whose name ends in .csv or .tsv goes to the table
+    reader (``csv`` / ``tsv``); every other source reads as its stored kind.
+    """
+    if kind == KIND_TEXT:
+        return _TABLE_EXTENSIONS.get(_extension(filename), kind)
     return kind
 
 

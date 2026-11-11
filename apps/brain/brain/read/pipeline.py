@@ -1,4 +1,4 @@
-"""The ``read_source`` job: read, chunk, embed, mark read (plan step 3).
+"""The ``read_source`` job: read, chunk, embed, hand to extraction (plan step 3).
 
 Every source becomes chunks in ``cmap.chunk``, embedded and ready for the
 ``classify_extract`` job this handler enqueues. Nothing here gates reading on
@@ -15,19 +15,25 @@ from brain import storage as storage_mod
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_and_store
 from brain.read.chunk import Chunk, window_chunks
+from brain.read.cleanup import drop_orphaned, touched_entities
 from brain.read.detect import (
+    KIND_CSV,
     KIND_DOCX,
     KIND_IMAGE,
     KIND_PDF,
     KIND_PPTX,
     KIND_TEXT,
     KIND_TRANSCRIPT,
+    KIND_TSV,
     KIND_XLSX,
+    read_kind,
 )
 from brain.read.image import read_image
-from brain.read.office import read_docx, read_pptx, read_xlsx
+from brain.read.office import read_delimited, read_docx, read_pptx, read_xlsx
 from brain.read.pdf import read_pdf
+from brain.read.state import NO_CONTENT_ERROR, set_read_state
 from brain.read.transcript import read_transcript
+from brain.read.vision import start_read_notes
 
 MAX_READ_ERROR_CHARS = 2000
 
@@ -58,6 +64,8 @@ def read_chunks(kind: str, data: bytes, usage: dict[str, int] | None = None) -> 
         return read_pptx(data, usage)
     if kind == KIND_TRANSCRIPT:
         return read_transcript(_decode_text(data))
+    if kind in (KIND_CSV, KIND_TSV):
+        return read_delimited(_decode_text(data), kind)
     if kind == KIND_TEXT:
         return window_chunks(_decode_text(data), {})
     raise ValueError(f"unsupported source kind {kind!r}")
@@ -68,7 +76,11 @@ def _store_chunks(source_id: str, chunks: list[Chunk]) -> list[tuple[str, str]]:
     pool = get_pool()
     pairs: list[tuple[str, str]] = []
     with pool.connection() as conn:
+        # A re-read replaces the old passages; whatever only they supported
+        # (entities with no mention left, aliases) goes with them (repair A7).
+        touched = touched_entities(conn, source_id)
         conn.execute("DELETE FROM cmap.chunk WHERE source_id = %s", (source_id,))
+        drop_orphaned(conn, touched)
         for ordinal, chunk in enumerate(chunks):
             row = conn.execute(
                 "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count) "
@@ -86,17 +98,6 @@ def _store_chunks(source_id: str, chunks: list[Chunk]) -> list[tuple[str, str]]:
     return pairs
 
 
-def _set_read_state(source_id: str, state: str, error: str | None) -> None:
-    """Record the source's read outcome."""
-    pool = get_pool()
-    with pool.connection() as conn:
-        conn.execute(
-            "UPDATE cmap.source SET read_state = %s, read_error = %s WHERE id = %s",
-            (state, error, source_id),
-        )
-        conn.commit()
-
-
 def _record_usage(job_id: Any, usage: dict[str, int]) -> None:
     """Log the job's model usage into ``cmap.job.payload.usage`` (plan §11)."""
     if not usage:
@@ -111,8 +112,19 @@ def _record_usage(job_id: Any, usage: dict[str, int]) -> None:
         conn.commit()
 
 
+def _record_read_notes(source_id: str, notes: list[dict[str, Any]]) -> None:
+    """Store what the readers could not read on the source (repair plan A6)."""
+    pool = get_pool()
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE cmap.source SET read_notes = %s WHERE id = %s",
+            (Json({"unreadable_regions": notes} if notes else {}), source_id),
+        )
+        conn.commit()
+
+
 def handle_read_source(job: dict[str, Any]) -> None:
-    """Read one source end to end: chunk, embed, mark read, queue extraction."""
+    """Read one source: chunk, embed, mark extracting, queue extraction."""
     payload = job.get("payload") or {}
     source_id = str(payload.get("source_id") or "")
     if not source_id:
@@ -127,14 +139,23 @@ def handle_read_source(job: dict[str, Any]) -> None:
         raise ValueError(f"source {source_id} not found")
     kind, storage_path = row
     usage: dict[str, int] = {}
+    set_read_state(source_id, "reading", None)
+    notes = start_read_notes()
     try:
         data = storage_mod.get_storage().download(storage_path)
-        chunks = read_chunks(kind, data, usage)
+        chunks = read_chunks(read_kind(kind, storage_path), data, usage)
+        _record_read_notes(source_id, notes)
         pairs = _store_chunks(source_id, chunks)
+        if not pairs:
+            # Nothing to extract: never show an empty source as read.
+            set_read_state(source_id, "failed", NO_CONTENT_ERROR)
+            _record_usage(job.get("id"), usage)
+            return
         embed_and_store(pairs, usage=usage)
-        _set_read_state(source_id, "read", None)
+        # "read" is set only when extraction has finished (relations job).
+        set_read_state(source_id, "extracting", None)
     except Exception as exc:
-        _set_read_state(source_id, "failed", str(exc)[:MAX_READ_ERROR_CHARS])
+        set_read_state(source_id, "failed", str(exc)[:MAX_READ_ERROR_CHARS])
         raise
     enqueue_job("classify_extract", {"source_id": source_id})
     _record_usage(job.get("id"), usage)

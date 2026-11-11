@@ -45,7 +45,9 @@ def read_image(data: bytes, usage: dict[str, int] | None = None) -> list[Chunk]:
         head.lower().startswith(b"<?xml") and b"<svg" in data[:4096].lower()
     ):
         return window_chunks(_svg_text(data), {"image": True})
-    visual = visual_read(data, _media_type(data[:16]), usage=usage)
+    visual = visual_read(
+        data, _media_type(data[:16]), usage=usage, locator={"image": True}
+    )
     return window_chunks(
         build_visual_text(visual),
         {"image": True, "visual": True},

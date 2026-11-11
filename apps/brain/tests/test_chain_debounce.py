@@ -235,3 +235,95 @@ def test_burst_of_sources_runs_the_chain_once(
     ]
     assert db.execute("SELECT count(*) FROM cmap.graph_version").fetchone()[0] >= 1
     assert db.execute("SELECT count(*) FROM cmap.community").fetchone()[0] >= 1
+
+
+def test_stalled_chain_is_healed(db: Any) -> None:
+    """Repair A2: work left behind is picked up without another upload."""
+    from test_flat import _seed_text
+    from test_project import _mention
+
+    from brain.chain import maybe_queue_ensure_chain, run_ensure_chain
+
+    def _jobs() -> list[tuple[str, str | None]]:
+        db.commit()
+        return [
+            (str(kind), source)
+            for kind, source in db.execute(
+                "SELECT kind, payload->>'source_id' FROM cmap.job "
+                "WHERE state = 'queued' ORDER BY kind, 2"
+            ).fetchall()
+        ]
+
+    # 1. A source stuck in 'extracting' with no job at all is re-queued; one
+    #    whose last job failed for good is marked failed with the reason; one
+    #    with a job still waiting is left alone.
+    lost = _seed_text(db, "The buyer waits for sign-off.", "lost")
+    dead = _seed_text(db, "The licensor signs the artwork.", "dead")
+    busy = _seed_text(db, "The factory ships the order.", "busy")
+    never_read = _seed_text(db, "The vendor quotes the price.", "never-read")
+    db.execute(
+        "UPDATE cmap.source SET read_state = 'extracting' WHERE id = ANY(%s::uuid[])",
+        ([lost, dead, busy],),
+    )
+    db.execute(
+        "UPDATE cmap.source SET read_state = 'queued', created_at = now() - interval '1 hour' "
+        "WHERE id = %s",
+        (never_read,),
+    )
+    db.execute(
+        "INSERT INTO cmap.job (kind, payload, state, attempts, error, finished_at) "
+        "VALUES ('relations', jsonb_build_object('source_id', %s::text), 'failed', 3, "
+        "'model unavailable', now())",
+        (dead,),
+    )
+    db.execute(
+        "INSERT INTO cmap.job (kind, payload, state) "
+        "VALUES ('classify_extract', jsonb_build_object('source_id', %s::text), 'running')",
+        (busy,),
+    )
+    db.commit()
+    stats = run_ensure_chain()
+    assert stats["classify_extract"] == 1 and stats["marked_failed"] == 1
+    assert stats["read_source"] == 1
+    assert _jobs() == [("classify_extract", lost), ("read_source", never_read)]
+    db.commit()
+    assert db.execute(
+        "SELECT read_state, read_error FROM cmap.source WHERE id = %s", (dead,)
+    ).fetchone() == ("failed", "model unavailable")
+    # Running it again queues nothing twice.
+    assert not any(run_ensure_chain().values())
+
+    # 2. Unresolved mentions with no resolve job.
+    db.execute("DELETE FROM cmap.job")
+    db.execute("UPDATE cmap.source SET read_state = 'read'")
+    _mention(db, lost, "Role", "Buyer", None)
+    db.commit()
+    assert run_ensure_chain()["resolve"] == 1
+    assert _jobs() == [("resolve", None)]
+
+    # 3. A finished resolve with no projection after it, then a finished
+    #    projection with no summary build after it.
+    db.execute("DELETE FROM cmap.job")
+    db.execute("DELETE FROM cmap.mention")
+    db.execute(
+        "INSERT INTO cmap.job (kind, payload, state, started_at, finished_at) "
+        "VALUES ('resolve', '{}', 'done', now() - interval '2 minutes', now() - interval '1 minute')"
+    )
+    db.commit()
+    assert run_ensure_chain()["project"] == 1
+    db.execute(
+        "UPDATE cmap.job SET state = 'done', started_at = now(), finished_at = now() "
+        "WHERE kind = 'project'"
+    )
+    db.commit()
+    assert run_ensure_chain()["communities"] == 1
+    db.execute(
+        "UPDATE cmap.job SET state = 'done', started_at = now(), finished_at = now() "
+        "WHERE kind = 'communities'"
+    )
+    db.commit()
+    assert not any(run_ensure_chain().values()), "a healthy chain is left alone"
+
+    # 4. The worker queues the healing job at most once an hour.
+    assert maybe_queue_ensure_chain() is True
+    assert maybe_queue_ensure_chain() is False

@@ -351,3 +351,65 @@ def test_query_templates(db: Any) -> None:
     assert [node["name"] for node in people] == ["Jessica Smith (Licensing Manager)"]
     with pytest.raises(ValueError, match="unknown entity type"):
         query_mod.by_type("Wizard")
+
+
+def test_zero_mention_entities_not_projected(db: Any) -> None:
+    """Repair A7: an entity nothing mentions any more is left off the map."""
+    from brain.graph.project import _load_entities
+
+    _seed_approval_map(db)
+    ghost = _entity(db, "System", "Retired Tracker", mentions=3, sources=1)
+    db.commit()
+    names = {node["name"] for node in _load_entities(db)}
+    assert "Retired Tracker" not in names
+    assert "approval step" in names
+    stats = run_project()
+    assert stats["nodes"] == len(names)
+    assert db.execute("SELECT 1 FROM cmap.entity WHERE id = %s", (ghost,)).fetchone()
+
+
+def test_reread_and_delete_remove_orphaned_entities_and_aliases(
+    db: Any, client: Any, admin_headers: dict[str, str]
+) -> None:
+    """Repair A7: when a source's passages go away, entities left with no
+    mention and aliases only that source used go with them."""
+    from test_flat import _seed_text
+
+    from brain.read.pipeline import _store_chunks
+
+    only = _seed_text(db, "The Sample Room logs every swatch.", "only")
+    other = _seed_text(db, "Licensing signs the artwork.", "other")
+    solo = _entity(db, "Department", "Sample Room", mentions=1, sources=1)
+    shared = _entity(db, "Department", "Licensing", mentions=2, sources=2)
+    _mention(db, only, "Department", "Sample Room", solo)
+    _mention(db, only, "Department", "Licensing Dept", shared)
+    _mention(db, other, "Department", "Licensing", shared)
+    for entity_id, name in ((solo, "sample room"), (shared, "licensing dept"), (shared, "licensing")):
+        db.execute(
+            "INSERT INTO cmap.entity_alias (entity_id, entity_type, normalized_name, lang, source) "
+            "VALUES (%s, 'Department', %s, 'en', 'resolve')",
+            (entity_id, name),
+        )
+    db.execute(
+        "UPDATE cmap.mention SET normalized_name = lower(surface_name)"
+    )
+    db.commit()
+
+    _store_chunks(only, [])  # what a re-read does first: replace the passages
+    db.commit()
+    assert db.execute("SELECT 1 FROM cmap.entity WHERE id = %s", (solo,)).fetchone() is None
+    aliases = {
+        row[0]
+        for row in db.execute(
+            "SELECT normalized_name FROM cmap.entity_alias WHERE entity_id = %s", (shared,)
+        ).fetchall()
+    }
+    assert aliases == {"licensing"}
+    assert db.execute(
+        "SELECT mention_count, source_count FROM cmap.entity WHERE id = %s", (shared,)
+    ).fetchone() == (1, 1)
+
+    response = client.delete(f"/sources/{other}", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    db.commit()
+    assert db.execute("SELECT count(*) FROM cmap.entity").fetchone()[0] == 0

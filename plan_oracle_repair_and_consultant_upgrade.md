@@ -19,13 +19,13 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 | Step | Title | Needs | State | Evidence / blocker | Updated (EST) |
 |---|---|---|---|---|---|
 | A1 | Company-wide answers read only the current map | — | 🟡 code merged; live gate pending A8 rebuild | `T/test_answer.py::test_global_ignores_superseded_reports`, `T/test_communities.py::test_old_versions_pruned`; reuse confirmed to stamp the new version (`communities.py` `_finish_l0`); live count + score land in `docs/verification/repair/A1.md` | 2026-11-11 10:05 AM EST |
-| A2 | Failed reading is retried and never shows as "read" | — | ⬜ open | | |
-| A3 | Passage splitter loses no text | — | ⬜ open | | |
-| A4 | Office files with links/charts are read | — | ⬜ open | | |
-| A5 | Spreadsheets keep rows, columns, headers | A3 | ⬜ open | | |
-| A6 | Diagrams on text pages are read | — | ⬜ open | | |
-| A7 | Small reading bugs (speaker pattern, empty source, size caps) | — | ⬜ open | | |
-| A8 | Re-read everything and rebuild; baseline score | A1–A7 | ⬜ open | | |
+| A2 | Failed reading is retried and never shows as "read" | — | 🟡 code merged; live gate pending A8 re-read | `T/test_flat.py::test_one_bad_chunk_does_not_lose_the_source`, `T/test_worker_orphans.py::test_failed_job_retried_with_backoff`, `T/test_chain_debounce.py::test_stalled_chain_is_healed`; SQL `016_read_states.sql` | 2026-11-11 10:55 AM EST |
+| A3 | Passage splitter loses no text | — | 🟡 code merged; live gate pending A8 re-read | `T/test_chunk_cjk.py::test_no_text_lost_property` | 2026-11-11 10:55 AM EST |
+| A4 | Office files with links/charts are read | — | 🟡 code merged; live gate pending A8 re-read | `T/test_read.py::test_external_relationship_never_fetched`, `::test_large_sheet_streamed`; shared Office size cap 50 MB expanded | 2026-11-11 10:55 AM EST |
+| A5 | Spreadsheets keep rows, columns, headers | A3 | 🟡 code merged; live gate pending A8 re-read | `T/test_read.py::test_xlsx_header_repeated_and_columns_aligned`, `::test_csv_rows_never_split`, `::test_xlsx_dates_are_iso`, `::test_docx_table_and_image_read`; CSV/TSV stay stored as kind `text` and are routed at read time | 2026-11-11 10:55 AM EST |
+| A6 | Diagrams on text pages are read | — | 🟡 code merged; live gate pending A8 re-read | `T/test_read.py::test_mixed_page_text_and_diagram_both_read`, `::test_unreadable_regions_recorded`; SQL `017_source_read_notes.sql` | 2026-11-11 10:55 AM EST |
+| A7 | Small reading bugs (speaker pattern, empty source, size caps) | — | 🟡 code merged; live gate pending A8 re-read | `T/test_transcript_cjk.py::test_clock_time_is_not_a_speaker`, `T/test_intake.py::test_delete_answer_source`, `T/test_project.py::test_zero_mention_entities_not_projected`, `T/test_worker_orphans.py::test_result_write_is_retried`, `T/test_read.py::test_pptx_bad_picture_does_not_fail_deck`; SQL `018_answer_source_set_null.sql` | 2026-11-11 10:55 AM EST |
+| A8 | Re-read everything and rebuild; baseline score | A1–A7 | 🟡 code merged (`POST /sources/reread-all`, `T/test_flat.py::test_prompt_change_replaces_not_duplicates`); production re-read and scores pending | | 2026-11-11 10:55 AM EST |
 | B1 | Owner-approved question set on the eval page | — | ⬜ open | | |
 | B2 | Scoring counts sources and unsupported sentences | — | ⬜ open | | |
 | B3 | Live quality gate after every deploy and nightly | B2 | ⬜ open | | |
