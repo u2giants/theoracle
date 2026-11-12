@@ -63,7 +63,7 @@ pnpm --filter @oracle/web build
 ```
 
 `pnpm verify:vercel-contract` checks that `vercel.json` delegates to `build:vercel`.
-For the brain service, run its tests from `apps/brain` (`uv run pytest`); CI runs them in `brain-ci.yml`.
+For the brain service, run its tests from `apps/brain` (`uv run pytest`); CI runs them in `brain-ci.yml`. Tests need live Postgres (with pgvector) and FalkorDB: `apps/brain/compose.dev.yaml` provides both on the standard ports. On machines without a working Docker daemon (e.g. Windows without the Containers feature), run test stores on `edge-dev3` over TCP instead — one Postgres + one FalkorDB container pair per task on distinct high ports, then point `DATABASE_URL` / `FALKORDB_URL` at `edge-dev3:<port>` before each run. The map Playwright suite (`apps/web/playwright.map.config.ts`) needs its OWN throwaway database via `BRAIN_E2E_DATABASE_URL` — never point it at the brain pytest database: the pytest employee stubs pre-empt `map_seed`'s full DDL and every page errors. Playwright rewrites the committed `apps/web/tests/__screenshots__/map/*.png` baselines and `next-env.ts` on every run — restore unrelated churn and commit only the screenshot the test under change actually produces.
 
 ### Lint
 
@@ -79,7 +79,7 @@ For the brain service, run its tests from `apps/brain` (`uv run pytest`); CI run
 
 Useful at any time: `pnpm db:check-drift` compares on-disk migration hashes against `drizzle.__drizzle_migrations` in the live DB and reports any mismatch. CI runs the same check on every push.
 
-Do not edit previously applied migration files.
+Do not edit previously applied migration files. The brain's `B/sql/0NN_*.sql` files re-run every boot, so an edit to a landed file is not additive — and a later file that widens a CHECK can leave rows an earlier file's re-assertion rejects, crashing startup. Keep landed files pristine; put widening in a new file.
 
 Oracle 2, the provider-adapter package, the deterministic engines package and the Trigger.dev workers were removed in #398 (2026-11-04). Company Map model calls live in `apps/brain`.
 
