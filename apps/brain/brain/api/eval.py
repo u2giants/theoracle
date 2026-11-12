@@ -3,9 +3,12 @@
 Questions are written by admins (Albert, Ilona) on the eval page; any
 logged-in employee may read questions and runs. Admin actions per question
 (B1): approve (sets ``approved_at``; only approved questions count toward the
-eval bar), edit and retire (sets ``retired_at``). ``POST /eval/run`` (admin)
-queues one ``evaluate`` job; ``GET /eval/runs`` returns runs newest first,
-each with its per-question scores and the change against the run before it.
+eval bar), edit and retire (sets ``retired_at``). ``POST /eval/run`` (admin or
+service) queues one ``evaluate`` job; ``GET /eval/runs`` returns runs newest
+first, each with its per-question scores, the change against the run before
+it and the quality gate's ``accepted`` mark (B3). The service (shared token
+only) may queue and read runs, and ``POST /eval/runs/{id}/accept`` marks the
+gate's baseline run, so ``brain-quality.yml`` can gate live quality.
 """
 
 from __future__ import annotations
@@ -17,7 +20,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from brain.api.deps import User, current_user, require_admin
+from brain.api.deps import (
+    User,
+    admin_or_service,
+    current_user,
+    employee_or_service,
+    require_admin,
+)
 from brain.db import get_pool
 
 router = APIRouter()
@@ -198,7 +207,9 @@ def delete_question(
 
 
 @router.post("/eval/run")
-def queue_eval(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
+def queue_eval(
+    user: Annotated[User | None, Depends(admin_or_service)],
+) -> dict[str, Any]:
     """Queue one ``evaluate`` job unless one is already queued or running."""
     del user
     with get_pool().connection() as conn:
@@ -211,6 +222,29 @@ def queue_eval(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
     if row is None:
         return {"queued": False, "detail": "an eval run is already queued or running"}
     return {"queued": True, "job_id": row[0]}
+
+
+@router.post("/eval/runs/{run_id}/accept")
+def accept_run(
+    run_id: str,
+    user: Annotated[User | None, Depends(admin_or_service)],
+) -> dict[str, Any]:
+    """Mark one run accepted (the quality gate's baseline; B3)."""
+    del user
+    try:
+        key = str(UUID(run_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="no such run") from exc
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "UPDATE cmap.eval_run SET accepted = true WHERE id = %s "
+            "RETURNING id::text, mean_score, accepted",
+            (key,),
+        ).fetchone()
+        conn.commit()
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such run")
+    return {"id": row[0], "mean_score": float(row[1]), "accepted": bool(row[2])}
 
 
 def diff_runs(
@@ -238,7 +272,7 @@ def diff_runs(
 
 @router.get("/eval/runs")
 def list_runs(
-    user: Annotated[User, Depends(current_user)],
+    user: Annotated[User | None, Depends(employee_or_service)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> dict[str, Any]:
     """Runs newest first, each with results and the diff against its predecessor."""
@@ -246,7 +280,7 @@ def list_runs(
     with get_pool().connection() as conn:
         rows = conn.execute(
             "SELECT id::text, created_at, graph_version, prompt_hashes, results, "
-            "mean_score, models, mean_score_legacy "
+            "mean_score, models, mean_score_legacy, accepted "
             "FROM cmap.eval_run ORDER BY created_at DESC, id DESC LIMIT %s",
             (limit + 1,),
         ).fetchall()
@@ -276,6 +310,7 @@ def list_runs(
                 "models": models,
                 "mean_score": mean,
                 "mean_score_legacy": None if row[7] is None else float(row[7]),
+                "accepted": bool(row[8]),
                 "previous_mean": previous_mean,
                 "mean_delta": None
                 if previous_mean is None

@@ -32,6 +32,7 @@ import httpx
 from brain.answer.answer import AnswerError, answer_question, parse_model_json
 from brain.config import Settings, get_settings
 from brain.db import get_pool
+from brain.eval.gate import run_gate
 from brain.llm import post_chat_with_rescue
 from brain.seats import seat_report, stage_model
 from brain.text_util import split_sentences
@@ -481,6 +482,10 @@ def run_eval(settings: Settings | None = None) -> dict[str, Any]:
         raise EvalError(
             f"eval run failed: {len(errors)} of {len(results)} questions errored"
         )
+    # The quality gate (B3) marks this run accepted when it passes; a failing
+    # run stays unaccepted and the live workflow opens the regression issue.
+    decision = run_gate()
+    logger.info("eval gate %s: %s", "PASS" if decision.passed else "FAIL", decision.reason)
     return {
         "id": row[0],
         "created_at": row[1].isoformat(),
