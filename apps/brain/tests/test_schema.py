@@ -37,6 +37,7 @@ EXPECTED_TABLES = {
     "source_function",  # added by repair step C2 (sql/024_function_assignment.sql)
     "chunk_function",  # added by repair step C2 (sql/024_function_assignment.sql)
     "entity_function",  # added by repair step C2 (sql/024_function_assignment.sql)
+    "correction",  # added by repair step G1 (sql/026_corrections.sql)
 }
 
 
