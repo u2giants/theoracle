@@ -199,6 +199,7 @@ def test_eval_fixture_mean_at_least_08(
         "answer_global.md",
         "answer_map.md",
         "grade.md",
+        "decline_check.md",
     }
     assert stored[0][3] == run["graph_version"]
     models = stored[0][4]
@@ -269,22 +270,156 @@ def test_cited_expected_matches_titles_loosely() -> None:
     assert hits == ["licensing-approval-procedure.pdf", "teams-approval-2026-03-14.txt"]
 
 
-def test_answer_failure_scores_zero_and_run_continues(
+def test_errors_fail_run(
     eval_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
 ) -> None:
-    """A question whose answer fails scores 0 with the error kept."""
-    load_seed()
-    del db
+    """A failed answer is reported as error, shown separately, and fails the run."""
+    for question in ("Who signs off licensing?", "Who cancels a package?"):
+        db.execute(
+            "INSERT INTO cmap.eval_question "
+            "(question, expected_points, expected_source_titles, author) "
+            "VALUES (%s, %s, %s, %s)",
+            (question, ["point one", "point two"], ["doc.pdf"], "test"),
+        )
+    db.commit()
 
-    def failing(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        raise answer_mod.AnswerError("provider down")
+    def flaky(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args, kwargs
+        if "cancels" in question:
+            raise answer_mod.AnswerError("provider down")
+        return {
+            "answer_md": "Sign-off is by Jessica [1].",
+            "citations": [{"title": "doc.pdf", "chunk_id": "c1", "quote": "q"}],
+            "mode_used": "local",
+        }
 
-    monkeypatch.setattr(eval_mod, "answer_question", failing)
-    run = run_eval()
-    assert run["mean_score"] == 0.0
-    assert all(
-        item["error"] == "answer failed: provider down" for item in run["results"]
+    def fake_grade(messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+        del messages, settings
+        return _wrap({"covered": [0, 1], "missing": [], "contradicted": []})
+
+    monkeypatch.setattr(eval_mod, "answer_question", flaky)
+    monkeypatch.setattr(eval_mod, "_post_chat", fake_grade)
+    with pytest.raises(eval_mod.EvalError):
+        run_eval()
+    rows = db.execute("SELECT results, mean_score FROM cmap.eval_run").fetchall()
+    assert len(rows) == 1
+    failed = [item for item in rows[0][0] if item["error"]]
+    ok = [item for item in rows[0][0] if not item["error"]]
+    assert [item["error"] for item in failed] == ["answer failed: provider down"]
+    assert failed[0]["score"] == 0.0
+    assert len(ok) == 1
+    assert ok[0]["score"] == 1.0
+    # shown separately: the failure is kept out of the mean, never averaged
+    # into it as a silent 0 (which would give 0.5 here)
+    assert rows[0][1] == pytest.approx(1.0)
+
+
+def test_score_components(
+    eval_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Each component contributes its weight: 0.6 points, 0.2 sources, 0.2 support."""
+    assert eval_mod.composite_score(1.0, 1.0, 1.0) == 1.0
+    assert eval_mod.composite_score(1.0, 0.5, 1.0) == pytest.approx(0.9)
+    assert eval_mod.composite_score(1.0, 1.0, 0.5) == pytest.approx(0.9)
+    assert eval_mod.composite_score(1.0, 0.0, 0.0) == pytest.approx(0.6)
+    assert eval_mod.composite_score(0.5, 0.5, 0.5) == pytest.approx(0.5)
+    db.execute(
+        "INSERT INTO cmap.eval_question "
+        "(question, expected_points, expected_source_titles, author) "
+        "VALUES (%s, %s, %s, %s)",
+        (
+            "Who signs off licensing?",
+            ["Jessica signs", "The Artwork Log records it"],
+            ["doc.pdf", "notes.txt"],
+            "test",
+        ),
     )
+    db.commit()
+
+    def fake_answer(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        del question, args, kwargs
+        return {
+            "answer_md": (
+                "Jessica signs the package [1]. "
+                "The other sentence carries no citation."
+            ),
+            "citations": [{"title": "doc.pdf", "chunk_id": "c1", "quote": "q"}],
+            "mode_used": "local",
+        }
+
+    def fake_grade(messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+        del messages, settings
+        return _wrap({"covered": [0, 1], "missing": [], "contradicted": []})
+
+    monkeypatch.setattr(eval_mod, "answer_question", fake_answer)
+    monkeypatch.setattr(eval_mod, "_post_chat", fake_grade)
+    run = run_eval()
+    item = run["results"][0]
+    # 2/2 points covered (0.6) + 1 of 2 expected sources cited (0.2*0.5)
+    # + 1 of 2 sentences supported (0.2*0.5) = 0.8
+    assert item["score"] == pytest.approx(0.8)
+    assert item["score_legacy"] == pytest.approx(1.0)
+    assert item["expected_sources_cited"] == ["doc.pdf"]
+    assert item["supported_share"] == pytest.approx(0.5)
+    assert run["mean_score"] == pytest.approx(0.8)
+    assert run["mean_score_legacy"] == pytest.approx(1.0)
+
+
+def test_abstention_question(
+    eval_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """An abstention question scores 1 only when the answer declines."""
+    for question in (
+        "How many sampling rounds per style?",
+        "What is the sampling budget?",
+    ):
+        db.execute(
+            "INSERT INTO cmap.eval_question "
+            "(question, expected_points, expected_source_titles, author, "
+            "abstention) VALUES (%s, %s, %s, %s, true)",
+            (
+                question,
+                ["The answer declines", "No guessed number", "Names who to ask"],
+                ["doc.pdf"],
+                "test",
+            ),
+        )
+    db.commit()
+
+    def fake_answer(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args, kwargs
+        answer_md = (
+            "The documents do not say how many rounds are needed [1]."
+            if "rounds" in question
+            else "The budget is five dollars [1]."
+        )
+        return {
+            "answer_md": answer_md,
+            "citations": [{"title": "doc.pdf", "chunk_id": "c1", "quote": "q"}],
+            "mode_used": "local",
+        }
+
+    def fake_post(messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+        del settings
+        prompt = str(messages[-1]["content"])
+        if "EXPECTED POINTS:" in prompt:
+            return _wrap({"covered": [0, 1, 2], "missing": [], "contradicted": []})
+        answer_region = prompt.split("ANSWER:\n", 1)[-1]
+        return _wrap({"declines": "do not say" in answer_region})
+
+    monkeypatch.setattr(eval_mod, "answer_question", fake_answer)
+    monkeypatch.setattr(eval_mod, "_post_chat", fake_post)
+    run = run_eval()
+    by_question = {item["question"]: item for item in run["results"]}
+    declining = by_question["How many sampling rounds per style?"]
+    pretending = by_question["What is the sampling budget?"]
+    assert declining["declined"] is True
+    assert declining["score"] == 1.0
+    assert pretending["declined"] is False
+    # the pretend answer covers every expected point, cites every expected
+    # source and supports every sentence — it still must not score 1 here
+    assert pretending["score"] == 0.0
+    assert pretending["score_legacy"] == pytest.approx(1.0)
 
 
 # -------------------------------------------------------------- endpoints

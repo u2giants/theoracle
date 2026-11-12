@@ -154,7 +154,7 @@ def list_runs(
     with get_pool().connection() as conn:
         rows = conn.execute(
             "SELECT id::text, created_at, graph_version, prompt_hashes, results, "
-            "mean_score, models "
+            "mean_score, models, mean_score_legacy "
             "FROM cmap.eval_run ORDER BY created_at DESC, id DESC LIMIT %s",
             (limit + 1,),
         ).fetchall()
@@ -183,6 +183,7 @@ def list_runs(
                 "prompt_hashes": row[3],
                 "models": models,
                 "mean_score": mean,
+                "mean_score_legacy": None if row[7] is None else float(row[7]),
                 "previous_mean": previous_mean,
                 "mean_delta": None
                 if previous_mean is None
