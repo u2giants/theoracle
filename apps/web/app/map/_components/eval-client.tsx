@@ -177,7 +177,10 @@ function RunTable({ run }: { run: Run }) {
               ) : (
                 <>
                   {pct(item.score)}
-                  <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  <span
+                    className="ml-1 text-xs font-normal text-muted-foreground"
+                    data-testid="eval-score-legacy"
+                  >
                     legacy {pct(item.score_legacy)}
                   </span>
                 </>
@@ -320,10 +323,13 @@ export function EvalClient({ isAdmin }: { isAdmin: boolean }) {
                   onClick={() => setSelected(run.id)}
                 >
                   <td className="py-1 pr-2">{when(run.created_at)}</td>
-                  <td className="py-1 pr-2 font-medium" data-testid="eval-mean">
-                    {pct(run.mean_score)}
+                  <td className="py-1 pr-2 font-medium">
+                    <span data-testid="eval-mean">{pct(run.mean_score)}</span>
                     {run.mean_score_legacy !== null && (
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      <span
+                        className="ml-1 text-xs font-normal text-muted-foreground"
+                        data-testid="eval-mean-legacy"
+                      >
                         legacy {pct(run.mean_score_legacy)}
                       </span>
                     )}
