@@ -7,6 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+type VersionLink = {
+  source_id: string;
+  title: string;
+  origin: string;
+  decided: boolean;
+};
+
 type SourceRow = {
   id: string;
   kind: string;
@@ -18,6 +25,8 @@ type SourceRow = {
   read_state: 'queued' | 'reading' | 'extracting' | 'read' | 'partial' | 'failed';
   read_error: string | null;
   created_at: string | null;
+  superseded_by: VersionLink[];
+  supersedes: VersionLink[];
 };
 
 type LogLine = { text: string; ok: boolean };
@@ -43,7 +52,9 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [busy, setBusy] = useState<'idle' | 'upload' | 'transcript' | 'delete'>('idle');
+  const [busy, setBusy] = useState<'idle' | 'upload' | 'transcript' | 'delete' | 'version'>(
+    'idle',
+  );
   const [log, setLog] = useState<LogLine[]>([]);
   const [transcriptTitle, setTranscriptTitle] = useState('');
   const [transcriptText, setTranscriptText] = useState('');
@@ -201,6 +212,30 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
       }
     } catch {
       appendLog(`${label} failed`, false);
+    }
+    setBusy('idle');
+    await refresh();
+  }
+
+  async function confirmSupersession(newerId: string, newerTitle: string, olderId: string) {
+    setBusy('version');
+    try {
+      const response = await fetch(`/api/brain/sources/${newerId}/supersession/confirm`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ supersedes_source_id: olderId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        appendLog(
+          body.detail ?? body.error ?? `version confirm failed (${response.status})`,
+          false,
+        );
+      } else {
+        appendLog(`${newerTitle}: confirmed as the newer version`, true);
+      }
+    } catch {
+      appendLog('Version confirm failed', false);
     }
     setBusy('idle');
     await refresh();
@@ -368,6 +403,53 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
                         {source.read_error && (
                           <div className="text-xs text-red-700">{source.read_error}</div>
                         )}
+                        {source.superseded_by.map((link) => (
+                          <div
+                            key={`by-${link.source_id}`}
+                            data-testid="source-version"
+                            className="flex flex-wrap items-center gap-2 text-xs"
+                          >
+                            {link.decided ? (
+                              <span className="text-amber-800">
+                                Superseded by &quot;{link.title}&quot;
+                              </span>
+                            ) : (
+                              <>
+                                <span className="text-amber-800">
+                                  Newer version proposed: &quot;{link.title}&quot;
+                                </span>
+                                {isAdmin && (
+                                  <Button
+                                    data-testid="source-version-confirm"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={busy !== 'idle'}
+                                    onClick={() =>
+                                      confirmSupersession(link.source_id, link.title, source.id)
+                                    }
+                                  >
+                                    Confirm
+                                  </Button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ))}
+                        {source.supersedes.map((link) => (
+                          <div
+                            key={`over-${link.source_id}`}
+                            data-testid="source-supersedes"
+                            className="text-xs text-muted-foreground"
+                          >
+                            {link.decided ? (
+                              <span>Supersedes &quot;{link.title}&quot;</span>
+                            ) : (
+                              <span>
+                                Proposed as a newer version of &quot;{link.title}&quot;
+                              </span>
+                            )}
+                          </div>
+                        ))}
                       </td>
                       <td className="py-2 pr-3 capitalize">{source.kind}</td>
                       <td className="py-2 pr-3">

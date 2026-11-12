@@ -529,3 +529,65 @@ test('entity and source pages show function assignments and the admin sets one',
     await c2SeedAssignments(false);
   }
 });
+
+// Repair plan D2: source supersession on the sources page. A proposed
+// "newer version of X" (cmap.source_version row with decided_at NULL) shows
+// with a one-click confirm; confirming stamps it decided and the row then
+// shows its supersession state. Times shown to humans are New York
+// (EST/EDT); this page shows none.
+const D2_OLD_ID = '00000000-0000-4000-8000-0000000000d1';
+const D2_NEW_ID = '00000000-0000-4000-8000-0000000000d2';
+
+async function d2SeedVersions(seed: boolean): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  const brainDir = resolve(WEB_DIR, '..', 'brain');
+  const wipe = `conn.execute("DELETE FROM cmap.source WHERE id IN ('${D2_OLD_ID}', '${D2_NEW_ID}')"); `;
+  const script = seed
+    ? "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+      wipe +
+      `conn.execute("INSERT INTO cmap.source (id, kind, title, storage_path, sha256, bytes, ` +
+      `effective_date, date_origin) VALUES ('${D2_OLD_ID}', 'text', 'Widget Policy (D2)', ` +
+      `'test/d2-old.txt', 'd2-e2e-old-sha', 10, '2025-01-15', 'admin'), ('${D2_NEW_ID}', 'text', ` +
+      `'Widget Policy (D2)', 'test/d2-new.txt', 'd2-e2e-new-sha', 11, '2025-06-01', 'admin')"); ` +
+      `conn.execute("INSERT INTO cmap.source_version (source_id, supersedes_source_id, origin, ` +
+      `decided_at) VALUES ('${D2_NEW_ID}', '${D2_OLD_ID}', 'auto_similarity', NULL)"); ` +
+      'conn.commit(); conn.close()'
+    : "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+      wipe +
+      'conn.commit(); conn.close()';
+  execFileSync('uv', ['run', 'python', '-c', script], {
+    cwd: brainDir,
+    env: {
+      ...process.env,
+      DATABASE_URL: e2eEnv.databaseUrl,
+      FALKORDB_URL: e2eEnv.falkordbUrl,
+    },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+}
+
+test('sources page shows a newer-version proposal and the one-click confirm', async ({
+  page,
+  context,
+}) => {
+  await d2SeedVersions(true);
+  try {
+    await signIn(context);
+    await page.goto('/map/sources');
+    const proposal = page
+      .getByTestId('source-version')
+      .filter({ hasText: 'Newer version proposed' });
+    await expect(proposal).toHaveCount(1, { timeout: 60_000 });
+    await expect(proposal).toContainText('Widget Policy (D2)');
+    await proposal.getByTestId('source-version-confirm').click();
+    const decided = page.getByTestId('source-version').filter({ hasText: 'Superseded by' });
+    await expect(decided).toHaveCount(1, { timeout: 60_000 });
+    await expect(
+      page.getByTestId('source-supersedes').filter({ hasText: 'Supersedes' }),
+    ).toHaveCount(1);
+    await page.screenshot({ path: resolve(SHOTS, '19-source-versions.png'), fullPage: true });
+  } finally {
+    await d2SeedVersions(false);
+  }
+});

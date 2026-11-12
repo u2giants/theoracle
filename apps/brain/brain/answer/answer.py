@@ -50,6 +50,7 @@ from brain.graph.version import current_graph_version
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
 from brain.text_util import fold_key, sentence_slices
+from brain.versions import superseded_source_ids
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,40 @@ ROUTE_LABELS: list[dict[str, str]] = [
 ]
 
 _MARKER = re.compile(r"\[(\d+)\]")
+
+# D2 history-reach seam: a question explicitly about the past may surface
+# superseded facts (labelled as history); anything else is current-only.
+_HISTORY_MARKERS = (
+    "until",
+    "before ",
+    "back when",
+    "back then",
+    "used to",
+    "formerly",
+    "previously",
+    "old version",
+    "older version",
+    "previous version",
+    "old rule",
+    "earlier rule",
+    "earlier version",
+    "history",
+    "historical",
+    "no longer",
+    "in those days",
+    "at the time",
+    "prior to",
+    "as it was",
+    "what changed",
+    "how did it work",
+)
+_HISTORY_PREFIX = "[SUPERSEDED VERSION — shown because this question is about the past]\n"
+
+
+def is_history_question(question: str) -> bool:
+    """True when the question explicitly asks about how things used to be."""
+    folded = " " + question.casefold()
+    return any(marker in folded for marker in _HISTORY_MARKERS)
 
 
 class AnswerError(RuntimeError):
@@ -410,15 +445,30 @@ def _fold_question(question: str) -> str:
     return fold_key(question)
 
 
-def _select_entities(question: str, vector: list[float]) -> list[dict[str, Any]]:
-    """Top-8 entities by embedding cosine, plus any entity whose alias appears."""
+def _select_entities(
+    question: str, vector: list[float], include_history: bool = False
+) -> list[dict[str, Any]]:
+    """Top-8 entities by embedding cosine, plus any entity whose alias appears.
+
+    D2: an entity whose only mentions sit in superseded sources is history and
+    is left out unless the question is about the past.
+    """
     folded = _fold_question(question)
+    live = (
+        ""
+        if include_history
+        else " AND EXISTS (SELECT 1 FROM cmap.mention m "
+        "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
+        "WHERE m.entity_id = e.id AND ch.source_id NOT IN "
+        "(SELECT supersedes_source_id FROM cmap.source_version "
+        "WHERE decided_at IS NOT NULL))"
+    )
     with get_pool().connection() as conn:
         rows = conn.execute(
-            "SELECT id::text, entity_type, canonical_name, description, "
-            "mention_count, source_count "
-            "FROM cmap.entity WHERE embedding IS NOT NULL "
-            "ORDER BY embedding <=> %s::vector LIMIT %s",
+            "SELECT e.id::text, e.entity_type, e.canonical_name, e.description, "
+            "e.mention_count, e.source_count "
+            "FROM cmap.entity e WHERE e.embedding IS NOT NULL" + live + " "
+            "ORDER BY e.embedding <=> %s::vector LIMIT %s",
             (vector_literal(vector), TOP_ENTITIES),
         ).fetchall()
         alias_rows = conn.execute(
@@ -426,7 +476,8 @@ def _select_entities(question: str, vector: list[float]) -> list[dict[str, Any]]
             "e.description, e.mention_count, e.source_count "
             "FROM cmap.entity e "
             "JOIN cmap.entity_alias a ON a.entity_id = e.id "
-            "WHERE a.normalized_name <> '' AND position(a.normalized_name IN %s) > 0",
+            "WHERE a.normalized_name <> '' AND position(a.normalized_name IN %s) > 0"
+            + live,
             (folded,),
         ).fetchall()
     seen: dict[str, dict[str, Any]] = {}
@@ -583,28 +634,43 @@ def _graph_context(
     return _apply_fact_corrections(nodes[:GRAPH_NODE_CAP], edges)
 
 
-def _select_chunks(vector: list[float], source_ids: list[str]) -> list[dict[str, Any]]:
-    """Top chunks from the edge sources, plus the open-corpus top."""
+def _select_chunks(
+    vector: list[float], source_ids: list[str], include_history: bool = False
+) -> list[dict[str, Any]]:
+    """Top chunks from the edge sources, plus the open-corpus top.
+
+    D2: chunks of superseded sources are excluded unless ``include_history``;
+    every returned chunk is flagged ``superseded`` so the caller can label it.
+    """
     selected: list[dict[str, Any]] = []
     seen: set[str] = set()
+    superseded_sql = (
+        "c.source_id IN (SELECT supersedes_source_id FROM cmap.source_version "
+        "WHERE decided_at IS NOT NULL)"
+    )
+    history_filter = "" if include_history else f" AND NOT ({superseded_sql})"
     with get_pool().connection() as conn:
         queries: list[tuple[str, list[Any]]] = []
         if source_ids:
             queries.append(
                 (
-                    "SELECT c.id::text, c.source_id::text, s.title, c.locator, c.text "
+                    "SELECT c.id::text, c.source_id::text, s.title, c.locator, c.text, "
+                    f"{superseded_sql} AS is_superseded "
                     "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
-                    "WHERE c.embedding IS NOT NULL AND c.source_id = ANY(%s::uuid[]) "
-                    "ORDER BY c.embedding <=> %s::vector LIMIT %s",
+                    "WHERE c.embedding IS NOT NULL AND c.source_id = ANY(%s::uuid[])"
+                    + history_filter
+                    + " ORDER BY c.embedding <=> %s::vector LIMIT %s",
                     [source_ids, vector_literal(vector), CHUNKS_RESTRICTED],
                 )
             )
         queries.append(
             (
-                "SELECT c.id::text, c.source_id::text, s.title, c.locator, c.text "
+                "SELECT c.id::text, c.source_id::text, s.title, c.locator, c.text, "
+                f"{superseded_sql} AS is_superseded "
                 "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
-                "WHERE c.embedding IS NOT NULL "
-                "ORDER BY c.embedding <=> %s::vector LIMIT %s",
+                "WHERE c.embedding IS NOT NULL"
+                + history_filter
+                + " ORDER BY c.embedding <=> %s::vector LIMIT %s",
                 [vector_literal(vector), CHUNKS_UNRESTRICTED],
             )
         )
@@ -621,6 +687,7 @@ def _select_chunks(vector: list[float], source_ids: list[str]) -> list[dict[str,
                         "title": str(row[2]),
                         "locator": row[3],
                         "text": str(row[4]),
+                        "superseded": bool(row[5]),
                     }
                 )
     return selected
@@ -732,9 +799,15 @@ def _local_answer(
     settings: Settings,
     usage: dict[str, int],
 ) -> dict[str, Any]:
-    """Local mode: graph neighbourhood + chunk retrieval + quote citations."""
+    """Local mode: graph neighbourhood + chunk retrieval + quote citations.
+
+    D2: ``is_history_question`` is the history-reach seam — only a question
+    explicitly about the past retrieves (labelled) superseded passages; every
+    other question is current-only.
+    """
+    include_history = is_history_question(question)
     vector = embed_texts([question], settings, usage)[0]
-    entities = _select_entities(question, vector)
+    entities = _select_entities(question, vector, include_history)
     nodes, edges = _graph_context(entities, settings)
     edge_sources = sorted(
         {
@@ -744,11 +817,13 @@ def _local_answer(
             if ref["source_id"]
         }
     )
-    chunks = _select_chunks(vector, edge_sources)
+    chunks = _select_chunks(vector, edge_sources, include_history)
     quotes = _quotes_for(chunks)
-    passages = _compress_passages(
-        [chunk["text"] for chunk in chunks], question, settings, usage
-    )
+    texts = [
+        _HISTORY_PREFIX + chunk["text"] if chunk.get("superseded") else chunk["text"]
+        for chunk in chunks
+    ]
+    passages = _compress_passages(texts, question, settings, usage)
     template = LOCAL_PROMPT_PATH.read_text(encoding="utf-8")
     prompt = (
         template.replace("{{history}}", _render_history(history))
@@ -834,11 +909,35 @@ def _apply_report_corrections(
     return reports
 
 
-def _load_reports() -> list[dict[str, Any]]:
+def _drop_superseded_findings(
+    reports: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """D2: a finding whose only sources are superseded is history, not report.
+
+    Kept when the question is about the past (the caller skips this filter).
+    """
+    with get_pool().connection() as conn:
+        superseded = superseded_source_ids(conn)
+    if not superseded:
+        return reports
+    for report in reports:
+        kept: list[dict[str, Any]] = []
+        for finding in report["findings"]:
+            ids = {str(item) for item in (finding.get("source_ids") or [])}
+            if ids and ids <= superseded:
+                continue
+            kept.append(finding)
+        report["findings"] = kept
+    return reports
+
+
+def _load_reports(include_history: bool = False) -> list[dict[str, Any]]:
     """The current map's level-1 community reports plus its company report.
 
     Only rows stamped with the current graph version are read: older builds'
     reports stay in the table for a while and must never reach an answer.
+    D2: findings whose only sources are superseded are dropped unless the
+    question is about the past.
     """
     with get_pool().connection() as conn:
         version = current_graph_version(conn)
@@ -863,6 +962,8 @@ def _load_reports() -> list[dict[str, Any]]:
                 "findings": [item for item in findings if isinstance(item, dict)],
             }
         )
+    if not include_history:
+        reports = _drop_superseded_findings(reports)
     return _apply_report_corrections(reports)
 
 
@@ -939,8 +1040,12 @@ def _global_answer(
     settings: Settings,
     usage: dict[str, int],
 ) -> dict[str, Any]:
-    """Global mode: synthesise the community reports, citing finding sources."""
-    reports = _load_reports()
+    """Global mode: synthesise the community reports, citing finding sources.
+
+    D2: the same history-reach seam as local mode — superseded findings are
+    reachable only for questions explicitly about the past.
+    """
+    reports = _load_reports(is_history_question(question))
     context = _reports_context(reports)
     if _tokens(context) > GLOBAL_ONE_SHOT_TOKENS:
         context = _points_context(

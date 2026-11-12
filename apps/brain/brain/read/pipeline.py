@@ -7,11 +7,13 @@ approval: a source either becomes chunks or fails with its error recorded.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from psycopg.types.json import Json
 
 from brain import storage as storage_mod
+from brain import versions as versions_mod
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_and_store
@@ -36,6 +38,8 @@ from brain.read.pdf import read_pdf
 from brain.read.state import NO_CONTENT_ERROR, set_read_state
 from brain.read.transcript import read_transcript
 from brain.read.vision import start_read_notes
+
+logger = logging.getLogger(__name__)
 
 MAX_READ_ERROR_CHARS = 2000
 
@@ -171,6 +175,15 @@ def handle_read_source(job: dict[str, Any]) -> None:
             _record_usage(job.get("id"), usage)
             return
         embed_and_store(pairs, usage=usage)
+        # D2: the first 3 chunks are embedded now, so similarity detection can
+        # compare this source against the corpus. It only marks supersession
+        # proposals and never blocks reading (failure is logged, read goes on).
+        try:
+            with get_pool().connection() as conn:
+                versions_mod.detect_similarity(conn, source_id)
+                conn.commit()
+        except Exception as exc:  # noqa: BLE001 - marking must never block a read
+            logger.warning("supersession similarity detection failed for %s: %s", source_id, exc)
         # "read" is set only when extraction has finished (relations job).
         set_read_state(source_id, "extracting", None)
     except Exception as exc:

@@ -4,12 +4,18 @@ Upload, transcript paste, bulk bucket import and folder import all land in
 ``cmap.source`` with a queued ``read_source`` job. Nothing here gates reading
 or indexing on approval; the only permission check is the plan §8 admin flag
 on upload, delete and run.
+
+D2: ``ingest_bytes`` runs supersession title detection on every new source and
+``POST /sources/{id}/supersession/confirm`` is the one-click confirm of a
+proposed "newer version of X". Detection never blocks ingestion: a failure is
+logged and the upload still lands (supersession marks, it never blocks).
 """
 
 from __future__ import annotations
 
 import hashlib
 import io
+import logging
 import mimetypes
 import re
 from datetime import date, datetime
@@ -23,6 +29,7 @@ from pydantic import BaseModel
 from starlette.datastructures import UploadFile
 
 from brain import storage as storage_mod
+from brain import versions as versions_mod
 from brain.api.deps import User, admin_or_service, current_user, require_admin
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
@@ -42,6 +49,8 @@ from brain.read.detect import (
     detect_kind,
     verify_office_zip,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -72,6 +81,12 @@ class ImportFolderBody(BaseModel):
     """A mounted-folder import request."""
 
     path: str
+
+
+class SupersessionConfirmBody(BaseModel):
+    """One-click confirm: ``source_id`` is a newer version of ``supersedes_source_id``."""
+
+    supersedes_source_id: UUID
 
 
 def _safe_name(filename: str) -> str:
@@ -275,18 +290,77 @@ def ingest_bytes(
         store.delete(key)
         raise
     row["duplicate"] = False
+    row["versions"] = _detect_versions(source_id, title, effective_date)
     return row
+
+
+def _detect_versions(
+    source_id: str, title: str, effective_date: date | None
+) -> list[dict[str, Any]]:
+    """Run D2 title detection for one new source; never blocks ingestion.
+
+    A detection failure is logged loudly and swallowed: the source is already
+    stored and queued for reading, and supersession only ever marks history.
+    """
+    try:
+        with get_pool().connection() as conn:
+            found = versions_mod.detect_title(conn, source_id, title, effective_date)
+            conn.commit()
+        return found
+    except Exception:
+        logger.exception("supersession detection failed for source %s", source_id)
+        return []
 
 
 @router.get("/sources")
 def list_sources(user: Annotated[User, Depends(current_user)]) -> dict[str, Any]:
-    """List every source with its read state, newest first."""
+    """List every source with its read state, newest first.
+
+    D2: each row carries its supersession links — ``superseded_by`` (this
+    source was replaced; a ``decided: false`` entry is the pending proposal
+    the sources page confirms) and ``supersedes`` (this source is the newer
+    version).
+    """
     pool = get_pool()
     with pool.connection() as conn:
         rows = conn.execute(
             f"SELECT {_SOURCE_COLUMNS} FROM cmap.source ORDER BY created_at DESC LIMIT 500"
         ).fetchall()
-    return {"sources": [_row_to_dict(row) for row in rows]}
+        version_rows = conn.execute(
+            "SELECT sv.source_id::text, sv.supersedes_source_id::text, sv.origin, "
+            "sv.decided_at, newer.title, older.title "
+            "FROM cmap.source_version sv "
+            "JOIN cmap.source newer ON newer.id = sv.source_id "
+            "JOIN cmap.source older ON older.id = sv.supersedes_source_id "
+            "ORDER BY sv.decided_at NULLS FIRST, newer.created_at DESC"
+        ).fetchall()
+    superseded_by: dict[str, list[dict[str, Any]]] = {}
+    supersedes: dict[str, list[dict[str, Any]]] = {}
+    for new_id, old_id, origin, decided_at, new_title, old_title in version_rows:
+        decided = decided_at is not None
+        superseded_by.setdefault(old_id, []).append(
+            {
+                "source_id": new_id,
+                "title": str(new_title),
+                "origin": str(origin),
+                "decided": decided,
+            }
+        )
+        supersedes.setdefault(new_id, []).append(
+            {
+                "source_id": old_id,
+                "title": str(old_title),
+                "origin": str(origin),
+                "decided": decided,
+            }
+        )
+    sources = []
+    for row in rows:
+        item = _row_to_dict(row)
+        item["superseded_by"] = superseded_by.get(item["id"], [])
+        item["supersedes"] = supersedes.get(item["id"], [])
+        sources.append(item)
+    return {"sources": sources}
 
 
 @router.post("/sources")
@@ -568,6 +642,38 @@ def reread_source(
         queued = _queue_reread(conn, [str(source_id)])
         conn.commit()
     return {"id": str(source_id), "queued": bool(queued)}
+
+
+@router.post("/sources/{source_id}/supersession/confirm")
+def confirm_supersession(
+    source_id: UUID,
+    body: SupersessionConfirmBody,
+    user: Annotated[User, Depends(require_admin)],
+) -> dict[str, Any]:
+    """One-click confirm of a proposed "newer version of X" (repair plan D2).
+
+    The proposal exists as a ``cmap.source_version`` row with ``decided_at``
+    NULL (from title or similarity detection). Confirming stamps it decided
+    with ``origin='admin'``, recomputes relation statuses and queues a
+    projection rebuild so superseded facts leave the current map.
+    """
+    del user
+    newer_id = str(source_id)
+    older_id = str(body.supersedes_source_id)
+    pool = get_pool()
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM cmap.source_version "
+            "WHERE source_id = %s AND supersedes_source_id = %s",
+            (newer_id, older_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="no such version proposal")
+        result = versions_mod.decide_supersession(
+            conn, newer_id, older_id, versions_mod.ORIGIN_ADMIN
+        )
+        conn.commit()
+    return result
 
 
 @router.post("/sources/backfill-dates")

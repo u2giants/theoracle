@@ -21,6 +21,7 @@ from falkordb.graph import Graph
 from brain.config import Settings, get_settings
 from brain.corrections import apply_edge_edit, entity_key_sets, load_corrections
 from brain.db import get_pool
+from brain.versions import recompute_relation_status
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,12 @@ def _load_entities(conn: psycopg.Connection) -> list[dict[str, Any]]:
         "e.mention_count, e.source_count FROM cmap.entity e "
         # An entity nothing mentions any more is not part of the map (repair A7).
         "WHERE EXISTS (SELECT 1 FROM cmap.mention m WHERE m.entity_id = e.id)"
+        # D2: mentions whose only sources are superseded are history, not map.
+        "AND EXISTS (SELECT 1 FROM cmap.mention m "
+        "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
+        "WHERE m.entity_id = e.id AND ch.source_id NOT IN "
+        "(SELECT supersedes_source_id FROM cmap.source_version "
+        "WHERE decided_at IS NOT NULL))"
     ).fetchall()
     nodes: list[dict[str, Any]] = []
     for entity_id, entity_type, name, description, mentions, sources in rows:
@@ -150,7 +157,11 @@ def _load_edges(
         "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
         "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
         "JOIN cmap.chunk ch ON ch.id = r.chunk_id "
-        "WHERE fm.entity_id IS NOT NULL AND tm.entity_id IS NOT NULL" + scope,
+        "WHERE fm.entity_id IS NOT NULL AND tm.entity_id IS NOT NULL"
+        # D2: superseded facts are excluded from projection weights (and so
+        # from the map, reports and answers built on it). A fact that also
+        # lives in a live source keeps status 'current' and stays.
+        " AND r.status = 'current'" + scope,
         params,
     ).fetchall()
     groups: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -278,9 +289,16 @@ def _record_version(conn: psycopg.Connection, nodes: int, edges: int) -> int:
 
 
 def run_project(settings: Settings | None = None) -> dict[str, int]:
-    """Rebuild the ``company`` graph from Postgres; return node/edge counts."""
+    """Rebuild the ``company`` graph from Postgres; return node/edge counts.
+
+    D2: ``cmap.relation.status`` is recomputed first — projection is the
+    refresh point for the computed column (after resolve has assigned entity
+    ids, and after every supersession decision).
+    """
     cfg = settings if settings is not None else get_settings()
     with get_pool().connection() as conn:
+        recompute_relation_status(conn)
+        conn.commit()
         nodes = _load_entities(conn)
         edges = _load_edges(conn)
     graph = _drop(_client(cfg))
