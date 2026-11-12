@@ -55,6 +55,19 @@ class MergeBody(BaseModel):
     into: str
 
 
+class AssignmentEntry(BaseModel):
+    """One function weight as set on a source or entity page (repair C2)."""
+
+    key: str
+    weight: float
+
+
+class AssignmentBody(BaseModel):
+    """The admin's function set for one source or entity (origin='admin')."""
+
+    functions: list[AssignmentEntry] = []
+
+
 def _clean(items: list[str]) -> list[str]:
     return list(dict.fromkeys(item.strip() for item in items if item and item.strip()))
 
@@ -101,6 +114,64 @@ def _resolve(conn: Any, ref: str) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=404, detail="no such function")
     return _function_dict(row)
+
+
+def item_assignments(
+    conn: Any, table: str, column: str, item_id: str
+) -> list[dict[str, Any]]:
+    """One source/entity's function rows (auto and admin), heaviest first."""
+    rows = conn.execute(
+        f"SELECT f.id::text, f.key, f.name, x.weight, x.origin "
+        f"FROM cmap.{table} x JOIN cmap.function f ON f.id = x.function_id "
+        f"WHERE x.{column} = %s ORDER BY x.weight DESC, f.sort, f.name",
+        (item_id,),
+    ).fetchall()
+    return [
+        {
+            "function_id": row[0],
+            "key": row[1],
+            "name": row[2],
+            "weight": float(row[3]),
+            "origin": row[4],
+        }
+        for row in rows
+    ]
+
+
+def _set_assignments(
+    conn: Any, table: str, column: str, item_id: str, body: AssignmentBody
+) -> list[dict[str, Any]]:
+    """Replace the item's admin rows with the posted set (repair C2).
+
+    Every posted pair is written (or upgraded to) ``origin='admin'``; admin
+    rows the admin dropped are removed. Auto rows are the job's and are never
+    touched here — and ``origin='admin'`` rows are never overwritten by the
+    job, so these survive re-runs.
+    """
+    posted: list[tuple[str, float]] = []
+    seen: set[str] = set()
+    for entry in body.functions:
+        if not 0.0 <= entry.weight <= 1.0:
+            raise HTTPException(status_code=400, detail="weight must be between 0 and 1")
+        function = _resolve(conn, entry.key)
+        if function["id"] in seen:
+            continue
+        seen.add(function["id"])
+        posted.append((function["id"], entry.weight))
+    conn.execute(
+        f"DELETE FROM cmap.{table} WHERE {column} = %s AND origin = 'admin' "
+        "AND function_id <> ALL(%s::uuid[])",
+        (item_id, [function_id for function_id, _ in posted]),
+    )
+    for function_id, weight in posted:
+        conn.execute(
+            f"INSERT INTO cmap.{table} ({column}, function_id, weight, origin) "
+            "VALUES (%s, %s, %s, 'admin') "
+            f"ON CONFLICT ({column}, function_id) DO UPDATE SET "
+            "weight = EXCLUDED.weight, origin = 'admin'",
+            (item_id, function_id, weight),
+        )
+    return item_assignments(conn, table, column, item_id)
 
 
 @router.get("/functions")
@@ -251,3 +322,37 @@ def retire_function(
     if row is None:
         raise HTTPException(status_code=404, detail="no such function")
     return _function_dict(row)
+
+
+@router.put("/sources/{source_id}/functions")
+def set_source_functions(
+    source_id: str,
+    body: AssignmentBody,
+    user: Annotated[User, Depends(require_admin)],
+) -> dict[str, Any]:
+    """Set one source's admin function weights (repair C2)."""
+    del user
+    key = _function_key(source_id)
+    with get_pool().connection() as conn:
+        if conn.execute("SELECT 1 FROM cmap.source WHERE id = %s", (key,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="source not found")
+        functions = _set_assignments(conn, "source_function", "source_id", key, body)
+        conn.commit()
+    return {"functions": functions}
+
+
+@router.put("/entities/{entity_id}/functions")
+def set_entity_functions(
+    entity_id: str,
+    body: AssignmentBody,
+    user: Annotated[User, Depends(require_admin)],
+) -> dict[str, Any]:
+    """Set one entity's admin function weights (repair C2)."""
+    del user
+    key = _function_key(entity_id)
+    with get_pool().connection() as conn:
+        if conn.execute("SELECT 1 FROM cmap.entity WHERE id = %s", (key,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="entity not found")
+        functions = _set_assignments(conn, "entity_function", "entity_id", key, body)
+        conn.commit()
+    return {"functions": functions}

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { brainGet, pickText, sourceHref, type EntityDetail, type Quote } from './brain';
 import { LoadState, SourceChip, StanceBadge } from './bits';
+import { FunctionAssign } from './function-assign';
 import { MarkWrongButton, relationItemId } from './mark-wrong';
 
 function QuoteLink({ quote }: { quote: Quote }) {
@@ -73,6 +74,12 @@ export function EntityPanel({
           {pickText(entity.translations, lang, 'description', entity.description)}
         </p>
       )}
+      <FunctionAssign
+        kind="entities"
+        itemId={entity.id}
+        initial={entity.functions ?? []}
+        isAdmin={isAdmin}
+      />
       {entity.aliases.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold">Also called</h3>

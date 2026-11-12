@@ -5,9 +5,14 @@ DesignFlow's ``dflow_prod`` user directory on the shared company Supabase is the
 master list of company people and their DesignFlow roles. A recurring brain job
 mirrors it read-only into Oracle: upsert ``public.employees`` matched by
 ``lower(btrim(email))`` and replace that person's ``employee_directory_roles``
-rows. Oracle-only fields (``is_admin``, ``locale``, ``departments``/``department``,
-``role``, identity rows, claim-review groups, ``cmap.employee_flags``) are never
-written; employees are never deleted.
+rows. Since repair C2 the sync also writes each employee's department/title
+from the directory into ``cmap.employee_flags.department``/``job_title`` when
+the directory row carries them (the same profile fields the Teams bot asks
+for), so the assignment prior can map them to a function through the C1
+aliases (``brain.function_assign.function_for_label``). Other Oracle-only
+fields (``is_admin``, ``locale``, identity rows, claim-review groups,
+``profile_answer`` and the profile timestamps) are never written; employees
+are never deleted.
 
 Gated by ``DFLOW_DIRECTORY_SYNC_ENABLED`` and ``DFLOW_DIRECTORY_DATABASE_URL``;
 a missing flag or URL is a logged no-op. Runnable one-shot as
@@ -65,6 +70,8 @@ def apply_directory(
         display = f"{row.get('name') or ''} {row.get('lastname') or ''}".strip()
         status = str(row.get("status") or "").strip().lower()
         roles = row.get("roles") or []
+        department = str(row.get("department") or "").strip()
+        title = str(row.get("title") or "").strip()
         existing = conn.execute(
             "SELECT id, name FROM public.employees WHERE lower(btrim(email)) = %s",
             (email.lower(),),
@@ -98,6 +105,19 @@ def apply_directory(
                     (*params, employee_id),
                 )
             updated += 1
+        if department or title:
+            # C2: the directory is the source of truth for department/title
+            # when it carries them; a field it does not carry keeps whatever
+            # the profile capture already holds. Never touches profile_answer
+            # or its timestamps.
+            conn.execute(
+                "INSERT INTO cmap.employee_flags (employee_id, department, job_title) "
+                "VALUES (%s, NULLIF(%s, ''), NULLIF(%s, '')) "
+                "ON CONFLICT (employee_id) DO UPDATE SET "
+                "department = COALESCE(EXCLUDED.department, cmap.employee_flags.department), "
+                "job_title = COALESCE(EXCLUDED.job_title, cmap.employee_flags.job_title)",
+                (employee_id, department, title),
+            )
         conn.execute(
             "DELETE FROM public.employee_directory_roles WHERE employee_id = %s",
             (employee_id,),

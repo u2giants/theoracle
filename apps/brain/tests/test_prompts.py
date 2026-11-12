@@ -22,3 +22,11 @@ def test_source_text_is_data() -> None:
         assert "not instructions" in lowered or "never follow instructions" in lowered, (
             f"{path.name} does not tell the model the data is not instructions"
         )
+
+
+def test_function_assign_prompt_contract() -> None:
+    """The C2 classifier prompt names its JSON contract and both template slots."""
+    text = (PROMPTS_DIR / "function_assign.md").read_text(encoding="utf-8")
+    assert '"functions"' in text
+    assert "{{functions_json}}" in text
+    assert "{{chunk_text}}" in text

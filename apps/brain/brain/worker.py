@@ -14,6 +14,7 @@ from brain.directory_sync import handle_directory_sync, maybe_queue_directory_sy
 from brain.eval.run import handle_evaluate
 from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
+from brain.function_assign import handle_function_assign
 from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
 from brain.interview.intake import close_stale_threads
@@ -35,6 +36,7 @@ HANDLERS: dict[str, Handler] = {
     "classify_extract": handle_classify_extract,
     "relations": handle_relations,
     "resolve": handle_resolve,
+    "function_assign": handle_function_assign,
     "project": handle_project,
     "communities": handle_communities,
     "recommend": handle_recommend,

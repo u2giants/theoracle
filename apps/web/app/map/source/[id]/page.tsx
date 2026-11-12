@@ -10,8 +10,14 @@ export default async function SourcePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ chunk?: string }>;
 }) {
-  await requireEmployee();
+  const me = await requireEmployee();
   const { id } = await params;
   const { chunk } = await searchParams;
-  return <SourceViewer sourceId={id} chunkId={chunk ?? null} />;
+  return (
+    <SourceViewer
+      sourceId={id}
+      chunkId={chunk ?? null}
+      isAdmin={me.isAdmin}
+    />
+  );
 }

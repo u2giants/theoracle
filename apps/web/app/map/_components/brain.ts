@@ -21,6 +21,25 @@ export function pickText(
 
 export type SourceRef = { id: string; title: string };
 
+export type FunctionAssignment = {
+  function_id: string;
+  key: string;
+  name: string;
+  weight: number;
+  origin: 'auto' | 'admin';
+};
+
+export type FunctionRow = {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  aliases: string[];
+  parent_id: string | null;
+  sort: number;
+  active: boolean;
+};
+
 export type Finding = {
   text: string;
   kind: string;
@@ -112,6 +131,7 @@ export type EntityDetail = {
     string,
     { entity_id: string; name: string; type: string; direction: 'in' | 'out'; quotes: Quote[] }[]
   >;
+  functions: FunctionAssignment[];
   translations?: Translations;
 };
 
@@ -137,6 +157,7 @@ export type SourceChunks = {
     text: string;
     passage_kind: string | null;
   }[];
+  functions: FunctionAssignment[];
 };
 
 export async function brainGet<T>(path: string): Promise<T> {
@@ -153,6 +174,19 @@ export async function brainGet<T>(path: string): Promise<T> {
 export async function brainPost<T>(path: string, payload: unknown): Promise<T> {
   const response = await fetch(`/api/brain/${path.replace(/^\/+/, '')}`, {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload ?? {}),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? body.error ?? `request failed (${response.status})`);
+  }
+  return (await response.json()) as T;
+}
+
+export async function brainPut<T>(path: string, payload: unknown): Promise<T> {
+  const response = await fetch(`/api/brain/${path.replace(/^\/+/, '')}`, {
+    method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload ?? {}),
   });

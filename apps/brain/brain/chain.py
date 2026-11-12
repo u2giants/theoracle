@@ -10,6 +10,7 @@ step:
   marked ``failed`` with the error when its last job failed for good;
 * unresolved mentions with no ``resolve`` job;
 * a finished ``resolve`` newer than the last projection;
+* a finished ``resolve`` newer than the last function assignment (repair C2);
 * a finished projection newer than the last summary build.
 
 A step whose job failed for good in the last few hours is left alone, so a
@@ -125,7 +126,11 @@ def _heal_graph(conn: Any, stats: dict[str, int]) -> None:
         stats["resolve"] += 1
         conn.commit()
         return
-    for kind, before in (("project", "resolve"), ("communities", "project")):
+    for kind, before in (
+        ("project", "resolve"),
+        ("function_assign", "resolve"),
+        ("communities", "project"),
+    ):
         behind = conn.execute(
             "SELECT (SELECT max(finished_at) FROM cmap.job WHERE kind = %s AND state = 'done') "
             "> COALESCE((SELECT max(started_at) FROM cmap.job "
@@ -150,6 +155,7 @@ def run_ensure_chain() -> dict[str, int]:
         "marked_failed": 0,
         "resolve": 0,
         "project": 0,
+        "function_assign": 0,
         "communities": 0,
     }
     with get_pool().connection() as conn:
