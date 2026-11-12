@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS public.employees (
   locale text
 );
 ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS locale text;
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS department text;
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS departments text[] DEFAULT '{}';
 CREATE TABLE IF NOT EXISTS public.employee_identities (
   id uuid PRIMARY KEY,
   employee_id uuid NOT NULL,

@@ -173,12 +173,13 @@ def _question(
     priority: int | None = 3,
     person: str | None = None,
     department: str | None = None,
+    target: str | None = None,
 ) -> str:
     row = db.execute(
         "INSERT INTO cmap.open_question "
-        "(question, why, entity_ids, priority, suggested_person, department) "
-        "VALUES (%s, 'test', %s, %s, %s, %s) RETURNING id::text",
-        (text, entity_ids, priority, person, department),
+        "(question, why, entity_ids, priority, suggested_person, department, target_employee_id) "
+        "VALUES (%s, 'test', %s, %s, %s, %s, %s) RETURNING id::text",
+        (text, entity_ids, priority, person, department, target),
     ).fetchone()
     db.commit()
     return str(row[0])
@@ -390,6 +391,105 @@ def test_department_member_with_own_evidence_beats_the_less_involved_member(
     result = run_interview_tick()
     assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
     assert result["asked"] == 1
+
+
+def test_employee_with_department_in_array_joins_the_pool(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """A multi-department directory row counts for the pool: department='Design'
+    with departments=['Design','Licensing'] still joins the Licensing pool."""
+    other_id = str(uuid4())
+    db.execute(
+        "INSERT INTO public.employees (id, email, name, department, departments) "
+        "VALUES (%s, %s, 'Multi Dept', 'Design', ARRAY['Design', 'Licensing'])",
+        (other_id, f"{uuid4().hex[:12]}@test.invalid"),
+    )
+    db.commit()
+    _question(db, "Who signs licensing approvals?", [], department="Licensing")
+
+    result = run_interview_tick()
+    db.execute("DELETE FROM public.employees WHERE id = %s", (other_id,))
+    db.commit()
+    assert [employee for employee, _ in sent] == [other_id]
+    assert result["asked"] == 1
+
+
+def test_suggested_person_with_title_suffix_matches_the_employee(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """Vetting rows carry 'Jane Doe (Licensing Manager)'; the title suffix must
+    not block the match to the employee 'Jane Doe'."""
+    jane_id = str(uuid4())
+    db.execute(
+        "INSERT INTO public.employees (id, email, name) VALUES (%s, %s, 'Jane Doe')",
+        (jane_id, f"{uuid4().hex[:12]}@test.invalid"),
+    )
+    db.commit()
+    _question(
+        db,
+        "Who signs licensing approvals?",
+        [],
+        person="Jane Doe (Licensing Manager)",
+        department="Licensing",
+    )
+
+    result = run_interview_tick()
+    db.execute("DELETE FROM public.employees WHERE id = %s", (jane_id,))
+    db.commit()
+    assert [employee for employee, _ in sent] == [jane_id]
+    assert result["asked"] == 1
+
+
+def test_famous_bystander_is_never_chosen_when_the_multi_department_pool_is_exhausted(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """PR #578's deferral invariant under the multi-department matching: when
+    the Design+Licensing member is at cap, the question waits — never the
+    famous bystander the entities name."""
+    other_id = str(uuid4())
+    db.execute(
+        "INSERT INTO public.employees (id, email, name, department, departments) "
+        "VALUES (%s, %s, 'Multi Dept', 'Design', ARRAY['Design', 'Licensing'])",
+        (other_id, f"{uuid4().hex[:12]}@test.invalid"),
+    )
+    for _ in range(2):
+        db.execute("INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (other_id,))
+    db.commit()
+    bystander = _person(db, "Test Admin")
+    topic = _thing(db, "Licensing approval")
+    _relate(db, bystander, topic, sources=5)
+    _evidence(db, ADMIN_ID, "Test Admin", {topic: "Licensing approval"})
+    _question(db, "Who signs licensing approvals?", [bystander, topic], department="Licensing")
+
+    result = run_interview_tick()
+    db.execute("DELETE FROM public.employees WHERE id = %s", (other_id,))
+    db.commit()
+    assert sent == []
+    assert result["unrouted"] == 1
+
+
+def test_manual_target_reaches_the_exact_duplicate_name_employee(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """Two directory rows share one name; each manual route must reach its
+    exact employee. A name-keyed map keeps only one of them, so the other's
+    question silently unrouted — both must send."""
+    first_id = str(uuid4())
+    second_id = str(uuid4())
+    for employee_id in (first_id, second_id):
+        db.execute(
+            "INSERT INTO public.employees (id, email, name) VALUES (%s, %s, 'Same Name')",
+            (employee_id, f"{uuid4().hex[:12]}@test.invalid"),
+        )
+    db.commit()
+    _question(db, "Who signs licensing approvals?", [], department="Licensing", target=first_id)
+    _question(db, "Nobody fits this one?", [], department="Licensing", target=second_id)
+
+    result = run_interview_tick()
+    db.execute("DELETE FROM public.employees WHERE id IN (%s, %s)", (first_id, second_id))
+    db.commit()
+    assert sorted(employee for employee, _ in sent) == sorted([first_id, second_id])
+    assert result["asked"] == 2
 
 
 def test_bot_entity_is_never_routed(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None:
