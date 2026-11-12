@@ -314,6 +314,16 @@ def read_transcript(text: str) -> list[Chunk]:
     return chunk_turns(parse_turns(text))
 
 
+def exchange_windows(anchor: int) -> tuple[int, ...]:
+    """Indices of one relation window ending at turn chunk ``anchor`` (plan E1).
+
+    A window covers consecutive speaker turns of the same exchange (a
+    question and its reply), and consecutive windows overlap by one turn:
+    window ``i`` is turns ``(i-1, i)``.
+    """
+    return (anchor - 1, anchor) if anchor else (0,)
+
+
 # Meeting-level start keys in a Teams/Recall JSON payload. The explicit
 # meeting keys are also looked up at the top level; the generic ones only
 # inside metadata/meeting/calendar_event objects.

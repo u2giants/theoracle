@@ -151,3 +151,13 @@ def read_pdf(data: bytes, usage: dict[str, int] | None = None) -> list[Chunk]:
     finally:
         document.close()
     return chunks
+
+
+def passage_windows(anchor: int, previous: int) -> tuple[int, ...]:
+    """Indices of one relation window ending at passage ``anchor`` (plan E1).
+
+    A window is the passage plus the ``previous`` passages before it, in
+    full. ``read_pdf`` chunks per page, so a window may span a page break —
+    a relation's ends and its quote may come from either side of it.
+    """
+    return tuple(range(max(0, anchor - previous), anchor + 1))

@@ -2,20 +2,25 @@
 
 Job ``relations`` runs per source. Every non-chatter chunk goes to the
 frontier model once with ``prompts/relations.md``, together with the mentions
-step 4 already found in it (so the model links known things rather than
-inventing names) and the last two sentences of the previous chunk as context.
-The call uses JSON mode, ``temperature=0`` and ``max_tokens=8000``; a reply
-still cut off at that limit is retried once at ``max_tokens=16000`` (issue
-#365: dense chunks truncated at 2,000). The model id comes from the
-environment only.
+step 4 already found in the window (so the model links known things rather
+than inventing names) and the previous one or two passages **in full** as
+quotable context (plan E1: a relation may span neighbouring passages — the
+question and its reply, or two sides of a page break). The call uses JSON
+mode, ``temperature=0`` and ``max_tokens=8000``; a reply still cut off at that
+limit is retried once at ``max_tokens=16000`` (issue #365: dense chunks
+truncated at 2,000). The model id comes from the environment only.
 
-Validation drops a relation whose quote is not an exact substring of the
-chunk, whose type is outside the ontology, or whose keys do not resolve.
-Accepted relations become ``cmap.relation`` rows, accepted ``new_mentions``
-become ``cmap.mention`` rows, and the raw response is stored in
-``cmap.extraction(stage='relations')``. Each chunk is written in its own
-transaction, so a job stopped by ``BRAIN_MAX_FRONTIER_CALLS_PER_JOB`` resumes
-by skipping chunks that already have a row for the current prompt hash.
+Validation drops a relation whose quote is not in the window (whitespace and
+quote-mark normalised matching is tried first), whose type is outside the
+ontology, or whose keys do not resolve. Accepted relations become
+``cmap.relation`` rows with the quote's true chunk id (not the window's
+anchor), accepted ``new_mentions`` become ``cmap.mention`` rows, and the raw
+response is stored in ``cmap.extraction(stage='relations')``. Relations and
+mentions found by two overlapping windows are stored once. Dropped items are
+counted per source under ``cmap.source.read_notes->'drop_reasons'``. Each
+anchor chunk is written in its own transaction, so a job stopped by
+``BRAIN_MAX_FRONTIER_CALLS_PER_JOB`` resumes by skipping chunks that already
+have a row for the current prompt hash.
 """
 
 from __future__ import annotations
@@ -40,7 +45,9 @@ from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import ENTITY_TYPES
 from brain.extract.normalize import normalize_name
 from brain.llm import post_chat_with_rescue
+from brain.read import pdf as pdf_read
 from brain.read import state as read_state
+from brain.read import transcript as transcript_read
 from brain.read.state import (
     clear_chunk_failure,
     finish_source,
@@ -59,8 +66,16 @@ MAX_TOKENS = 8000
 TRUNCATION_RETRY_MAX_TOKENS = 16000
 DEFAULT_MAX_FRONTIER_CALLS = 5000
 INFERENCE_MAX_CONFIDENCE = 0.6
-CONTEXT_SENTENCES = 2
 CALL_ATTEMPTS = 3
+# Plan E1: the window is the anchor passage plus this many previous passages
+# in full. Measured on the frozen fixture corpus (see the E1 PR): a window of
+# two passages found every cross-boundary relation the corpus holds (a
+# question/answer pair, a page-break pair) and a third passage added none, so
+# the smaller window wins. Transcript windows are exchange pairs regardless
+# (transcript_read.exchange_windows).
+WINDOW_PREVIOUS = 1
+# Drop reasons counted per source in ``read_notes`` (plan E1).
+DROP_REASONS: tuple[str, ...] = ("quote_mismatch", "unknown_type", "truncation")
 # Issue #415: hold the resolve→project→communities chain until sources stop
 # arriving, so one burst pays for one chain run.
 DEBOUNCE_SECONDS = 300.0
@@ -84,7 +99,18 @@ REL_TYPES: tuple[str, ...] = (
 )
 STANCES: tuple[str, ...] = ("policy", "practice", "report", "inference")
 
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_QUOTE_FOLD = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201a": "'",
+        "\u201b": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\uff02": '"',
+    }
+)
 
 
 class RelationsError(RuntimeError):
@@ -103,6 +129,7 @@ class KnownMention:
     mention_id: str | None
     entity_type: str
     name: str
+    normalized_name: str
 
 
 @dataclass
@@ -114,6 +141,7 @@ class NewMention:
     surface_name: str
     normalized_name: str
     quote: str
+    quote_chunk_id: str = ""
     vector: list[float] | None = None
     mention_id: str | None = None
 
@@ -129,18 +157,25 @@ class Relation:
     stance: str
     confidence: float
     quote: str
+    quote_chunk_id: str = ""
     description_en: str = ""
 
 
 @dataclass
 class ChunkResult:
-    """What one chunk contributed to the relations stage."""
+    """What one window contributed to the relations stage."""
 
     chunk_id: str
     known: dict[str, KnownMention]
     payload: dict[str, Any]
     relations: list[Relation] = field(default_factory=list)
     new_mentions: list[NewMention] = field(default_factory=list)
+
+
+# One entry of a window: ``(chunk_id, text, mentions)`` in reading order; the
+# anchor chunk is last. ``mentions`` holds
+# ``(mention_id, entity_type, surface_name, normalized_name)``.
+WindowEntry = tuple[str, str, list[tuple[str, str, str, str]]]
 
 
 def load_relations_prompt() -> str:
@@ -154,10 +189,17 @@ def relations_prompt_hash() -> str:
     return hashlib.sha256(f"relations:{prompt_sha}".encode()).hexdigest()
 
 
-def last_sentences(text: str, count: int = CONTEXT_SENTENCES) -> str:
-    """Return the last ``count`` sentences of ``text``."""
-    parts = [part.strip() for part in _SENTENCE_END.split(text.strip()) if part.strip()]
-    return " ".join(parts[-count:])
+def window_indices(source_kind: str, anchor: int) -> tuple[int, ...]:
+    """Indices (ascending) of the passages in ``anchor``'s window (plan E1).
+
+    Transcripts window consecutive speaker turns of one exchange (question +
+    reply), overlapping by one turn. Every other source windows the anchor
+    plus the previous ``WINDOW_PREVIOUS`` passages in full; for PDFs the
+    window may span a page break (the page chunks come from ``read_pdf``).
+    """
+    if source_kind == "transcript":
+        return transcript_read.exchange_windows(anchor)
+    return pdf_read.passage_windows(anchor, WINDOW_PREVIOUS)
 
 
 def build_prompt(
@@ -165,7 +207,7 @@ def build_prompt(
     known: list[KnownMention],
     previous_context: str,
 ) -> str:
-    """Fill ``prompts/relations.md`` for one chunk."""
+    """Fill ``prompts/relations.md`` for one window's anchor passage."""
     mentions_json = json.dumps(
         [{"key": item.key, "type": item.entity_type, "name": item.name} for item in known],
         ensure_ascii=False,
@@ -208,12 +250,58 @@ def _confidence(value: Any) -> float | None:
     return min(1.0, max(0.0, number))
 
 
+def _normalize_quote(text: str) -> str:
+    """Fold whitespace runs and curly quote marks before quote matching."""
+    return re.sub(r"\s+", " ", text.translate(_QUOTE_FOLD)).strip()
+
+
+def find_quote(
+    window: list[tuple[str, str]], quote: str
+) -> str | None:
+    """Return the id of the chunk holding ``quote``, or None if it is absent.
+
+    An exact substring match is tried first; whitespace/quote-mark-normalised
+    matching is tried before declaring a mismatch (plan E1). A quote that only
+    matches the joined window (it straddles a chunk boundary) is attributed to
+    the chunk where it starts.
+    """
+    if not quote:
+        return None
+    for chunk_id, text in window:
+        if quote in text:
+            return chunk_id
+    normalized = _normalize_quote(quote)
+    if not normalized:
+        return None
+    parts = [(chunk_id, _normalize_quote(text)) for chunk_id, text in window]
+    for chunk_id, text in parts:
+        if normalized in text:
+            return chunk_id
+    joined = " ".join(text for _chunk_id, text in parts)
+    at = joined.find(normalized)
+    if at < 0:
+        return None
+    cursor = 0
+    for chunk_id, text in parts:
+        if at < cursor + len(text):
+            return chunk_id
+        cursor += len(text) + 1
+    return window[-1][0]
+
+
 def validate_response(
-    chunk_text: str,
+    window: list[tuple[str, str]],
     known: dict[str, KnownMention],
     payload: dict[str, Any],
-) -> tuple[list[Relation], list[NewMention]]:
-    """Keep only relations and new mentions the plan's rules allow."""
+) -> tuple[list[Relation], list[NewMention], dict[str, int]]:
+    """Keep only relations and new mentions the plan's rules allow.
+
+    ``window`` is ``(chunk_id, text)`` in reading order. A dropped item is
+    counted under one reason: ``unknown_type`` (outside the ontology),
+    ``truncation`` (a required field is missing — the signature of a reply cut
+    off mid-item) or ``quote_mismatch`` (the quote is not in the window).
+    """
+    drops = dict.fromkeys(DROP_REASONS, 0)
     new_mentions: list[NewMention] = []
     keys = set(known)
     for item in payload.get("new_mentions") or []:
@@ -223,9 +311,17 @@ def validate_response(
         entity_type = str(item.get("type") or "")
         name = str(item.get("name") or "").strip()
         quote = str(item.get("quote") or "")
-        if not key or key in keys or entity_type not in ENTITY_TYPES or not name:
+        if not key or key in keys:
             continue
-        if not quote or quote not in chunk_text:
+        if entity_type not in ENTITY_TYPES:
+            drops["unknown_type"] += 1
+            continue
+        if not name or not quote:
+            drops["truncation"] += 1
+            continue
+        quote_chunk = find_quote(window, quote)
+        if quote_chunk is None:
+            drops["quote_mismatch"] += 1
             continue
         keys.add(key)
         new_mentions.append(
@@ -235,6 +331,7 @@ def validate_response(
                 surface_name=name,
                 normalized_name=normalize_name(name, entity_type),
                 quote=quote,
+                quote_chunk_id=quote_chunk,
             )
         )
 
@@ -251,12 +348,16 @@ def validate_response(
         description_en = str(item.get("description_en") or "").strip()
         confidence = _confidence(item.get("confidence"))
         if rel_type not in REL_TYPES or stance not in STANCES:
+            drops["unknown_type"] += 1
             continue
         if from_key not in keys or to_key not in keys or from_key == to_key:
             continue
-        if not quote or quote not in chunk_text:
+        if not quote or confidence is None or not description:
+            drops["truncation"] += 1
             continue
-        if confidence is None or not description:
+        quote_chunk = find_quote(window, quote)
+        if quote_chunk is None:
+            drops["quote_mismatch"] += 1
             continue
         if stance == "inference":
             confidence = min(confidence, INFERENCE_MAX_CONFIDENCE)
@@ -269,10 +370,11 @@ def validate_response(
                 stance=stance,
                 confidence=confidence,
                 quote=quote,
+                quote_chunk_id=quote_chunk,
                 description_en=description_en,
             )
         )
-    return relations, new_mentions
+    return relations, new_mentions, drops
 
 
 class _Counters:
@@ -282,10 +384,15 @@ class _Counters:
         self.settings = settings
         self.lock = threading.Lock()
         self.usage: dict[str, int] = {}
+        self.drops: dict[str, int] = dict.fromkeys(DROP_REASONS, 0)
 
     def bump(self, key: str, amount: int = 1) -> None:
         with self.lock:
             self.usage[key] = self.usage.get(key, 0) + amount
+
+    def drop(self, reason: str, amount: int = 1) -> None:
+        with self.lock:
+            self.drops[reason] = self.drops.get(reason, 0) + amount
 
     def take_frontier_call(self) -> None:
         cap = self.settings.brain_max_frontier_calls_per_job
@@ -299,6 +406,25 @@ class _Counters:
                     "rerun the relations job to resume (finished chunks are skipped)"
                 )
             self.usage["frontier_calls"] = used + 1
+
+
+class _IdentityIndex:
+    """Identities already written, so overlapping windows never duplicate.
+
+    Seeded from the database at job start (a resumed job must not re-find what
+    an earlier run stored) and then claimed under a lock per write.
+    """
+
+    def __init__(self, seen: set[tuple]) -> None:
+        self._lock = threading.Lock()
+        self._seen = seen
+
+    def claim(self, identity: tuple) -> bool:
+        with self._lock:
+            if identity in self._seen:
+                return False
+            self._seen.add(identity)
+            return True
 
 
 def _call_model(prompt: str, counters: _Counters) -> dict[str, Any]:
@@ -389,87 +515,77 @@ def _complete_items(content: str, name: str) -> list[Any]:
         items.append(item)
 
 
-def _process_chunk(
-    chunk_id: str,
-    text: str,
-    previous_text: str,
-    mentions: list[tuple[str, str, str]],
-    counters: _Counters,
-) -> ChunkResult:
-    """Ask the model for one chunk's relations and validate them."""
-    known = known_mentions(text, mentions)
-    prompt = build_prompt(text, known, last_sentences(previous_text))
-    payload: dict[str, Any] = {}
-    for attempt in range(1, CALL_ATTEMPTS + 1):
-        try:
-            payload = _call_model(prompt, counters)
-            break
-        except FrontierCapReached:
-            raise
-        except (RelationsError, httpx.HTTPError) as exc:
-            if attempt == CALL_ATTEMPTS:
-                raise
-            logger.warning("relations call failed (%s); retrying chunk %s", exc, chunk_id)
-            time.sleep(read_state.BACKOFF_SECONDS * 2 ** (attempt - 1))
-    by_key = {item.key: item for item in known}
-    relations, new_mentions = validate_response(text, by_key, payload)
-    return ChunkResult(
-        chunk_id=chunk_id,
-        known=by_key,
-        payload=payload,
-        relations=relations,
-        new_mentions=new_mentions,
-    )
+def known_mentions(window: list[WindowEntry]) -> list[KnownMention]:
+    """Key a window's mentions ``m1..mN`` for the prompt.
 
-
-def known_mentions(text: str, mentions: list[tuple[str, str, str]]) -> list[KnownMention]:
-    """Key a chunk's mentions ``m1..mN`` in reading order, one per distinct name.
-
-    ``mentions`` holds ``(mention_id, entity_type, surface_name)``. Order is by
-    first position in the chunk, so the same chunk always yields the same keys
-    (and the same prompt) across runs.
+    The anchor chunk (the window's last entry) is keyed first in reading order
+    within its text, then the earlier chunks in reading order — so the anchor's
+    own keys match a single-passage extraction and the earlier chunks' keys let
+    both relation ends come from anywhere in the window. One key per distinct
+    ``(entity_type, surface)``: the earliest entry in that key order keeps its
+    mention row. ``mentions`` holds
+    ``(mention_id, entity_type, surface_name, normalized_name)``.
     """
-    folded = text.casefold()
+    result: list[KnownMention] = []
     seen: set[tuple[str, str]] = set()
-    unique: list[tuple[int, str, str, str]] = []
-    for mention_id, entity_type, surface in mentions:
-        marker = (entity_type, surface.casefold())
-        if marker in seen:
-            continue
-        seen.add(marker)
-        at = folded.find(surface.casefold())
-        unique.append((at if at >= 0 else len(text), entity_type, surface, mention_id))
-    unique.sort()
-    return [
-        KnownMention(key=f"m{index}", mention_id=mention_id, entity_type=entity_type, name=surface)
-        for index, (_, entity_type, surface, mention_id) in enumerate(unique, start=1)
-    ]
+    for chunk_id, text, mentions in [window[-1], *window[:-1]]:
+        del chunk_id
+        folded = text.casefold()
+        positioned: list[tuple[int, str, str, str, str]] = []
+        for mention_id, entity_type, surface, normalized in mentions:
+            marker = (entity_type, surface.casefold())
+            if marker in seen:
+                continue
+            at = folded.find(surface.casefold())
+            positioned.append(
+                (at if at >= 0 else len(text), entity_type, surface, normalized, mention_id)
+            )
+        positioned.sort()
+        for _at, entity_type, surface, normalized, mention_id in positioned:
+            marker = (entity_type, surface.casefold())
+            if marker in seen:
+                continue
+            seen.add(marker)
+            result.append(
+                KnownMention(
+                    key=f"m{len(result) + 1}",
+                    mention_id=mention_id,
+                    entity_type=entity_type,
+                    name=surface,
+                    normalized_name=normalized,
+                )
+            )
+    return result
 
 
-def _load_chunks(source_id: str) -> list[tuple[str, str, str | None]]:
-    """Return ``(chunk_id, text, passage_kind)`` for one source in order."""
+def _load_chunks(source_id: str) -> tuple[str, list[tuple[str, str, str | None]]]:
+    """Return ``(source kind, (chunk_id, text, passage_kind) rows in order)``."""
     with get_pool().connection() as conn:
+        source_row = conn.execute(
+            "SELECT kind FROM cmap.source WHERE id = %s", (source_id,)
+        ).fetchone()
         rows = conn.execute(
             "SELECT id, text, passage_kind FROM cmap.chunk "
             "WHERE source_id = %s ORDER BY ordinal",
             (source_id,),
         ).fetchall()
-    return [(str(row[0]), str(row[1]), row[2]) for row in rows]
+    kind = str(source_row[0]) if source_row else ""
+    return kind, [(str(row[0]), str(row[1]), row[2]) for row in rows]
 
 
-def _load_mentions(source_id: str) -> dict[str, list[tuple[str, str, str]]]:
-    """Return each chunk's mentions as ``(mention_id, entity_type, surface_name)``."""
+def _load_mentions(source_id: str) -> dict[str, list[tuple[str, str, str, str]]]:
+    """Each chunk's mentions as ``(mention_id, entity_type, surface, normalized)``."""
     with get_pool().connection() as conn:
         rows = conn.execute(
-            "SELECT m.chunk_id, m.id, m.entity_type, m.surface_name "
+            "SELECT m.chunk_id, m.id, m.entity_type, m.surface_name, m.normalized_name "
             "FROM cmap.mention m JOIN cmap.chunk c ON c.id = m.chunk_id "
             "WHERE c.source_id = %s",
             (source_id,),
         ).fetchall()
-    by_chunk: dict[str, list[tuple[str, str, str]]] = {}
-    for chunk_id, mention_id, entity_type, surface in rows:
+    by_chunk: dict[str, list[tuple[str, str, str, str]]] = {}
+    for chunk_id, mention_id, entity_type, surface, normalized in rows:
         by_chunk.setdefault(str(chunk_id), []).append(
-            (str(mention_id), str(entity_type), str(surface))
+            (str(mention_id), str(entity_type), str(surface), str(normalized))
         )
     return by_chunk
 
@@ -486,43 +602,138 @@ def _load_done(source_id: str, prompt_hash: str) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
-def _write_result(result: ChunkResult, prompt_hash: str, model: str) -> None:
-    """Write one chunk's new mentions, relations and raw response together."""
-    ids = {key: item.mention_id for key, item in result.known.items()}
+def _relation_identity(by_key: dict[str, Any], relation: Relation) -> tuple:
+    """Stable identity of one relation finding, shared by overlapping windows.
+
+    Two windows find the same relation when the same named things are linked
+    with the same type and the same verbatim quote — regardless of which
+    mention rows (the anchor's or a neighbour's) the keys resolved to.
+    """
+    frm = by_key[relation.from_key]
+    to = by_key[relation.to_key]
+    return (
+        frm.entity_type,
+        frm.normalized_name,
+        to.entity_type,
+        to.normalized_name,
+        relation.rel_type,
+        relation.quote,
+    )
+
+
+def _mention_identity(mention: NewMention) -> tuple:
+    return (
+        mention.quote_chunk_id,
+        mention.entity_type,
+        mention.normalized_name,
+        mention.quote,
+    )
+
+
+def _load_identity_index(source_id: str) -> _IdentityIndex:
+    """Seed the dedupe index with what this source already holds."""
+    seen: set[tuple] = set()
     with get_pool().connection() as conn:
-        # A chunk is extracted again only when the prompt changed: its old
-        # relations are replaced, never added to (repair plan A8).
-        conn.execute("DELETE FROM cmap.relation WHERE chunk_id = %s", (result.chunk_id,))
+        rows = conn.execute(
+            "SELECT fm.entity_type, fm.normalized_name, tm.entity_type, tm.normalized_name, "
+            "r.rel_type, r.quote "
+            "FROM cmap.relation r JOIN cmap.chunk c ON c.id = r.chunk_id "
+            "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+            "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+            "WHERE c.source_id = %s",
+            (source_id,),
+        ).fetchall()
+        for row in rows:
+            seen.add(tuple(str(value) for value in row))
+        rows = conn.execute(
+            "SELECT m.chunk_id, m.entity_type, m.normalized_name, m.quote "
+            "FROM cmap.mention m JOIN cmap.chunk c ON c.id = m.chunk_id "
+            "WHERE c.source_id = %s",
+            (source_id,),
+        ).fetchall()
+        for row in rows:
+            seen.add(tuple(str(value) for value in row))
+    return _IdentityIndex(seen)
+
+
+def _clear_relations(source_id: str) -> None:
+    """Drop every relation of a source before a fresh extraction (plan A8).
+
+    A window is extracted again only when the prompt changed (or the source is
+    new): its old relations are replaced, never added to. Replacing is done
+    once per source because one window's relations now live on several chunks.
+    """
+    with get_pool().connection() as conn:
+        conn.execute(
+            "DELETE FROM cmap.relation WHERE chunk_id IN "
+            "(SELECT id FROM cmap.chunk WHERE source_id = %s)",
+            (source_id,),
+        )
+        conn.commit()
+
+
+def _write_result(
+    result: ChunkResult, prompt_hash: str, model: str, claimed: _IdentityIndex
+) -> None:
+    """Write one window's new mentions, relations and raw response together.
+
+    Every relation row carries the quote's true chunk id. Identities already
+    claimed (this job or a previous run) are skipped, so overlapping windows
+    store one finding once.
+    """
+    ids = {key: item.mention_id for key, item in result.known.items()}
+    by_key: dict[str, Any] = dict(result.known)
+    with get_pool().connection() as conn:
         conn.execute(
             "DELETE FROM cmap.extraction WHERE chunk_id = %s AND stage = 'relations' "
             "AND prompt_hash <> %s",
             (result.chunk_id, prompt_hash),
         )
         for mention in result.new_mentions:
-            row = conn.execute(
-                "INSERT INTO cmap.mention "
-                "(chunk_id, entity_type, surface_name, normalized_name, quote, embedding) "
-                "VALUES (%s, %s, %s, %s, %s, %s::vector) RETURNING id",
-                (
-                    result.chunk_id,
-                    mention.entity_type,
-                    mention.surface_name,
-                    mention.normalized_name,
-                    mention.quote,
-                    vector_literal(mention.vector) if mention.vector is not None else None,
-                ),
-            ).fetchone()
-            ids[mention.key] = str(row[0])
+            by_key[mention.key] = mention
+            if claimed.claim(_mention_identity(mention)):
+                row = conn.execute(
+                    "INSERT INTO cmap.mention "
+                    "(chunk_id, entity_type, surface_name, normalized_name, quote, embedding) "
+                    "VALUES (%s, %s, %s, %s, %s, %s::vector) RETURNING id",
+                    (
+                        mention.quote_chunk_id,
+                        mention.entity_type,
+                        mention.surface_name,
+                        mention.normalized_name,
+                        mention.quote,
+                        vector_literal(mention.vector) if mention.vector is not None else None,
+                    ),
+                ).fetchone()
+                ids[mention.key] = str(row[0])
+            else:
+                existing = conn.execute(
+                    "SELECT id FROM cmap.mention WHERE chunk_id = %s AND entity_type = %s "
+                    "AND normalized_name = %s AND quote = %s",
+                    (
+                        mention.quote_chunk_id,
+                        mention.entity_type,
+                        mention.normalized_name,
+                        mention.quote,
+                    ),
+                ).fetchone()
+                ids[mention.key] = str(existing[0]) if existing else None
         for relation in result.relations:
+            from_id = ids.get(relation.from_key)
+            to_id = ids.get(relation.to_key)
+            if from_id is None or to_id is None:
+                continue
+            if not claimed.claim(_relation_identity(by_key, relation)):
+                continue
             conn.execute(
                 "INSERT INTO cmap.relation "
                 "(chunk_id, from_mention_id, to_mention_id, rel_type, description, "
                 "stance, confidence, quote) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 (
-                    result.chunk_id,
-                    ids[relation.from_key],
-                    ids[relation.to_key],
+                    relation.quote_chunk_id,
+                    from_id,
+                    to_id,
                     relation.rel_type,
                     relation.description,
                     relation.stance,
@@ -563,6 +774,67 @@ def _record_usage(job_id: Any, usage: dict[str, int]) -> None:
         conn.commit()
 
 
+def _record_drop_reasons(source_id: str, drops: dict[str, int], resuming: bool) -> None:
+    """Store the run's drop-reason counts under ``read_notes`` (plan E1).
+
+    A resumed run (some anchors were already done) adds to the counts already
+    there; a fresh run (a new prompt hash, or a new source) replaces them.
+    """
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT read_notes FROM cmap.source WHERE id = %s", (source_id,)
+        ).fetchone()
+        notes = dict(row[0] or {}) if row else {}
+        previous = notes.get("drop_reasons") or {}
+        counts: dict[str, int] = {}
+        for reason in DROP_REASONS:
+            prior = int(previous.get(reason) or 0) if resuming else 0
+            counts[reason] = prior + int(drops.get(reason) or 0)
+        notes["drop_reasons"] = counts
+        conn.execute(
+            "UPDATE cmap.source SET read_notes = %s WHERE id = %s",
+            (Json(notes), source_id),
+        )
+        conn.commit()
+
+
+def _process_window(
+    chunk_id: str,
+    window: list[WindowEntry],
+    counters: _Counters,
+) -> ChunkResult:
+    """Ask the model for one window's relations and validate them."""
+    anchor_text = window[-1][1]
+    known = known_mentions(window)
+    previous_context = "\n\n".join(text for _cid, text, _mentions in window[:-1])
+    prompt = build_prompt(anchor_text, known, previous_context)
+    payload: dict[str, Any] = {}
+    for attempt in range(1, CALL_ATTEMPTS + 1):
+        try:
+            payload = _call_model(prompt, counters)
+            break
+        except FrontierCapReached:
+            raise
+        except (RelationsError, httpx.HTTPError) as exc:
+            if attempt == CALL_ATTEMPTS:
+                raise
+            logger.warning("relations call failed (%s); retrying chunk %s", exc, chunk_id)
+            time.sleep(read_state.BACKOFF_SECONDS * 2 ** (attempt - 1))
+    by_key = {item.key: item for item in known}
+    relations, new_mentions, drops = validate_response(
+        [(cid, text) for cid, text, _mentions in window], by_key, payload
+    )
+    for reason, amount in drops.items():
+        counters.drop(reason, amount)
+    return ChunkResult(
+        chunk_id=chunk_id,
+        known=by_key,
+        payload=payload,
+        relations=relations,
+        new_mentions=new_mentions,
+    )
+
+
 def handle_relations(job: dict[str, Any]) -> None:
     """Extract relations for every non-chatter chunk of one source."""
     payload = job.get("payload") or {}
@@ -574,33 +846,41 @@ def handle_relations(job: dict[str, Any]) -> None:
     if model is None:
         raise RelationsError("BRAIN_FRONTIER_MODEL is not set")
     prompt_hash = relations_prompt_hash()
-    chunks = _load_chunks(source_id)
+    source_kind, chunks = _load_chunks(source_id)
     mentions = _load_mentions(source_id)
     done = _load_done(source_id, prompt_hash)
     counters = _Counters(settings)
 
-    pending: list[tuple[str, str, str, list[tuple[str, str, str]]]] = []
-    previous_text = ""
-    for chunk_id, text, passage_kind in chunks:
+    pending: list[tuple[str, list[WindowEntry]]] = []
+    for index, (chunk_id, _text, passage_kind) in enumerate(chunks):
         chunk_mentions = mentions.get(chunk_id, [])
         skip = chunk_id in done or (passage_kind == "chatter" and not chunk_mentions)
-        if not skip:
-            pending.append((chunk_id, text, previous_text, chunk_mentions))
-        previous_text = text
+        if skip:
+            continue
+        window: list[WindowEntry] = []
+        for at in window_indices(source_kind, index):
+            other_id, other_text, _kind = chunks[at]
+            window.append((other_id, other_text, mentions.get(other_id, [])))
+        pending.append((chunk_id, window))
+    if not done:
+        # A fresh extraction (first run, or a new prompt hash): replace the
+        # source's old relations rather than adding to them (repair plan A8).
+        _clear_relations(source_id)
+    claimed = _load_identity_index(source_id)
 
     cap_error: FrontierCapReached | None = None
     written = 0
     failed = 0
     relation_count = 0
 
-    def _one(item: tuple[str, str, str, list[tuple[str, str, str]]]) -> ChunkResult:
-        """Extract, embed and store one chunk's relations."""
-        result = _process_chunk(*item, counters)
+    def _one(item: tuple[str, list[WindowEntry]]) -> ChunkResult:
+        """Extract, embed and store one window's relations."""
+        result = _process_window(item[0], item[1], counters)
         with_retries(
             lambda: _embed_new_mentions(result, counters),
             f"embedding new mentions of chunk {item[0]}",
         )
-        _write_result(result, prompt_hash, stage_model(settings, "relations"))
+        _write_result(result, prompt_hash, model, claimed)
         return result
 
     with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
@@ -622,13 +902,15 @@ def handle_relations(job: dict[str, Any]) -> None:
             written += 1
             relation_count += len(result.relations)
     _record_usage(job.get("id"), counters.usage)
+    _record_drop_reasons(source_id, counters.drops, resuming=bool(done))
     logger.info(
-        "relations source=%s chunks=%d pending=%d written=%d relations=%d usage=%s",
+        "relations source=%s chunks=%d pending=%d written=%d relations=%d drops=%s usage=%s",
         source_id,
         len(chunks),
         len(pending),
         written,
         relation_count,
+        counters.drops,
         counters.usage,
     )
     if cap_error is not None:

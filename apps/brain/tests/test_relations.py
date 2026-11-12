@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from conftest import fake_embeddings, fake_relations, fake_scaledown
+from psycopg.types.json import Json
 from test_flat import PDF_FIXTURE, TRANSCRIPT_FIXTURE, _seed_fixture, _seed_text
 
 from brain.config import get_settings
@@ -111,7 +112,7 @@ def test_pdf_hands_off_and_except_when(
         (source_id,),
     ).fetchone()[0]
     assert new == 1
-    # the relation whose key m9 does not resolve was dropped
+    # the relation whose key m20 does not resolve was dropped
     assert sum(1 for rel, *_ in relations if rel == "HANDS_OFF_TO") == 1
 
 
@@ -231,3 +232,131 @@ def test_truncated_response_keeps_complete_relations() -> None:
     assert tabbed["relations"][0]["quote"] == "PO-1\tMeadow"
     with pytest.raises(RelationsError):
         parse_relations_json("no json here")
+
+
+def test_question_and_answer_across_turns_linked(
+    monkeypatch: pytest.MonkeyPatch, db: Any, pipeline_env
+) -> None:
+    """Done-when: the reply turn links to the question turn before it (plan E1).
+
+    The question names the licensor sign-off and the reply names Jessica; the
+    window covers both turns, so one relation joins them even though each
+    mention lives in its own chunk. The quote sits in the question's chunk, so
+    the relation stores the quote's true chunk id — not the window's anchor.
+    """
+    source_id = _flat(monkeypatch, db, TRANSCRIPT_FIXTURE, "transcript", "transcript.json")
+    fake_relations(monkeypatch, "relations_windows.json")
+    handle_relations({"payload": {"source_id": source_id}})
+    question_chunk = str(
+        db.execute(
+            "SELECT id FROM cmap.chunk WHERE source_id = %s AND text LIKE %s",
+            (source_id, "Ilona: Which approval%"),
+        ).fetchone()[0]
+    )
+    rows = db.execute(
+        "SELECT r.rel_type, fm.surface_name, tm.surface_name, r.quote, r.chunk_id "
+        "FROM cmap.relation r "
+        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+        "WHERE fm.surface_name = 'Jessica' AND tm.surface_name = 'the licensor sign-off' "
+        "AND fm.chunk_id <> tm.chunk_id",
+        (),
+    ).fetchall()
+    assert rows, "the answer's Jessica links to the question's licensor sign-off"
+    _rel_type, _frm, _to, quote, chunk_id = rows[0]
+    assert quote == "the licensor sign-off"
+    assert str(chunk_id) == question_chunk, "the quote's true chunk id is the question's turn"
+
+
+def test_relation_across_page_break(
+    monkeypatch: pytest.MonkeyPatch, db: Any, pipeline_env
+) -> None:
+    """Done-when: a relation links mentions on both sides of a PDF page break."""
+    source_id = _flat(monkeypatch, db, PDF_FIXTURE, "pdf", "pdf.json")
+    fake_relations(monkeypatch, "relations_windows.json")
+    handle_relations({"payload": {"source_id": source_id}})
+    rows = db.execute(
+        "SELECT r.quote, r.chunk_id, fpc.locator, tpc.locator "
+        "FROM cmap.relation r "
+        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+        "JOIN cmap.chunk fpc ON fpc.id = fm.chunk_id "
+        "JOIN cmap.chunk tpc ON tpc.id = tm.chunk_id "
+        "WHERE fm.surface_name = 'Reorder SKUs below 5,000 units with unchanged artwork' "
+        "AND tm.surface_name = 'The Buyer may create the purchase order'",
+        (),
+    ).fetchall()
+    assert rows, "the exception on one page links to the purchase-order step on another"
+    quote, chunk_id, from_page, to_page = rows[0]
+    assert quote == "The Buyer may create the purchase order"
+    assert from_page["page"] != to_page["page"], "the two ends sit on different pages"
+    quote_page = db.execute(
+        "SELECT locator FROM cmap.chunk WHERE id = %s", (str(chunk_id),)
+    ).fetchone()[0]
+    assert quote_page["page"] == to_page["page"], "the quote's true chunk id is its own page"
+
+
+def test_no_duplicate_from_overlap(
+    monkeypatch: pytest.MonkeyPatch, db: Any, pipeline_env
+) -> None:
+    """Done-when: a relation found in two overlapping windows is stored once."""
+    text = "Marco: Jessica is the only licensing manager we have."
+    fake_scaledown(monkeypatch, "transcript.json")
+    row = db.execute(
+        "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes) "
+        "VALUES ('text', 'flat-test overlap', 'test/overlap.txt', 'overlap-e1', 48) "
+        "RETURNING id",
+        (),
+    ).fetchone()
+    source_id = str(row[0])
+    chunk_ids: list[str] = []
+    for ordinal in (0, 1):
+        chunk_id = str(
+            db.execute(
+                "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count) "
+                "VALUES (%s, %s, %s, %s, 10) RETURNING id",
+                (source_id, ordinal, Json({}), text),
+            ).fetchone()[0]
+        )
+        chunk_ids.append(chunk_id)
+        db.execute(
+            "INSERT INTO cmap.mention "
+            "(chunk_id, entity_type, surface_name, normalized_name, quote) VALUES "
+            "(%s, 'Person', 'Jessica', 'jessica', %s), "
+            "(%s, 'Role', 'licensing manager', 'licensing manager', %s)",
+            (chunk_id, text, chunk_id, text),
+        )
+    db.commit()
+    fake = fake_relations(monkeypatch)
+    fake.override = _response()
+    handle_relations({"payload": {"source_id": source_id}})
+    assert len(fake.prompts) == 2, "both windows ran over the shared chunk"
+    assert len(_relations(db, source_id)) == 1, "the shared finding is stored once"
+
+
+def test_drop_reasons_counted(
+    monkeypatch: pytest.MonkeyPatch, db: Any, pipeline_env
+) -> None:
+    """Done-when: dropped items are counted per source in read_notes (plan E1)."""
+    source_id = _one_chunk(monkeypatch, db, JESSICA, "drop-reasons")
+    fake = fake_relations(monkeypatch)
+    good = _response()["relations"][0]
+    fake.override = {
+        "relations": [
+            dict(good, quote="Jessica approves every package personally."),
+            dict(good, type="MANAGES"),
+            dict(good, description=""),
+            good,
+        ],
+        "new_mentions": [],
+    }
+    handle_relations({"payload": {"source_id": source_id}})
+    notes = db.execute(
+        "SELECT read_notes FROM cmap.source WHERE id = %s", (source_id,)
+    ).fetchone()[0]
+    assert notes["drop_reasons"] == {
+        "quote_mismatch": 1,
+        "unknown_type": 1,
+        "truncation": 1,
+    }
+    assert len(_relations(db, source_id)) == 1, "the well-formed relation is kept"
