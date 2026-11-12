@@ -71,6 +71,16 @@ class MapReports:
         del settings
         self.calls += 1
         prompt = str(messages[-1]["content"])
+        if prompt.startswith("You are compressing"):
+            # Map-reduce batch summary (repair C3): compress to one line.
+            body = prompt.split("<<<", 1)[-1].rsplit(">>>", 1)[0]
+            summary = " ".join(body.split())[:400] or "empty batch"
+            return {
+                "choices": [
+                    {"message": {"content": json.dumps({"summary": summary})}}
+                ],
+                "usage": {"total_tokens": 5},
+            }
         sources = list(dict.fromkeys(UUID_RE.findall(prompt)))
         if SCOPE_L1 in prompt:
             licensing = LICENSING_TITLE in prompt
@@ -138,6 +148,24 @@ def seed_map(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     _fake_resolve(monkeypatch)
     run_resolve()
     run_project()
+    # Repair C3: level 1 is one report per function (row id = the function id,
+    # title = the function name), so the fixture map needs a function to own
+    # its licensing report. The corpus is one licensing-approval work stream,
+    # so every entity is assigned to it.
+    function_id = str(
+        db.execute(
+            "INSERT INTO cmap.function (key, name) VALUES ('licensing', %s) "
+            "ON CONFLICT (key) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+            (LICENSING_TITLE,),
+        ).fetchone()[0]
+    )
+    db.execute(
+        "INSERT INTO cmap.entity_function (entity_id, function_id, weight, origin) "
+        "SELECT id, %s, 1.0, 'auto' FROM cmap.entity "
+        "ON CONFLICT (entity_id, function_id) DO UPDATE SET weight = EXCLUDED.weight",
+        (function_id,),
+    )
+    db.commit()
     monkeypatch.setattr(resolve_mod, "_post_chat", MapReports())
     run_communities()
     jessica = db.execute(

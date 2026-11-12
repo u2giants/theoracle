@@ -274,7 +274,10 @@ def _titles(conn: psycopg.Connection, source_ids: list[str]) -> dict[str, str]:
 
 
 def _context(
-    candidate: dict[str, Any], quotes: list[dict[str, str]], titles: dict[str, str]
+    candidate: dict[str, Any],
+    quotes: list[dict[str, str]],
+    titles: dict[str, str],
+    frontier: _Frontier,
 ) -> str:
     finding = candidate["finding"]
     lines = [
@@ -289,7 +292,7 @@ def _context(
         lines.append(f'- [{item["source_id"]}] "{item["quote"]}"')
     lines.append(f"AREA REPORT ({candidate['title']}):")
     lines.append(candidate["report_md"])
-    return _fit(lines)
+    return _fit(lines, frontier)
 
 
 def _store(conn: psycopg.Connection, community_id: str, rec: dict[str, Any]) -> str:
@@ -354,11 +357,13 @@ def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
             quotes = _quotes(conn, candidate)
             evidence = [str(candidate["finding"].get("text") or "")]
             evidence.extend(item["quote"] for item in quotes)
-            prompt = (
-                template.replace("{{context}}", _context(candidate, quotes, titles))
-                .replace("{{existing_problems}}", _existing_block(existing_problems))
-            )
             try:
+                prompt = (
+                    template.replace(
+                        "{{context}}", _context(candidate, quotes, titles, frontier)
+                    )
+                    .replace("{{existing_problems}}", _existing_block(existing_problems))
+                )
                 result = frontier.ask(prompt)
             except FrontierCapReached:
                 stats["capped"] = True

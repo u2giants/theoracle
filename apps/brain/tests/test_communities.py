@@ -9,6 +9,7 @@ real model.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -25,19 +26,34 @@ from brain.graph.project import run_project
 from brain.resolve import resolve as resolve_mod
 from brain.resolve.resolve import run_resolve
 
+DEFAULT_SUMMARY = "The approval moves from Design to Licensing and stalls at sign-off."
+
 
 class FakeReport:
-    """Replay one canned community report for every frontier call."""
+    """Replay one canned community report for every frontier call.
+
+    Also answers the map-reduce summarisation prompts (``context_summary.md``)
+    and the knowledge-check vetting prompts; pass ``summarise`` to control how
+    batches are compressed and ``numbered`` to give every report a distinct
+    title (Area 1, Area 2, …).
+    """
 
     def __init__(
         self,
         title: str = "Licensing approval hand-off",
         findings: list[dict[str, Any]] | None = None,
         open_questions: list[str] | None = None,
+        summary: str = DEFAULT_SUMMARY,
+        numbered: bool = False,
+        summarise: Callable[[str], str] | None = None,
     ) -> None:
         self.title = title
         self.findings = findings if findings is not None else []
         self.open_questions = open_questions if open_questions is not None else []
+        self.summary = summary
+        self.numbered = numbered
+        self.summarise = summarise
+        self.report_calls = 0
         self.prompts: list[str] = []
         self.answered: list[str] = []
         self.importance: dict[str, int] = {}
@@ -48,12 +64,26 @@ class FakeReport:
         body = prompt.split("CANDIDATES:\n<<<", 1)[1].rsplit(">>>", 1)[0]
         return [block.split("\n", 1)[0] for block in body.strip().split("\n\n")]
 
+    @staticmethod
+    def _default_summarise(prompt: str) -> str:
+        body = prompt.split("<<<", 1)[-1].rsplit(">>>", 1)[0]
+        titles = [line for line in body.splitlines() if line.startswith("## ")]
+        return " ".join(titles) + " | " + " ".join(body.split())[:200]
+
     def __call__(
         self, messages: list[dict[str, Any]], settings: Any, max_tokens: int = 4000
     ) -> dict[str, Any]:
         del settings
         prompt = str(messages[-1]["content"])
         self.prompts.append(prompt)
+        if prompt.startswith("You are compressing"):
+            summariser = self.summarise or self._default_summarise
+            return {
+                "choices": [
+                    {"message": {"content": json.dumps({"summary": summariser(prompt)})}}
+                ],
+                "usage": {"total_tokens": 5},
+            }
         if prompt.startswith("QUESTION VETTING"):
             results = [
                 {
@@ -71,11 +101,10 @@ class FakeReport:
                 "choices": [{"message": {"content": json.dumps({"results": results})}}],
                 "usage": {"total_tokens": 5},
             }
+        self.report_calls += 1
         answer = {
-            "title": self.title,
-            "summary": (
-                "The approval moves from Design to Licensing and stalls at sign-off."
-            ),
+            "title": f"Area {self.report_calls}" if self.numbered else self.title,
+            "summary": self.summary,
             "findings": self.findings,
             "open_questions": self.open_questions,
         }
@@ -497,3 +526,305 @@ def test_prune_can_be_switched_off(monkeypatch: pytest.MonkeyPatch, db: Any) -> 
     finally:
         monkeypatch.undo()
         get_settings.cache_clear()
+
+
+# --- Repair C3: clusters inside functions, stable identities ---------------
+
+
+def _seed_function(db: Any, key: str, name: str) -> str:
+    """One curated business function; return its id."""
+    row = db.execute(
+        "INSERT INTO cmap.function (key, name) VALUES (%s, %s) RETURNING id",
+        (key, name),
+    ).fetchone()
+    db.commit()
+    return str(row[0])
+
+
+def _assign_function(
+    db: Any, entity_id: str, function_id: str, weight: float = 1.0
+) -> None:
+    """Assign one entity to one function (C2's entity_function table)."""
+    db.execute(
+        "INSERT INTO cmap.entity_function (entity_id, function_id, weight) "
+        "VALUES (%s, %s, %s) "
+        "ON CONFLICT (entity_id, function_id) DO UPDATE SET weight = EXCLUDED.weight",
+        (entity_id, function_id, weight),
+    )
+    db.commit()
+
+
+def _entity_id(db: Any, name: str) -> str:
+    row = db.execute(
+        "SELECT id FROM cmap.entity WHERE canonical_name = %s", (name,)
+    ).fetchone()
+    return str(row[0])
+
+
+def _mention_id(db: Any, entity_id: str) -> str:
+    row = db.execute(
+        "SELECT id FROM cmap.mention WHERE entity_id = %s ORDER BY id LIMIT 1",
+        (entity_id,),
+    ).fetchone()
+    return str(row[0])
+
+
+def _first_source(db: Any) -> str:
+    return str(db.execute("SELECT id FROM cmap.source LIMIT 1").fetchone()[0])
+
+
+def test_function_report_id_stable_across_rebuilds(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Repair C3: a function report's id IS the function id, for ever.
+
+    A content change regenerates the same row in place, and the title stays
+    the function name even when the model offers another one.
+    """
+    entities = _seed_approval_map(db)
+    function_id = _seed_function(db, "licensing", "Licensing")
+    for entity_id in entities.values():
+        _assign_function(db, entity_id, function_id)
+    run_project()
+    fake = _fake(monkeypatch)
+    run_communities()
+    row = db.execute(
+        "SELECT id, title, incomplete, content_hash FROM cmap.community WHERE level = 1"
+    ).fetchone()
+    assert row is not None
+    assert str(row[0]) == function_id
+    assert row[1] == "Licensing"
+    assert row[2] is False
+    first_hash = row[3]
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["jessica"]),
+        _mention_id(db, entities["issue"]),
+        "HANDS_OFF_TO",
+        "a new hand-off link",
+    )
+    run_project()
+    fake.title = "A different area title"
+    run_communities()
+    rows = db.execute(
+        "SELECT id, title, content_hash FROM cmap.community WHERE level = 1"
+    ).fetchall()
+    assert len(rows) == 1
+    assert str(rows[0][0]) == function_id
+    assert rows[0][1] == "Licensing"
+    assert rows[0][2] != first_hash
+    # A rebuild with no content change reuses every report as it is.
+    run_project()
+    prompts_before = len(fake.prompts)
+    third = run_communities()
+    assert third["reports_reused"] == third["reports"]
+    assert len(fake.prompts) == prompts_before
+
+
+def test_cluster_id_reused_on_small_change(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Repair C3: a small membership change keeps the cluster's id and title."""
+    entities = _seed_approval_map(db)
+    run_project()
+    fake = _fake(monkeypatch)
+    run_communities()
+    before = db.execute(
+        "SELECT id, title FROM cmap.community WHERE level = 0"
+    ).fetchone()
+    cluster_id, title = str(before[0]), before[1]
+    # One more entity linked into the same area: Jaccard 3/4 keeps the identity.
+    extra = _entity(db, "Step", "second checkpoint", mentions=1, sources=1)
+    extra_mention = _mention(db, _first_source(db), "Step", "second checkpoint", extra)
+    for key in ("jessica", "step", "issue"):
+        _relation(
+            db,
+            _first_source(db),
+            extra_mention,
+            _mention_id(db, entities[key]),
+            "PRECEDES",
+            "linked into the same area",
+        )
+    run_project()
+    fake.title = "A different title entirely"
+    run_communities()
+    after = db.execute(
+        "SELECT c.id, c.title FROM cmap.community c "
+        "JOIN cmap.entity e ON e.id = ANY(c.entity_ids) "
+        "WHERE c.level = 0 AND e.canonical_name = 'second checkpoint'"
+    ).fetchone()
+    assert str(after[0]) == cluster_id
+    assert after[1] == title
+    assert (
+        db.execute("SELECT count(*) FROM cmap.community WHERE level = 0").fetchone()[0]
+        == 1
+    )
+
+
+def test_new_relation_regenerates_report(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Repair C3: the content hash covers relations, not just the entity set."""
+    entities = _seed_approval_map(db)
+    run_project()
+    _fake(monkeypatch)
+    first = run_communities()
+    before = db.execute(
+        "SELECT id, content_hash FROM cmap.community WHERE level = 0"
+    ).fetchone()
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["jessica"]),
+        _mention_id(db, entities["issue"]),
+        "HANDS_OFF_TO",
+        "a new hand-off link",
+    )
+    run_project()
+    fake = _fake(monkeypatch)
+    second = run_communities()
+    after = db.execute(
+        "SELECT id, content_hash FROM cmap.community WHERE level = 0"
+    ).fetchone()
+    assert str(after[0]) == str(before[0])
+    assert after[1] != before[1]
+    assert second["reports_reused"] == 0
+    assert second["reports"] == first["reports"]
+    assert len(fake.prompts) == second["reports"]
+
+
+def test_failed_child_does_not_poison_parent(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Repair C3: a failed child marks its parents incomplete; they regenerate."""
+    names = [
+        "Jessica Smith (Licensing Manager)",
+        "approval step",
+        "the approval step is the bottleneck",
+    ]
+    _seed_approval_map(db)
+    _seed_second_cluster(db)
+    function_id = _seed_function(db, "ops", "Operations")
+    for name in (*names, "Acme Factory", "Big Box", "Line 7"):
+        _assign_function(db, _entity_id(db, name), function_id)
+    run_project()
+
+    real = FakeReport()
+
+    def _flaky(
+        messages: list[dict[str, Any]], settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
+        prompt = str(messages[-1]["content"])
+        if "Acme Factory" in prompt and "one area of how a company operates" in prompt:
+            raise RuntimeError("model down for the vendor area")
+        return real(messages, settings, max_tokens)
+
+    monkeypatch.setattr(resolve_mod, "_post_chat", _flaky)
+    first = run_communities()
+    assert first["reports_failed"] == 1
+    l1 = db.execute(
+        "SELECT id, title, incomplete FROM cmap.community WHERE level = 1"
+    ).fetchone()
+    assert str(l1[0]) == function_id
+    assert l1[2] is True
+    assert db.execute(
+        "SELECT incomplete FROM cmap.community WHERE level = 2"
+    ).fetchone()[0] is True
+
+    # Same graph: the failed child is retried and both parents regenerate —
+    # they are never cached without it.
+    fake = _fake(monkeypatch)
+    second = run_communities()
+    assert second["reports_failed"] == 0
+    assert second["reports_reused"] == 1
+    assert len(fake.prompts) == 3
+    l1b = db.execute(
+        "SELECT id, incomplete FROM cmap.community WHERE level = 1"
+    ).fetchone()
+    assert str(l1b[0]) == function_id
+    assert l1b[1] is False
+    assert db.execute(
+        "SELECT incomplete FROM cmap.community WHERE level = 2"
+    ).fetchone()[0] is False
+
+
+def test_company_input_never_truncated(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Repair C3: over-budget company input is map-reduced, never truncated."""
+    from brain.graph import communities as comm
+
+    monkeypatch.setattr(comm, "MAX_CONTEXT_TOKENS", 200)
+    _seed_approval_map(db)
+    _seed_second_cluster(db)
+    run_project()
+    fake = _fake(
+        monkeypatch,
+        summary=("detail-line " * 60) + "UNIQUEMARK",
+        numbered=True,
+        summarise=lambda prompt: " ".join(
+            line for line in prompt.splitlines() if line.startswith("## ")
+        )
+        or "batch-digest",
+    )
+    run_communities()
+    summarise_prompts = [
+        prompt for prompt in fake.prompts if prompt.startswith("You are compressing")
+    ]
+    assert summarise_prompts
+    assert any("UNIQUEMARK" in prompt for prompt in summarise_prompts)
+    assert all("context truncated" not in prompt for prompt in fake.prompts)
+    company_prompt = fake.prompts[-1]
+    assert "Area 1" in company_prompt
+    assert "Area 2" in company_prompt
+
+
+def test_recommendation_and_flag_references_survive_regeneration(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Repair C3 key-change gotcha: reports regenerate in place.
+
+    ``cmap.recommendation`` and ``cmap.review_flag`` keep pointing at the same
+    live rows across rebuilds and content changes — nothing is orphaned or
+    re-pointed because the stable id never moves.
+    """
+    entities = _seed_approval_map(db)
+    function_id = _seed_function(db, "licensing", "Licensing")
+    for entity_id in entities.values():
+        _assign_function(db, entity_id, function_id)
+    run_project()
+    _fake(monkeypatch)
+    run_communities()
+    l0_id = _community_of(db, "Jessica Smith (Licensing Manager)")
+    db.execute(
+        "INSERT INTO cmap.recommendation (community_id, problem, explanations, "
+        "options, experiment) VALUES (%s, 'the sign-off stalls', '[]', '[]', '{}')",
+        (l0_id,),
+    )
+    db.execute(
+        "INSERT INTO cmap.review_flag (item_type, item_id) VALUES ('community', %s)",
+        (function_id,),
+    )
+    db.commit()
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["jessica"]),
+        _mention_id(db, entities["step"]),
+        "HANDS_OFF_TO",
+        "a new hand-off link",
+    )
+    run_project()
+    _fake(monkeypatch)
+    run_communities()
+    assert db.execute(
+        "SELECT 1 FROM cmap.community WHERE id = %s", (l0_id,)
+    ).fetchone()
+    assert db.execute(
+        "SELECT 1 FROM cmap.community WHERE id = %s", (function_id,)
+    ).fetchone()
+    rec = db.execute("SELECT community_id FROM cmap.recommendation").fetchone()
+    assert str(rec[0]) == l0_id
+    flag = db.execute("SELECT item_id FROM cmap.review_flag").fetchone()
+    assert flag[0] == function_id
