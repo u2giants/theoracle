@@ -284,12 +284,108 @@ def test_contributor_found_from_question_text_when_ids_are_dangling(
 def test_vetted_question_without_a_pick_falls_back_to_the_contributor(
     db: Any, enabled: None, sent: list[tuple[str, str]]
 ) -> None:
-    """Vetting found nobody: only the evidence owner is asked, never a bystander."""
+    """Vetting named a department but nobody: its evidence owner is asked.
+
+    Never the bystander with the highest edge weight. A BLANK department is a
+    different rule — PR #514's "empty department means nobody" — and is gated
+    by test_blank_department_with_no_suggested_person_returns_none (the old
+    blank-department fixture here was the scatter this pool fix removes).
+    """
     bystander = _person(db, "Test Admin")
     topic = _thing(db, "Licensing approval")
     _relate(db, bystander, topic, sources=5)
     _evidence(db, EMPLOYEE_ID, EMPLOYEE_NAME, {topic: "Licensing approval"})
-    _question(db, "Who signs licensing approvals?", [bystander, topic], department="")
+    _question(db, "Who signs licensing approvals?", [bystander, topic], department="Design")
+
+    result = run_interview_tick()
+    assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
+    assert result["asked"] == 1
+
+
+def test_department_question_defers_when_the_only_member_is_at_weekly_cap(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """The department's one member already got their weekly question: the
+    question waits for a later tick — never the evidence-owning bystander."""
+    bystander = _person(db, "Test Admin")
+    topic = _thing(db, "Licensing approval")
+    _evidence(db, ADMIN_ID, "Test Admin", {topic: "Licensing approval"})
+    db.execute(
+        "INSERT INTO cmap.employee_flags (employee_id, department) VALUES (%s, 'Licensing') "
+        "ON CONFLICT (employee_id) DO UPDATE SET department = 'Licensing'",
+        (EMPLOYEE_ID,),
+    )
+    for _ in range(2):
+        db.execute("INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,))
+    db.commit()
+    _question(db, "Who signs licensing approvals?", [bystander, topic], department="Licensing")
+
+    result = run_interview_tick()
+    assert sent == []
+    assert result["unrouted"] == 1
+
+
+def test_famous_bystander_is_never_chosen_when_the_department_pool_is_exhausted(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """A famous named bystander (highest edge weight) is never picked for a
+    department question — when the department's people are busy, it waits."""
+    bystander = _person(db, "Test Admin")
+    topic = _thing(db, "Licensing approval")
+    _relate(db, bystander, topic, sources=5)
+    db.execute(
+        "INSERT INTO cmap.employee_flags (employee_id, department) VALUES (%s, 'Licensing') "
+        "ON CONFLICT (employee_id) DO UPDATE SET department = 'Licensing'",
+        (EMPLOYEE_ID,),
+    )
+    for _ in range(2):
+        db.execute("INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,))
+    db.commit()
+    _question(db, "Who signs licensing approvals?", [bystander, topic], department="Licensing")
+
+    result = run_interview_tick()
+    assert sent == []
+    assert result["unrouted"] == 1
+
+
+def test_blank_department_with_no_suggested_person_returns_none(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """PR #514's rule: an empty department means nobody — the question waits
+    for manual routing; the evidence fallback must not scatter it."""
+    owner = _person(db, EMPLOYEE_NAME)
+    topic = _thing(db, "Licensing approval")
+    _evidence(db, EMPLOYEE_ID, EMPLOYEE_NAME, {topic: "Licensing approval"})
+    _question(db, "Who signs licensing approvals?", [owner, topic], department="")
+
+    result = run_interview_tick()
+    assert sent == []
+    assert result["unrouted"] == 1
+
+
+def test_department_member_with_own_evidence_beats_the_less_involved_member(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """Within the department pool, own evidence about the question's entities
+    wins over a less-involved member — evidence owners first."""
+    other_id = str(uuid4())
+    db.execute(
+        "INSERT INTO public.employees (id, email, name) "
+        "VALUES (%s, %s, 'Less Involved')",
+        (other_id, f"{uuid4().hex[:12]}@test.invalid"),
+    )
+    for employee_id in (EMPLOYEE_ID, other_id):
+        db.execute(
+            "INSERT INTO cmap.employee_flags (employee_id, department) VALUES (%s, 'Licensing') "
+            "ON CONFLICT (employee_id) DO UPDATE SET department = 'Licensing'",
+            (employee_id,),
+        )
+    db.execute("INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,))
+    db.commit()
+    owner = _person(db, EMPLOYEE_NAME)
+    topic = _thing(db, "Licensing approval")
+    _evidence(db, EMPLOYEE_ID, EMPLOYEE_NAME, {topic: "Licensing approval"})
+    _question(db, "Who signs licensing approvals?", [owner, topic], department="Licensing")
 
     result = run_interview_tick()
     assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
