@@ -26,6 +26,7 @@ from conftest import (
 )
 from test_answer import (
     FLOWCHART_FIXTURE,
+    FakeSupport,
     _point_embeddings,
     fake_compress,
     fake_embeds,
@@ -160,6 +161,7 @@ def _replay(monkeypatch: pytest.MonkeyPatch) -> tuple[EvalAnswers, KeywordGrader
     answers = EvalAnswers()
     grader = KeywordGrader()
     monkeypatch.setattr(answer_mod, "_post_chat", answers)
+    monkeypatch.setattr(answer_mod, "_post_flat", FakeSupport())
     monkeypatch.setattr(eval_mod, "_post_chat", grader)
     fake_compress(monkeypatch)
     return answers, grader
@@ -207,6 +209,8 @@ def test_eval_fixture_mean_at_least_08(
         "answer_map.md",
         "grade.md",
         "decline_check.md",
+        "support_check.md",
+        "support_rewrite.md",
     }
     assert stored[0][3] == run["graph_version"]
     models = stored[0][4]

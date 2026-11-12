@@ -19,6 +19,17 @@ Citations are validated: a local quote must be a substring of its chunk or the
 citation is dropped, and a sentence left without any citation is marked
 ``(uncited)`` rather than deleted. History is the request's last turns only —
 there is no server-side session store.
+
+H1 — every sentence supported or marked. After drafting, each sentence's
+cited quotes are checked on the flat seat (``prompts/support_check.md``) for
+support: ``supported`` / ``partly`` / ``not``. A sentence that is not fully
+supported is rewritten once with that evidence (``prompts/support_rewrite.md``;
+the rewrite is adopted only when a re-check finds it supported) and otherwise
+shown with ``(unsupported — my inference)``; a sentence whose check did not run
+is shown with ``(verifying)``. The supported share is returned with the answer
+as ``supported_share`` and scored by B2 (``supported_share_of``). Company-wide
+citations may name only sources present in the prompt and show the supporting
+evidence text from that prompt, never the nearest chunk.
 """
 
 from __future__ import annotations
@@ -26,12 +37,13 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 import httpx
-import psycopg
 
 from brain.config import Settings, get_settings
 from brain.corrections import (
@@ -58,6 +70,8 @@ PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 LOCAL_PROMPT_PATH = PROMPTS_DIR / "answer_local.md"
 GLOBAL_PROMPT_PATH = PROMPTS_DIR / "answer_global.md"
 MAP_PROMPT_PATH = PROMPTS_DIR / "answer_map.md"
+SUPPORT_CHECK_PROMPT_PATH = PROMPTS_DIR / "support_check.md"
+SUPPORT_REWRITE_PROMPT_PATH = PROMPTS_DIR / "support_rewrite.md"
 
 TOP_ENTITIES = 8
 GRAPH_NODE_CAP = 60
@@ -71,6 +85,29 @@ HISTORY_TURNS = 6
 ROUTE_MIN_SCORE = 0.6
 MAX_TOKENS = 8000
 ASK_ATTEMPTS = 3
+
+# H1 sentence support checks (plan Phase H): one flat-seat call per sentence,
+# run in parallel. Above SUPPORT_PARALLEL_MAX checked sentences the staged
+# path checks sentences carrying numbers, names or negations first and marks
+# the rest ``(verifying)`` when the p95 budget (plan §13) is spent.
+SUPPORT_ATTEMPTS = 3
+SUPPORT_MAX_TOKENS = 400
+SUPPORT_PARALLEL = 8
+SUPPORT_PARALLEL_MAX = 24
+SUPPORT_BUDGET_S = 12.0
+SUPPORT_VERDICTS = ("supported", "partly", "not")
+UNCITED_TAG = "(uncited)"
+UNSUPPORTED_TAG = "(unsupported — my inference)"
+VERIFYING_TAG = "(verifying)"
+SUPPORT_TAGS = (UNSUPPORTED_TAG, UNCITED_TAG, VERIFYING_TAG)
+_NEGATION = re.compile(
+    r"\b(no|not|never|without|nobody|nothing|none|neither|nor|cannot|"
+    r"can't|don't|doesn't|isn't|aren't|wasn't|weren't|won't|shouldn't|"
+    r"wouldn't|couldn't)\b",
+    re.IGNORECASE,
+)
+_CJK_NEGATION = re.compile(r"[未不无没非勿]")
+_NAME = re.compile(r"\b[A-Z][a-z]{2,}\b")
 
 ROUTE_LABELS: list[dict[str, str]] = [
     {
@@ -90,6 +127,18 @@ ROUTE_LABELS: list[dict[str, str]] = [
 ]
 
 _MARKER = re.compile(r"\[(\d+)\]")
+# A trailing [n] or support-mark run belongs to the sentence before it:
+# _renumber writes "text. [1]" and the marks land the same way.
+_RUN_PIECE = (
+    r"(?:\[\d+\]|"
+    + re.escape(UNSUPPORTED_TAG)
+    + "|"
+    + re.escape(UNCITED_TAG)
+    + "|"
+    + re.escape(VERIFYING_TAG)
+    + r")"
+)
+_LEADING_MARKER_RUN = re.compile(rf"^(?:\s*{_RUN_PIECE})+")
 
 # D2 history-reach seam: a question explicitly about the past may surface
 # superseded facts (labelled as history); anything else is current-only.
@@ -262,6 +311,303 @@ def _ask_once(prompt: str, settings: Settings, usage: dict[str, int]) -> dict[st
     return parse_model_json(content, ("citations", "unknowns", "points"))
 
 
+# ------------------------------------------------------- flat support checks
+
+
+def _post_flat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, Any]:
+    """POST one flat-seat JSON request (H1's sentence checks and rewrites)."""
+    model = stage_model(settings, "flat")
+    if model is None:
+        raise AnswerError("BRAIN_FLAT_MODEL or BRAIN_FRONTIER_MODEL is not set")
+    return post_chat_with_rescue(
+        {
+            "model": model,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": SUPPORT_MAX_TOKENS,
+            "response_format": {"type": "json_object"},
+        },
+        settings=settings,
+        timeout=60.0,
+        error_cls=AnswerError,
+        label="flat support",
+    )
+
+
+def _flat_json_field(content: str, field: str) -> str | None:
+    """One string field out of a flat-seat JSON reply, salvaging like step 9."""
+    text = content.strip()
+    fenced = re.fullmatch(r"```[a-zA-Z]*\n(.*?)\n?```", text, re.DOTALL)
+    if fenced:
+        text = fenced.group(1).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if 0 <= start < end:
+        body = re.sub(r",(\s*[}\]])", r"\1", text[start : end + 1])
+        try:
+            value = json.loads(body, strict=False)
+        except json.JSONDecodeError:
+            value = None
+        if isinstance(value, dict) and isinstance(value.get(field), str):
+            return str(value[field])
+    match = re.search(rf'"{field}"\s*:\s*"([^"]*)"', text)
+    if match is not None:
+        return match.group(1)
+    return None
+
+
+def _flat_ask(
+    prompt: str, settings: Settings, field: str
+) -> tuple[str | None, int]:
+    """One flat-seat JSON reply after retries; ``(value, tokens)``, value None on failure."""
+    total = 0
+    for _attempt in range(SUPPORT_ATTEMPTS):
+        try:
+            body = _post_flat([{"role": "user", "content": prompt}], settings)
+        except (AnswerError, httpx.HTTPError) as exc:
+            logger.warning("flat support call failed: %s", exc)
+            continue
+        tokens = (body.get("usage") or {}).get("total_tokens")
+        if isinstance(tokens, int):
+            total += tokens
+        try:
+            content = body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            continue
+        if isinstance(content, list):
+            content = "".join(
+                str(part.get("text", "")) for part in content if isinstance(part, dict)
+            )
+        if not isinstance(content, str):
+            continue
+        value = _flat_json_field(content, field)
+        if value is not None:
+            return value, total
+    return None, total
+
+
+def _render_support(template: str, sentence: str, quotes: list[str]) -> str:
+    """Fill a support prompt's sentence and evidence slots."""
+    return (
+        template.replace("{{sentence}}", sentence).replace(
+            "{{evidence}}", "\n\n".join(quote for quote in quotes if quote)
+        )
+    )
+
+
+def _support_verdict(
+    sentence: str, quotes: list[str], settings: Settings
+) -> tuple[str | None, int]:
+    """``supported`` / ``partly`` / ``not`` for one sentence; None when unverifiable."""
+    prompt = _render_support(
+        SUPPORT_CHECK_PROMPT_PATH.read_text(encoding="utf-8"), sentence, quotes
+    )
+    raw, tokens = _flat_ask(prompt, settings, "support")
+    verdict = (raw or "").strip().casefold()
+    if verdict in SUPPORT_VERDICTS:
+        return verdict, tokens
+    return None, tokens
+
+
+def _rewrite_sentence(
+    sentence: str, quotes: list[str], settings: Settings
+) -> tuple[str | None, int]:
+    """One rewrite attempt of a sentence against its evidence; None on failure."""
+    prompt = _render_support(
+        SUPPORT_REWRITE_PROMPT_PATH.read_text(encoding="utf-8"), sentence, quotes
+    )
+    return _flat_ask(prompt, settings, "sentence")
+
+
+def _has_words(text: str) -> bool:
+    """True when the text holds letters or CJK — a real sentence, not a marker run."""
+    return any(ch.isalpha() for ch in text)
+
+
+def _needs_priority(sentence: str) -> bool:
+    """Numbers, names or negations: the sentences checked first on the staged path."""
+    bare = _MARKER.sub("", sentence)
+    if re.search(r"\d", bare):
+        return True
+    if _NEGATION.search(bare) or _CJK_NEGATION.search(bare):
+        return True
+    words = _NAME.findall(bare)
+    return any(words[1:])
+
+
+def supported_share_of(answer_md: str, citations: list[dict[str, Any]]) -> float:
+    """Share of sentences H1 found supported — the number returned and scored.
+
+    A sentence counts as supported when it carries a kept ``[n]`` marker and
+    none of H1's marks (``(unsupported — my inference)`` after the rewrite
+    attempt, ``(uncited)`` when it has no citation, ``(verifying)`` when the
+    check did not run). Fragment runs without letters (list numbering) are
+    not sentences and stay out of the count. This is what B2's
+    ``supported_sentence_share`` seam reads.
+    """
+    sentences = [s for s, _sep in _support_slices(answer_md) if _has_words(s)]
+    if not sentences:
+        return 0.0
+    kept = len(citations)
+    supported = 0
+    for sentence in sentences:
+        if any(tag in sentence for tag in SUPPORT_TAGS):
+            continue
+        if any(
+            1 <= int(value) <= kept for value in _MARKER.findall(sentence)
+        ):
+            supported += 1
+    return round(supported / len(sentences), 4)
+
+
+def _check_wave(
+    items: list[tuple[int, str, list[str]]], settings: Settings
+) -> tuple[dict[int, str | None], int]:
+    """Run the support checks of one wave in parallel on the flat seat."""
+    verdicts: dict[int, str | None] = {}
+    tokens = 0
+    if not items:
+        return verdicts, tokens
+    workers = min(SUPPORT_PARALLEL, len(items))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_support_verdict, sentence, quotes, settings): index
+            for index, sentence, quotes in items
+        }
+        for future in as_completed(futures):
+            verdict, used = future.result()
+            verdicts[futures[future]] = verdict
+            tokens += used
+    return verdicts, tokens
+
+
+def _run_checks(
+    items: list[tuple[int, str, list[str]]], settings: Settings
+) -> tuple[dict[int, str | None], int]:
+    """Parallel checks; staged priority-first above the cap (plan §13 latency).
+
+    The simple parallel path ships for up to ``SUPPORT_PARALLEL_MAX`` checked
+    sentences. Above that, sentences carrying numbers, names or negations are
+    checked first and the rest only while the p95 budget holds; anything
+    unchecked is marked ``(verifying)`` (the visible fallback — no background
+    job fills it in later).
+    """
+    if len(items) <= SUPPORT_PARALLEL_MAX:
+        return _check_wave(items, settings)
+    priority = [item for item in items if _needs_priority(item[1])]
+    rest = [item for item in items if not _needs_priority(item[1])]
+    started = time.monotonic()
+    verdicts, tokens = _check_wave(priority, settings)
+    if time.monotonic() - started < SUPPORT_BUDGET_S:
+        more, more_tokens = _check_wave(rest, settings)
+        verdicts.update(more)
+        return verdicts, tokens + more_tokens
+    for index, _sentence, _quotes in rest:
+        verdicts[index] = None
+    return verdicts, tokens
+
+
+def _verify_support(
+    result: dict[str, Any], settings: Settings, usage: dict[str, int]
+) -> dict[str, Any]:
+    """H1: check every cited sentence, rewrite once, mark what stays unsupported.
+
+    Policy: a sentence the cited quotes do not fully support (``partly`` or
+    ``not``) is rewritten once with that evidence; the rewrite is adopted only
+    when a re-check finds it ``supported``, otherwise the original sentence is
+    shown with ``(unsupported — my inference)`` (never deleted — the marks are
+    the contract the docstring promises). Sentences without citations were
+    already marked ``(uncited)`` by ``_renumber``; a sentence whose check did
+    not complete is marked ``(verifying)`` and never counted supported.
+    """
+    answer_md = str(result.get("answer_md") or "")
+    citations = [
+        item for item in (result.get("citations") or []) if isinstance(item, dict)
+    ]
+    slices = _support_slices(answer_md)
+    planned: list[tuple[int, str, list[str]]] = []
+    for index, (sentence, _separator) in enumerate(slices):
+        if not _has_words(sentence):
+            continue
+        found = [int(value) for value in _MARKER.findall(sentence)]
+        quotes = [
+            str(citations[value - 1].get("quote") or "")
+            for value in found
+            if 1 <= value <= len(citations)
+        ]
+        if not quotes:
+            continue
+        planned.append((index, sentence, quotes))
+    verdicts: dict[int, str | None] = {}
+    tokens = 0
+    rewrite_calls = 0
+    if planned:
+        verdicts, tokens = _run_checks(planned, settings)
+    quotes_by_index = {index: quotes for index, _sentence, quotes in planned}
+    sentence_by_index = {index: sentence for index, sentence, _quotes in planned}
+    failed = [
+        index
+        for index, _sentence, _quotes in planned
+        if verdicts.get(index) in ("partly", "not")
+    ]
+    adopted: dict[int, str] = {}
+    rechecks: list[tuple[int, str, list[str]]] = []
+    if failed:
+        rewrites: dict[int, str | None] = {}
+        rewrite_tokens = 0
+        with ThreadPoolExecutor(
+            max_workers=min(SUPPORT_PARALLEL, len(failed))
+        ) as pool:
+            futures = {
+                pool.submit(
+                    _rewrite_sentence,
+                    sentence_by_index[index],
+                    quotes_by_index[index],
+                    settings,
+                ): index
+                for index in failed
+            }
+            for future in as_completed(futures):
+                value, used = future.result()
+                rewrites[futures[future]] = value
+                rewrite_tokens += used
+        tokens += rewrite_tokens
+        rewrite_calls = len(failed)
+        for index in failed:
+            rewritten = rewrites.get(index)
+            original = sentence_by_index[index]
+            if rewritten is None:
+                continue
+            if sorted(_MARKER.findall(rewritten)) != sorted(
+                _MARKER.findall(original)
+            ):
+                continue
+            rechecks.append((index, rewritten, quotes_by_index[index]))
+        if rechecks:
+            recheck_verdicts, recheck_tokens = _check_wave(rechecks, settings)
+            tokens += recheck_tokens
+            for index, rewritten, _quotes in rechecks:
+                if recheck_verdicts.get(index) == "supported":
+                    adopted[index] = rewritten
+    pieces: list[str] = []
+    for index, (sentence, separator) in enumerate(slices):
+        if index in adopted:
+            pieces.append(adopted[index] + separator)
+        elif index in failed and index not in adopted:
+            pieces.append(sentence + " " + UNSUPPORTED_TAG + separator)
+        elif planned and index in sentence_by_index and verdicts.get(index) is None:
+            pieces.append(sentence + " " + VERIFYING_TAG + separator)
+        else:
+            pieces.append(sentence + separator)
+    result["answer_md"] = "".join(pieces)
+    result["supported_share"] = supported_share_of(result["answer_md"], citations)
+    usage["support_calls"] = (
+        usage.get("support_calls", 0) + len(planned) + len(rechecks)
+    )
+    usage["rewrite_calls"] = usage.get("rewrite_calls", 0) + rewrite_calls
+    usage["support_tokens"] = usage.get("support_tokens", 0) + tokens
+    return result
+
+
 # ------------------------------------------------------------------- routing
 
 
@@ -306,17 +652,48 @@ def _sentence_slices(text: str) -> list[tuple[str, str]]:
     return sentence_slices(text)
 
 
+def _support_slices(text: str) -> list[tuple[str, str]]:
+    """Sentence slices with trailing ``[n]`` runs folded onto their sentence.
+
+    ``_renumber`` writes kept markers after the sentence's final stop
+    ("text. [1]"), which a plain split strands as the next fragment's head
+    (and splits the CJK "…。[1]" form outright). This folds each leading
+    marker run back onto the sentence it belongs to so checks, marks and the
+    supported share see "text. [1]" as one unit. Round-trips exactly.
+    """
+    out: list[list[str]] = []
+    for sentence, separator in _sentence_slices(text):
+        match = _LEADING_MARKER_RUN.match(sentence) if out else None
+        if match is None:
+            out.append([sentence, separator])
+            continue
+        run = match.group(0)
+        rest = sentence[match.end() :]
+        previous, previous_separator = out[-1]
+        out[-1] = [previous + previous_separator + run, ""]
+        if rest.strip():
+            out.append([rest, separator])
+        elif rest or separator:
+            out[-1][1] = rest + separator
+    return [(sentence, separator) for sentence, separator in out]
+
+
 def _renumber(answer_md: str, old_to_new: dict[int, int]) -> str:
     """Rewrite [n] markers to the filtered citation numbers.
 
-    A marker whose citation was dropped disappears; a sentence left with no
-    citation at all is marked ``(uncited)`` rather than deleted (plan step 9.6).
+    A marker whose citation was dropped disappears; a sentence left without
+    any citation at all is marked ``(uncited)`` rather than deleted (plan
+    step 9.6, H1). Fragment runs without letters (list numbering) are not
+    sentences and pass through untouched.
     """
     pieces: list[str] = []
-    for sentence, separator in _sentence_slices(answer_md):
+    for sentence, separator in _support_slices(answer_md):
         found = [int(value) for value in _MARKER.findall(sentence)]
         if not found:
-            pieces.append(sentence + separator)
+            if _has_words(sentence):
+                pieces.append(sentence + " " + UNCITED_TAG + separator)
+            else:
+                pieces.append(sentence + separator)
             continue
         kept = [value for value in found if value in old_to_new]
         stripped = re.sub(r"\s*\[\d+\]", "", sentence)
@@ -325,7 +702,7 @@ def _renumber(answer_md: str, old_to_new: dict[int, int]) -> str:
             markers = "".join(f" [{old_to_new[value]}]" for value in kept)
             pieces.append(stripped + markers + separator)
         else:
-            pieces.append(stripped + " (uncited)" + separator)
+            pieces.append(stripped + " " + UNCITED_TAG + separator)
     return "".join(pieces)
 
 
@@ -357,84 +734,81 @@ def _finalize_local(
     return _renumber(answer_md, old_to_new), kept
 
 
-def _paragraphs(answer_md: str) -> list[str]:
-    """Split the markdown answer into paragraphs on blank lines."""
-    return [part.strip() for part in re.split(r"\n\s*\n", answer_md) if part.strip()]
+def _supporting_text(paragraph: str, candidates: list[str]) -> str:
+    """The candidate evidence text that shares the most words with the paragraph."""
+    if len(candidates) == 1:
+        return candidates[0]
+    paragraph_words = set(fold_key(paragraph).split())
+    best = candidates[0]
+    best_score = -1
+    for candidate in candidates:
+        score = len(paragraph_words & set(fold_key(candidate).split()))
+        if score > best_score:
+            best = candidate
+            best_score = score
+    return best
 
 
 def _finalize_global(
     answer_md: str,
     raw_citations: list[dict[str, Any]],
-    settings: Settings,
-    usage: dict[str, int],
+    evidence: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Resolve cited source_ids to titles and the chunk nearest each paragraph."""
-    paragraphs = _paragraphs(answer_md)
-    wanted: list[tuple[int, str, str]] = []
-    for index, cite in enumerate(raw_citations, start=1):
-        source_id = str(cite.get("source_id") or "")
-        try:
-            uuid.UUID(source_id)
-        except ValueError:
-            # Models sometimes cite a word ("REPORTS") instead of a real id;
-            # those citations are dropped like any other invalid one.
-            continue
-        paragraph = answer_md
-        marker = f"[{index}]"
-        for candidate in paragraphs:
-            if marker in candidate:
-                paragraph = candidate
-                break
-        wanted.append((index, source_id, paragraph))
-    vectors: list[list[float]] = []
-    if wanted:
-        vectors = embed_texts([item[2] for item in wanted], settings, usage)
+    """Keep only citations to sources the prompt showed; quote the evidence.
+
+    H1: a company-wide citation may name only a source present in the prompt
+    (the ``source_ids`` of the rendered findings or mapped points) and its
+    quote is that prompt's supporting evidence text — never the nearest
+    chunk of the source, which was never shown to the model.
+    """
+    allowed: set[str] = set()
+    texts_by_source: dict[str, list[str]] = {}
+    for item in evidence:
+        text = str(item.get("text") or "")
+        for raw_id in item.get("source_ids") or []:
+            source_id = str(raw_id)
+            if not source_id:
+                continue
+            allowed.add(source_id)
+            texts_by_source.setdefault(source_id, []).append(text)
     kept: list[dict[str, Any]] = []
     old_to_new: dict[int, int] = {}
     with get_pool().connection() as conn:
-        for position, (index, source_id, _paragraph) in enumerate(wanted):
+        for index, cite in enumerate(raw_citations, start=1):
+            source_id = str(cite.get("source_id") or "")
+            if source_id not in allowed:
+                continue
+            try:
+                uuid.UUID(source_id)
+            except ValueError:
+                # Models sometimes cite a word ("REPORTS") instead of a real id;
+                # those citations are dropped like any other invalid one.
+                continue
             row = conn.execute(
                 "SELECT title FROM cmap.source WHERE id = %s",
                 (source_id,),
             ).fetchone()
             if row is None:
                 continue
-            chunk = _closest_chunk(conn, source_id, vectors[position])
-            if chunk is None:
-                continue
+            marker = f"[{index}]"
+            paragraph = answer_md
+            for sentence, _separator in _sentence_slices(answer_md):
+                if marker in sentence:
+                    paragraph = sentence
+                    break
             kept.append(
                 {
                     "source_id": source_id,
                     "title": str(row[0]),
-                    "chunk_id": chunk["chunk_id"],
-                    "quote": chunk["text"],
-                    "locator": chunk["locator"],
+                    "chunk_id": None,
+                    "quote": _supporting_text(
+                        paragraph, texts_by_source[source_id]
+                    ),
+                    "locator": None,
                 }
             )
             old_to_new[index] = len(kept)
     return _renumber(answer_md, old_to_new), kept
-
-
-def _closest_chunk(
-    conn: psycopg.Connection, source_id: str, vector: list[float]
-) -> dict[str, Any] | None:
-    """The chunk of ``source_id`` whose embedding is nearest ``vector``."""
-    row = conn.execute(
-        "SELECT id::text, text, locator FROM cmap.chunk "
-        "WHERE source_id = %s AND embedding IS NOT NULL "
-        "ORDER BY embedding <=> %s::vector LIMIT 1",
-        (source_id, vector_literal(vector)),
-    ).fetchone()
-    if row is not None:
-        return {"chunk_id": row[0], "text": row[1], "locator": row[2]}
-    row = conn.execute(
-        "SELECT id::text, text, locator FROM cmap.chunk "
-        "WHERE source_id = %s ORDER BY ordinal LIMIT 1",
-        (source_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    return {"chunk_id": row[0], "text": row[1], "locator": row[2]}
 
 
 # -------------------------------------------------------------------- local
@@ -1047,10 +1421,26 @@ def _global_answer(
     """
     reports = _load_reports(is_history_question(question))
     context = _reports_context(reports)
+    evidence: list[dict[str, Any]] = [
+        {
+            "text": str(finding.get("text") or ""),
+            "source_ids": [
+                str(source_id) for source_id in (finding.get("source_ids") or [])
+            ],
+        }
+        for report in reports
+        for finding in report["findings"]
+    ]
     if _tokens(context) > GLOBAL_ONE_SHOT_TOKENS:
-        context = _points_context(
-            _map_points(question, reports, settings, usage)
-        )
+        points = _map_points(question, reports, settings, usage)
+        context = _points_context(points)
+        evidence = [
+            {
+                "text": str(point.get("text") or ""),
+                "source_ids": list(point["source_ids"]),
+            }
+            for point in points
+        ]
     template = GLOBAL_PROMPT_PATH.read_text(encoding="utf-8")
     prompt = (
         template.replace("{{history}}", _render_history(history))
@@ -1065,7 +1455,7 @@ def _global_answer(
     unknowns = [
         str(item) for item in (raw.get("unknowns") or []) if str(item).strip()
     ]
-    final_md, citations = _finalize_global(answer_md, raw_citations, settings, usage)
+    final_md, citations = _finalize_global(answer_md, raw_citations, evidence)
     return {
         "answer_md": final_md,
         "citations": citations,
@@ -1108,6 +1498,8 @@ def answer_question(
 
     ``mode`` is ``auto``, ``local`` or ``global``. The caller owns any
     session state: only ``history``'s last turns are used, never stored.
+    H1 adds ``supported_share`` — the share of sentences the cited quotes
+    support, after every other sentence was rewritten or marked.
     """
     cfg = settings if settings is not None else get_settings()
     counters = usage if usage is not None else {}
@@ -1120,10 +1512,12 @@ def answer_question(
     if mode == "auto":
         mode = _route_mode(text, cfg, counters)
     if mode == "local":
-        return _local_answer(text, turns, cfg, counters)
-    if mode == "global":
-        return _global_answer(text, turns, cfg, counters)
-    return _merge_answers(
-        _local_answer(text, turns, cfg, counters),
-        _global_answer(text, turns, cfg, counters),
-    )
+        result = _local_answer(text, turns, cfg, counters)
+    elif mode == "global":
+        result = _global_answer(text, turns, cfg, counters)
+    else:
+        result = _merge_answers(
+            _local_answer(text, turns, cfg, counters),
+            _global_answer(text, turns, cfg, counters),
+        )
+    return _verify_support(result, cfg, counters)

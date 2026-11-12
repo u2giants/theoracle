@@ -29,13 +29,17 @@ from typing import Any
 
 import httpx
 
-from brain.answer.answer import AnswerError, answer_question, parse_model_json
+from brain.answer.answer import (
+    AnswerError,
+    answer_question,
+    parse_model_json,
+    supported_share_of,
+)
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.eval.gate import run_gate
 from brain.llm import post_chat_with_rescue
 from brain.seats import seat_report, stage_model
-from brain.text_util import split_sentences
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,8 @@ HASHED_PROMPTS = (
     "answer_map.md",
     "grade.md",
     "decline_check.md",
+    "support_check.md",
+    "support_rewrite.md",
 )
 SEED_PATH = Path(__file__).resolve().parents[2] / "eval" / "questions.seed.json"
 B1_SEED_PATH = Path(__file__).resolve().parents[2] / "eval" / "questions.b1.json"
@@ -58,7 +64,6 @@ SOURCES_WEIGHT = 0.2
 SUPPORT_WEIGHT = 0.2
 GRADE_ATTEMPTS = 3
 MAX_TOKENS = 800
-CITE_MARKER = re.compile(r"\[(\d+)\]")
 
 
 class EvalError(RuntimeError):
@@ -150,27 +155,17 @@ def sources_share(expected_titles: list[str], cited_hits: list[str]) -> float:
 def supported_sentence_share(
     answer_md: str, citations: list[dict[str, Any]]
 ) -> float:
-    """Share of answer sentences backed by a kept citation (H1's seam).
+    """Share of answer sentences H1 reports as supported (H1's seam).
 
-    Until H1's per-sentence support check lands, "supported" is the existing
-    citation validity: the sentence carries a ``[n]`` marker whose citation
-    survived quote validation (sentences marked ``(uncited)`` or left without
-    any marker are not). H1 swaps its own check in here; the scoring formula
-    does not change.
+    H1's per-sentence check marks every sentence it cannot vouch for —
+    ``(unsupported — my inference)`` after its rewrite attempt, ``(uncited)``
+    when the sentence carries no citation, ``(verifying)`` when the check has
+    not run — and returns the same share with the answer. This reads those
+    marks through ``supported_share_of``: a sentence counts as supported when
+    it carries a kept ``[n]`` marker and none of those marks. The scoring
+    formula does not change.
     """
-    sentences = split_sentences(answer_md)
-    if not sentences:
-        return 0.0
-    kept = len(citations)
-    supported = 0
-    for sentence in sentences:
-        if "(uncited)" in sentence:
-            continue
-        if any(
-            1 <= int(value) <= kept for value in CITE_MARKER.findall(sentence)
-        ):
-            supported += 1
-    return round(supported / len(sentences), 4)
+    return supported_share_of(answer_md, citations)
 
 
 def _indexes(value: Any, total: int) -> list[int]:

@@ -77,6 +77,7 @@ def test_zh_question_zh_answer(
     _seed_zh(db, ZH_QUOTE, "zh-stall")
     fake = _ZhFake()
     monkeypatch.setattr(answer_mod, "_post_chat", fake)
+    monkeypatch.setattr(answer_mod, "_post_flat", fake.support)
     fake_compress(monkeypatch)
     result = answer_question(ZH_QUESTION, "local", [])
     assert "跨境审批" in result["answer_md"]
@@ -90,6 +91,7 @@ def test_quotes_verbatim_any_language(
     _seed_zh(db, ZH_QUOTE, "zh-quote")
     fake = _ZhFake()
     monkeypatch.setattr(answer_mod, "_post_chat", fake)
+    monkeypatch.setattr(answer_mod, "_post_flat", fake.support)
     fake_compress(monkeypatch)
     result = answer_question(ZH_QUESTION, "local", [])
     assert result["citations"]
@@ -104,6 +106,7 @@ def test_zh_quote_verbatim_roundtrip(
     _seed_zh(db, ZH_QUOTE, "zh-roundtrip")
     fake = _ZhFake()
     monkeypatch.setattr(answer_mod, "_post_chat", fake)
+    monkeypatch.setattr(answer_mod, "_post_flat", fake.support)
     fake_compress(monkeypatch)
     result = answer_question(ZH_QUESTION, "local", [])
     quote = result["citations"][0]["quote"]
@@ -120,6 +123,7 @@ def test_zh_injection_in_data_ignored(
     _seed_zh(db, f"{ZH_QUOTE}{ZH_INJECTION}", "zh-inject")
     fake = _ZhFake()
     monkeypatch.setattr(answer_mod, "_post_chat", fake)
+    monkeypatch.setattr(answer_mod, "_post_flat", fake.support)
     fake_compress(monkeypatch)
     answer_question(ZH_QUESTION, "local", [])
     prompt = fake.prompts[0]

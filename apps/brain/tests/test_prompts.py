@@ -30,3 +30,20 @@ def test_function_assign_prompt_contract() -> None:
     assert '"functions"' in text
     assert "{{functions_json}}" in text
     assert "{{chunk_text}}" in text
+
+
+def test_support_check_prompt_contract() -> None:
+    """The H1 support-check prompt names its JSON contract and template slots."""
+    text = (PROMPTS_DIR / "support_check.md").read_text(encoding="utf-8")
+    assert '"support"' in text
+    assert "{{sentence}}" in text
+    assert "{{evidence}}" in text
+
+
+def test_support_rewrite_prompt_contract() -> None:
+    """The H1 rewrite prompt names its JSON contract and template slots."""
+    text = (PROMPTS_DIR / "support_rewrite.md").read_text(encoding="utf-8")
+    assert '"sentence"' in text
+    assert "REWRITE THIS SENTENCE" in text
+    assert "{{sentence}}" in text
+    assert "{{evidence}}" in text
