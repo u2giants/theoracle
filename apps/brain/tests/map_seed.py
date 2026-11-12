@@ -406,6 +406,123 @@ def seed_recommendations(db: Any) -> dict[str, Any]:
     return {"rec_licensing": REC_LICENSING, "rec_small": REC_SMALL}
 
 
+CONTRADICTION_SUMMARY = "Jordan Lee and Ilona both claim the sample sign-off."
+TIMELINE_SUMMARY = "The sample sign-off owner changed between the January and March memos."
+
+
+def _contradiction_relation(
+    db: Any,
+    source_id: str,
+    from_entity: str,
+    to_entity: str,
+    text: str,
+    ordinal: int,
+) -> str:
+    """One OWNS relation chunk for the D3 seed; returns the relation id."""
+    chunk_id = str(
+        db.execute(
+            "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count) "
+            "VALUES (%s::uuid, %s, %s::jsonb, %s, 20) RETURNING id::text",
+            (source_id, ordinal, json.dumps({"page": ordinal + 1}), text),
+        ).fetchone()[0]
+    )
+    from_m = str(
+        db.execute(
+            "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, "
+            "normalized_name, quote, entity_id) VALUES (%s::uuid, 'Person', 'Jordan', "
+            "'jordan', %s, %s::uuid) RETURNING id::text",
+            (chunk_id, text, from_entity),
+        ).fetchone()[0]
+    )
+    to_m = str(
+        db.execute(
+            "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, "
+            "normalized_name, quote, entity_id) VALUES (%s::uuid, 'Process', 'sign-off', "
+            "'sign off', %s, %s::uuid) RETURNING id::text",
+            (chunk_id, text, to_entity),
+        ).fetchone()[0]
+    )
+    return str(
+        db.execute(
+            "INSERT INTO cmap.relation (chunk_id, from_mention_id, to_mention_id, "
+            "rel_type, description, stance, confidence, quote) "
+            "VALUES (%s::uuid, %s::uuid, %s::uuid, 'OWNS', %s, 'practice', 0.9, %s) "
+            "RETURNING id::text",
+            (chunk_id, from_m, to_m, text, text),
+        ).fetchone()[0]
+    )
+
+
+def _contradiction_source(db: Any, title: str, effective_date: str) -> str:
+    return str(
+        db.execute(
+            "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes, "
+            "effective_date, read_state) VALUES ('text', %s, %s, %s, 10, %s, 'read') "
+            "RETURNING id::text",
+            (title, f"cmap/e2e/{title}", f"sha-e2e-{title}", effective_date),
+        ).fetchone()[0]
+    )
+
+
+def seed_contradictions(db: Any) -> dict[str, Any]:
+    """D3 page seed: one open conflict and one recorded timeline change."""
+    person = str(
+        db.execute(
+            "INSERT INTO cmap.entity (entity_type, canonical_name) "
+            "VALUES ('Person', 'Jordan Lee') RETURNING id::text"
+        ).fetchone()[0]
+    )
+    process = str(
+        db.execute(
+            "INSERT INTO cmap.entity (entity_type, canonical_name) "
+            "VALUES ('Process', 'Sample sign-off') RETURNING id::text"
+        ).fetchone()[0]
+    )
+    memo = _contradiction_source(db, "Ownership memo", "2026-01-10")
+    notes = _contradiction_source(db, "Team standup notes", "2026-01-10")
+    rel_a = _contradiction_relation(
+        db, memo, person, process,
+        "Jordan Lee owns the sample sign-off.", 0,
+    )
+    rel_b = _contradiction_relation(
+        db, notes, person, process,
+        "Ilona owns the sample sign-off, not Jordan.", 1,
+    )
+    db.execute(
+        "INSERT INTO cmap.contradiction (relation_a, relation_b, kind, summary, status) "
+        "VALUES (%s::uuid, %s::uuid, 'true_contradiction', %s, 'open')",
+        (rel_a, rel_b, CONTRADICTION_SUMMARY),
+    )
+    jan = _contradiction_source(db, "January ownership policy", "2026-01-05")
+    mar = _contradiction_source(db, "March ownership policy", "2026-03-05")
+    rel_c = _contradiction_relation(
+        db, jan, person, process,
+        "Jordan Lee owned the sample sign-off in January.", 0,
+    )
+    rel_d = _contradiction_relation(
+        db, mar, person, process,
+        "Ilona owns the sample sign-off from March.", 1,
+    )
+    db.execute(
+        "INSERT INTO cmap.contradiction (relation_a, relation_b, kind, summary, "
+        "status, resolution) VALUES (%s::uuid, %s::uuid, 'changed_over_time', %s, "
+        "'explained', %s)",
+        (
+            rel_c,
+            rel_d,
+            TIMELINE_SUMMARY,
+            "dates differ — timeline change, not a conflict; "
+            "supersedes-over-time signal for D2",
+        ),
+    )
+    db.commit()
+    return {
+        "contradiction_summary": CONTRADICTION_SUMMARY,
+        "contradiction_timeline_summary": TIMELINE_SUMMARY,
+        "contradiction_entity_id": person,
+    }
+
+
 REC_LICENSING = "Licensor sign-off stalls artwork release."
 REC_SMALL = "Sample room bookings clash."
 EVAL_DRAFT = "How long does the internal artwork review take in the procedure?"
@@ -458,6 +575,7 @@ def main() -> None:
             ids.update(seed_eval(db, monkeypatch))
         ids.update(seed_interviews(db, ids["jessica_id"]))
         ids.update(seed_recommendations(db))
+        ids.update(seed_contradictions(db))
         ids.update(seed_translations(db, ids))
     print(json.dumps(ids))
 

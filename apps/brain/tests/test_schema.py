@@ -41,9 +41,7 @@ EXPECTED_TABLES = {
     "source_version",  # added by repair step D2 (sql/028_source_versions.sql)
     "process_flow",  # added by repair step E2 (sql/033_process_flows.sql)
     "flow_step",  # added by repair step E2 (sql/033_process_flows.sql)
-    # D3 seam: provisioned by E2's sql/033 until D3's sql/032 lands (it must
-    # stay idempotent and owns the shape from then on).
-    "contradiction",
+    "contradiction",  # added by repair step D3 (sql/032_contradictions.sql)
 }
 
 

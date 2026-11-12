@@ -12,6 +12,7 @@ step:
 * a finished ``resolve`` newer than the last projection;
 * a finished ``resolve`` newer than the last function assignment (repair C2);
 * a finished ``resolve`` newer than the last process pass (repair E2);
+* a finished ``resolve`` newer than the last contradiction scan (repair D3);
 * a finished projection newer than the last summary build.
 
 A step whose job failed for good in the last few hours is left alone, so a
@@ -131,6 +132,7 @@ def _heal_graph(conn: Any, stats: dict[str, int]) -> None:
         ("project", "resolve"),
         ("function_assign", "resolve"),
         ("process_pass", "resolve"),
+        ("contradictions", "resolve"),
         ("communities", "project"),
     ):
         behind = conn.execute(
@@ -159,6 +161,7 @@ def run_ensure_chain() -> dict[str, int]:
         "project": 0,
         "function_assign": 0,
         "process_pass": 0,
+        "contradictions": 0,
         "communities": 0,
     }
     with get_pool().connection() as conn:

@@ -59,7 +59,7 @@ DROP_REASONS: tuple[str, ...] = (
 # Entity types the pass reads as flow material (plan E2 input contract).
 INVENTORY_TYPES: tuple[str, ...] = ("Process", "Step", "Decision", "Role", "System")
 PROCESS_TYPE = "Process"
-FLOW_KIND_LABEL = "true contradiction"
+FLOW_KIND_LABEL = "true_contradiction"
 
 
 class ProcessPassError(RuntimeError):

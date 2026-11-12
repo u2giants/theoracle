@@ -337,6 +337,12 @@ def test_stalled_chain_is_healed(db: Any) -> None:
         "WHERE kind = 'process_pass'"
     )
     db.commit()
+    assert run_ensure_chain()["contradictions"] == 1
+    db.execute(
+        "UPDATE cmap.job SET state = 'done', started_at = now(), finished_at = now() "
+        "WHERE kind = 'contradictions'"
+    )
+    db.commit()
     assert run_ensure_chain()["communities"] == 1
     db.execute(
         "UPDATE cmap.job SET state = 'done', started_at = now(), finished_at = now() "

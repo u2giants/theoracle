@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from brain.chain import handle_ensure_chain, maybe_queue_ensure_chain
+from brain.contradictions import handle_contradictions
 from brain.db import get_pool
 from brain.directory_sync import handle_directory_sync, maybe_queue_directory_sync
 from brain.eval.run import handle_evaluate
@@ -41,6 +42,7 @@ HANDLERS: dict[str, Handler] = {
     "resolve": handle_resolve,
     "function_assign": handle_function_assign,
     "process_pass": handle_process_pass,
+    "contradictions": handle_contradictions,
     "project": handle_project,
     "communities": handle_communities,
     "recommend": handle_recommend,

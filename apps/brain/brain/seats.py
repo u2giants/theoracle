@@ -30,6 +30,7 @@ STAGES = (
     "answer",
     "recommend",
     "grade",
+    "contradictions",
 )
 
 # Seats change rarely; a short cache keeps one lookup per call off the hot path
@@ -87,6 +88,8 @@ def env_model(settings: Settings, stage: str) -> str | None:
         return settings.brain_eval_model or settings.brain_frontier_model
     if stage == "flat":
         return settings.brain_flat_model or settings.brain_frontier_model
+    if stage == "contradictions":
+        return settings.brain_contradictions_model or settings.brain_frontier_model
     return settings.brain_frontier_model
 
 

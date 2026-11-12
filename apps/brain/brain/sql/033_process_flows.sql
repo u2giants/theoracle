@@ -33,20 +33,6 @@ CREATE TABLE IF NOT EXISTS cmap.flow_step (
   UNIQUE (flow_id, ordinal)
 );
 
--- D3 seam (plan D3 / E2): cmap.contradiction is D3's table
--- (B/sql/032_contradictions.sql, "relation_a, relation_b, kind, summary,
--- status open|explained|resolved, resolution, resolved_by"). D3 had not landed
--- when E2 needed to record cross-source flow disagreements, so E2 provisions
--- the documented shape here; when 032 lands it must stay idempotent
--- (CREATE TABLE IF NOT EXISTS) and owns the shape from then on.
-CREATE TABLE IF NOT EXISTS cmap.contradiction (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  relation_a uuid NOT NULL,
-  relation_b uuid NOT NULL,
-  kind text NOT NULL,
-  summary text NOT NULL,
-  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','explained','resolved')),
-  resolution text,
-  resolved_by text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
+-- Cross-source flow disagreements are recorded as rows in cmap.contradiction,
+-- owned by D3's B/sql/032_contradictions.sql (which has landed and owns the
+-- shape). 033 creates no copy of that table.

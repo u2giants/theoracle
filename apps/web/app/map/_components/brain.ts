@@ -119,6 +119,47 @@ export type ReviewFlag = {
   action: string | null;
 };
 
+export type EntityContradiction = {
+  id: string;
+  kind: string;
+  status: string;
+  summary: string;
+  resolution: string | null;
+  source_a_title: string;
+  source_b_title: string;
+};
+
+export type ContradictionRow = {
+  id: string;
+  kind: string;
+  status: string;
+  summary: string;
+  resolution: string | null;
+  resolved_by: string | null;
+  relation_a: {
+    id: string;
+    quote: string;
+    description: string;
+    rel_type: string;
+    stance: string;
+    source_id: string;
+    source_title: string;
+    effective_date: string | null;
+  };
+  relation_b: {
+    id: string;
+    quote: string;
+    description: string;
+    rel_type: string;
+    stance: string;
+    source_id: string;
+    source_title: string;
+    effective_date: string | null;
+  };
+  entity_ids: string[];
+  entities: { id: string; name: string; type: string }[];
+};
+
 export type EntityDetail = {
   id: string;
   type: string;
@@ -134,6 +175,7 @@ export type EntityDetail = {
     { entity_id: string; name: string; type: string; direction: 'in' | 'out'; quotes: Quote[] }[]
   >;
   functions: FunctionAssignment[];
+  contradictions: EntityContradiction[];
   translations?: Translations;
 };
 

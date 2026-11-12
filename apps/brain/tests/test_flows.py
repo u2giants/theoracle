@@ -371,6 +371,8 @@ def test_fixture_approval_flow_ordered(
 
 def test_ungrounded_step_dropped(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
     """Gate: a step with no citable evidence is dropped and logged — never kept."""
+    monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "test/frontier-model")
+    get_settings.cache_clear()
     seeded = _seed_flow_source(db, "ungrounded", "Artwork approval", ["Review artwork"])
 
     def builder(
@@ -417,6 +419,8 @@ def test_two_sources_merged_with_conflict_recorded(
     monkeypatch: pytest.MonkeyPatch, db: Any
 ) -> None:
     """Gate: two sources' flows for one process merge; order clash → D3 contradiction."""
+    monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "test/frontier-model")
+    get_settings.cache_clear()
     process_name = "Sample review"
     step_names = ["Approve artwork", "Release artwork"]
     first = _seed_flow_source(db, "merge-a", process_name, step_names)
@@ -470,7 +474,7 @@ def test_two_sources_merged_with_conflict_recorded(
     ).fetchall()
     assert conflicts, "the order disagreement is recorded as a D3 contradiction"
     kind, summary, status = conflicts[0]
-    assert str(kind) == "true contradiction"
+    assert str(kind) == "true_contradiction"
     assert str(status) == "open"
     assert "step order" in str(summary)
     assert "Approve artwork" in str(summary) or "Release artwork" in str(summary)
