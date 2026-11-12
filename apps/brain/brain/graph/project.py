@@ -19,7 +19,13 @@ from falkordb import FalkorDB
 from falkordb.graph import Graph
 
 from brain.config import Settings, get_settings
-from brain.corrections import apply_edge_edit, entity_key_sets, load_corrections
+from brain.corrections import (
+    apply_edge_edit,
+    apply_entity_edits,
+    apply_renames,
+    entity_key_sets,
+    load_corrections,
+)
 from brain.db import get_pool
 from brain.versions import recompute_relation_status
 
@@ -293,11 +299,16 @@ def run_project(settings: Settings | None = None) -> dict[str, int]:
 
     D2: ``cmap.relation.status`` is recomputed first — projection is the
     refresh point for the computed column (after resolve has assigned entity
-    ids, and after every supersession decision).
+    ids, and after every supersession decision). G2: renames and entity-level
+    edits are applied first too, so a rebuild always shows the human's names,
+    types and aliases even before the next resolve run.
     """
     cfg = settings if settings is not None else get_settings()
     with get_pool().connection() as conn:
         recompute_relation_status(conn)
+        corrections = load_corrections(conn)
+        apply_renames(conn, corrections)
+        apply_entity_edits(conn, corrections)
         conn.commit()
         nodes = _load_entities(conn)
         edges = _load_edges(conn)

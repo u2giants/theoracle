@@ -48,6 +48,7 @@ import psycopg
 from brain.config import Settings, get_settings
 from brain.corrections import (
     Corrections,
+    apply_entity_edits,
     apply_renames,
     entity_key,
     entity_key_sets,
@@ -876,6 +877,8 @@ def run_resolve(settings: Settings | None = None) -> dict[str, int]:
         # G1: a rename correction wins over the describer's rewrite and over
         # whatever names extraction produced (human corrections always win).
         stats["renamed"] = apply_renames(conn, corrections)
+        # G2: entity-level edits (type change, alias add/remove) win the same way.
+        stats["entity_edited"] = apply_entity_edits(conn, corrections)
         conn.commit()
     stats.update(frontier.usage)
     return stats
