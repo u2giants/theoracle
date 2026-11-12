@@ -22,6 +22,7 @@ stay open and show on the admin page for manual routing.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -184,14 +185,15 @@ def _person_names(conn: psycopg.Connection, entity_id: str, canonical: str) -> s
 
 
 def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]:
-    """Employees the bot may write to now, keyed by normalised name.
+    """Employees the bot may write to now, keyed by employee_id.
 
     Reachable = not paused, and asked fewer than ``cap`` questions sent in the
     last 7 days (skipped ones included, from ``cmap.interview_send``). The
     conversation reference is optional: without one the web layer opens the
     chat at first send (measured 2026-11-04: 11 Teams-licensed employees kept
     the app but never got questions because their install conversation update
-    never arrived).
+    never arrived). Keyed by id because directory names repeat: two rows can
+    share one name, and a name key would silently shadow one of them.
     """
     rows = conn.execute(
         """
@@ -208,12 +210,21 @@ def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]
     ).fetchall()
     out: dict[str, Target] = {}
     for employee_id, name, ref in rows:
-        out[normalize_name(str(name), "Person")] = Target(
-            employee_id=employee_id,
+        out[str(employee_id)] = Target(
+            employee_id=str(employee_id),
             name=str(name),
             conversation_ref=dict(ref) if ref is not None else None,
         )
     return out
+
+
+def _by_name(reachable: dict[str, Target], name: str) -> list[Target]:
+    """Every reachable employee matching this normalised name (names repeat)."""
+    return [
+        target
+        for target in reachable.values()
+        if normalize_name(target.name, "Person") == name
+    ]
 
 
 def select_target(
@@ -225,16 +236,19 @@ def select_target(
     skipped = {str(item) for item in question.get("skipped_by") or []}
     manual = question.get("target_employee_id")
     if manual:
-        for target in reachable.values():
-            if target.employee_id == str(manual) and target.employee_id not in skipped:
-                return target
+        # By employee_id only: a name-keyed lookup would miss whichever
+        # duplicate-name row lost the name key.
+        target = reachable.get(str(manual))
+        if target is not None and target.employee_id not in skipped:
+            return target
         return None
     if question.get("department") is not None:
         department = str(question.get("department") or "").strip()
         if not department:
             # PR #514's rule: an empty department means "nobody suitable" —
             # only an explicit suggested_person, never an evidence scatter.
-            return _suggested_person(question, reachable, skipped)
+            picks = _suggested_targets(question, reachable, skipped)
+            return picks[0] if picks else None
         return _department_target(conn, question, reachable, skipped, department)
     picked = _evidence_contributor(conn, question, reachable, skipped)
     if picked is not None:
@@ -249,9 +263,9 @@ def select_target(
         if int(score) < 1000:
             continue
         for name in _person_names(conn, entity_id, str(canonical)):
-            target = reachable.get(name)
-            if target is not None and target.employee_id not in skipped:
-                return target
+            for target in _by_name(reachable, name):
+                if target.employee_id not in skipped:
+                    return target
     return None
 
 
@@ -288,33 +302,81 @@ def _evidence_contributor(
     return None
 
 
-# Department membership uses the employee's own department column first and
-# the directory's employee_flags.department second (the matching the tick has
-# always used for vetted questions).
+# Department membership: (a) the question's department equals the employee's
+# own department string (flags first, then the directory row) — the matching
+# the tick has always used; or (b) the question's department is one of the
+# row's department tokens (the departments array or the comma-separated
+# department string) AND the role/title echoes it (shared word stem: 'licens'
+# for 'Licensing' admits Laura's 'Licensing Coordinator', not a 'Creative
+# Designer' holding the same array). The array alone tags the whole licensed-
+# design division; the owner's rule (2026-11-12: "Laura and Ilona only") is
+# what the role gate enforces. ``to_jsonb`` keeps the query valid where those
+# directory columns are optional (the production-vs-test schema difference).
 _DEPARTMENT_MEMBERS_SQL = """
 SELECT e.id::text FROM public.employees e
 LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id
 WHERE e.disabled_at IS NULL
-  AND lower(trim(COALESCE(NULLIF(trim(f.department), ''),
-                         NULLIF(trim(to_jsonb(e)->>'department'), '')))) = lower(%s)
+  AND (
+    lower(trim(COALESCE(NULLIF(trim(f.department), ''),
+                         NULLIF(trim(to_jsonb(e)->>'department'), '')))) = lower(%(dept)s)
+    OR (
+      (
+        lower(%(dept)s) IN (
+          SELECT lower(trim(d)) FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(to_jsonb(e)->'departments') = 'array'
+                 THEN to_jsonb(e)->'departments' ELSE '[]'::jsonb END) AS d
+          WHERE trim(d) <> ''
+        )
+        OR lower(%(dept)s) IN (
+          SELECT lower(trim(t)) FROM unnest(string_to_array(
+            COALESCE(NULLIF(trim(to_jsonb(e)->>'department'), ''), ''), ',')) AS t
+          WHERE trim(t) <> ''
+        )
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM unnest(string_to_array(regexp_replace(lower(concat_ws(' ',
+             f.job_title, to_jsonb(e)->>'job_title', to_jsonb(e)->>'role')),
+             '[^[:alnum:]]+', ' ', 'g'), ' ')) AS rt
+        CROSS JOIN unnest(string_to_array(regexp_replace(lower(%(dept)s),
+             '[^[:alnum:]]+', ' ', 'g'), ' ')) AS dt
+        WHERE length(rt) >= 5 AND length(dt) >= 5
+          AND left(rt, 6) = left(dt, 6)
+      )
+    )
+  )
 ORDER BY (SELECT max(s.sent_at) FROM cmap.interview_send s
           WHERE s.employee_id = e.id) NULLS FIRST, e.name
 """
 
 
-def _suggested_person(
+# Vetted rows carry a title suffix ("Ilona Kereki (Licensing Manager)") that
+# the directory name never has; strip it before the name lookup. normalize_name
+# itself is unchanged — its other callers rely on its current behaviour.
+_TITLE_SUFFIX = re.compile(r"\s*\([^()]*\)\s*$")
+
+
+def _suggested_targets(
     question: dict[str, Any],
     reachable: dict[str, Target],
     skipped: set[str],
-) -> Target | None:
-    """The person the vetting named, if reachable and not skipped."""
+) -> list[Target]:
+    """The people the vetting's suggested name matches, if reachable.
+
+    Vetted rows carry a title suffix ("Ilona Kereki (Licensing Manager)") that
+    the directory name never has; strip it before the name lookup. normalize_name
+    itself is unchanged — its other callers rely on its current behaviour. A
+    name can match more than one directory row; every match is a candidate.
+    """
     person = str(question.get("suggested_person") or "").strip()
     if not person:
-        return None
-    target = reachable.get(normalize_name(person, "Person"))
-    if target is not None and target.employee_id not in skipped:
-        return target
-    return None
+        return []
+    bare = _TITLE_SUFFIX.sub("", person).strip() or person
+    return [
+        target
+        for target in _by_name(reachable, normalize_name(bare, "Person"))
+        if target.employee_id not in skipped
+    ]
 
 
 def _department_target(
@@ -334,11 +396,10 @@ def _department_target(
     question open for a later tick.
     """
     pool: dict[str, Target] = {}
-    picked = _suggested_person(question, reachable, skipped)
-    if picked is not None:
+    for picked in _suggested_targets(question, reachable, skipped):
         pool[picked.employee_id] = picked
     by_id = {target.employee_id: target for target in reachable.values()}
-    for (employee_id,) in conn.execute(_DEPARTMENT_MEMBERS_SQL, (department,)).fetchall():
+    for (employee_id,) in conn.execute(_DEPARTMENT_MEMBERS_SQL, {"dept": department}).fetchall():
         target = by_id.get(str(employee_id))
         if target is not None and target.employee_id not in skipped:
             pool[target.employee_id] = target
