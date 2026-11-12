@@ -88,9 +88,10 @@ def test_eval_detects_broken_citations_zh(
         answer_md: str,
         raw_citations: list[dict[str, Any]],
         chunks: list[dict[str, Any]],
+        evidence: list[dict[str, Any]] | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         wrong = [dict(chunk, id=chunks[0]["id"]) for chunk in chunks[:1]]
-        return real_finalize(answer_md, raw_citations, wrong)
+        return real_finalize(answer_md, raw_citations, wrong, evidence)
 
     monkeypatch.setattr(answer_mod, "_finalize_local", broken_finalize)
     run = run_eval()

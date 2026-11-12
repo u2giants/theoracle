@@ -21,6 +21,8 @@ type Answer = {
   entities: { id: string; name?: string; canonical_name?: string; type?: string }[];
   communities: { id: string; level: number; title: string }[];
   unknowns?: string[];
+  functions_consulted?: { id?: string | null; key?: string | null; name: string }[];
+  context_tokens?: number;
 };
 
 type Turn = { question: string; answer: Answer | null; error: string | null };
@@ -107,6 +109,14 @@ function AnswerView({ answer }: { answer: Answer }) {
               </Fragment>
             ))}
           </p>
+        )}
+        {answer.functions_consulted && answer.functions_consulted.length > 0 && (
+          <p data-testid="functions-consulted">
+            Functions consulted: {answer.functions_consulted.map((fn) => fn.name).join(', ')}
+          </p>
+        )}
+        {typeof answer.context_tokens === 'number' && (
+          <p data-testid="context-tokens">Context tokens: {answer.context_tokens}</p>
         )}
       </div>
     </div>

@@ -1,25 +1,40 @@
-"""Question answering over the company map: local and global modes (plan step 9).
+"""Question answering over the company map (plan step 9; C4 scoped answering).
 
 ``POST /answer`` asks one question in one of three modes:
 
-- ``local`` — embed the question, take the nearest entities and their depth-2
-  graph neighbourhood (60 nodes / 150 edges, edges ranked by kind weight x
-  source count), retrieve
-  chunks by cosine from the edge sources plus the open corpus, compress the
-  passages with ScaleDown ``/compress/raw/`` when they exceed the token
-  threshold (the quotes list stays uncompressed for citation), and answer from
-  ``prompts/answer_local.md``.
-- ``global`` — map-reduce over the level-1 community reports and the company
-  report (``prompts/answer_map.md`` per batch of 10 when they exceed the
-  one-call budget, then ``prompts/answer_global.md``), citing finding
-  source_ids resolved to titles and the chunk nearest each answer paragraph.
-- ``auto`` — ScaleDown classifies the question ``specific``/``broad``; a top
-  score under 0.6 runs both modes and merges.
+- ``auto`` — route first (C4): the question and its conversation history are
+  classified to 0–3 functions with the C2 classifier (``prompts/function_assign.md``).
+  No function ⇒ company-wide mode. A confident top function (weight ≥ 0.5) ⇒
+  scoped mode on the routed functions. Low confidence ⇒ one hybrid prompt with
+  the top function's scope plus the company report (never two answers
+  concatenated).
+- ``local`` — scoped mode forced: the same classifier routes the question and
+  retrieval is restricted to the routed functions' material; with no routed
+  function the scope is the whole map (the forced-mode contract). Candidates
+  are entities and chunks assigned to the routed functions
+  (``cmap.*_function.weight`` ≥ 0.2) plus entities one hand-off/sequence hop
+  across the function boundary. A similarity floor (0.25 cosine) drops
+  "nearest of nothing" hits; when nothing survives and no report or flow is in
+  scope the answer is an honest don't-know. Expansion around the seeds is
+  ranked by similarity to the question × relation-kind weight (never global
+  popularity). Alias seeding matches on word boundaries and ignores aliases
+  under 3 characters.
+- ``global`` — company-wide mode: the company report plus the function
+  reports, the function reports always selected by relevance through the map
+  step (``prompts/answer_map.md``), citing finding source_ids resolved to
+  titles and the prompt's own evidence text.
 
-Citations are validated: a local quote must be a substring of its chunk or the
-citation is dropped, and a sentence left without any citation is marked
-``(uncited)`` rather than deleted. History is the request's last turns only —
-there is no server-side session store.
+Both modes assemble their context under a hard token ceiling
+(``BRAIN_ANSWER_CONTEXT_TOKENS``, default 12,000) in priority order — function
+report → ordered process flow (E2) → relations → quotes → passages — and never
+exceed it; ScaleDown compression is an optimisation only. Every answer
+returns ``functions_consulted`` and ``context_tokens``.
+
+Citations are validated: a quote must be a substring of its chunk or the
+citation is dropped (a report citation may name only sources present in the
+prompt, quoting that prompt's evidence text), and a sentence left without any
+citation is marked ``(uncited)`` rather than deleted. History is the request's
+last turns only — there is no server-side session store.
 
 H1 — every sentence supported or marked. After drafting, each sentence's
 cited quotes are checked on the flat seat (``prompts/support_check.md``) for
@@ -58,7 +73,16 @@ from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract import flat as flat_mod
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
-from brain.graph.communities import _tokens, edge_rank
+from brain.function_assign import (
+    build_prompt as build_function_prompt,
+)
+from brain.function_assign import (
+    load_functions,
+)
+from brain.function_assign import (
+    validate_response as validate_function_response,
+)
+from brain.graph.communities import EDGE_KIND_WEIGHTS, _tokens, edge_rank
 from brain.graph.project import connect as connect_graph
 from brain.graph.version import current_graph_version
 from brain.llm import post_chat_with_rescue
@@ -81,12 +105,25 @@ GRAPH_EDGE_CAP = 150
 CHUNKS_RESTRICTED = 20
 CHUNKS_UNRESTRICTED = 10
 COMPRESS_MIN_TOKENS = 6000
-GLOBAL_ONE_SHOT_TOKENS = 60000
 MAP_BATCH = 10
 HISTORY_TURNS = 6
-ROUTE_MIN_SCORE = 0.6
 MAX_TOKENS = 8000
 ASK_ATTEMPTS = 3
+
+# C4 function scoping (tune on the approved set; plan §9 C4).
+# A chunk/entity assignment below this weight does not put its function's
+# material in scope.
+FUNCTION_WEIGHT_FLOOR = 0.2
+# Cosine floor on retrieval: "nearest of nothing" is not evidence.
+SIMILARITY_FLOOR = 0.25
+# Below this top function weight, routing confidence is low and the answer
+# runs the top function's scope plus the company report in ONE prompt.
+ROUTE_MIN_WEIGHT = 0.5
+# Relations that carry work across a function boundary (one hop only).
+HANDOFF_REL_TYPES = frozenset({"HANDS_OFF_TO", "PRECEDES"})
+# Alias seeding: word-boundary matches only, and never for short aliases.
+ALIAS_MIN_CHARS = 3
+_ALIAS_EDGE = r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])"
 
 # H1 sentence support checks (plan Phase H): one flat-seat call per sentence,
 # run in parallel. Above SUPPORT_PARALLEL_MAX checked sentences the staged
@@ -110,23 +147,6 @@ _NEGATION = re.compile(
 )
 _CJK_NEGATION = re.compile(r"[未不无没非勿]")
 _NAME = re.compile(r"\b[A-Z][a-z]{2,}\b")
-
-ROUTE_LABELS: list[dict[str, str]] = [
-    {
-        "name": "specific",
-        "rubric": (
-            "asks about a particular person, process, system, document or step. "
-            "具体问题/事实查询"
-        ),
-    },
-    {
-        "name": "broad",
-        "rubric": (
-            "asks about patterns, biggest problems, overview, 'across the "
-            "company', comparisons between departments. 全局/跨部门梳理"
-        ),
-    },
-]
 
 _MARKER = re.compile(r"\[(\d+)\]")
 # A trailing [n] or support-mark run belongs to the sentence before it:
@@ -613,37 +633,42 @@ def _verify_support(
 # ------------------------------------------------------------------- routing
 
 
-def _route_mode(question: str, settings: Settings, usage: dict[str, int]) -> str:
-    """ScaleDown ``specific``/``broad`` classify; low confidence runs both."""
-    if not settings.brain_scaledown_enabled or settings.scaledown_api_key is None:
-        return "both"
-    usage["scaledown_classify_calls"] = usage.get("scaledown_classify_calls", 0) + 1
-    try:
-        payload = _post_scaledown(
-            "/classify",
-            {"text": question, "labels": ROUTE_LABELS},
-            settings,
-        )
-    except AnswerError as exc:
-        logger.warning("route classify failed (%s); running both modes", exc)
-        return "both"
-    top = payload.get("top_label")
-    scores_raw = payload.get("scores")
-    scores: dict[str, float] = {}
-    if isinstance(scores_raw, dict):
-        for key, value in scores_raw.items():
-            try:
-                scores[str(key)] = float(value)
-            except (TypeError, ValueError):
-                continue
-    score = scores.get(str(top), 0.0)
-    if score < ROUTE_MIN_SCORE:
-        return "both"
-    if top == "specific":
-        return "local"
-    if top == "broad":
-        return "global"
-    return "both"
+def _route_functions(
+    question: str,
+    history: list[dict[str, str]],
+    settings: Settings,
+    usage: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Classify the question (with its history) to 0–3 functions (C2's classifier).
+
+    Reuses the C2 classifier verbatim: the ``function_assign`` prompt and the
+    same 0–3 keyed picks with clamped weights. The conversation history is part
+    of the passage so a follow-up inherits the scope of what preceded it.
+    With no active function vocabulary there is nothing to route to, and no
+    model call is made.
+    """
+    with get_pool().connection() as conn:
+        functions = load_functions(conn)
+    if not functions:
+        return []
+    passage = f"QUESTION:\n{question}\n\n{_render_history(history)}"
+    prompt = build_function_prompt(passage, functions)
+    usage["route_calls"] = usage.get("route_calls", 0) + 1
+    payload = _ask(prompt, settings, usage)
+    known = {item["key"]: item["id"] for item in functions}
+    weights = validate_function_response(payload, known)
+    names = {item["key"]: item["name"] for item in functions}
+    routed = [
+        {
+            "id": known[key],
+            "key": key,
+            "name": names[key],
+            "weight": weight,
+        }
+        for key, weight in weights.items()
+    ]
+    routed.sort(key=lambda item: item["weight"], reverse=True)
+    return routed[:3]
 
 
 # ---------------------------------------------------------------- citations
@@ -708,64 +733,23 @@ def _renumber(answer_md: str, old_to_new: dict[int, int]) -> str:
     return "".join(pieces)
 
 
-def _finalize_local(
+def _finalize_citations(
     answer_md: str,
     raw_citations: list[dict[str, Any]],
     chunks: list[dict[str, Any]],
+    evidence: list[dict[str, Any]] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Validate quotes against their chunks; drop invalid; renumber markers."""
-    by_id = {chunk["id"]: chunk for chunk in chunks}
-    kept: list[dict[str, Any]] = []
-    old_to_new: dict[int, int] = {}
-    for index, cite in enumerate(raw_citations, start=1):
-        chunk_id = str(cite.get("chunk_id") or "")
-        quote = str(cite.get("quote") or "")
-        chunk = by_id.get(chunk_id)
-        if chunk is None or not quote or quote not in chunk["text"]:
-            continue
-        kept.append(
-            {
-                "source_id": chunk["source_id"],
-                "title": chunk["title"],
-                "chunk_id": chunk_id,
-                "quote": quote,
-                "locator": chunk["locator"],
-            }
-        )
-        old_to_new[index] = len(kept)
-    return _renumber(answer_md, old_to_new), kept
+    """Validate citations against what the prompt showed; renumber markers.
 
-
-def _supporting_text(paragraph: str, candidates: list[str]) -> str:
-    """The candidate evidence text that shares the most words with the paragraph."""
-    if len(candidates) == 1:
-        return candidates[0]
-    paragraph_words = set(fold_key(paragraph).split())
-    best = candidates[0]
-    best_score = -1
-    for candidate in candidates:
-        score = len(paragraph_words & set(fold_key(candidate).split()))
-        if score > best_score:
-            best = candidate
-            best_score = score
-    return best
-
-
-def _finalize_global(
-    answer_md: str,
-    raw_citations: list[dict[str, Any]],
-    evidence: list[dict[str, Any]],
-) -> tuple[str, list[dict[str, Any]]]:
-    """Keep only citations to sources the prompt showed; quote the evidence.
-
-    H1: a company-wide citation may name only a source present in the prompt
-    (the ``source_ids`` of the rendered findings or mapped points) and its
-    quote is that prompt's supporting evidence text — never the nearest
-    chunk of the source, which was never shown to the model.
+    A citation with a ``chunk_id`` must quote its chunk verbatim (the locked
+    rule). A citation with only a ``source_id`` follows the company-wide rule:
+    the source must be present in the prompt's evidence and its quote is that
+    evidence text. Anything else is dropped.
     """
+    by_id = {chunk["id"]: chunk for chunk in chunks}
     allowed: set[str] = set()
     texts_by_source: dict[str, list[str]] = {}
-    for item in evidence:
+    for item in evidence or []:
         text = str(item.get("text") or "")
         for raw_id in item.get("source_ids") or []:
             source_id = str(raw_id)
@@ -777,6 +761,23 @@ def _finalize_global(
     old_to_new: dict[int, int] = {}
     with get_pool().connection() as conn:
         for index, cite in enumerate(raw_citations, start=1):
+            chunk_id = str(cite.get("chunk_id") or "")
+            quote = str(cite.get("quote") or "")
+            if chunk_id:
+                chunk = by_id.get(chunk_id)
+                if chunk is None or not quote or quote not in chunk["text"]:
+                    continue
+                kept.append(
+                    {
+                        "source_id": chunk["source_id"],
+                        "title": chunk["title"],
+                        "chunk_id": chunk_id,
+                        "quote": quote,
+                        "locator": chunk["locator"],
+                    }
+                )
+                old_to_new[index] = len(kept)
+                continue
             source_id = str(cite.get("source_id") or "")
             if source_id not in allowed:
                 continue
@@ -813,6 +814,46 @@ def _finalize_global(
     return _renumber(answer_md, old_to_new), kept
 
 
+def _finalize_local(
+    answer_md: str,
+    raw_citations: list[dict[str, Any]],
+    chunks: list[dict[str, Any]],
+    evidence: list[dict[str, Any]] | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Scoped/hybrid finalize: verbatim chunk quotes plus prompt-backed reports."""
+    return _finalize_citations(answer_md, raw_citations, chunks, evidence)
+
+
+def _supporting_text(paragraph: str, candidates: list[str]) -> str:
+    """The candidate evidence text that shares the most words with the paragraph."""
+    if len(candidates) == 1:
+        return candidates[0]
+    paragraph_words = set(fold_key(paragraph).split())
+    best = candidates[0]
+    best_score = -1
+    for candidate in candidates:
+        score = len(paragraph_words & set(fold_key(candidate).split()))
+        if score > best_score:
+            best = candidate
+            best_score = score
+    return best
+
+
+def _finalize_global(
+    answer_md: str,
+    raw_citations: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    """Keep only citations to sources the prompt showed; quote the evidence.
+
+    H1: a company-wide citation may name only a source present in the prompt
+    (the ``source_ids`` of the rendered findings or mapped points) and its
+    quote is that prompt's supporting evidence text — never the nearest
+    chunk of the source, which was never shown to the model.
+    """
+    return _finalize_citations(answer_md, raw_citations, [], evidence)
+
+
 # -------------------------------------------------------------------- local
 
 
@@ -821,15 +862,46 @@ def _fold_question(question: str) -> str:
     return fold_key(question)
 
 
-def _select_entities(
-    question: str, vector: list[float], include_history: bool = False
-) -> list[dict[str, Any]]:
-    """Top-8 entities by embedding cosine, plus any entity whose alias appears.
+def _alias_matches(question: str, aliases: list[str]) -> bool:
+    """Word-boundary alias seeding: short aliases never substring-match.
 
+    An alias under ``ALIAS_MIN_CHARS`` characters is ignored outright, and a
+    longer one matches only at ASCII word edges so "cat" never seeds from
+    "concatenate". CJK neighbours are not word edges (Chinese has no spaces).
+    """
+    folded = _fold_question(question)
+    for alias in aliases:
+        if len(alias) < ALIAS_MIN_CHARS:
+            continue
+        if re.search(_ALIAS_EDGE % re.escape(alias), folded):
+            return True
+    return False
+
+
+def _function_entity_ids(conn: Any, function_ids: list[str]) -> list[str]:
+    """Entities assigned to the routed functions at weight ≥ the floor."""
+    rows = conn.execute(
+        "SELECT DISTINCT entity_id::text FROM cmap.entity_function "
+        "WHERE function_id = ANY(%s::uuid[]) AND weight >= %s",
+        (function_ids, FUNCTION_WEIGHT_FLOOR),
+    ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def _select_entities(
+    question: str,
+    vector: list[float],
+    include_history: bool = False,
+    universe_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Top-8 entities by embedding cosine above the floor, plus alias matches.
+
+    C4: candidates are limited to ``universe_ids`` (the routed functions'
+    entities plus their one-hop hand-off neighbours) when given; a candidate
+    below ``SIMILARITY_FLOOR`` is never retrieved ("nearest of nothing").
     D2: an entity whose only mentions sit in superseded sources is history and
     is left out unless the question is about the past.
     """
-    folded = _fold_question(question)
     live = (
         ""
         if include_history
@@ -839,28 +911,56 @@ def _select_entities(
         "(SELECT supersedes_source_id FROM cmap.source_version "
         "WHERE decided_at IS NOT NULL))"
     )
+    scope = ""
+    params: list[Any] = [vector_literal(vector), SIMILARITY_FLOOR]
+    if universe_ids is not None:
+        if not universe_ids:
+            return []
+        scope = " AND e.id = ANY(%s::uuid[])"
+        params.append(universe_ids)
+    params.extend([vector_literal(vector), TOP_ENTITIES])
     with get_pool().connection() as conn:
         rows = conn.execute(
             "SELECT e.id::text, e.entity_type, e.canonical_name, e.description, "
             "e.mention_count, e.source_count "
             "FROM cmap.entity e WHERE e.embedding IS NOT NULL" + live + " "
+            "AND 1 - (e.embedding <=> %s::vector) >= %s" + scope + " "
             "ORDER BY e.embedding <=> %s::vector LIMIT %s",
-            (vector_literal(vector), TOP_ENTITIES),
+            params,
         ).fetchall()
-        alias_rows = conn.execute(
+        alias_sql = (
             "SELECT DISTINCT e.id::text, e.entity_type, e.canonical_name, "
-            "e.description, e.mention_count, e.source_count "
+            "e.description, e.mention_count, e.source_count, a.normalized_name "
             "FROM cmap.entity e "
             "JOIN cmap.entity_alias a ON a.entity_id = e.id "
-            "WHERE a.normalized_name <> '' AND position(a.normalized_name IN %s) > 0"
-            + live,
-            (folded,),
-        ).fetchall()
+            "WHERE a.normalized_name <> '' AND length(a.normalized_name) >= %s"
+            + live
+            + scope
+        )
+        alias_params: list[Any] = [ALIAS_MIN_CHARS]
+        if universe_ids is not None:
+            alias_params.append(universe_ids)
+        alias_rows = conn.execute(alias_sql, alias_params).fetchall()
     seen: dict[str, dict[str, Any]] = {}
-    for row in list(rows) + list(alias_rows):
+    for row in list(rows):
         entity_id = str(row[0])
+        seen[entity_id] = {
+            "id": entity_id,
+            "type": str(row[1]),
+            "name": str(row[2]),
+            "description": str(row[3] or ""),
+            "mention_count": int(row[4]),
+            "source_count": int(row[5]),
+        }
+    aliases_by_id: dict[str, list[str]] = {}
+    for row in alias_rows:
+        aliases_by_id.setdefault(str(row[0]), []).append(str(row[6]))
+    for entity_id, aliases in aliases_by_id.items():
         if entity_id in seen:
             continue
+        if not _alias_matches(question, aliases):
+            continue
+        row = next(r for r in alias_rows if str(r[0]) == entity_id)
         seen[entity_id] = {
             "id": entity_id,
             "type": str(row[1]),
@@ -931,21 +1031,77 @@ def _apply_fact_corrections(
 
 
 def _graph_context(
-    entities: list[dict[str, Any]], settings: Settings
+    entities: list[dict[str, Any]],
+    settings: Settings,
+    vector: list[float],
+    universe_ids: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Depth-2 neighbourhood of the seeds: capped nodes and weight-ranked edges."""
+    """Neighbourhood of the seeds, ranked by similarity × relation-kind weight.
+
+    C4: the old depth-2-by-global-popularity expansion is gone. Candidates
+    reachable in ≤ 2 hops are scored ``cosine(candidate, question) ×
+    relation-kind weight`` (hand-off and sequence kinds weigh double — the C3
+    cluster weights) and the top nodes are kept. When ``universe_ids`` is set
+    (scoped mode) only that universe may enter: the routed functions'
+    entities plus the one-hop hand-off/sequence neighbours across the
+    boundary — never anything else.
+    """
     ids = [entity["id"] for entity in entities]
     graph = connect_graph(settings)
-    result = graph.query(
-        "MATCH (a:Entity)-[*1..2]-(x:Entity) WHERE a.id IN $ids "
-        "RETURN DISTINCT x "
-        "ORDER BY x.source_count DESC, x.mention_count DESC LIMIT $limit",
-        {"ids": ids, "limit": GRAPH_NODE_CAP},
-    )
+    allowed: set[str] | None = None
+    if universe_ids is not None:
+        allowed = set(universe_ids)
+        rows = graph.query(
+            "MATCH (a:Entity)-[r]-(x:Entity) WHERE a.id IN $ids "
+            "AND type(r) IN ['HANDS_OFF_TO', 'PRECEDES'] RETURN DISTINCT x.id",
+            {"ids": universe_ids},
+        ).result_set
+        allowed |= {str(row[0]) for row in rows}
+        allowed |= set(ids)
+    kind_score: dict[str, float] = {entity_id: 1.0 for entity_id in ids}
+    frontier = list(ids)
+    seen: set[str] = set(ids)
+    for _hop in range(2):
+        if not frontier:
+            break
+        rows = graph.query(
+            "MATCH (a:Entity)-[r]-(x:Entity) WHERE a.id IN $ids "
+            "RETURN a.id, x.id, type(r)",
+            {"ids": frontier},
+        ).result_set
+        next_frontier: list[str] = []
+        for _from_id, to_id, rel_type in rows:
+            candidate = str(to_id)
+            if allowed is not None and candidate not in allowed:
+                continue
+            weight = EDGE_KIND_WEIGHTS.get(str(rel_type), 1.0)
+            if weight > kind_score.get(candidate, 0.0):
+                kind_score[candidate] = weight
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            next_frontier.append(candidate)
+        frontier = next_frontier
+    sims: dict[str, float] = {}
+    if seen:
+        with get_pool().connection() as conn:
+            sim_rows = conn.execute(
+                "SELECT id::text, 1 - (embedding <=> %s::vector) FROM cmap.entity "
+                "WHERE id = ANY(%s::uuid[])",
+                (vector_literal(vector), sorted(seen)),
+            ).fetchall()
+        for entity_id, sim in sim_rows:
+            sims[str(entity_id)] = float(sim)
+
+    def _score(entity_id: str) -> float:
+        return sims.get(entity_id, 0.0) * kind_score.get(entity_id, 1.0)
+
+    ranked = sorted(seen, key=_score, reverse=True)[:GRAPH_NODE_CAP]
+    ranked_ids = set(ranked)
     nodes: list[dict[str, Any]] = []
-    seen: set[str] = set()
     for entity in entities:
-        seen.add(entity["id"])
+        if entity["id"] not in ranked_ids:
+            continue
         nodes.append(
             {
                 "id": entity["id"],
@@ -954,21 +1110,25 @@ def _graph_context(
                 "description": entity["description"],
             }
         )
-    for row in result.result_set:
-        node = row[0]
-        node_id = str(node.properties.get("id"))
-        if node_id in seen:
+    by_id = {node["id"] for node in nodes}
+    for entity_id in ranked:
+        if entity_id in by_id:
             continue
-        seen.add(node_id)
+        rows = graph.query(
+            "MATCH (x:Entity {id: $id}) RETURN x.type, x.name, x.description",
+            {"id": entity_id},
+        ).result_set
+        if not rows:
+            continue
+        node_type, name, description = rows[0]
         nodes.append(
             {
-                "id": node_id,
-                "type": str(node.properties.get("type")),
-                "name": str(node.properties.get("name")),
-                "description": str(node.properties.get("description") or ""),
+                "id": entity_id,
+                "type": str(node_type),
+                "name": str(name),
+                "description": str(description or ""),
             }
         )
-    nodes = nodes[:GRAPH_NODE_CAP]
     node_ids = [node["id"] for node in nodes]
     edge_rows = graph.query(
         "MATCH (a:Entity)-[r]->(b:Entity) "
@@ -1011,12 +1171,19 @@ def _graph_context(
 
 
 def _select_chunks(
-    vector: list[float], source_ids: list[str], include_history: bool = False
+    vector: list[float],
+    source_ids: list[str],
+    include_history: bool = False,
+    function_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Top chunks from the edge sources, plus the open-corpus top.
 
-    D2: chunks of superseded sources are excluded unless ``include_history``;
-    every returned chunk is flagged ``superseded`` so the caller can label it.
+    C4: both queries are restricted to chunks assigned to the routed
+    functions at weight ≥ the floor when ``function_ids`` is given, and every
+    candidate must clear ``SIMILARITY_FLOOR`` — the nearest of nothing is
+    never used. D2: chunks of superseded sources are excluded unless
+    ``include_history``; every returned chunk is flagged ``superseded`` so the
+    caller can label it.
     """
     selected: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1025,6 +1192,16 @@ def _select_chunks(
         "WHERE decided_at IS NOT NULL)"
     )
     history_filter = "" if include_history else f" AND NOT ({superseded_sql})"
+    function_filter = ""
+    function_params: list[Any] = []
+    if function_ids is not None:
+        function_filter = (
+            " AND EXISTS (SELECT 1 FROM cmap.chunk_function cf "
+            "WHERE cf.chunk_id = c.id AND cf.function_id = ANY(%s::uuid[]) "
+            "AND cf.weight >= %s)"
+        )
+        function_params = [function_ids, FUNCTION_WEIGHT_FLOOR]
+    floor_sql = " AND 1 - (c.embedding <=> %s::vector) >= %s"
     with get_pool().connection() as conn:
         queries: list[tuple[str, list[Any]]] = []
         if source_ids:
@@ -1035,8 +1212,12 @@ def _select_chunks(
                     "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
                     "WHERE c.embedding IS NOT NULL AND c.source_id = ANY(%s::uuid[])"
                     + history_filter
+                    + function_filter
+                    + floor_sql
                     + " ORDER BY c.embedding <=> %s::vector LIMIT %s",
-                    [source_ids, vector_literal(vector), CHUNKS_RESTRICTED],
+                    [source_ids]
+                    + function_params
+                    + [vector_literal(vector), SIMILARITY_FLOOR, vector_literal(vector), CHUNKS_RESTRICTED],
                 )
             )
         queries.append(
@@ -1046,8 +1227,11 @@ def _select_chunks(
                 "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
                 "WHERE c.embedding IS NOT NULL"
                 + history_filter
+                + function_filter
+                + floor_sql
                 + " ORDER BY c.embedding <=> %s::vector LIMIT %s",
-                [vector_literal(vector), CHUNKS_UNRESTRICTED],
+                function_params
+                + [vector_literal(vector), SIMILARITY_FLOOR, vector_literal(vector), CHUNKS_UNRESTRICTED],
             )
         )
         for sql, params in queries:
@@ -1138,6 +1322,125 @@ def _compress_passages(
     return compressed
 
 
+def _flow_items(function_ids: list[str] | None) -> list[str]:
+    """Ordered process flows (E2) in scope, one line per flow and step."""
+    with get_pool().connection() as conn:
+        if function_ids is None:
+            flows = conn.execute(
+                "SELECT id::text, title, trigger, outcome FROM cmap.process_flow "
+                "ORDER BY title"
+            ).fetchall()
+        elif function_ids:
+            flows = conn.execute(
+                "SELECT id::text, title, trigger, outcome FROM cmap.process_flow "
+                "WHERE function_id = ANY(%s::uuid[]) ORDER BY title",
+                (function_ids,),
+            ).fetchall()
+        else:
+            flows = []
+        items: list[str] = []
+        for flow_id, title, trigger, outcome in flows:
+            items.append(
+                f"FLOW {title} (trigger: {trigger or '?'} → outcome: {outcome or '?'})"
+            )
+            steps = conn.execute(
+                "SELECT ordinal, input, output, decision FROM cmap.flow_step "
+                "WHERE flow_id = %s ORDER BY ordinal",
+                (flow_id,),
+            ).fetchall()
+            for ordinal, step_input, step_output, decision in steps:
+                line = (
+                    f"  {ordinal}. in: {step_input or '?'} "
+                    f"out: {step_output or '?'}"
+                )
+                if decision:
+                    line += f" decision: {decision}"
+                items.append(line)
+    return items
+
+
+def _report_items(reports: list[dict[str, Any]]) -> tuple[list[str], list[Any]]:
+    """Render reports as budget items; per-item evidence (None for headings)."""
+    lines: list[str] = []
+    evidence: list[Any] = []
+    for report in reports:
+        lines.append(f"## {report['title']}")
+        evidence.append(None)
+        lines.append(report["summary"])
+        evidence.append(None)
+        for finding in report["findings"]:
+            source_ids = [
+                str(source_id) for source_id in (finding.get("source_ids") or [])
+            ]
+            text = str(finding.get("text") or "")
+            lines.append(
+                f"- [{finding.get('kind', '')}] {text} "
+                f"(sources: {', '.join(source_ids)})"
+            )
+            evidence.append({"text": text, "source_ids": source_ids})
+    return lines, evidence
+
+
+def _function_report_items(
+    function_ids: list[str] | None,
+    include_history: bool,
+    level: int,
+) -> tuple[list[str], list[dict[str, Any]], list[Any]]:
+    """One function report per routed function (C3: level 1, id = function id).
+
+    Returns ``(lines, reports, evidence)`` — ``evidence`` is per-line (None
+    for headings) so the budget can report exactly what reached the prompt.
+    ``level=2`` loads the company report.
+    """
+    reports = _load_reports(include_history, level=level, function_ids=function_ids)
+    lines, evidence = _report_items(reports)
+    return lines, reports, evidence
+
+
+def _assemble_context(
+    tiers: list[tuple[str, list[str], Any]], ceiling: int
+) -> tuple[dict[str, str], int, list[list[int]]]:
+    """Fill each tier's items in priority order under a hard token ceiling.
+
+    Each tier carries its own renderer (the quotes tier becomes a JSON
+    array); items that do not fit are skipped (a later, smaller item still
+    can). The rendered total is re-measured exactly and, on the worst case,
+    the lowest-priority items are dropped until the ceiling holds. Never
+    exceeds. Returns the rendered text per tier, its exact token count and
+    the kept item indices per tier.
+    """
+    kept: list[list[int]] = [[] for _ in tiers]
+    used = 0
+    for (_name, items, _render), bucket in zip(tiers, kept, strict=True):
+        for index, item in enumerate(items):
+            cost = _tokens(item) + 3
+            if used + cost > ceiling:
+                continue
+            bucket.append(index)
+            used += cost
+
+    def _render_all() -> tuple[dict[str, str], int]:
+        rendered = {
+            name: render([items[index] for index in bucket])
+            for (name, items, render), bucket in zip(tiers, kept, strict=True)
+        }
+        total = _tokens("\n\n".join(text for text in rendered.values() if text))
+        return rendered, total
+
+    rendered, total = _render_all()
+    while total > ceiling:
+        dropped = False
+        for bucket in reversed(kept):
+            if bucket:
+                bucket.pop()
+                dropped = True
+                break
+        if not dropped:
+            break
+        rendered, total = _render_all()
+    return rendered, total, kept
+
+
 def _render_history(history: list[dict[str, str]]) -> str:
     """Render the conversation turns kept for this request."""
     turns = history[-HISTORY_TURNS:] if history else []
@@ -1169,22 +1472,60 @@ def _render_graph(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> s
     return "\n".join(lines)
 
 
+def _dont_know(
+    question: str,
+    functions_consulted: list[dict[str, Any]],
+    mode_used: str,
+) -> dict[str, Any]:
+    """The honest empty-context answer: nothing in scope is close enough.
+
+    The similarity floor exists so "nearest of nothing" never becomes
+    evidence; when the floor (and the function scope) leave no report, flow,
+    entity or chunk, no model call is made and the answer says so.
+    """
+    return {
+        "answer_md": (
+            "I don't know — nothing in the company map is close enough to "
+            "this question to answer from it."
+        ),
+        "citations": [],
+        "mode_used": mode_used,
+        "entities": [],
+        "communities": [],
+        "unknowns": ["nothing in scope matched the question closely enough"],
+        "functions_consulted": functions_consulted,
+        "context_tokens": 0,
+    }
+
+
 def _local_answer(
     question: str,
     history: list[dict[str, str]],
     settings: Settings,
     usage: dict[str, int],
+    function_ids: list[str] | None = None,
+    functions_consulted: list[dict[str, Any]] | None = None,
+    mode_used: str = "local",
+    with_company_report: bool = False,
 ) -> dict[str, Any]:
-    """Local mode: graph neighbourhood + chunk retrieval + quote citations.
+    """Scoped mode: function-restricted retrieval under a hard token budget.
 
     D2: ``is_history_question`` is the history-reach seam — only a question
     explicitly about the past retrieves (labelled) superseded passages; every
-    other question is current-only.
+    other question is current-only. C4: the context is assembled in priority
+    order (function report → ordered flow → relations → quotes → passages)
+    until ``BRAIN_ANSWER_CONTEXT_TOKENS`` is spent, and never past it.
     """
     include_history = is_history_question(question)
     vector = embed_texts([question], settings, usage)[0]
-    entities = _select_entities(question, vector, include_history)
-    nodes, edges = _graph_context(entities, settings)
+    with get_pool().connection() as conn:
+        universe_ids = (
+            None
+            if function_ids is None
+            else _function_entity_ids(conn, function_ids)
+        )
+    entities = _select_entities(question, vector, include_history, universe_ids)
+    nodes, edges = _graph_context(entities, settings, vector, universe_ids)
     edge_sources = sorted(
         {
             ref["source_id"]
@@ -1193,13 +1534,12 @@ def _local_answer(
             if ref["source_id"]
         }
     )
-    chunks = _select_chunks(vector, edge_sources, include_history)
+    chunks = _select_chunks(vector, edge_sources, include_history, function_ids)
     quotes = _quotes_for(chunks)
     texts = [
         _HISTORY_PREFIX + chunk["text"] if chunk.get("superseded") else chunk["text"]
         for chunk in chunks
     ]
-    passages = _compress_passages(texts, question, settings, usage)
     graph_block = _render_graph(nodes, edges)
     with get_pool().connection() as conn:
         disagreements = disagreement_lines(conn, [node["id"] for node in nodes])
@@ -1207,13 +1547,53 @@ def _local_answer(
         graph_block += "\n\nSOURCES DISAGREE:\n" + "\n".join(
             f"- {line}" for line in disagreements
         )
+    report_lines, report_rows, report_evidence = _function_report_items(
+        function_ids, include_history, level=1
+    )
+    company_lines: list[str] = []
+    company_evidence: list[dict[str, Any]] = []
+    if with_company_report:
+        company_lines, company_rows, company_evidence = _function_report_items(
+            None, include_history, level=2
+        )
+        report_rows = report_rows + company_rows
+    flow_lines = _flow_items(function_ids)
+    ceiling = settings.brain_answer_context_tokens
+    # Priority (plan C4 step 4): function report → company report (hybrid
+    # only) → ordered flow → relations → quotes → passages.
+    quote_items = [json.dumps(quote, ensure_ascii=False) for quote in quotes]
+    rendered, context_tokens, kept = _assemble_context(
+        [
+            ("function_reports", report_lines, "\n".join),
+            ("company", company_lines, "\n".join),
+            ("flow", flow_lines, "\n".join),
+            ("graph", graph_block.split("\n"), "\n".join),
+            ("quotes", quote_items, lambda items: "[" + ",".join(items) + "]"),
+            ("passages", texts, "\n\n".join),
+        ],
+        ceiling,
+    )
+    passages_text = rendered["passages"]
+    if passages_text and _tokens(passages_text) > COMPRESS_MIN_TOKENS:
+        passages_text = _compress_passages(
+            rendered["passages"].split("\n\n"), question, settings, usage
+        )
+    if not nodes and not chunks and not report_lines and not flow_lines and not company_lines:
+        return _dont_know(
+            question,
+            functions_consulted or [],
+            mode_used,
+        )
     template = LOCAL_PROMPT_PATH.read_text(encoding="utf-8")
     prompt = (
         template.replace("{{history}}", _render_history(history))
         .replace("{{question}}", question)
-        .replace("{{graph}}", graph_block)
-        .replace("{{passages}}", passages)
-        .replace("{{quotes}}", json.dumps(quotes, ensure_ascii=False))
+        .replace("{{function_reports}}", rendered["function_reports"] or "(none)")
+        .replace("{{company}}", rendered["company"] or "(none)")
+        .replace("{{flow}}", rendered["flow"] or "(none)")
+        .replace("{{graph}}", rendered["graph"] or "(none)")
+        .replace("{{passages}}", passages_text or "(none)")
+        .replace("{{quotes}}", rendered["quotes"] or "[]")
     )
     raw = _ask(prompt, settings, usage)
     answer_md = str(raw.get("answer_md") or "")
@@ -1223,14 +1603,30 @@ def _local_answer(
     unknowns = [
         str(item) for item in (raw.get("unknowns") or []) if str(item).strip()
     ]
-    final_md, citations = _finalize_local(answer_md, raw_citations, chunks)
+    report_kept = set(kept[0])
+    company_kept = set(kept[1])
+    evidence = [
+        item
+        for index, item in enumerate(report_evidence)
+        if index in report_kept and item is not None
+    ] + [
+        item
+        for index, item in enumerate(company_evidence)
+        if index in company_kept and item is not None
+    ]
+    final_md, citations = _finalize_local(answer_md, raw_citations, chunks, evidence)
     return {
         "answer_md": final_md,
         "citations": citations,
-        "mode_used": "local",
+        "mode_used": mode_used,
         "entities": entities,
-        "communities": [],
+        "communities": [
+            {"id": row["id"], "level": row["level"], "title": row["title"]}
+            for row in report_rows
+        ],
         "unknowns": unknowns,
+        "functions_consulted": functions_consulted or [],
+        "context_tokens": context_tokens,
     }
 
 
@@ -1314,26 +1710,42 @@ def _drop_superseded_findings(
     return reports
 
 
-def _load_reports(include_history: bool = False) -> list[dict[str, Any]]:
-    """The current map's level-1 community reports plus its company report.
+def _load_reports(
+    include_history: bool = False,
+    level: int | None = None,
+    function_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """The current map's community reports (C3: level 1 per function, 2 company).
 
     Only rows stamped with the current graph version are read: older builds'
     reports stay in the table for a while and must never reach an answer.
-    D2: findings whose only sources are superseded are dropped unless the
-    question is about the past.
+    ``level`` and ``function_ids`` narrow the load (scoped mode reads just the
+    routed functions' reports). D2: findings whose only sources are superseded
+    are dropped unless the question is about the past.
     """
+    where = "graph_version = %s"
+    params: list[Any] = []
     with get_pool().connection() as conn:
         version = current_graph_version(conn)
         if version is None:
             return []
+        params.append(version)
+        if level is not None:
+            where += " AND level = %s"
+            params.append(level)
+        else:
+            where += " AND level IN (1, 2)"
+        if function_ids is not None:
+            where += " AND function_id = ANY(%s::uuid[])"
+            params.append(function_ids)
         rows = conn.execute(
-            "SELECT id::text, level, title, report_md, findings "
-            "FROM cmap.community WHERE level IN (1, 2) AND graph_version = %s "
+            "SELECT id::text, level, title, report_md, findings, function_id::text "
+            f"FROM cmap.community WHERE {where} "
             "ORDER BY level, title",
-            (version,),
+            params,
         ).fetchall()
     reports: list[dict[str, Any]] = []
-    for report_id, level, title, report_md, findings in rows:
+    for report_id, level, title, report_md, findings, function_id in rows:
         if not isinstance(findings, list):
             findings = []
         reports.append(
@@ -1343,6 +1755,7 @@ def _load_reports(include_history: bool = False) -> list[dict[str, Any]]:
                 "title": str(title or ""),
                 "summary": _report_summary(str(report_md or "")),
                 "findings": [item for item in findings if isinstance(item, dict)],
+                "function_id": str(function_id) if function_id else None,
             }
         )
     if not include_history:
@@ -1364,18 +1777,6 @@ def _reports_context(reports: list[dict[str, Any]]) -> str:
                 f"- [{finding.get('kind', '')}] {finding.get('text', '')} "
                 f"(sources: {', '.join(source_ids)})"
             )
-    return "\n".join(lines)
-
-
-def _points_context(points: list[dict[str, Any]]) -> str:
-    """Render mapped points (the map-reduce middle step) as the report context."""
-    lines = ["MAPPED POINTS:"]
-    for point in points:
-        source_ids = [str(source_id) for source_id in (point.get("source_ids") or [])]
-        lines.append(
-            f"- [{point.get('relevance', '')}] {point.get('text', '')} "
-            f"(sources: {', '.join(source_ids)})"
-        )
     return "\n".join(lines)
 
 
@@ -1417,39 +1818,90 @@ def _map_points(
     return points
 
 
+def _consulted_functions(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The functions behind the consulted reports (C3: title = function name)."""
+    wanted = [report["function_id"] for report in reports if report.get("function_id")]
+    names: dict[str, tuple[str, str]] = {}
+    if wanted:
+        with get_pool().connection() as conn:
+            rows = conn.execute(
+                "SELECT id::text, key, name FROM cmap.function WHERE id = ANY(%s::uuid[])",
+                (wanted,),
+            ).fetchall()
+        for function_id, key, name in rows:
+            names[str(function_id)] = (str(key), str(name))
+    out: list[dict[str, Any]] = []
+    for report in reports:
+        function_id = report.get("function_id")
+        if function_id and function_id in names:
+            key, name = names[function_id]
+            out.append({"id": function_id, "key": key, "name": name})
+        else:
+            out.append({"id": function_id, "key": None, "name": report["title"]})
+    return out
+
+
 def _global_answer(
     question: str,
     history: list[dict[str, str]],
     settings: Settings,
     usage: dict[str, int],
 ) -> dict[str, Any]:
-    """Global mode: synthesise the community reports, citing finding sources.
+    """Company-wide mode: the company report plus function reports by relevance.
 
-    D2: the same history-reach seam as local mode — superseded findings are
-    reachable only for questions explicitly about the past.
+    C4 step 3: the function reports are always selected by relevance (the map
+    step keeps the points the question needs) — never only above a one-call
+    token budget. The company report is included unconditionally (budget
+    permitting). D2: superseded findings reach an answer only for questions
+    explicitly about the past.
     """
-    reports = _load_reports(is_history_question(question))
-    context = _reports_context(reports)
-    evidence: list[dict[str, Any]] = [
-        {
-            "text": str(finding.get("text") or ""),
-            "source_ids": [
-                str(source_id) for source_id in (finding.get("source_ids") or [])
-            ],
-        }
-        for report in reports
-        for finding in report["findings"]
+    include_history = is_history_question(question)
+    reports = _load_reports(include_history)
+    company_reports = [report for report in reports if report["level"] == 2]
+    function_reports = [report for report in reports if report["level"] == 1]
+    points = (
+        _map_points(question, function_reports, settings, usage)
+        if function_reports
+        else []
+    )
+    company_lines, company_evidence = _report_items(company_reports)
+    point_items = [
+        f"- [{point.get('relevance', '')}] {point.get('text', '')} "
+        f"(sources: {', '.join(point['source_ids'])})"
+        for point in points
     ]
-    if _tokens(context) > GLOBAL_ONE_SHOT_TOKENS:
-        points = _map_points(question, reports, settings, usage)
-        context = _points_context(points)
-        evidence = [
-            {
-                "text": str(point.get("text") or ""),
-                "source_ids": list(point["source_ids"]),
-            }
-            for point in points
-        ]
+    point_evidence: list[Any] = [
+        {"text": str(point.get("text") or ""), "source_ids": list(point["source_ids"])}
+        for point in points
+    ]
+    ceiling = settings.brain_answer_context_tokens
+    rendered, context_tokens, kept = _assemble_context(
+        [
+            (
+                "company",
+                company_lines,
+                lambda items: ("REPORTS:\n" + "\n".join(items)) if items else "",
+            ),
+            (
+                "points",
+                point_items,
+                lambda items: ("MAPPED POINTS:\n" + "\n".join(items)) if items else "",
+            ),
+        ],
+        ceiling,
+    )
+    company_kept = set(kept[0])
+    points_kept = set(kept[1])
+    evidence = [
+        item
+        for index, item in enumerate(company_evidence)
+        if index in company_kept and item is not None
+    ] + [
+        item
+        for index, item in enumerate(point_evidence)
+        if index in points_kept and item is not None
+    ]
+    context = "\n\n".join(text for text in rendered.values() if text)
     report_entity_ids = [
         str(entity_id)
         for report in reports
@@ -1488,24 +1940,8 @@ def _global_answer(
             for report in reports
         ],
         "unknowns": unknowns,
-    }
-
-
-def _shift_markers(answer_md: str, offset: int) -> str:
-    """Renumber [n] markers by ``offset`` for a merged answer."""
-    return _MARKER.sub(lambda match: f"[{int(match.group(1)) + offset}]", answer_md)
-
-
-def _merge_answers(local: dict[str, Any], global_: dict[str, Any]) -> dict[str, Any]:
-    """Merge both modes: local prose first, then the company-wide view."""
-    offset = len(local["citations"])
-    return {
-        "answer_md": local["answer_md"] + "\n\n" + _shift_markers(global_["answer_md"], offset),
-        "citations": list(local["citations"]) + list(global_["citations"]),
-        "mode_used": "both",
-        "entities": local["entities"],
-        "communities": global_["communities"],
-        "unknowns": list(local["unknowns"]) + list(global_["unknowns"]),
+        "functions_consulted": _consulted_functions(function_reports),
+        "context_tokens": context_tokens,
     }
 
 
@@ -1516,12 +1952,18 @@ def answer_question(
     settings: Settings | None = None,
     usage: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Answer one question; return the step-9 response shape.
+    """Answer one question; return the step-9 response shape (C4 adds two fields).
 
     ``mode`` is ``auto``, ``local`` or ``global``. The caller owns any
     session state: only ``history``'s last turns are used, never stored.
+    ``auto`` routes first to 0–3 functions (history included, so follow-ups
+    inherit scope): none ⇒ company-wide, a confident top function ⇒ scoped,
+    low confidence ⇒ the top function's scope plus the company report in one
+    prompt. ``local`` forces scoped mode (routing still scopes it; no routed
+    function reads the whole map), ``global`` forces company-wide.
     H1 adds ``supported_share`` — the share of sentences the cited quotes
-    support, after every other sentence was rewritten or marked.
+    support, after every other sentence was rewritten or marked. C4 adds
+    ``functions_consulted`` and ``context_tokens``.
     """
     cfg = settings if settings is not None else get_settings()
     counters = usage if usage is not None else {}
@@ -1531,15 +1973,33 @@ def answer_question(
         raise AnswerError("question is required")
     if mode not in {"auto", "local", "global"}:
         raise AnswerError("mode must be auto, local or global")
-    if mode == "auto":
-        mode = _route_mode(text, cfg, counters)
-    if mode == "local":
-        result = _local_answer(text, turns, cfg, counters)
-    elif mode == "global":
-        result = _global_answer(text, turns, cfg, counters)
-    else:
-        result = _merge_answers(
-            _local_answer(text, turns, cfg, counters),
-            _global_answer(text, turns, cfg, counters),
+    if mode == "global":
+        return _verify_support(_global_answer(text, turns, cfg, counters), cfg, counters)
+    routed = _route_functions(text, turns, cfg, counters)
+    routed_ids = [item["id"] for item in routed]
+    if mode == "auto" and not routed:
+        return _verify_support(_global_answer(text, turns, cfg, counters), cfg, counters)
+    if mode == "auto" and routed[0]["weight"] < ROUTE_MIN_WEIGHT:
+        # Low routing confidence: the top function's scope plus the company
+        # report in ONE prompt — never two answers concatenated (C4 step 5).
+        result = _local_answer(
+            text,
+            turns,
+            cfg,
+            counters,
+            function_ids=[routed[0]["id"]],
+            functions_consulted=routed[:1],
+            mode_used="hybrid",
+            with_company_report=True,
         )
+        return _verify_support(result, cfg, counters)
+    result = _local_answer(
+        text,
+        turns,
+        cfg,
+        counters,
+        function_ids=routed_ids or None,
+        functions_consulted=routed,
+        mode_used="local",
+    )
     return _verify_support(result, cfg, counters)

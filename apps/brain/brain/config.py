@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     brain_scaledown_enabled: bool = False
     brain_shared_token: str | None = None
     brain_max_frontier_calls_per_job: int | None = None
+    # Hard token ceiling for one answer's assembled context (repair C4).
+    # The answer never exceeds it; ScaleDown compression is optional only.
+    brain_answer_context_tokens: int = 12000
     # Delete reports superseded more than one build ago at the end of each
     # successful community build (repair plan A1). Off keeps every old report.
     brain_community_prune_enabled: bool = True
