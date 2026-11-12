@@ -1,9 +1,11 @@
 """Interview tick (plan step 12): route open questions to employees over Teams.
 
 The worker loop queues one ``interview_tick`` job per hour. Each tick looks at
-every ``open_question`` in state ``open``, picks the Person entity most
-connected (summed edge weight) to the question's entities who maps to an
-employee the bot can reach, and asks them through the Next.js proactive route.
+every ``open_question`` in state ``open``, prefers an employee who contributed
+evidence about the question's entities (their own Teams contributions or
+interview answers mention those entities), and otherwise asks a Person the
+question itself names, ranked by summed edge weight — never whoever is merely
+connected. The ask goes out through the Next.js proactive route.
 
 Guardrail: nothing is sent unless ``BRAIN_INTERVIEW_ENABLED`` is true. The
 employee does not have to message first — when no conversation is stored yet
@@ -88,8 +90,53 @@ SELECT e.id::text, e.canonical_name,
        + CASE WHEN e.id = ANY(%(ids)s::uuid[]) THEN 1000 ELSE 0 END AS score
 FROM cmap.entity e
 WHERE e.entity_type = 'Person'
+  AND lower(e.canonical_name) <> 'the oracle'
   AND (e.id = ANY(%(ids)s::uuid[]) OR EXISTS (SELECT 1 FROM weights w WHERE w.person = e.id))
 ORDER BY score DESC, e.canonical_name
+"""
+
+# Employees who contributed evidence about the question's entities: their own
+# Teams contributions / interview answers (the only sources linked back to an
+# employee through teams_intake and answered questions) carry mention rows for
+# those entities. The question's entity_ids may be dangling after
+# re-resolution, so entities are also recovered from the question text via the
+# mention names. Edge weight never enters this ranking — evidence ownership
+# does; "The Oracle" (the bot) is not a person to ask.
+_EVIDENCE_CONTRIBUTOR_SQL = """
+WITH topic AS (
+  SELECT e.id
+  FROM cmap.entity e
+  WHERE e.id = ANY(%(ids)s::uuid[])
+  UNION
+  SELECT DISTINCT m.entity_id
+  FROM cmap.mention m
+  WHERE m.entity_id IS NOT NULL
+    AND m.normalized_name <> ''
+    AND (
+      position(' ' || m.normalized_name || ' ' IN ' ' || %(q_person)s || ' ') > 0
+      OR position(' ' || m.normalized_name || ' ' IN ' ' || %(q_proc)s || ' ') > 0
+      OR (position(m.normalized_name IN %(q_person)s) > 0
+          AND (m.normalized_name ~ '[^ -~]' OR length(m.normalized_name) >= 6))
+    )
+),
+own AS (
+  SELECT ti.employee_id AS employee_id, ti.source_id AS source_id
+  FROM cmap.teams_intake ti
+  WHERE ti.source_id IS NOT NULL
+  UNION
+  SELECT oq.target_employee_id AS employee_id, oq.answer_source_id AS source_id
+  FROM cmap.open_question oq
+  WHERE oq.answer_source_id IS NOT NULL AND oq.target_employee_id IS NOT NULL
+)
+SELECT o.employee_id::text,
+       count(DISTINCT o.source_id) AS own_sources,
+       count(DISTINCT m.entity_id) AS entities
+FROM own o
+JOIN cmap.chunk ch ON ch.source_id = o.source_id
+JOIN cmap.mention m ON m.chunk_id = ch.id
+JOIN topic t ON t.id = m.entity_id
+GROUP BY o.employee_id
+ORDER BY own_sources DESC, entities DESC, o.employee_id
 """
 
 
@@ -167,7 +214,7 @@ def select_target(
     question: dict[str, Any],
     reachable: dict[str, Target],
 ) -> Target | None:
-    """Pick the most connected reachable Person for one open question."""
+    """Pick who to ask: manual pick, then evidence owner, then a named Person."""
     skipped = {str(item) for item in question.get("skipped_by") or []}
     manual = question.get("target_employee_id")
     if manual:
@@ -177,7 +224,14 @@ def select_target(
         return None
     if question.get("department") is not None:
         # Vetted question: ask whoever the vetting picked, never a bystander.
-        return _suggested_target(conn, question, reachable, skipped)
+        picked = _suggested_target(conn, question, reachable, skipped)
+        if picked is not None:
+            return picked
+        # The vetting found nobody: only someone who owns evidence qualifies.
+        return _evidence_contributor(conn, question, reachable, skipped)
+    picked = _evidence_contributor(conn, question, reachable, skipped)
+    if picked is not None:
+        return picked
     ids = [str(item) for item in question.get("entity_ids") or []]
     if not ids:
         return None
@@ -191,6 +245,31 @@ def select_target(
             target = reachable.get(name)
             if target is not None and target.employee_id not in skipped:
                 return target
+    return None
+
+
+def _evidence_contributor(
+    conn: psycopg.Connection,
+    question: dict[str, Any],
+    reachable: dict[str, Target],
+    skipped: set[str],
+) -> Target | None:
+    """The reachable employee who contributed the most evidence about the topic."""
+    ids = [str(item) for item in question.get("entity_ids") or []]
+    text = str(question.get("question") or "")
+    if not ids and not text.strip():
+        return None
+    q_person = normalize_name(text, "Person") if text.strip() else ""
+    q_proc = normalize_name(text, "Process") if text.strip() else ""
+    by_id = {target.employee_id: target for target in reachable.values()}
+    rows = conn.execute(
+        _EVIDENCE_CONTRIBUTOR_SQL,
+        {"ids": ids, "q_person": q_person, "q_proc": q_proc},
+    ).fetchall()
+    for employee_id, _sources, _entities in rows:
+        target = by_id.get(str(employee_id))
+        if target is not None and target.employee_id not in skipped:
+            return target
     return None
 
 
@@ -353,6 +432,7 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
             target = select_target(
                 conn,
                 {
+                    "question": text,
                     "entity_ids": entity_ids,
                     "target_employee_id": manual,
                     "skipped_by": skipped,

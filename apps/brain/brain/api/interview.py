@@ -180,7 +180,12 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
             if state == "open":
                 picked = select_target(
                     conn,
-                    {"entity_ids": entity_ids, "target_employee_id": target, "skipped_by": skipped},
+                    {
+                        "question": question,
+                        "entity_ids": entity_ids,
+                        "target_employee_id": target,
+                        "skipped_by": skipped,
+                    },
                     reachable,
                 )
                 if picked is not None:
