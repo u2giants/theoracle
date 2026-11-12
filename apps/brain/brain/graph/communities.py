@@ -1,17 +1,32 @@
-"""Community detection and hierarchical reports (plan step 8).
+"""Community detection and hierarchical reports (plan step 8, repair C3).
 
-Level 0: Leiden over the projected edge weights (weight = distinct sources).
-Level 1: Leiden over the level-0 communities. Level 2: one company report.
+Level 0: Leiden clusters inside one business function (an entity may appear
+in several, one per function it is assigned to; entities with no assignment
+share one logged unassigned bucket). Level 1: one report per function, whose
+row id is the function's own id — stable forever. Level 2: one company report.
 Each community gets one frontier-written report (``prompts/community_report.md``)
 built from its own data only, stored in ``cmap.community``; the report's open
 questions become ``cmap.open_question`` rows.
+
+Stable identities (repair C3): a level-0 cluster continues the previous
+build's cluster with the highest Jaccard overlap (≥ 0.5) inside the same
+function, reusing that row's id and title; a report is regenerated when its
+content hash (sorted entity ids + relation ids with their updated-at) changes,
+not only when its entity set changes. Rows are updated in place under their
+stable id, so recommendation and review-flag references survive every rebuild.
+A report written while a child report failed is stored ``incomplete`` so the
+next run regenerates it instead of caching it without the child. Over-budget
+context is map-reduced (summarised in batches, then combined) — never
+truncated silently.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -34,6 +49,7 @@ logger = logging.getLogger(__name__)
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 REPORT_PROMPT_PATH = PROMPTS_DIR / "community_report.md"
 KNOWLEDGE_PROMPT_PATH = PROMPTS_DIR / "knowledge_check.md"
+SUMMARISE_PROMPT_PATH = PROMPTS_DIR / "context_summary.md"
 PASSAGES_PER_QUESTION = 4
 PASSAGE_CHARS = 600
 CHECK_BATCH = 15
@@ -42,15 +58,21 @@ MAX_QUESTIONS_PER_AREA = 3
 MAX_PEOPLE_IN_CHECK = 30
 
 RESOLUTION_L0 = 1.0
-RESOLUTION_L1 = 0.5
 MIN_COMMUNITY = 3
 MAX_MERGED_COMMUNITY = 60
-MAX_L1_CHILDREN = 8
 MAX_COMMUNITY = 150
 MAX_CONTEXT_TOKENS = 12000
+MAX_SUMMARY_ROUNDS = 4
 MAX_EDGES_IN_CONTEXT = 40
 MAX_QUOTES_IN_CONTEXT = 25
 REPORT_WORKERS = 6
+# Repair C3: a level-0 cluster continues the previous build's cluster with the
+# highest Jaccard overlap at or above this threshold (same function only).
+CLUSTER_MATCH_MIN_JACCARD = 0.5
+# Clustering edges: MENTIONS and CONTRADICTS say nothing about how work moves;
+# sequence and hand-off relations carry the flow of work and count double.
+CLUSTER_EDGE_EXCLUDED = frozenset({"MENTIONS", "CONTRADICTS"})
+CLUSTER_EDGE_KIND_WEIGHTS = {"PRECEDES": 2.0, "HANDS_OFF_TO": 2.0}
 
 SCOPE_L0 = "one area of how a company operates"
 SCOPE_L1 = "one part of the company"
@@ -77,14 +99,193 @@ def _tokens(text: str) -> int:
     return len(encoder.encode(text, disallowed_special=()))
 
 
-def _fit(lines: list[str]) -> str:
-    """Join context lines under the token budget, dropping from the end."""
-    kept = list(lines)
-    text = "\n".join(kept)
-    while _tokens(text) > MAX_CONTEXT_TOKENS and len(kept) > 3:
-        kept.pop()
-        text = "\n".join(kept) + "\ncontext truncated"
-    return text
+def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> str:
+    """Join context lines under the token budget by map-reduce, never truncation.
+
+    An over-budget context is split into batches, each batch is summarised by
+    the frontier seat (``prompts/context_summary.md``) and the summaries are
+    combined; a still-over-budget combination is summarised again, up to
+    ``MAX_SUMMARY_ROUNDS`` rounds. Every input line reaches a model call — the
+    old behaviour silently dropped lines from the end and marked the damage
+    "context truncated" (audit C2).
+    """
+    text = "\n".join(lines)
+    if _tokens(text) <= MAX_CONTEXT_TOKENS:
+        return text
+    if _round >= MAX_SUMMARY_ROUNDS:
+        raise RuntimeError("context map-reduce did not converge under the token budget")
+    summaries = [
+        _ask_summary(frontier, "\n".join(batch))
+        for batch in _batch_lines(lines, max(64, MAX_CONTEXT_TOKENS // 2))
+    ]
+    combined = [
+        "COMBINED SUMMARIES (the full DATA below was summarised in batches; "
+        "nothing was dropped):"
+    ]
+    combined.extend(summaries)
+    return _fit(combined, frontier, _round + 1)
+
+
+def _batch_lines(lines: list[str], budget_tokens: int) -> list[list[str]]:
+    """Pack whole lines into batches under the token budget.
+
+    A single line larger than the budget (a long report body) is hard-split so
+    one oversized line can never wedge the batching.
+    """
+    batches: list[list[str]] = []
+    current: list[str] = []
+    current_tokens = 0
+    for line in lines:
+        line_tokens = _tokens(line)
+        if line_tokens > budget_tokens:
+            if current:
+                batches.append(current)
+                current, current_tokens = [], 0
+            chunk = max(64, budget_tokens * 3)
+            for start in range(0, len(line), chunk):
+                batches.append([line[start : start + chunk]])
+            continue
+        if current and current_tokens + line_tokens > budget_tokens:
+            batches.append(current)
+            current, current_tokens = [], 0
+        current.append(line)
+        current_tokens += line_tokens
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _ask_summary(frontier: _Frontier, batch_text: str) -> str:
+    """One batch summary from the frontier seat; an empty answer is a failure."""
+    template = SUMMARISE_PROMPT_PATH.read_text(encoding="utf-8")
+    prompt = template.replace("{{context}}", batch_text)
+    for _attempt in range(2):
+        result = frontier.ask(prompt)
+        summary = str(result.get("summary") or "").strip()
+        if summary:
+            return summary
+        logger.warning("context summarisation returned an empty summary")
+    raise RuntimeError("context summarisation returned no summary")
+
+
+def _clustering_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Clustering view of the projected edges (repair C3).
+
+    MENTIONS and CONTRADICTS never join clusters; PRECEDES and HANDS_OFF_TO
+    carry the flow of work and count double.
+    """
+    out: list[dict[str, Any]] = []
+    for edge in edges:
+        rel_type = str(edge.get("rel_type") or "")
+        if rel_type in CLUSTER_EDGE_EXCLUDED:
+            continue
+        weighted = dict(edge)
+        weighted["weight"] = float(edge["weight"]) * CLUSTER_EDGE_KIND_WEIGHTS.get(
+            rel_type, 1.0
+        )
+        out.append(weighted)
+    return out
+
+
+def _content_hash(conn: psycopg.Connection, entity_ids: list[str]) -> str:
+    """Hash of a report's inputs: sorted entity and relation ids, stamped.
+
+    The hash changes whenever any member entity or any relation among them
+    changes (their updated-at), so a report regenerates on a new relation even
+    when its entity set is unchanged (audit C2).
+    """
+    if not entity_ids:
+        return hashlib.sha256(b"").hexdigest()
+    rows = conn.execute(
+        "SELECT 'e', e.id::text, e.updated_at FROM cmap.entity e "
+        "WHERE e.id = ANY(%s::uuid[]) "
+        "UNION ALL "
+        "SELECT 'r', r.id::text, r.updated_at FROM cmap.relation r "
+        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+        "WHERE fm.entity_id = ANY(%s::uuid[]) AND tm.entity_id = ANY(%s::uuid[])",
+        (entity_ids, entity_ids, entity_ids),
+    ).fetchall()
+    parts = sorted(f"{kind}:{row_id}:{stamp.isoformat()}" for kind, row_id, stamp in rows)
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def _function_buckets(
+    conn: psycopg.Connection, nodes: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """One entity bucket per active function, plus the unassigned leftovers.
+
+    An entity assigned to several functions appears in each of their buckets
+    (repair C3). Entities with no active-function assignment land in one
+    unassigned bucket (``function_id`` NULL) so nothing disappears from the
+    map; the count is logged and reported in stats, never silent.
+    """
+    rows = conn.execute(
+        "SELECT ef.entity_id::text, ef.function_id::text, f.name "
+        "FROM cmap.entity_function ef "
+        "JOIN cmap.function f ON f.id = ef.function_id "
+        "WHERE f.active"
+    ).fetchall()
+    functions_of: dict[str, list[tuple[str, str]]] = {}
+    for entity_id, function_id, name in rows:
+        functions_of.setdefault(str(entity_id), []).append(
+            (str(function_id), str(name))
+        )
+    buckets: dict[str, dict[str, Any]] = {}
+    unassigned: list[dict[str, Any]] = []
+    for node in nodes:
+        assignments = functions_of.get(node["id"], [])
+        if not assignments:
+            unassigned.append(node)
+        for function_id, name in dict.fromkeys(assignments):
+            bucket = buckets.setdefault(
+                function_id,
+                {"function_id": function_id, "function_name": name, "nodes": []},
+            )
+            bucket["nodes"].append(node)
+    out = sorted(
+        buckets.values(),
+        key=lambda bucket: (bucket["function_name"], bucket["function_id"]),
+    )
+    if unassigned:
+        out.append(
+            {"function_id": None, "function_name": None, "nodes": unassigned}
+        )
+    return out
+
+
+def _match_previous(
+    clusters: list[dict[str, Any]], previous_rows: list[dict[str, Any]]
+) -> dict[int, dict[str, Any]]:
+    """Greedy one-to-one Jaccard match of new clusters to the previous build.
+
+    Each new cluster takes the previous cluster with the highest overlap at or
+    above ``CLUSTER_MATCH_MIN_JACCARD``; a claimed previous row serves only one
+    new cluster (a split keeps the id on the larger half, deterministically
+    ordered by score then position).
+    """
+    pairs: list[tuple[float, int, int]] = []
+    for position, cluster in enumerate(clusters):
+        members = set(cluster["member_ids"])
+        for previous_index, row in enumerate(previous_rows):
+            other = row["entity_ids"]
+            union = members | other
+            if not union:
+                continue
+            score = len(members & other) / len(union)
+            if score >= CLUSTER_MATCH_MIN_JACCARD:
+                pairs.append((score, position, previous_index))
+    pairs.sort(key=lambda item: (-item[0], item[1], item[2]))
+    used_clusters: set[int] = set()
+    used_rows: set[int] = set()
+    out: dict[int, dict[str, Any]] = {}
+    for _score, position, previous_index in pairs:
+        if position in used_clusters or previous_index in used_rows:
+            continue
+        used_clusters.add(position)
+        used_rows.add(previous_index)
+        out[position] = previous_rows[previous_index]
+    return out
 
 
 def _level0_membership(
@@ -373,76 +574,6 @@ def _entity_vectors(conn: psycopg.Connection) -> dict[str, list[float]]:
     return out
 
 
-def _level1_membership(
-    edges: list[dict[str, Any]], level0: dict[str, int]
-) -> dict[int, int]:
-    """Leiden over the level-0 communities (resolution 0.5)."""
-    communities = sorted(set(level0.values()))
-    index_of = {community: position for position, community in enumerate(communities)}
-    cross: dict[tuple[int, int], float] = {}
-    for edge in edges:
-        first = level0.get(edge["from"])
-        second = level0.get(edge["to"])
-        if first is None or second is None or first == second:
-            continue
-        key = (
-            min(index_of[first], index_of[second]),
-            max(index_of[first], index_of[second]),
-        )
-        cross[key] = cross.get(key, 0.0) + float(edge["weight"])
-    pairs = list(cross.keys())
-    graph = ig.Graph(n=len(communities), edges=pairs, directed=False)
-    if pairs:
-        graph.es["weight"] = [cross[key] for key in pairs]
-    partition = leidenalg.find_partition(
-        graph,
-        leidenalg.RBConfigurationVertexPartition,
-        weights="weight" if pairs else None,
-        resolution_parameter=RESOLUTION_L1,
-        max_comm_size=MAX_L1_CHILDREN,
-        seed=0,
-    )
-    membership = list(partition.membership)
-    # Keep the middle level readable (#410): split any level-1 group holding
-    # more than MAX_COMMUNITY entities: pack its children, largest first,
-    # into the bin they share the most edge weight with, under the cap.
-    entity_count = {community: 0 for community in communities}
-    for community in level0.values():
-        entity_count[community] += 1
-    groups: dict[int, list[int]] = {}
-    for position, group in enumerate(membership):
-        groups.setdefault(group, []).append(position)
-    next_id = max(membership, default=-1) + 1
-    for children in groups.values():
-        if sum(entity_count[communities[c]] for c in children) <= MAX_COMMUNITY:
-            continue
-        bins: list[tuple[int, list[int], int]] = []
-        for child in sorted(
-            children, key=lambda c: (-entity_count[communities[c]], c)
-        ):
-            size = entity_count[communities[child]]
-            best = None
-            best_weight = 0.0
-            for number, (_, members, total) in enumerate(bins):
-                if total + size > MAX_COMMUNITY:
-                    continue
-                weight = sum(
-                    cross.get((min(child, m), max(child, m)), 0.0) for m in members
-                )
-                if weight > best_weight:
-                    best, best_weight = number, weight
-            if best is None:
-                bins.append((next_id, [child], size))
-                next_id += 1
-            else:
-                bin_id, members, total = bins[best]
-                bins[best] = (bin_id, members + [child], total + size)
-        for bin_id, members, _ in bins:
-            for child in members:
-                membership[child] = bin_id
-    return {community: membership[index_of[community]] for community in communities}
-
-
 def _quote_rows(
     conn: psycopg.Connection, entity_ids: list[str]
 ) -> list[dict[str, Any]]:
@@ -476,11 +607,16 @@ def _context_l0(
     conn: psycopg.Connection,
     members: list[dict[str, Any]],
     edges: list[dict[str, Any]],
+    frontier: _Frontier,
+    function_name: str | None = None,
 ) -> str:
     """Entity list, top edges and quotes for one level-0 community."""
     member_ids = {member["id"] for member in members}
     names = {member["id"]: member["name"] for member in members}
-    lines = ["ENTITIES:"]
+    lines = []
+    if function_name:
+        lines.append(f"FUNCTION: {function_name}")
+    lines.append("ENTITIES:")
     for member in members:
         lines.append(
             f"- [{member['type']}] {member['name']}: "
@@ -508,19 +644,24 @@ def _context_l0(
     lines.append("QUOTES:")
     for item in quotes:
         lines.append(f'- [{item["source_id"]}] "{item["quote"]}"')
-    return _fit(lines)
+    return _fit(lines, frontier)
 
 
-def _context_reports(rows: list[dict[str, Any]]) -> str:
+def _context_reports(
+    rows: list[dict[str, Any]], frontier: _Frontier, header: str | None = None
+) -> str:
     """Level-1/2 context: the reports beneath, with findings."""
-    lines = ["REPORTS:"]
+    lines = []
+    if header:
+        lines.append(header)
+    lines.append("REPORTS:")
     for row in rows:
         lines.append(f"## {row['title']}")
         lines.append(str(row["summary"]))
         for finding in row["findings"]:
             lines.append(f"- [{finding.get('kind')}] {finding.get('text')}")
         lines.append(f"sources: {', '.join(row.get('source_ids') or [])}")
-    return _fit(lines)
+    return _fit(lines, frontier)
 
 
 def _ask_report(
@@ -594,9 +735,26 @@ def _store(
     entity_ids: list[str],
     graph_version: int,
     valid_sources: set[str],
+    *,
+    row_id: str | None = None,
+    function_id: str | None = None,
+    content_hash: str = "",
+    incomplete: bool = False,
+    title_override: str | None = None,
 ) -> tuple[str, int]:
+    """Write one report, updating its stable row in place when there is one.
+
+    ``row_id`` is the report's stable identity (the function's id at level 1,
+    the Jaccard-matched cluster id at level 0, the company row at level 2);
+    updating that row keeps every ``cmap.recommendation`` / ``cmap.review_flag``
+    reference valid across rebuilds. ``title_override`` keeps a matched
+    cluster's title (and sets the function name at level 1).
+    """
     findings, dropped = _filter_findings(report, valid_sources)
     report["findings"] = findings
+    if title_override is not None:
+        report["title"] = title_override
+        report["title_en"] = ""
     title_en = str(report.get("title_en") or "").strip()
     summary_en = str(report.get("summary_en") or "").strip()
     canonical = {
@@ -605,11 +763,20 @@ def _store(
         "findings": findings,
         "open_questions": report["open_questions"],
     }
+    community_id = row_id or str(uuid.uuid4())
     row = conn.execute(
-        "INSERT INTO cmap.community (level, parent_id, title, report_md, "
-        "findings, entity_ids, graph_version) VALUES (%s, %s, %s, %s, %s, %s, %s) "
+        "INSERT INTO cmap.community (id, level, parent_id, title, report_md, "
+        "findings, entity_ids, graph_version, content_hash, incomplete, function_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (id) DO UPDATE SET parent_id = EXCLUDED.parent_id, "
+        "title = EXCLUDED.title, report_md = EXCLUDED.report_md, "
+        "findings = EXCLUDED.findings, entity_ids = EXCLUDED.entity_ids, "
+        "graph_version = EXCLUDED.graph_version, "
+        "content_hash = EXCLUDED.content_hash, incomplete = EXCLUDED.incomplete, "
+        "function_id = EXCLUDED.function_id "
         "RETURNING id",
         (
+            community_id,
             level,
             parent_id,
             canonical["title"],
@@ -617,6 +784,9 @@ def _store(
             json.dumps(findings, ensure_ascii=False),
             entity_ids,
             graph_version,
+            content_hash,
+            incomplete,
+            function_id,
         ),
     ).fetchone()
     community_id = str(row[0])
@@ -852,30 +1022,77 @@ def _split_report_md(report_md: str) -> tuple[str, str]:
     return title.strip(), summary.strip()
 
 
-def _existing_reports(
-    conn: psycopg.Connection,
-) -> dict[tuple[int, frozenset[str]], dict[str, Any]]:
-    """Community rows already stored, keyed by (level, entity set).
+def _parse_row(row: Any) -> dict[str, Any]:
+    """One community row as reuse metadata (title/summary split from report_md)."""
+    title, summary = _split_report_md(row[2])
+    findings = row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]")
+    return {
+        "row_id": str(row[0]),
+        "title": title or str(row[1] or ""),
+        "summary": summary,
+        "findings": findings,
+        "entity_ids": frozenset(str(item) for item in (row[4] or [])),
+        "content_hash": row[5],
+        "incomplete": bool(row[6]),
+    }
 
-    A rerun over the same graph reuses them instead of asking the frontier
-    again (per-report upsert semantics), so a pass stopped partway continues
-    where it died.
+
+_ROW_COLUMNS = (
+    "id::text, title, report_md, findings, entity_ids, content_hash, incomplete"
+)
+
+
+def _previous_l0_rows(conn: psycopg.Connection) -> list[dict[str, Any]]:
+    """Level-0 rows as stored, for Jaccard identity matching and reuse.
+
+    A rerun over the same graph matches each new cluster to these rows,
+    reusing the matched row's id and title (and its whole report when the
+    content hash is unchanged), so a pass stopped partway continues where it
+    died.
     """
     rows = conn.execute(
-        "SELECT id, level, title, report_md, findings, entity_ids FROM cmap.community"
+        f"SELECT {_ROW_COLUMNS}, function_id::text FROM cmap.community "
+        "WHERE level = 0"
     ).fetchall()
-    out: dict[tuple[int, frozenset[str]], dict[str, Any]] = {}
+    out = []
     for row in rows:
-        title, summary = _split_report_md(row[3])
-        findings = row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]")
-        key = (int(row[1]), frozenset(str(item) for item in (row[5] or [])))
-        out[key] = {
-            "row_id": str(row[0]),
-            "title": title or str(row[2]),
-            "summary": summary,
-            "findings": findings,
-        }
+        parsed = _parse_row(row)
+        parsed["function_id"] = str(row[7]) if row[7] is not None else None
+        out.append(parsed)
     return out
+
+
+def _stored_row(conn: psycopg.Connection, row_id: str) -> dict[str, Any] | None:
+    """One community row by id, or None."""
+    row = conn.execute(
+        f"SELECT {_ROW_COLUMNS} FROM cmap.community WHERE id = %s", (row_id,)
+    ).fetchone()
+    return None if row is None else _parse_row(row)
+
+
+def _company_row(conn: psycopg.Connection) -> dict[str, Any] | None:
+    """The newest level-2 row (the company report's stable identity)."""
+    row = conn.execute(
+        f"SELECT {_ROW_COLUMNS} FROM cmap.community WHERE level = 2 "
+        "ORDER BY graph_version DESC, created_at DESC LIMIT 1"
+    ).fetchone()
+    return None if row is None else _parse_row(row)
+
+
+def _summary_of(stored: dict[str, Any]) -> dict[str, Any]:
+    """The parent-facing summary block of one report."""
+    return {
+        "title": stored["title"],
+        "summary": stored["summary"],
+        "findings": stored["findings"],
+        "source_ids": sorted(
+            {
+                source_id
+                for finding in stored["findings"]
+                for source_id in finding.get("source_ids", [])
+            }
+        ),
+    }
 
 
 def _ask_with_retry(
@@ -925,7 +1142,13 @@ def _ask_many(
 
 
 def run_communities(settings: Settings | None = None) -> dict[str, Any]:
-    """Detect communities and write their reports at levels 0, 1 and 2."""
+    """Detect communities and write their reports at levels 0, 1 and 2.
+
+    Level 0 is Leiden per function bucket, level 1 is one report per function
+    (row id = the function's id), level 2 is the company report. A report is
+    reused only while its content hash is unchanged and every child report is
+    present; otherwise it is regenerated in place under its stable id.
+    """
     cfg = settings if settings is not None else get_settings()
     frontier = _Frontier(cfg, "reports")
     stats: dict[str, Any] = {
@@ -937,6 +1160,8 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         "findings_dropped": 0,
         "open_questions": 0,
         "open_questions_retired": 0,
+        "cluster_ids_reused": 0,
+        "unassigned_entities": 0,
     }
     seen_questions: set[str] = set()
     kept_sets: set[frozenset[str]] = set()
@@ -955,182 +1180,327 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             .fetchone()[0]
         )
         entity_ids = [node["id"] for node in nodes]
-        level0 = _level0_membership(
-            edges, entity_ids, _entity_sources(conn), _entity_vectors(conn)
+        cluster_edges = _clustering_edges(edges)
+        entity_sources = _entity_sources(conn)
+        entity_vectors = _entity_vectors(conn)
+
+        buckets = _function_buckets(conn, nodes)
+        stats["unassigned_entities"] = sum(
+            len(bucket["nodes"]) for bucket in buckets if bucket["function_id"] is None
         )
-        level1 = _level1_membership(edges, level0)
-        by_community: dict[int, list[dict[str, Any]]] = {}
-        for node in nodes:
-            by_community.setdefault(level0[node["id"]], []).append(node)
-        stats["communities_l0"] = len(by_community)
-        stats["communities_l1"] = len(set(level1.values()))
-        existing = _existing_reports(conn)
+        if stats["unassigned_entities"]:
+            logger.warning(
+                "%d entities carry no active function assignment and are "
+                "clustered in the unassigned bucket",
+                stats["unassigned_entities"],
+            )
 
-        # Contexts first, serially: identical input order to a serial pass.
-        l0_items: list[tuple[int, list[str], tuple[int, frozenset[str]], str]] = []
-        for community, members in sorted(by_community.items()):
-            member_ids = [member["id"] for member in members]
-            key = (0, frozenset(str(item) for item in member_ids))
-            l0_items.append((community, member_ids, key, _context_l0(conn, members, edges)))
-
-        def _finish_l0(
-            community: int,
-            member_ids: list[str],
-            key: tuple[int, frozenset[str]],
-            report: dict[str, Any] | None,
-        ) -> tuple[dict[str, Any], str]:
-            if key in existing:
-                kept_sets.add(key[1])
-                stored = existing[key]
-                row_id = stored["row_id"]
-                conn.execute(
-                    "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
-                    (graph_version, row_id),
-                )
-                conn.commit()
-                stats["reports_reused"] += 1
-            elif report is not None:
-                stored = report
-                row_id, dropped = _store(
-                    conn, 0, None, stored, member_ids, graph_version, valid_sources
-                )
-                stats["findings_dropped"] += dropped
-                stats["open_questions"] += _store_open_questions(
-                    conn, stored, member_ids, frontier, cfg, seen_questions
-                )
-                conn.commit()
-            else:
-                stats["reports_failed"] += 1
-                raise KeyError(community)
-            stats["reports"] += 1
-            return {
-                "title": stored["title"],
-                "summary": stored["summary"],
-                "findings": stored["findings"],
-                "source_ids": sorted(
+        # Level 0: one Leiden pass per function bucket — an entity assigned to
+        # several functions appears in one cluster per function.
+        clusters: list[dict[str, Any]] = []
+        for bucket in buckets:
+            bucket_ids = [member["id"] for member in bucket["nodes"]]
+            membership = _level0_membership(
+                cluster_edges, bucket_ids, entity_sources, entity_vectors
+            )
+            grouped: dict[int, list[str]] = {}
+            for entity_id, community in membership.items():
+                grouped.setdefault(community, []).append(entity_id)
+            node_by_id = {member["id"]: member for member in bucket["nodes"]}
+            for community in sorted(grouped):
+                member_ids = sorted(grouped[community])
+                clusters.append(
                     {
-                        source_id
-                        for finding in stored["findings"]
-                        for source_id in finding.get("source_ids", [])
+                        "function_id": bucket["function_id"],
+                        "function_name": bucket["function_name"],
+                        "member_ids": member_ids,
+                        "members": [node_by_id[entity_id] for entity_id in member_ids],
                     }
-                ),
-            }, row_id
+                )
+        clusters.sort(
+            key=lambda cluster: (
+                cluster["function_id"] or "",
+                tuple(cluster["member_ids"]),
+            )
+        )
+        stats["communities_l0"] = len(clusters)
 
+        # Stable identities: each cluster continues the previous build's
+        # cluster with the highest Jaccard overlap in the same function,
+        # reusing that row's id and title (repair C3).
+        previous_by_function: dict[str | None, list[dict[str, Any]]] = {}
+        for row in _previous_l0_rows(conn):
+            previous_by_function.setdefault(row["function_id"], []).append(row)
+        by_function: dict[str | None, list[dict[str, Any]]] = {}
+        for cluster in clusters:
+            cluster["content_hash"] = _content_hash(conn, cluster["member_ids"])
+            cluster["failed"] = False
+            cluster["kept"] = False
+            cluster["summary"] = None
+            cluster["previous"] = None
+            by_function.setdefault(cluster["function_id"], []).append(cluster)
+        for function_id, group in by_function.items():
+            matched = _match_previous(group, previous_by_function.get(function_id, []))
+            for position, cluster in enumerate(group):
+                previous = matched.get(position)
+                if previous is None:
+                    cluster["row_id"] = None
+                    cluster["title_override"] = None
+                    cluster["reuse"] = False
+                    continue
+                cluster["previous"] = previous
+                cluster["row_id"] = previous["row_id"]
+                cluster["title_override"] = previous["title"]
+                cluster["reuse"] = (
+                    not previous["incomplete"]
+                    and previous["content_hash"] == cluster["content_hash"]
+                )
+                stats["cluster_ids_reused"] += 1
+
+        # Ask level 0 only where the content hash changed or the row is new.
+        # Contexts (and their map-reduce summaries) build serially first, so
+        # the written rows match a serial pass exactly.
+        ask_items = [cluster for cluster in clusters if not cluster["reuse"]]
+        for position, cluster in enumerate(ask_items):
+            cluster["ask_index"] = position
         asked = _ask_many(
             frontier,
             [
-                (SCOPE_L0, "", context)
-                for community, member_ids, key, context in l0_items
-                if key not in existing
+                (
+                    SCOPE_L0,
+                    "",
+                    _context_l0(
+                        conn,
+                        cluster["members"],
+                        edges,
+                        frontier,
+                        function_name=cluster["function_name"],
+                    ),
+                )
+                for cluster in ask_items
             ],
         )
-        summaries: dict[int, dict[str, Any]] = {}
-        row_ids: dict[int, str] = {}
-        ask_index = 0
-        for community, member_ids, key, _context in l0_items:
-            report = None
-            if key not in existing:
-                report = asked[ask_index]
-                ask_index += 1
-                if report is None:
-                    stats["reports_failed"] += 1
-                    continue
-            summary, row_id = _finish_l0(community, member_ids, key, report)
-            summaries[community] = summary
-            row_ids[community] = row_id
-
-        level1_groups = _group_summaries(level1, summaries)
-        level1_rows: dict[int, str] = {}
-        level1_items: list[tuple[int, list[dict[str, Any]], list[str], tuple[int, frozenset[str]], str]] = []
-        for level1_id, report_rows in level1_groups.items():
-            member_ids = _member_ids(level1, level0, level1_id)
-            key = (1, frozenset(str(item) for item in member_ids))
-            level1_items.append(
-                (level1_id, report_rows, member_ids, key, _context_reports(report_rows))
-            )
-        asked_l1 = _ask_many(
-            frontier,
-            [
-                (SCOPE_L1, "", context)
-                for level1_id, report_rows, member_ids, key, context in level1_items
-                if key not in existing
-            ],
-        )
-        ask_index = 0
-        for level1_id, _report_rows, member_ids, key, _context in level1_items:
-            if key in existing:
-                kept_sets.add(key[1])
-                row_id = existing[key]["row_id"]
+        for cluster in clusters:
+            if cluster["reuse"]:
+                cluster["summary"] = _summary_of(cluster["previous"])
+                cluster["kept"] = True
                 conn.execute(
-                    "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
-                    (graph_version, row_id),
+                    "UPDATE cmap.community SET graph_version = %s, "
+                    "function_id = %s WHERE id = %s",
+                    (graph_version, cluster["function_id"], cluster["row_id"]),
                 )
                 conn.commit()
+                kept_sets.add(frozenset(cluster["member_ids"]))
                 stats["reports_reused"] += 1
                 stats["reports"] += 1
-                level1_rows[level1_id] = row_id
                 continue
-            report = asked_l1[ask_index]
-            ask_index += 1
+            report = asked[cluster["ask_index"]]
             if report is None:
+                # A failed child leaves no row; its parents are regenerated
+                # (never reused) and marked incomplete below.
                 stats["reports_failed"] += 1
+                cluster["failed"] = True
                 continue
             row_id, dropped = _store(
-                conn, 1, None, report, member_ids, graph_version, valid_sources
+                conn,
+                0,
+                None,
+                report,
+                cluster["member_ids"],
+                graph_version,
+                valid_sources,
+                row_id=cluster["row_id"],
+                function_id=cluster["function_id"],
+                content_hash=cluster["content_hash"],
+                title_override=cluster["title_override"],
             )
-            level1_rows[level1_id] = row_id
             stats["findings_dropped"] += dropped
+            stats["open_questions"] += _store_open_questions(
+                conn, report, cluster["member_ids"], frontier, cfg, seen_questions
+            )
+            conn.commit()
+            cluster["row_id"] = row_id
+            cluster["summary"] = _summary_of(report)
+            cluster["kept"] = True
             stats["reports"] += 1
+
+        # Level 1: one report per function; the row id IS the function's id,
+        # so it is stable for ever and references survive regeneration.
+        function_groups: dict[str, list[dict[str, Any]]] = {}
+        for cluster in clusters:
+            if cluster["function_id"] is not None:
+                function_groups.setdefault(cluster["function_id"], []).append(cluster)
+        level1_rows: dict[str, str] = {}
+        for function_id in sorted(
+            function_groups,
+            key=lambda key: (function_groups[key][0]["function_name"], key),
+        ):
+            group = function_groups[function_id]
+            function_name = group[0]["function_name"]
+            member_ids = sorted(
+                {member for cluster in group for member in cluster["member_ids"]}
+            )
+            content_hash = _content_hash(conn, member_ids)
+            available = [
+                cluster["summary"] for cluster in group if cluster["summary"] is not None
+            ]
+            complete = len(available) == len(group)
+            existing = _stored_row(conn, function_id)
+            stats["communities_l1"] += 1
+            if (
+                existing
+                and not existing["incomplete"]
+                and existing["content_hash"] == content_hash
+                and complete
+            ):
+                kept_sets.add(frozenset(member_ids))
+                conn.execute(
+                    "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
+                    (graph_version, function_id),
+                )
+                conn.commit()
+                level1_rows[function_id] = function_id
+                stats["reports_reused"] += 1
+                stats["reports"] += 1
+                continue
+            if not available:
+                # Every child failed: a report built from nothing is worse
+                # than the old one flagged incomplete for the next run.
+                if existing:
+                    conn.execute(
+                        "UPDATE cmap.community SET incomplete = true WHERE id = %s",
+                        (function_id,),
+                    )
+                    conn.commit()
+                continue
+            report = _ask_with_retry(
+                frontier,
+                SCOPE_L1,
+                "",
+                _context_reports(
+                    available, frontier, header=f"FUNCTION: {function_name}"
+                ),
+            )
+            if report is None:
+                stats["reports_failed"] += 1
+                if existing:
+                    conn.execute(
+                        "UPDATE cmap.community SET incomplete = true WHERE id = %s",
+                        (function_id,),
+                    )
+                    conn.commit()
+                continue
+            row_id, dropped = _store(
+                conn,
+                1,
+                None,
+                report,
+                member_ids,
+                graph_version,
+                valid_sources,
+                row_id=function_id,
+                function_id=function_id,
+                content_hash=content_hash,
+                incomplete=not complete,
+                title_override=function_name,
+            )
+            stats["findings_dropped"] += dropped
             stats["open_questions"] += _store_open_questions(
                 conn, report, member_ids, frontier, cfg, seen_questions
             )
             conn.commit()
+            level1_rows[function_id] = row_id
+            stats["reports"] += 1
 
-        for level1_id, parent_row in level1_rows.items():
-            children = _child_rows(row_ids, level1, level1_id)
-            if children:
-                conn.execute(
-                    "UPDATE cmap.community SET parent_id = %s WHERE id = ANY(%s::uuid[])",
-                    (parent_row, children),
-                )
-                conn.commit()
-
-        company_key = (2, frozenset(str(item) for item in entity_ids))
-        if company_key in existing:
-            kept_sets.add(company_key[1])
-            company_row = existing[company_key]["row_id"]
+        # Level 2: the company report over every level-0 summary. Any failed
+        # child marks it incomplete so the next run regenerates it.
+        any_failed = stats["reports_failed"] > 0
+        l0_summaries = [
+            cluster["summary"] for cluster in clusters if cluster["summary"] is not None
+        ]
+        company_hash = _content_hash(conn, entity_ids)
+        existing_company = _company_row(conn)
+        if (
+            existing_company
+            and not existing_company["incomplete"]
+            and existing_company["content_hash"] == company_hash
+            and not any_failed
+        ):
+            company_row = existing_company["row_id"]
+            kept_sets.add(frozenset(entity_ids))
             conn.execute(
                 "UPDATE cmap.community SET graph_version = %s WHERE id = %s",
                 (graph_version, company_row),
             )
+            conn.commit()
             stats["reports_reused"] += 1
         else:
             company = _ask_with_retry(
                 frontier,
                 SCOPE_L2,
                 COMPANY_EXTRA,
-                _context_reports(list(summaries.values())),
+                _context_reports(l0_summaries, frontier),
             )
             if company is None:
                 raise RuntimeError("company community report failed after retries")
             company_row, dropped = _store(
-                conn, 2, None, company, entity_ids, graph_version, valid_sources
+                conn,
+                2,
+                None,
+                company,
+                entity_ids,
+                graph_version,
+                valid_sources,
+                row_id=existing_company["row_id"] if existing_company else None,
+                content_hash=company_hash,
+                incomplete=any_failed,
             )
             stats["findings_dropped"] += dropped
             stats["open_questions"] += _store_open_questions(
                 conn, company, entity_ids, frontier, cfg, seen_questions
             )
+            conn.commit()
         stats["reports"] += 1
-        conn.execute(
-            "UPDATE cmap.community SET parent_id = %s WHERE id = ANY(%s::uuid[])",
-            (company_row, list(level1_rows.values())),
-        )
+
+        # Wire the tree: level 0 under its function report (unassigned
+        # clusters straight under the company), functions under the company.
+        for function_id, parent_row in level1_rows.items():
+            children = [
+                cluster["row_id"]
+                for cluster in function_groups[function_id]
+                if cluster["kept"] and cluster["row_id"]
+            ]
+            if children:
+                conn.execute(
+                    "UPDATE cmap.community SET parent_id = %s WHERE id = ANY(%s::uuid[])",
+                    (parent_row, children),
+                )
+        unassigned_children = [
+            cluster["row_id"]
+            for cluster in clusters
+            if cluster["function_id"] is None and cluster["kept"] and cluster["row_id"]
+        ]
+        if unassigned_children:
+            conn.execute(
+                "UPDATE cmap.community SET parent_id = %s WHERE id = ANY(%s::uuid[])",
+                (company_row, unassigned_children),
+            )
+        if level1_rows:
+            conn.execute(
+                "UPDATE cmap.community SET parent_id = %s WHERE id = ANY(%s::uuid[])",
+                (company_row, list(level1_rows.values())),
+            )
         conn.commit()
         stats["open_questions_retired"] = _refresh_open_questions(
             conn, run_started, kept_sets, frontier, cfg
         )
         if cfg.brain_community_prune_enabled:
-            selected = [*row_ids.values(), *level1_rows.values(), company_row]
+            selected = [
+                cluster["row_id"]
+                for cluster in clusters
+                if cluster["kept"] and cluster["row_id"]
+            ]
+            selected += [*level1_rows.values(), company_row]
             stats["communities_pruned"] = prune_old_versions(
                 conn, graph_version, selected
             )
@@ -1183,35 +1553,6 @@ def prune_old_versions(
     )
     conn.execute("DELETE FROM cmap.community WHERE id = ANY(%s::uuid[])", (doomed,))
     return len(doomed)
-
-
-def _group_summaries(
-    level1: dict[int, int], summaries: dict[int, dict[str, Any]]
-) -> dict[int, list[dict[str, Any]]]:
-    out: dict[int, list[dict[str, Any]]] = {}
-    for community, summary in summaries.items():
-        out.setdefault(level1[community], []).append(summary)
-    return out
-
-
-def _member_ids(
-    level1: dict[int, int], level0: dict[str, int], level1_id: int
-) -> list[str]:
-    return [
-        entity_id
-        for entity_id, community in level0.items()
-        if level1[community] == level1_id
-    ]
-
-
-def _child_rows(
-    row_ids: dict[int, str], level1: dict[int, int], level1_id: int
-) -> list[str]:
-    return [
-        row_id
-        for community, row_id in row_ids.items()
-        if level1[community] == level1_id
-    ]
 
 
 def handle_communities(job: dict[str, Any]) -> None:

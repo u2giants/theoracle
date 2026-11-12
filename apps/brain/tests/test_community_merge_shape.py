@@ -16,7 +16,6 @@ from brain.graph.communities import (
     MAX_COMMUNITY,
     MIN_COMMUNITY,
     _level0_membership,
-    _level1_membership,
 )
 
 
@@ -119,18 +118,3 @@ def test_oversized_community_is_split() -> None:
     assert sum(sizes.values()) == 200
     assert [size for size in sizes.values() if size < MIN_COMMUNITY] == []
     assert max(sizes.values()) <= MAX_COMMUNITY
-
-
-def test_level1_groups_stay_under_entity_cap() -> None:
-    # 30 level-0 communities of 40 entities, chained densely: Leiden alone
-    # would lump them into a few giant level-1 groups.
-    level0 = {f"e{c}_{i}": c for c in range(30) for i in range(40)}
-    edges = [
-        {"from": f"e{c}_0", "to": f"e{d}_0", "weight": 5}
-        for c in range(30)
-        for d in range(c + 1, min(c + 6, 30))
-    ]
-    level1 = _level1_membership(edges, level0)
-    totals = Counter(level1[community] for community in level0.values())
-    assert max(totals.values()) <= MAX_COMMUNITY
-    assert len(totals) < 30  # still a real middle level, not one per child
