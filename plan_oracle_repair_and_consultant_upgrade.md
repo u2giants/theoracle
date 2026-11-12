@@ -61,7 +61,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 | G2 | Merge, split, rename | G1 | ⬜ open | | |
 | G3 | Identity repair pass | G2 | ⬜ open | | |
 | G4 | Employee feedback on answers | G1 | ⬜ open | | |
-| H1 | Every sentence is supported or marked | B2 | ⬜ open | | |
+| H1 | Every sentence is supported or marked | B2 | ✅ done | `T/test_answer.py::test_unsupported_sentence_marked`, `::test_uncited_sentence_marked`, `::test_global_cannot_cite_unseen_source`; PR https://github.com/u2giants/theoracle/pull/563; gaps: `(verifying)` marks have no async fill-in job, and numbered-list spans still merge in the sentence splitter | 2026-11-12 5:50 AM EST |
 | H2 | Honest "I don't know" that feeds the gap finder | F1 | ⬜ open | | |
 | H3 | Ask the Oracle in Teams | C4 | ⬜ open | | |
 | H4 | Conversation memory and question log | — | ⬜ open | | |
