@@ -209,7 +209,10 @@ def live_gate(
                     )
             return decision
         job = payload.get("latest_job") or {}
-        if job.get("state") == "failed":
+        # A job that errored is a gate failure even while A2's retry logic
+        # re-queues it: the plan fails the gate on "any error occurs", and
+        # waiting out the backoff only delays the same verdict.
+        if job.get("state") == "failed" or job.get("error"):
             return GateDecision(
                 passed=False,
                 reason=f"eval job failed: {job.get('error') or 'no error text'}",
