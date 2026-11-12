@@ -96,6 +96,44 @@ def _wrap(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class FakeSupport:
+    """Flat-seat seam (H1): per-sentence support verdicts and one-shot rewrites.
+
+    The default verdict is ``supported`` so replayed answers pass unchanged;
+    tests pin ``verdicts`` / ``rewrites`` by sentence substring (casefolded).
+    """
+
+    def __init__(self) -> None:
+        self.verdicts: dict[str, str] = {}
+        self.rewrites: dict[str, str] = {}
+        self.check_prompts: list[str] = []
+        self.rewrite_prompts: list[str] = []
+
+    @staticmethod
+    def _sentence(prompt: str) -> str:
+        marker = "SENTENCE:\n"
+        if marker not in prompt:
+            return ""
+        return prompt.split(marker, 1)[1].split("\n\n", 1)[0].strip()
+
+    def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+        del settings
+        prompt = str(messages[-1]["content"])
+        sentence = self._sentence(prompt)
+        folded = sentence.casefold()
+        if "REWRITE THIS SENTENCE" in prompt:
+            self.rewrite_prompts.append(prompt)
+            for key, text in self.rewrites.items():
+                if key.casefold() in folded:
+                    return _wrap({"sentence": text})
+            return _wrap({"sentence": sentence})
+        self.check_prompts.append(prompt)
+        for key, verdict in self.verdicts.items():
+            if key.casefold() in folded:
+                return _wrap({"support": verdict})
+        return _wrap({"support": "supported"})
+
+
 class FakeAnswer:
     """Replay frontier answer calls, split by local / global / map prompts.
 
@@ -111,6 +149,7 @@ class FakeAnswer:
         self.calls: list[str] = []
         self.extra_citations: list[dict[str, Any]] = []
         self.override: dict[str, Any] | None = None
+        self.support = FakeSupport()
         self.local_recorded = load_recorded("frontier/answer_local.json")
 
     @staticmethod
@@ -222,6 +261,7 @@ def fake_answer(monkeypatch: pytest.MonkeyPatch) -> FakeAnswer:
     """Replay frontier answer calls through the answer module's HTTP seam."""
     fake = FakeAnswer()
     monkeypatch.setattr(answer_mod, "_post_chat", fake)
+    monkeypatch.setattr(answer_mod, "_post_flat", fake.support)
     return fake
 
 
@@ -465,11 +505,17 @@ def test_global_answer_ranks_licensing_delay_top(
     assert {item["source_id"] for item in result["citations"]} == {proc, tx, flow}
     for cite in result["citations"]:
         assert cite["title"].startswith("flat-test single chunk")
-        assert cite["chunk_id"]
+        assert cite["chunk_id"] is None
         assert cite["quote"]
-        assert cite["locator"] is not None
-    by_source = {item["source_id"]: item for item in result["citations"]}
-    assert by_source[proc]["chunk_id"] == base_chunk
+        assert cite["locator"] is None
+    # H1: the quote is the supporting finding text the prompt showed, never
+    # the nearest chunk (the second procedure page is not evidence at all).
+    assert {item["quote"] for item in result["citations"]} == {
+        "Licensing delay blocks artwork release",
+        "PO exceptions pile up over weekends",
+        "Sample room checks are chronically late",
+    }
+    assert "second procedure page" not in json.dumps(result["citations"])
     assert [item["title"] for item in result["communities"]] == [
         "Licensing",
         "PO",
@@ -644,6 +690,7 @@ def test_answer_endpoint_round_trip(
         "entities",
         "communities",
         "unknowns",
+        "supported_share",
     }
     assert body["mode_used"] == "local"
     assert body["citations"][0]["source_id"] == source_id
@@ -667,13 +714,10 @@ def test_global_word_source_id_dropped(answer_env: None, db: Any) -> None:
     Measured on the bake-off (2026-11-01): a candidate answered with
     source_id "REPORTS" and the uuid column rejected the lookup.
     """
-    from brain.config import get_settings
-
     md, kept = answer_mod._finalize_global(
         "The process stalls at the review step [1].",
         [{"source_id": "REPORTS", "quote": "any words"}],
-        get_settings(),
-        {},
+        [],
     )
     assert kept == []
     assert "(uncited)" in md
@@ -727,3 +771,163 @@ def test_global_ignores_superseded_reports(
     assert {item["source_id"] for item in result["citations"]} == {new}
     assert all("old build" not in item["title"] for item in result["communities"])
     assert all("two days" not in prompt for prompt in fake.prompts)
+
+
+# ------------------------------- H1: every sentence supported or marked
+
+
+def test_unsupported_sentence_marked(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """H1 gate: a sentence its quotes do not support is rewritten once, then marked.
+
+    Policy: the rewrite is adopted only when a re-check finds it supported;
+    otherwise the original sentence is shown with
+    ``(unsupported \u2014 my inference)`` (shown, never deleted).
+    """
+    fake_embeds(monkeypatch, {})
+    _seed_minimal(db)
+    run_project()
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.support.verdicts = {"robot": "not"}
+    fake.support.rewrites = {"robot": "Robots cause every delay [1]."}
+    fake.override = {
+        "answer_md": (
+            "The sign-off stalls at the licensor review step [1]. "
+            "A robot army halts the sign-off step [1]."
+        ),
+        "unknowns": [],
+    }
+    result = answer_question(STALL_QUESTION, "local", [])
+    assert (
+        "A robot army halts the sign-off step. [1] (unsupported \u2014 my inference)"
+        in result["answer_md"]
+    )
+    assert result["supported_share"] == pytest.approx(0.5)
+    assert len(fake.support.check_prompts) == 3  # two checks plus the re-check
+    assert len(fake.support.rewrite_prompts) == 1
+
+
+def test_unsupported_sentence_rewrite_adopted(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """H1 policy: a rewrite the re-check finds supported is adopted, unmarked."""
+    fake_embeds(monkeypatch, {})
+    _seed_minimal(db)
+    run_project()
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.support.verdicts = {"robot": "not"}
+    fake.support.rewrites = {
+        "robot": "The sign-off stalls at the licensor review step [1]."
+    }
+    fake.override = {
+        "answer_md": (
+            "The sign-off stalls at the licensor review step [1]. "
+            "A robot army halts the sign-off step [1]."
+        ),
+        "unknowns": [],
+    }
+    result = answer_question(STALL_QUESTION, "local", [])
+    assert "A robot army" not in result["answer_md"]
+    assert "robot" not in result["answer_md"]
+    assert "(unsupported" not in result["answer_md"]
+    assert result["supported_share"] == pytest.approx(1.0)
+
+
+def test_uncited_sentence_marked(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """H1 gate: a sentence with no citation is marked (uncited), never passed through."""
+    fake_embeds(monkeypatch, {})
+    _seed_minimal(db)
+    run_project()
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.override = {
+        "answer_md": (
+            "The sign-off stalls at the licensor review step [1]. "
+            "A bare claim floats without any source at all."
+        ),
+        "unknowns": [],
+    }
+    result = answer_question(STALL_QUESTION, "local", [])
+    assert (
+        "A bare claim floats without any source at all. (uncited)"
+        in result["answer_md"]
+    )
+    assert result["supported_share"] == pytest.approx(0.5)
+
+
+def test_global_cannot_cite_unseen_source(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """H1 gate: company-wide mode cites only sources present in the prompt."""
+    fake_embeds(monkeypatch, {})
+    seen = _seed_text(db, "The licensor sign-off stalls the release.", "seen")
+    unseen = _seed_text(db, "A secret side process nobody saw.", "unseen")
+    db.execute(
+        "INSERT INTO cmap.community (level, parent_id, title, report_md, "
+        "findings, entity_ids, graph_version) "
+        "VALUES (1, NULL, %s, %s, %s, %s, 0)",
+        (
+            "Sign-off",
+            "# Sign-off\n\nSummary.\n\n## Findings",
+            json.dumps(
+                [
+                    {
+                        "text": "Sign-off stalls the release",
+                        "kind": "bottleneck",
+                        "stance": "report",
+                        "source_ids": [seen],
+                    }
+                ]
+            ),
+            [],
+        ),
+    )
+    db.commit()
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.override = {
+        "answer_md": (
+            "The release stalls at sign-off [1]. "
+            "A side process hides the truth [2]."
+        ),
+        "citations": [{"source_id": seen}, {"source_id": unseen}],
+        "unknowns": [],
+    }
+    result = answer_question("What stalls the release?", "global", [])
+    assert [item["source_id"] for item in result["citations"]] == [seen]
+    # H1: the quote is the prompt's supporting evidence text, not a chunk.
+    assert result["citations"][0]["quote"] == "Sign-off stalls the release"
+    assert result["citations"][0]["chunk_id"] is None
+    assert "A side process hides the truth. (uncited)" in result["answer_md"]
+    assert result["supported_share"] == pytest.approx(0.5)
+
+
+def test_staged_check_marks_leftovers_verifying(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Plan §13 staged path: past the budget, non-priority sentences show (verifying)."""
+    fake_embeds(monkeypatch, {})
+    _seed_minimal(db)
+    run_project()
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    monkeypatch.setattr(answer_mod, "SUPPORT_PARALLEL_MAX", 1)
+    monkeypatch.setattr(answer_mod, "SUPPORT_BUDGET_S", 0.0)
+    fake.override = {
+        "answer_md": (
+            "The count reached 5 in 2026 [1]. "
+            "plain claim alpha [1]. "
+            "plain claim beta [1]."
+        ),
+        "unknowns": [],
+    }
+    result = answer_question(STALL_QUESTION, "local", [])
+    assert "The count reached 5 in 2026. [1]" in result["answer_md"]
+    assert "plain claim alpha. [1] (verifying)" in result["answer_md"]
+    assert "plain claim beta. [1] (verifying)" in result["answer_md"]
+    assert result["supported_share"] == pytest.approx(round(1 / 3, 4))

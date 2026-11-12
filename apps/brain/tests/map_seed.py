@@ -281,7 +281,7 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     The first run drops every citation (as a broken pipeline would) so the
     page has a run-over-run change to show; the second is the normal replay.
     """
-    from test_answer import _point_embeddings, fake_compress
+    from test_answer import FakeSupport, _point_embeddings, fake_compress
     from test_eval_fixture import EvalAnswers, KeywordGrader
 
     from brain.answer import answer as answer_mod
@@ -295,6 +295,7 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     db.execute("UPDATE cmap.eval_question SET approved_at = now()")
     db.commit()
     monkeypatch.setattr(answer_mod, "_post_chat", EvalAnswers())
+    monkeypatch.setattr(answer_mod, "_post_flat", FakeSupport())
     monkeypatch.setattr(eval_mod, "_post_chat", KeywordGrader())
     fake_compress(monkeypatch)
     real_finalize = answer_mod._finalize_local
