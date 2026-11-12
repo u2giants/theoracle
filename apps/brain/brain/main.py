@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from brain.api.answer import router as answer_router
 from brain.api.eval import router as eval_router
 from brain.api.flags import router as flags_router
+from brain.api.functions import router as functions_router
 from brain.api.interview import router as interview_router
 from brain.api.map import router as map_router
 from brain.api.models import router as models_router
@@ -22,6 +23,7 @@ app.include_router(flags_router)
 app.include_router(answer_router)
 app.include_router(map_router)
 app.include_router(eval_router)
+app.include_router(functions_router)
 app.include_router(interview_router)
 app.include_router(models_router)
 app.include_router(recommend_router)

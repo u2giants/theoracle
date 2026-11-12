@@ -398,3 +398,26 @@ test('health panel shows the seeded failed job with its error text', async ({ pa
     await b4SeedFailedJob(false);
   }
 });
+
+// Repair plan C1: the curated business-function list. The page renders the
+// 13 seeded functions with their aliases and the admin rename/merge/add/
+// retire controls. Times shown to humans are New York (EST/EDT); this page
+// shows none.
+test('functions page renders the curated function list', async ({ page, context }) => {
+  await signIn(context);
+  await page.goto('/map/functions');
+  const rows = page.getByTestId('function-row');
+  await expect(rows).toHaveCount(13, { timeout: 60_000 });
+  const sales = rows.filter({ has: page.getByTestId('function-key').filter({ hasText: 'sales-customer-accounts' }) });
+  await expect(sales.getByTestId('function-name')).toHaveText('Sales & Customer Accounts');
+  await expect(sales.getByTestId('function-aliases')).toContainText('Sales Team');
+  const licensing = rows.filter({ has: page.getByTestId('function-key').filter({ hasText: /^licensing$/ }) });
+  await expect(licensing.getByTestId('function-aliases')).toContainText('Licensing Team');
+  await expect(rows.filter({ has: page.getByTestId('function-key').filter({ hasText: 'sampling' }) }).getByTestId('function-name')).toHaveText('Sampling');
+  // Admin (the e2e employee) sees the edit, merge, retire and add controls.
+  await expect(page.getByTestId('function-edit')).toHaveCount(13);
+  await expect(page.getByTestId('function-retire')).toHaveCount(13);
+  await expect(page.getByTestId('function-merge-submit')).toHaveCount(13);
+  await expect(page.getByTestId('functions-add-form')).toBeVisible();
+  await page.screenshot({ path: resolve(SHOTS, '16-functions-list.png'), fullPage: true });
+});

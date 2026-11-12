@@ -62,6 +62,9 @@ export function MapHome({ isAdmin, lang = '' }: { isAdmin: boolean; lang?: strin
           <Link className="underline" href="/map/questions">
             Open questions
           </Link>
+          <Link className="underline" href="/map/functions" data-testid="functions-link">
+            Functions
+          </Link>
           {isAdmin && (
             <Link className="underline" href="/map/review" data-testid="review-link">
               Review flags

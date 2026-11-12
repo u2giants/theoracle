@@ -33,6 +33,7 @@ EXPECTED_TABLES = {
     "teams_intake",  # added by Teams build-out phase 1 (sql/006_teams_intake.sql)
     "review_flag",  # added by the Map review gate (sql/010_review_flags.sql)
     "translation",  # added by the zh translation sidecar (sql/011_translation.sql)
+    "function",  # added by repair step C1 (sql/022_functions.sql)
 }
 
 
