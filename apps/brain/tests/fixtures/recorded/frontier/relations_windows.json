@@ -1,0 +1,29 @@
+{
+  "default": {"relations": [], "new_mentions": []},
+  "responses": [
+    {
+      "match": "Marco: Same thing, I just call it Jessica's approval",
+      "response": {
+        "relations": [
+          {"from": "m1", "to": "m3", "type": "PERFORMS",
+           "description": "Jessica records the licensor sign-off the question names.",
+           "stance": "report", "confidence": 0.85,
+           "quote": "the licensor sign-off"}
+        ],
+        "new_mentions": []
+      }
+    },
+    {
+      "match": "6. Exceptions",
+      "response": {
+        "relations": [
+          {"from": "m1", "to": "m9", "type": "APPLIES_TO",
+           "description": "The reorder exception applies to the Buyer's purchase-order step.",
+           "stance": "policy", "confidence": 0.9,
+           "quote": "The Buyer may create the purchase order"}
+        ],
+        "new_mentions": []
+      }
+    }
+  ]
+}

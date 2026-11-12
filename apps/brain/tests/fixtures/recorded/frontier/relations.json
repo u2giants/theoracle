@@ -55,7 +55,7 @@
            "description": "The sign-off must be recorded before the Buyer may create the purchase order.",
            "stance": "policy", "confidence": 0.9,
            "quote": "4.6 The Buyer may create the purchase order only after the"},
-          {"from": "m1", "to": "m9", "type": "HANDS_OFF_TO",
+          {"from": "m1", "to": "m20", "type": "HANDS_OFF_TO",
            "description": "A relation whose target key does not exist.",
            "stance": "policy", "confidence": 0.9,
            "quote": "4.1 Design submits the concept package (concept form, artwork"}
