@@ -60,7 +60,13 @@ def test_only_approved_count(
     def fake_evaluate(item: dict[str, Any], settings: Any, usage: dict[str, int]):
         del settings, usage
         seen.append(item["question"])
-        return {"question_id": item["id"], "question": item["question"], "score": 1.0}
+        return {
+            "question_id": item["id"],
+            "question": item["question"],
+            "score": 1.0,
+            "score_legacy": 1.0,
+            "error": None,
+        }
 
     monkeypatch.setattr(eval_mod, "evaluate_question", fake_evaluate)
     db.execute(

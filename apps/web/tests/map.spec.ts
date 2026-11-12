@@ -348,3 +348,53 @@ test('admin approves a draft eval question and it counts', async ({ page, contex
   );
   await page.screenshot({ path: resolve(SHOTS, '15-eval-approved-question.png'), fullPage: true });
 });
+
+// Repair plan B4: the admin health panel on /map/sources surfaces a seeded
+// failed job with its error text (nothing falls back silently).
+const B4_SEED_ERROR = 'B4 seeded failure: provider returned 503';
+
+async function b4SeedFailedJob(seed: boolean): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  const brainDir = resolve(WEB_DIR, '..', 'brain');
+  const script = seed
+    ? "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+      "conn.execute(\"DELETE FROM cmap.job WHERE error LIKE 'B4 seeded%'\"); " +
+      `conn.execute("INSERT INTO cmap.job (kind, payload, state, attempts, error) VALUES ` +
+      `('read_source', '{\\"source_id\\": \\"99999999-9999-4999-8999-999999999999\\"}'::jsonb, ` +
+      `'failed', 3, '${B4_SEED_ERROR}')"); conn.commit(); conn.close()`
+    : "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+      "conn.execute(\"DELETE FROM cmap.job WHERE error LIKE 'B4 seeded%'\"); " +
+      'conn.commit(); conn.close()';
+  execFileSync('uv', ['run', 'python', '-c', script], {
+    cwd: brainDir,
+    env: {
+      ...process.env,
+      DATABASE_URL: e2eEnv.databaseUrl,
+      FALKORDB_URL: e2eEnv.falkordbUrl,
+    },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+}
+
+test('health panel shows the seeded failed job with its error text', async ({ page, context }) => {
+  await b4SeedFailedJob(true);
+  try {
+    await signIn(context);
+    await page.goto('/map/sources');
+    const panel = page.getByTestId('health-panel');
+    await expect(panel).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId('health-sources-by-state')).toBeVisible();
+    await expect(page.getByTestId('health-last-build')).toBeVisible();
+    await expect(page.getByTestId('health-spend-today')).toBeVisible();
+    const failedJob = page
+      .getByTestId('health-job')
+      .filter({ hasText: B4_SEED_ERROR });
+    await expect(failedJob).toHaveCount(1);
+    await expect(failedJob.getByTestId('health-job-error')).toHaveText(B4_SEED_ERROR);
+    await expect(page.getByTestId('health-failed-extractions')).toBeVisible();
+    await page.screenshot({ path: resolve(SHOTS, '14-health-panel.png'), fullPage: true });
+  } finally {
+    await b4SeedFailedJob(false);
+  }
+});

@@ -1,4 +1,5 @@
 import { requireEmployee } from '@/lib/auth-guard';
+import { HealthPanel } from './_components/health-panel';
 import { RebuildMapButton } from './_components/rebuild-map-button';
 import { SourcesClient } from './_components/sources-client';
 
@@ -15,6 +16,7 @@ export default async function MapSourcesPage() {
           transcript. Everything queued here is read into the company map.
         </p>
       </div>
+      {me.isAdmin && <HealthPanel />}
       {me.isAdmin && <RebuildMapButton />}
       <SourcesClient isAdmin={me.isAdmin} />
     </main>
