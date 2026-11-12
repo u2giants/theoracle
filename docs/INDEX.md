@@ -87,6 +87,7 @@ Read the summary; open a document only when it matches your task.
 | [docs/verification/company-map/step13-recommendations.md](verification/company-map/step13-recommendations.md) | done | Step 13 verification: recommendations gate tests and a live run on a throwaway map. | checking evidence for the recommendations step |
 | [docs/verification/company-map/teams-two-way-comms.md](verification/company-map/teams-two-way-comms.md) | done | What it took on 2026-11-02 to make Teams messaging work in both directions: three stacked problems, fixes and live proof. | debugging Teams bot inbound or outbound delivery |
 | [docs/verification/phase-3-task-gates-pilot.md](verification/phase-3-task-gates-pilot.md) | done | Phase 3 task-gate pilot record of 2026-09-09: scope, routing measurement and before/after sizes. | reviewing how the task-gate declaration was introduced here |
+| [docs/verification/repair/B1.md](verification/repair/B1.md) | done | B1 test evidence: owner-approved eval question set — schema 019, admin actions, approved-only bar, 30 drafts loaded. | checking B1 gate evidence, the eval question column shapes, or how the 30 drafts load |
 
 ## archive
 
