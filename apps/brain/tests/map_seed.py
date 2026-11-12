@@ -303,7 +303,9 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         broken.setattr(
             answer_mod,
             "_finalize_local",
-            lambda answer_md, raw, chunks: real_finalize(answer_md, raw, []),
+            lambda answer_md, raw, chunks, evidence=None: real_finalize(
+                answer_md, raw, [], evidence
+            ),
         )
         first = eval_mod.run_eval()
     second = eval_mod.run_eval()
