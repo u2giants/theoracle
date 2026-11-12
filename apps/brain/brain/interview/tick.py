@@ -302,12 +302,16 @@ def _evidence_contributor(
     return None
 
 
-# Department membership: the question's department must equal the employee's
-# own department string (flags first, then the directory row) or be one of its
-# tokens — the row's comma-separated department string or its departments
-# array (a multi-department row like Design+Licensing). ``to_jsonb`` keeps the
-# query valid where those directory columns are optional (the production-vs-
-# test schema difference).
+# Department membership: (a) the question's department equals the employee's
+# own department string (flags first, then the directory row) — the matching
+# the tick has always used; or (b) the question's department is one of the
+# row's department tokens (the departments array or the comma-separated
+# department string) AND the role/title echoes it (shared word stem: 'licens'
+# for 'Licensing' admits Laura's 'Licensing Coordinator', not a 'Creative
+# Designer' holding the same array). The array alone tags the whole licensed-
+# design division; the owner's rule (2026-11-12: "Laura and Ilona only") is
+# what the role gate enforces. ``to_jsonb`` keeps the query valid where those
+# directory columns are optional (the production-vs-test schema difference).
 _DEPARTMENT_MEMBERS_SQL = """
 SELECT e.id::text FROM public.employees e
 LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id
@@ -315,16 +319,30 @@ WHERE e.disabled_at IS NULL
   AND (
     lower(trim(COALESCE(NULLIF(trim(f.department), ''),
                          NULLIF(trim(to_jsonb(e)->>'department'), '')))) = lower(%(dept)s)
-    OR lower(%(dept)s) IN (
-      SELECT lower(trim(d)) FROM jsonb_array_elements_text(
-        CASE WHEN jsonb_typeof(to_jsonb(e)->'departments') = 'array'
-             THEN to_jsonb(e)->'departments' ELSE '[]'::jsonb END) AS d
-      WHERE trim(d) <> ''
-    )
-    OR lower(%(dept)s) IN (
-      SELECT lower(trim(t)) FROM unnest(string_to_array(
-        COALESCE(NULLIF(trim(to_jsonb(e)->>'department'), ''), ''), ',')) AS t
-      WHERE trim(t) <> ''
+    OR (
+      (
+        lower(%(dept)s) IN (
+          SELECT lower(trim(d)) FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(to_jsonb(e)->'departments') = 'array'
+                 THEN to_jsonb(e)->'departments' ELSE '[]'::jsonb END) AS d
+          WHERE trim(d) <> ''
+        )
+        OR lower(%(dept)s) IN (
+          SELECT lower(trim(t)) FROM unnest(string_to_array(
+            COALESCE(NULLIF(trim(to_jsonb(e)->>'department'), ''), ''), ',')) AS t
+          WHERE trim(t) <> ''
+        )
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM unnest(string_to_array(regexp_replace(lower(concat_ws(' ',
+             f.job_title, to_jsonb(e)->>'job_title', to_jsonb(e)->>'role')),
+             '[^[:alnum:]]+', ' ', 'g'), ' ')) AS rt
+        CROSS JOIN unnest(string_to_array(regexp_replace(lower(%(dept)s),
+             '[^[:alnum:]]+', ' ', 'g'), ' ')) AS dt
+        WHERE length(rt) >= 5 AND length(dt) >= 5
+          AND left(rt, 6) = left(dt, 6)
+      )
     )
   )
 ORDER BY (SELECT max(s.sent_at) FROM cmap.interview_send s

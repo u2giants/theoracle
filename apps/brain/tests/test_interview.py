@@ -396,12 +396,14 @@ def test_department_member_with_own_evidence_beats_the_less_involved_member(
 def test_employee_with_department_in_array_joins_the_pool(
     db: Any, enabled: None, sent: list[tuple[str, str]]
 ) -> None:
-    """A multi-department directory row counts for the pool: department='Design'
-    with departments=['Design','Licensing'] still joins the Licensing pool."""
+    """A multi-department directory row counts when the role echoes the
+    department: department='Design', departments=['Design','Licensing'],
+    role='Licensing Coordinator' joins the Licensing pool."""
     other_id = str(uuid4())
     db.execute(
-        "INSERT INTO public.employees (id, email, name, department, departments) "
-        "VALUES (%s, %s, 'Multi Dept', 'Design', ARRAY['Design', 'Licensing'])",
+        "INSERT INTO public.employees (id, email, name, department, departments, role) "
+        "VALUES (%s, %s, 'Multi Dept', 'Design', ARRAY['Design', 'Licensing'], "
+        "'Licensing Coordinator')",
         (other_id, f"{uuid4().hex[:12]}@test.invalid"),
     )
     db.commit()
@@ -412,6 +414,29 @@ def test_employee_with_department_in_array_joins_the_pool(
     db.commit()
     assert [employee for employee, _ in sent] == [other_id]
     assert result["asked"] == 1
+
+
+def test_department_in_array_without_role_echo_does_not_join_the_pool(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """The departments array alone is not enough (it tags the whole licensed-
+    design division): a Creative Designer holding ['Design','Licensing'] stays
+    out of the Licensing pool and the question waits."""
+    other_id = str(uuid4())
+    db.execute(
+        "INSERT INTO public.employees (id, email, name, department, departments, role) "
+        "VALUES (%s, %s, 'Creative Designer', 'Design', ARRAY['Design', 'Licensing'], "
+        "'Creative Designer')",
+        (other_id, f"{uuid4().hex[:12]}@test.invalid"),
+    )
+    db.commit()
+    _question(db, "Who signs licensing approvals?", [], department="Licensing")
+
+    result = run_interview_tick()
+    db.execute("DELETE FROM public.employees WHERE id = %s", (other_id,))
+    db.commit()
+    assert sent == []
+    assert result["unrouted"] == 1
 
 
 def test_suggested_person_with_title_suffix_matches_the_employee(
@@ -448,8 +473,9 @@ def test_famous_bystander_is_never_chosen_when_the_multi_department_pool_is_exha
     famous bystander the entities name."""
     other_id = str(uuid4())
     db.execute(
-        "INSERT INTO public.employees (id, email, name, department, departments) "
-        "VALUES (%s, %s, 'Multi Dept', 'Design', ARRAY['Design', 'Licensing'])",
+        "INSERT INTO public.employees (id, email, name, department, departments, role) "
+        "VALUES (%s, %s, 'Multi Dept', 'Design', ARRAY['Design', 'Licensing'], "
+        "'Licensing Coordinator')",
         (other_id, f"{uuid4().hex[:12]}@test.invalid"),
     )
     for _ in range(2):
