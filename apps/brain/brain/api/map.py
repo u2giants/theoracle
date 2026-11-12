@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from brain.api.deps import User, current_user, require_admin
 from brain.api.functions import item_assignments
+from brain.contradictions import entity_contradictions, list_rows
 from brain.db import get_pool
 from brain.graph.communities import _split_report_md
 from brain.graph.project import _load_edges
@@ -260,6 +261,16 @@ def get_community(
     }
 
 
+@router.get("/contradictions")
+def list_contradictions(
+    user: Annotated[User, Depends(current_user)],
+) -> dict[str, Any]:
+    """Every contradiction row with both quoted statements and their sources."""
+    del user
+    with get_pool().connection() as conn:
+        return {"contradictions": list_rows(conn)}
+
+
 @router.get("/entities/{entity_id}")
 def get_entity(
     entity_id: str,
@@ -324,6 +335,7 @@ def get_entity(
             ).fetchall()
         }
         functions = item_assignments(conn, "entity_function", "entity_id", key)
+        contradictions = entity_contradictions(conn, key)
     grouped: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
     for rel_type, from_id, to_id, quote, chunk_id, source_id, title, stance, desc in relations:
         outgoing = str(from_id) == key
@@ -384,6 +396,7 @@ def get_entity(
         ],
         "neighbours": neighbours,
         "functions": functions,
+        "contradictions": contradictions,
         "translations": translations_for("entity", key),
     }
 

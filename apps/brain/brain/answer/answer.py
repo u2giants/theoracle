@@ -46,6 +46,7 @@ from typing import Any
 import httpx
 
 from brain.config import Settings, get_settings
+from brain.contradictions import disagreement_lines
 from brain.corrections import (
     apply_edge_edit,
     entity_key,
@@ -1198,11 +1199,18 @@ def _local_answer(
         for chunk in chunks
     ]
     passages = _compress_passages(texts, question, settings, usage)
+    graph_block = _render_graph(nodes, edges)
+    with get_pool().connection() as conn:
+        disagreements = disagreement_lines(conn, [node["id"] for node in nodes])
+    if disagreements:
+        graph_block += "\n\nSOURCES DISAGREE:\n" + "\n".join(
+            f"- {line}" for line in disagreements
+        )
     template = LOCAL_PROMPT_PATH.read_text(encoding="utf-8")
     prompt = (
         template.replace("{{history}}", _render_history(history))
         .replace("{{question}}", question)
-        .replace("{{graph}}", _render_graph(nodes, edges))
+        .replace("{{graph}}", graph_block)
         .replace("{{passages}}", passages)
         .replace("{{quotes}}", json.dumps(quotes, ensure_ascii=False))
     )
@@ -1441,6 +1449,19 @@ def _global_answer(
             }
             for point in points
         ]
+    report_entity_ids = [
+        str(entity_id)
+        for report in reports
+        for finding in report["findings"]
+        for entity_id in (finding.get("entity_ids") or [])
+        if str(entity_id).strip()
+    ]
+    with get_pool().connection() as conn:
+        disagreements = disagreement_lines(conn, report_entity_ids)
+    if disagreements:
+        context += "\n\nSOURCES DISAGREE:\n" + "\n".join(
+            f"- {line}" for line in disagreements
+        )
     template = GLOBAL_PROMPT_PATH.read_text(encoding="utf-8")
     prompt = (
         template.replace("{{history}}", _render_history(history))

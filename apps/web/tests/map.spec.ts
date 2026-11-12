@@ -21,6 +21,9 @@ type Seed = {
   zh_entity_description: string;
   zh_community_title: string;
   zh_community_summary: string;
+  contradiction_summary: string;
+  contradiction_timeline_summary: string;
+  contradiction_entity_id: string;
 };
 
 const SHOTS = resolve(WEB_DIR, 'tests', '__screenshots__', 'map');
@@ -680,4 +683,33 @@ test('entity page admin merge flow merges one entity into another', async ({
   } finally {
     await g2SeedMerge(false);
   }
+});
+
+// Repair plan D3: the contradictions page lists open conflicts and the
+// recorded timeline changes, and both entities show the disagreement.
+test('contradictions page and entity section show the sources disagree', async ({
+  page,
+  context,
+}) => {
+  await signIn(context);
+  await page.goto('/map/contradictions');
+  await expect(page.getByTestId('contradictions-page')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('contradiction-row')).toHaveCount(2);
+  await expect(
+    page
+      .getByTestId('contradiction-summary')
+      .filter({ hasText: seed().contradiction_summary }),
+  ).toBeVisible();
+  await expect(page.getByText(seed().contradiction_timeline_summary)).toBeVisible();
+  await page.screenshot({ path: resolve(SHOTS, '21-contradictions.png'), fullPage: true });
+
+  await page.goto(`/map/entity/${seed().contradiction_entity_id}`);
+  const panel = page.getByTestId('entity-panel');
+  await expect(panel).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('entity-contradiction')).toHaveCount(2);
+  await expect(
+    page
+      .getByTestId('entity-contradiction-summary')
+      .filter({ hasText: seed().contradiction_summary }),
+  ).toBeVisible();
 });

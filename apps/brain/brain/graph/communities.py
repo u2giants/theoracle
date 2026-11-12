@@ -37,6 +37,7 @@ import psycopg
 import tiktoken
 
 from brain.config import Settings, get_settings
+from brain.contradictions import disagreement_lines
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.graph.project import _load_edges, _load_entities
@@ -644,6 +645,11 @@ def _context_l0(
     lines.append("QUOTES:")
     for item in quotes:
         lines.append(f'- [{item["source_id"]}] "{item["quote"]}"')
+    disagreements = disagreement_lines(conn, [member["id"] for member in members])
+    if disagreements:
+        lines.append("SOURCES DISAGREE (state these as contradictions or gaps in findings):")
+        for line in disagreements:
+            lines.append(f"- {line}")
     return _fit(lines, frontier)
 
 
