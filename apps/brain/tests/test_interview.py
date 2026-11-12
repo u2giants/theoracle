@@ -132,6 +132,39 @@ def _relate(db: Any, a: str, b: str, sources: int) -> None:
     db.commit()
 
 
+def _evidence(
+    db: Any,
+    employee_id: str,
+    employee_name: str,
+    mentions: dict[str, str],
+) -> str:
+    """One closed Teams contribution from the employee, naming the entities."""
+    sid = str(uuid4())
+    db.execute(
+        "INSERT INTO cmap.source (id, kind, title, storage_path, sha256, bytes) "
+        "VALUES (%s, 'transcript', %s, 'x', %s, 1)",
+        (sid, f"Teams contribution — {employee_name} — 2026-01-02", sid),
+    )
+    chunk = db.execute(
+        "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count) "
+        "VALUES (%s, 0, '{}'::jsonb, 'seed', 1) RETURNING id",
+        (sid,),
+    ).fetchone()[0]
+    for entity_id, name in mentions.items():
+        db.execute(
+            "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, "
+            "normalized_name, quote, entity_id) VALUES (%s, 'X', %s, %s, 'seed', %s)",
+            (chunk, name, name.casefold(), entity_id),
+        )
+    db.execute(
+        "INSERT INTO cmap.teams_intake (employee_id, state, turns, source_id, closed_at) "
+        "VALUES (%s, 'closed', '[]'::jsonb, %s, now())",
+        (employee_id, sid),
+    )
+    db.commit()
+    return sid
+
+
 def _question(
     db: Any,
     text: str,
@@ -214,6 +247,72 @@ def test_loosely_connected_person_is_not_asked(
     result = run_interview_tick()
     assert sent == []
     assert result["unrouted"] == 1
+
+
+def test_evidence_contributor_beats_most_connected_person(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """A famous-but-uninvolved person loses to whoever contributed the evidence."""
+    famous = _person(db, "Test Admin")
+    owner = _person(db, EMPLOYEE_NAME)
+    topic = _thing(db, "Licensing approval")
+    _relate(db, famous, topic, sources=5)
+    _relate(db, owner, topic, sources=1)
+    _evidence(db, EMPLOYEE_ID, EMPLOYEE_NAME, {topic: "Licensing approval"})
+    _question(db, "Why does licensing approval stall?", [famous, topic])
+    _connect()
+
+    result = run_interview_tick()
+    assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
+    assert result["asked"] == 1
+
+
+def test_contributor_found_from_question_text_when_ids_are_dangling(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """Question entity_ids may not resolve; the question text still finds the owner."""
+    topic = _thing(db, "Licensing approval")
+    _evidence(db, EMPLOYEE_ID, EMPLOYEE_NAME, {topic: "Licensing approval"})
+    _question(db, "Why does the licensing approval stall?", [str(uuid4())])
+    _connect()
+
+    result = run_interview_tick()
+    assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
+    assert result["asked"] == 1
+
+
+def test_vetted_question_without_a_pick_falls_back_to_the_contributor(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """Vetting found nobody: only the evidence owner is asked, never a bystander."""
+    bystander = _person(db, "Test Admin")
+    topic = _thing(db, "Licensing approval")
+    _relate(db, bystander, topic, sources=5)
+    _evidence(db, EMPLOYEE_ID, EMPLOYEE_NAME, {topic: "Licensing approval"})
+    _question(db, "Who signs licensing approvals?", [bystander, topic], department="")
+
+    result = run_interview_tick()
+    assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
+    assert result["asked"] == 1
+
+
+def test_bot_entity_is_never_routed(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None:
+    """The bot's own Person entity is never a target, however the question names it."""
+    bot_id = str(uuid4())
+    db.execute(
+        "INSERT INTO public.employees (id, email, name) VALUES (%s, 'bot@test.invalid', 'The Oracle')",
+        (bot_id,),
+    )
+    db.commit()
+    bot = _person(db, "The Oracle")
+    _question(db, "What should the oracle be asked next?", [bot])
+    _connect()
+
+    result = run_interview_tick()
+    assert sent == []
+    assert result["unrouted"] == 1
+    db.execute("DELETE FROM public.employees WHERE id = %s", (bot_id,))
+    db.commit()
 
 
 def test_weekly_cap(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None:
