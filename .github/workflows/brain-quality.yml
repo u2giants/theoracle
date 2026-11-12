@@ -1,0 +1,89 @@
+# Live quality gate for the brain (repair plan §9 Phase B, step B3).
+#
+# After every verified deploy and nightly this queues one eval run on the
+# deployed brain (`POST /eval/run`, shared token like the web proxy), waits
+# for the run to land (`GET /eval/runs`) and applies the gate rule
+# (apps/brain/brain/eval/gate.py): FAIL when the mean drops more than 0.05
+# from the last accepted run or any question errors. A failure exits non-zero
+# and opens-or-updates ONE issue labelled quality-regression with the numbers.
+#
+# Advisory to merging only (owner ruling 2026-10-30: only data-damage/secret
+# checks may block merges) — never add this as a required status check.
+name: Brain quality gate
+
+on:
+  workflow_run:
+    workflows: ["Verify live version"]
+    types: [completed]
+  schedule:
+    # Nightly 5:17 AM EST (10:17 UTC) — non-round minute on purpose.
+    - cron: '17 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+# Never cancel a gate that is already running an eval.
+concurrency:
+  group: brain-quality-gate
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: live eval gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # workflow_run fires on failed deploys too; gate only after a successful
+    # deploy proof on main (PR check runs are not deploys).
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.12.19'
+
+      - name: Sync dependencies
+        working-directory: apps/brain
+        run: uv sync
+
+      - name: Live quality gate (opens or updates the regression issue on failure)
+        env:
+          BRAIN_BASE_URL: https://oracle-brain.designflow.app
+          BRAIN_SHARED_TOKEN: ${{ secrets.BRAIN_SHARED_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          (cd apps/brain && uv run python -m brain.eval.gate --live) \
+            > "$RUNNER_TEMP/gate-output.txt" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/gate-output.txt"
+          if [ "$status" -ne 0 ]; then
+            gh label view quality-regression >/dev/null 2>&1 \
+              || gh label create quality-regression \
+                   --description "Live eval quality gate regression" --color "B60205"
+            body_file="$RUNNER_TEMP/issue-body.md"
+            {
+              echo "The brain live quality gate failed ($(TZ=America/New_York date +'%Y-%m-%d %I:%M %p EST'))."
+              echo
+              echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              echo
+              echo '```'
+              cat "$RUNNER_TEMP/gate-output.txt"
+              echo '```'
+            } > "$body_file"
+            number=$(gh issue list --label quality-regression --state open \
+              --json number --jq '.[0].number')
+            if [ -n "$number" ] && [ "$number" != "null" ]; then
+              gh issue comment "$number" --body-file "$body_file"
+            else
+              gh issue create --title "Brain eval quality gate failed" \
+                --label quality-regression --body-file "$body_file"
+            fi
+          fi
+          exit "$status"

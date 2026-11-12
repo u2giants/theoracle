@@ -91,3 +91,14 @@ def admin_or_service(
         return None
     user = current_user(x_brain_token=x_brain_token, x_user_id=x_user_id)
     return require_admin(user)
+
+
+def employee_or_service(
+    x_brain_token: str = Header(default=""),
+    x_user_id: str = Header(default=""),
+) -> User | None:
+    """An active employee, or ``None`` for a service call with no user header."""
+    if not x_user_id:
+        require_service(x_brain_token)
+        return None
+    return current_user(x_brain_token=x_brain_token, x_user_id=x_user_id)

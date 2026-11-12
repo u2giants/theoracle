@@ -510,3 +510,129 @@ def test_evaluate_job_records_usage(
     ).fetchone()[0]
     assert payload["usage"]["mean_score"] >= 0.8
     assert payload["usage"]["grade_calls"] == 15
+
+
+# ------------------------------------------------------- quality gate (B3)
+
+
+def test_gate_detects_drop(
+    eval_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """A deliberately broken prompt on a preview run makes the gate exit non-zero."""
+    from brain.eval import gate
+
+    _fixture_corpus(db, monkeypatch)
+    load_seed()
+    _replay(monkeypatch)
+    good = run_eval()
+    assert good["mean_score"] >= 0.8
+    assert gate.run_gate().passed is True
+
+    def broken_answer(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        del question, args, kwargs
+        return {
+            "answer_md": "I could not find this in the data.",
+            "citations": [],
+            "mode_used": "local",
+        }
+
+    def broken_grade(messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
+        del messages, settings
+        return _wrap({"covered": [], "missing": [0, 1], "contradicted": []})
+
+    monkeypatch.setattr(eval_mod, "answer_question", broken_answer)
+    monkeypatch.setattr(eval_mod, "_post_chat", broken_grade)
+    broken = run_eval()
+    assert broken["mean_score"] < good["mean_score"] - 0.05
+    assert gate.run_gate().passed is False
+    assert gate.main([]) == 1
+
+
+def test_gate_accepts_first_run_and_keeps_baseline(db: Any) -> None:
+    """The first run is accepted; a 0.05 dip passes, a larger one fails."""
+    from brain.eval import gate
+
+    def insert(mean: float) -> None:
+        db.execute(
+            "INSERT INTO cmap.eval_run "
+            "(graph_version, prompt_hashes, results, mean_score, models) "
+            "VALUES (1, '{}', %s, %s, '{}')",
+            (json.dumps([{"question": "q", "score": mean, "error": None}]), mean),
+        )
+        db.commit()
+
+    insert(0.90)
+    assert gate.run_gate().passed is True
+    insert(0.85)  # drop of exactly 0.05 is not "more than 0.05"
+    assert gate.run_gate().passed is True
+    insert(0.78)  # drop of 0.07 from the accepted 0.85 baseline
+    decision = gate.run_gate()
+    assert decision.passed is False
+    assert decision.previous_mean == pytest.approx(0.85)
+    assert decision.drop == pytest.approx(0.07)
+    insert(0.84)  # recovered against the last accepted run, not the last run
+    assert gate.run_gate().passed is True
+    flags = [
+        row[0]
+        for row in db.execute(
+            "SELECT accepted FROM cmap.eval_run ORDER BY created_at, id"
+        ).fetchall()
+    ]
+    assert flags == [True, True, False, True]
+
+
+def test_gate_fails_on_question_error(db: Any) -> None:
+    """Any question error fails the gate even without an accepted baseline."""
+    from brain.eval import gate
+
+    db.execute(
+        "INSERT INTO cmap.eval_run "
+        "(graph_version, prompt_hashes, results, mean_score, models) "
+        "VALUES (1, '{}', %s, %s, '{}')",
+        (
+            json.dumps(
+                [{"question": "q", "score": 0.0, "error": "grading failed: boom"}]
+            ),
+            0.0,
+        ),
+    )
+    db.commit()
+    decision = gate.run_gate()
+    assert decision.passed is False
+    assert decision.error_count == 1
+    assert gate.main([]) == 1
+    db.execute(
+        "INSERT INTO cmap.eval_run "
+        "(graph_version, prompt_hashes, results, mean_score, models) "
+        "VALUES (1, '{}', %s, %s, '{}')",
+        (json.dumps([{"question": "q", "score": 0.5, "error": None}]), 0.5),
+    )
+    db.commit()
+    assert gate.run_gate().passed is True
+
+
+def test_eval_service_calls_queue_and_read_runs(db: Any, client: Any) -> None:
+    """The shared token alone queues and reads runs for the quality workflow."""
+    from conftest import TEST_TOKEN
+
+    service = {"x-brain-token": TEST_TOKEN}
+    assert client.post("/eval/run").status_code == 401
+    assert (
+        client.post("/eval/run", headers={"x-brain-token": "wrong"}).status_code == 401
+    )
+    queued = client.post("/eval/run", headers=service).json()
+    assert queued["queued"] is True
+    assert client.post("/eval/run", headers=service).json() == {
+        "queued": False,
+        "detail": "an eval run is already queued or running",
+    }
+    db.execute(
+        "INSERT INTO cmap.eval_run "
+        "(graph_version, prompt_hashes, results, mean_score, models) "
+        "VALUES (1, '{}', %s, %s, '{}')",
+        (json.dumps([{"question": "q", "score": 0.5, "error": None}]), 0.5),
+    )
+    db.commit()
+    runs = client.get("/eval/runs", headers=service).json()
+    assert runs["runs"][0]["mean_score"] == pytest.approx(0.5)
+    assert runs["runs"][0]["accepted"] is False
