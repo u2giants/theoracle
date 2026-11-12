@@ -47,3 +47,13 @@ def test_support_rewrite_prompt_contract() -> None:
     assert "REWRITE THIS SENTENCE" in text
     assert "{{sentence}}" in text
     assert "{{evidence}}" in text
+
+
+def test_process_pass_prompt_contract() -> None:
+    """The E2 process-pass prompt names its JSON contract and template slots."""
+    text = (PROMPTS_DIR / "process_pass.md").read_text(encoding="utf-8")
+    assert '"steps"' in text
+    assert '"evidence"' in text
+    assert "{{outline}}" in text
+    assert "{{entities_json}}" in text
+    assert "{{evidence_json}}" in text

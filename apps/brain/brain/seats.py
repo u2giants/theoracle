@@ -1,6 +1,6 @@
 """Per-stage model seats (Albert's direction 2026-11-03).
 
-Each of the nine model-touching stages reads its model from
+Each of the model-touching stages reads its model from
 ``cmap.model_seat`` when the admin model page has set one, else from the env
 seat it always used (plan §11). Model ids still never appear in code: the
 table holds whatever the admin picked, and the env stays the fallback.
@@ -25,6 +25,7 @@ STAGES = (
     "flat",
     "relations",
     "resolve",
+    "process",
     "reports",
     "answer",
     "recommend",

@@ -107,7 +107,8 @@ def _clean_cmap() -> None:
         conn.execute(
             "TRUNCATE cmap.source, cmap.job, cmap.entity, cmap.community, "
             "cmap.graph_version, cmap.eval_question, cmap.eval_run, cmap.model_seat, "
-            "cmap.teams_intake, cmap.review_flag, cmap.correction, cmap.function CASCADE"
+            "cmap.teams_intake, cmap.review_flag, cmap.correction, cmap.function, "
+            "cmap.process_flow, cmap.contradiction CASCADE"
         )
         conn.commit()
     clear_seat_cache()

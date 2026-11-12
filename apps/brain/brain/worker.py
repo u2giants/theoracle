@@ -19,6 +19,7 @@ from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
 from brain.interview.intake import close_stale_threads
 from brain.interview.tick import handle_interview_tick, maybe_queue_interview_tick
+from brain.process_pass import handle_process_pass
 from brain.read.dates import handle_backfill_dates
 from brain.read.pipeline import handle_read_source
 from brain.recommend.recommend import handle_recommend
@@ -39,6 +40,7 @@ HANDLERS: dict[str, Handler] = {
     "relations": handle_relations,
     "resolve": handle_resolve,
     "function_assign": handle_function_assign,
+    "process_pass": handle_process_pass,
     "project": handle_project,
     "communities": handle_communities,
     "recommend": handle_recommend,
