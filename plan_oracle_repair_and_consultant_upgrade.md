@@ -34,7 +34,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 | A7 | Small reading bugs (speaker pattern, empty source, size caps) | — | ✅ done | `T/test_transcript_cjk.py::test_clock_time_is_not_a_speaker`, `T/test_intake.py::test_delete_answer_source`, `T/test_project.py::test_zero_mention_entities_not_projected`, `T/test_worker_orphans.py::test_result_write_is_retried`, `T/test_read.py::test_pptx_bad_picture_does_not_fail_deck`; SQL `018_answer_source_set_null.sql`; live: `docs/verification/repair/A8-baseline.md` | 2026-11-11 8:30 PM EST |
 | A8 | Re-read everything and rebuild; baseline score | A1–A7 | ✅ done | `POST /sources/reread-all`, `T/test_flat.py::test_prompt_change_replaces_not_duplicates`; baseline 0.364 and 0.409 (mean 0.39) in `docs/verification/repair/A8-baseline.md` | 2026-11-11 8:30 PM EST |
 | B1 | Owner-approved question set on the eval page | — | ⬜ open | | |
-| B2 | Scoring counts sources and unsupported sentences | — | ⬜ open | | |
+| B2 | Scoring counts sources and unsupported sentences | — | ✅ done | `T/test_eval_fixture.py::test_score_components`, `::test_errors_fail_run`, `::test_abstention_question`; `B/sql/021_eval_scoring.sql`; PR https://github.com/u2giants/theoracle/pull/536 | 2026-11-11 10:47 PM EST |
 | B3 | Live quality gate after every deploy and nightly | B2 | ⬜ open | | |
 | B4 | Pipeline health panel | — | ⬜ open | | |
 | C1 | Business-function list (curated) | — | ⬜ open | | |
