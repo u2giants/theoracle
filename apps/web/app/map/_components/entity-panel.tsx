@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { brainGet, pickText, sourceHref, type EntityDetail, type Quote } from './brain';
 import { LoadState, SourceChip, StanceBadge } from './bits';
+import { EntityAdmin } from './entity-admin';
 import { FunctionAssign } from './function-assign';
 import { MarkWrongButton, relationItemId } from './mark-wrong';
 
@@ -39,7 +40,7 @@ export function EntityPanel({
   const [entity, setEntity] = useState<EntityDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     let cancelled = false;
     brainGet<EntityDetail>(`entities/${encodeURIComponent(entityId)}`)
       .then((body) => {
@@ -52,6 +53,8 @@ export function EntityPanel({
       cancelled = true;
     };
   }, [entityId]);
+
+  useEffect(() => reload(), [reload]);
 
   if (!entity) return <LoadState error={error} loading={!error} />;
 
@@ -69,6 +72,7 @@ export function EntityPanel({
           <MarkWrongButton isAdmin={isAdmin} itemType="entity" itemId={entity.id} />
         </div>
       </div>
+      {isAdmin && <EntityAdmin entity={entity} onChanged={reload} />}
       {entity.description && (
         <p className="text-sm">
           {pickText(entity.translations, lang, 'description', entity.description)}

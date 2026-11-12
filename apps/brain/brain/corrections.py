@@ -373,6 +373,84 @@ def apply_renames(conn: Any, corrections: Corrections) -> int:
     return renamed
 
 
+ENTITY_EDIT_FIELDS = ("entity_type", "alias_add", "alias_remove")
+
+
+def apply_entity_edits(conn: Any, corrections: Corrections) -> int:
+    """Force entity-level ``edit`` payload fields onto the entity rows (G2).
+
+    Payload fields: ``entity_type`` (the type wins, the pre-change key is kept
+    as an alias like a rename keeps its old name), ``alias_add`` and
+    ``alias_remove`` (already-normalised alias names to ensure or drop).
+    Successive edits on one entity are merged into one payload by the writer
+    (newest edit wins in ``load_corrections``). Returns the number of entities
+    touched.
+    """
+    if not corrections.edits:
+        return 0
+    keys = entity_key_sets(conn)
+    touched = 0
+    for entity_id, entity_keys in keys.items():
+        corr = corrections.edit_for(entity_keys)
+        if corr is None:
+            continue
+        if _apply_entity_edit(conn, entity_id, corr.payload):
+            touched += 1
+    return touched
+
+
+def _apply_entity_edit(conn: Any, entity_id: str, payload: dict[str, Any]) -> bool:
+    row = conn.execute(
+        "SELECT canonical_name, entity_type FROM cmap.entity WHERE id = %s",
+        (entity_id,),
+    ).fetchone()
+    if row is None:
+        return False
+    name, etype = str(row[0]), str(row[1])
+    changed = False
+    new_type = str(payload.get("entity_type") or "").strip()
+    if new_type and new_type != etype:
+        conn.execute(
+            "UPDATE cmap.entity SET entity_type = %s, updated_at = now() WHERE id = %s",
+            (new_type, entity_id),
+        )
+        old_norm = normalize_name(name, etype)
+        if old_norm:
+            conn.execute(
+                "INSERT INTO cmap.entity_alias "
+                "(entity_id, entity_type, normalized_name, lang, source) "
+                "VALUES (%s, %s, %s, 'en', %s) "
+                "ON CONFLICT (entity_type, normalized_name) DO NOTHING",
+                (entity_id, etype, old_norm, _RENAME_ALIAS_SOURCE),
+            )
+        changed = True
+    cur_type = new_type or etype
+    for raw in _name_list(payload.get("alias_add")):
+        conn.execute(
+            "INSERT INTO cmap.entity_alias "
+            "(entity_id, entity_type, normalized_name, lang, source) "
+            "VALUES (%s, %s, %s, 'en', %s) "
+            "ON CONFLICT (entity_type, normalized_name) DO UPDATE "
+            "SET entity_id = EXCLUDED.entity_id",
+            (entity_id, cur_type, raw, _RENAME_ALIAS_SOURCE),
+        )
+        changed = True
+    for raw in _name_list(payload.get("alias_remove")):
+        conn.execute(
+            "DELETE FROM cmap.entity_alias "
+            "WHERE entity_id = %s AND normalized_name = %s",
+            (entity_id, raw),
+        )
+        changed = True
+    return changed
+
+
+def _name_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
 # --------------------------------------------------------------- migration
 
 

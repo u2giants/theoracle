@@ -293,7 +293,7 @@ def get_entity(
             (key,),
         ).fetchall()
         mentions = conn.execute(
-            "SELECT m.quote, m.chunk_id, ch.source_id, s.title FROM cmap.mention m "
+            "SELECT m.id, m.quote, m.chunk_id, ch.source_id, s.title FROM cmap.mention m "
             "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
             "JOIN cmap.source s ON s.id = ch.source_id "
             "WHERE m.entity_id = %s ORDER BY s.title, ch.ordinal LIMIT 20",
@@ -374,10 +374,11 @@ def get_entity(
         ],
         "mentions": [
             {
-                "quote": str(item[0]),
-                "chunk_id": str(item[1]),
-                "source_id": str(item[2]),
-                "source_title": str(item[3]),
+                "mention_id": str(item[0]),
+                "quote": str(item[1]),
+                "chunk_id": str(item[2]),
+                "source_id": str(item[3]),
+                "source_title": str(item[4]),
             }
             for item in mentions
         ],

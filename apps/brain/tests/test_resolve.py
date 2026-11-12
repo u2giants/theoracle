@@ -21,9 +21,11 @@ from conftest import fake_embeddings, fake_scaledown
 from test_flat import TRANSCRIPT_FIXTURE, _seed_fixture, _seed_text
 
 from brain.config import get_settings
+from brain.corrections import entity_key
 from brain.embed import vector_literal
 from brain.extract.flat import handle_classify_extract
 from brain.extract.normalize import normalize_name
+from brain.read.pipeline import _store_chunks
 from brain.resolve import resolve as resolve_mod
 from brain.resolve.resolve import handle_resolve, run_resolve
 
@@ -716,3 +718,303 @@ def test_rule_4_scores_names_not_quotes(
     assert len(fake.judge_prompts) == 1
     assert fake.judge_prompts[0]["mention"]["name"].startswith("PIM")
     assert _entity_of(db, log) == _entity_of(db, art)
+
+
+# ------------------------------------------- G2 admin entity actions (gate)
+
+
+def _admin_entity(
+    db: Any, entity_type: str, name: str, vector: list[float] | None = None
+) -> str:
+    """One entity row as the admin actions see it."""
+    row = db.execute(
+        "INSERT INTO cmap.entity (entity_type, canonical_name, embedding) "
+        "VALUES (%s, %s, %s::vector) RETURNING id",
+        (entity_type, name, vector_literal(vector) if vector is not None else None),
+    ).fetchone()
+    db.commit()
+    return str(row[0])
+
+
+def _assigned(
+    db: Any,
+    source_id: str,
+    entity_type: str,
+    surface: str,
+    entity_id: str,
+    vector: list[float] | None = None,
+) -> str:
+    """One mention already assigned to its entity (what a finished resolve left)."""
+    mention_id = _mention(db, source_id, entity_type, surface, vector)
+    db.execute(
+        "UPDATE cmap.mention SET entity_id = %s WHERE id = %s",
+        (entity_id, mention_id),
+    )
+    db.commit()
+    return mention_id
+
+
+def _alias(db: Any, entity_id: str, entity_type: str, norm: str) -> None:
+    db.execute(
+        "INSERT INTO cmap.entity_alias "
+        "(entity_id, entity_type, normalized_name, lang, source) "
+        "VALUES (%s, %s, %s, 'en', 'resolve') "
+        "ON CONFLICT (entity_type, normalized_name) DO NOTHING",
+        (entity_id, entity_type, norm),
+    )
+    db.commit()
+
+
+def test_admin_merge_survives_rerun(
+    monkeypatch: pytest.MonkeyPatch,
+    db: Any,
+    client: Any,
+    admin_headers: dict[str, str],
+    frontier_env,
+) -> None:
+    """G2 gate: an admin merge survives a resolution re-run and a full
+    re-read — the merged names land on one entity again, from the correction."""
+    fake_embeddings(monkeypatch)
+    _fake(monkeypatch)
+    source = _seed_text(db, "Jessica Smith was mentioned.", "g2merge")
+    smith = _admin_entity(db, "Person", "Jessica Smith", _unit("smith"))
+    js = _admin_entity(db, "Person", "J. Smith", _unit("jsmith"))
+    js_m = _assigned(db, source, "Person", "J. Smith", js, _unit("jsmith"))
+    _assigned(db, source, "Person", "Jessica Smith", smith, _unit("smith"))
+
+    body = client.post(
+        f"/entities/{js}/merge",
+        headers=admin_headers,
+        json={"into": smith, "reason": "Same person"},
+    )
+    assert body.status_code == 200, body.text
+    assert body.json()["merged_into"]["id"] == smith
+    rows = db.execute(
+        "SELECT action, target_key, payload->>'pair' FROM cmap.correction"
+    ).fetchall()
+    assert [(str(a), str(b), str(c)) for a, b, c in rows] == [
+        ("merge", "j smith|Person", "jessica smith|Person")
+    ]
+    assert _entity_of(db, js_m) == smith
+    assert (
+        db.execute("SELECT 1 FROM cmap.entity WHERE id = %s", (js,)).fetchone() is None
+    ), "the merged-away entity row must be gone"
+
+    # Re-run: a fresh mention of a merged name is forced onto the destination.
+    fresh = _mention(db, source, "Person", "J. Smith", _unit("jsmith2"))
+    run_resolve()
+    assert _entity_of(db, fresh) == smith
+
+    # Full re-read: same names, every row id new — the merge re-forms one entity.
+    _store_chunks(source, [])
+    db.commit()
+    assert db.execute("SELECT count(*) FROM cmap.entity").fetchone()[0] == 0
+    reread = _seed_text(db, "Jessica Smith was mentioned.", "g2merge-reread")
+    again_a = _mention(db, reread, "Person", "Jessica Smith", _unit("smith"))
+    again_b = _mention(db, reread, "Person", "J. Smith", _unit("jsmith"))
+    run_resolve()
+    assert _entity_of(db, again_a) == _entity_of(db, again_b)
+
+
+def test_never_merge_respected(
+    monkeypatch: pytest.MonkeyPatch,
+    db: Any,
+    client: Any,
+    admin_headers: dict[str, str],
+    frontier_env,
+) -> None:
+    """G2 gate: "these two are never the same" is respected on re-runs — a
+    name the human separated is never merged into the other entity again."""
+    fake_embeddings(monkeypatch)
+    _fake(monkeypatch)
+    source = _seed_text(db, "Jessica was mentioned.", "g2never")
+    smith = _admin_entity(db, "Person", "Jessica Smith", _unit("jessica"))
+    _alias(db, smith, "Person", "jessica")
+    _assigned(db, source, "Person", "Jessica Smith", smith, _unit("jessica"))
+
+    # Control: without the correction the name joins Smith — the alias and the
+    # embedding both match, so the separation below is the correction's doing.
+    control = _mention(db, source, "Person", "Jessica", _unit("jessica"))
+    run_resolve()
+    assert _entity_of(db, control) == smith
+    db.execute("DELETE FROM cmap.mention WHERE id = %s", (control,))
+    db.commit()
+
+    jessica = _admin_entity(db, "Person", "Jessica", _unit("jessica"))
+    _assigned(db, source, "Person", "Jessica", jessica, _unit("jessica"))
+    body = client.post(
+        f"/entities/{smith}/never-merge",
+        headers=admin_headers,
+        json={"other": jessica, "reason": "Two different people"},
+    )
+    assert body.status_code == 200, body.text
+    rows = db.execute(
+        "SELECT action, target_key, payload->>'pair' FROM cmap.correction"
+    ).fetchall()
+    assert [(str(a), str(b), str(c)) for a, b, c in rows] == [
+        (
+            "reject",
+            entity_key("Jessica Smith", "Person"),
+            entity_key("Jessica", "Person"),
+        )
+    ]
+
+    for rerun in ("first", "second"):
+        mention_id = _mention(db, source, "Person", "Jessica", _unit("jessica"))
+        run_resolve()
+        owner = _entity_of(db, mention_id)
+        assert owner == jessica, f"never-merge ignored on the {rerun} run"
+        assert owner != smith
+        db.execute("DELETE FROM cmap.mention WHERE id = %s", (mention_id,))
+        db.commit()
+
+
+def test_split_reassigns_mentions(
+    monkeypatch: pytest.MonkeyPatch,
+    db: Any,
+    client: Any,
+    admin_headers: dict[str, str],
+    frontier_env,
+) -> None:
+    """G2 gate: a split reassigns the chosen mentions — and the separation
+    holds on a resolution re-run."""
+    fake_embeddings(monkeypatch)
+    _fake(monkeypatch)
+    source = _seed_text(db, "Jessica Smith was mentioned.", "g2split")
+    smith = _admin_entity(db, "Person", "Jessica Smith", _unit("smith"))
+    _alias(db, smith, "Person", "jessica smith")
+    _alias(db, smith, "Person", "jess")
+    keep_a = _assigned(db, source, "Person", "Jessica Smith", smith, _unit("smith"))
+    keep_b = _assigned(db, source, "Person", "Jessica Smith", smith, _unit("smith"))
+    move_a = _assigned(db, source, "Person", "Jess", smith, _unit("jess"))
+    move_b = _assigned(db, source, "Person", "Jess", smith, _unit("jess"))
+
+    body = client.post(
+        f"/entities/{smith}/split",
+        headers=admin_headers,
+        json={
+            "mention_ids": [move_a, move_b],
+            "into": {"new_name": "Jess", "new_type": "Person"},
+            "reason": "A different person",
+        },
+    )
+    assert body.status_code == 200, body.text
+    payload = body.json()
+    dest = payload["destination"]["id"]
+    assert payload["destination"]["name"] == "Jess"
+    assert payload["moved"] == 2 and payload["warning"] is None
+    rows = db.execute(
+        "SELECT action, target_key, payload->>'pair' FROM cmap.correction"
+    ).fetchall()
+    assert [(str(a), str(b), str(c)) for a, b, c in rows] == [
+        ("split", "jessica smith|Person", "jess|Person")
+    ]
+    owners = dict(
+        db.execute(
+            "SELECT id::text, entity_id::text FROM cmap.mention WHERE id = ANY(%s::uuid[])",
+            ([keep_a, keep_b, move_a, move_b],),
+        ).fetchall()
+    )
+    assert owners[keep_a] == owners[keep_b] == smith
+    assert owners[move_a] == owners[move_b] == dest
+    # A name only the moved mentions used follows the moved side.
+    alias_owner = db.execute(
+        "SELECT entity_id::text FROM cmap.entity_alias "
+        "WHERE entity_type = 'Person' AND normalized_name = 'jess'",
+    ).fetchone()
+    assert alias_owner is not None and str(alias_owner[0]) == dest
+
+    # Re-run: fresh mentions of each name go to their own side, never across.
+    fresh_jess = _mention(db, source, "Person", "Jess", _unit("jess"))
+    fresh_smith = _mention(db, source, "Person", "Jessica Smith", _unit("smith"))
+    run_resolve()
+    assert _entity_of(db, fresh_jess) == dest
+    assert _entity_of(db, fresh_smith) == smith
+
+
+def test_entity_admin_actions_write_corrections_and_require_admin(
+    db: Any,
+    client: Any,
+    admin_headers: dict[str, str],
+    user_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    frontier_env,
+) -> None:
+    """Every admin entity action is admin-gated and writes its correction
+    through the content-key scheme; rename, type and alias edits apply at once
+    and merge into one in-force edit payload."""
+    fake_embeddings(monkeypatch)
+    _fake(monkeypatch)
+    entity_id = _admin_entity(db, "Person", "Jessica Smith", _unit("smith"))
+    for path, body in (
+        (f"/entities/{entity_id}/rename", {"name": "Jess Smith"}),
+        (f"/entities/{entity_id}/type", {"entity_type": "Role"}),
+        (f"/entities/{entity_id}/alias", {"alias": "JS", "mode": "add"}),
+    ):
+        assert (
+            client.post(path, headers=user_headers, json=body).status_code == 403
+        ), path
+
+    renamed = client.post(
+        f"/entities/{entity_id}/rename",
+        headers=admin_headers,
+        json={"name": "Jess Smith", "reason": "She goes by Jess"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    row = db.execute(
+        "SELECT canonical_name FROM cmap.entity WHERE id = %s", (entity_id,)
+    ).fetchone()
+    assert str(row[0]) == "Jess Smith"
+    assert (
+        db.execute(
+            "SELECT 1 FROM cmap.entity_alias WHERE entity_id = %s "
+            "AND normalized_name = 'jessica smith'",
+            (entity_id,),
+        ).fetchone()
+        is not None
+    ), "the pre-rename key must stay as an alias"
+
+    typed = client.post(
+        f"/entities/{entity_id}/type",
+        headers=admin_headers,
+        json={"entity_type": "Role"},
+    )
+    assert typed.status_code == 200, typed.text
+    aliased = client.post(
+        f"/entities/{entity_id}/alias",
+        headers=admin_headers,
+        json={"alias": "JS", "mode": "add"},
+    )
+    assert aliased.status_code == 200, aliased.text
+    assert "js" in aliased.json()["aliases"]
+    edit = db.execute(
+        "SELECT target_key, payload FROM cmap.correction WHERE action = 'edit' "
+        "ORDER BY at DESC, id DESC LIMIT 1"
+    ).fetchone()
+    assert str(edit[0]) == entity_key("Jess Smith", "Person")
+    payload = dict(edit[1])
+    assert payload["entity_type"] == "Role"
+    assert payload["alias_add"] == ["js"]
+
+    removed = client.post(
+        f"/entities/{entity_id}/alias",
+        headers=admin_headers,
+        json={"alias": "JS", "mode": "remove"},
+    )
+    assert removed.status_code == 200, removed.text
+    assert "js" not in removed.json()["aliases"]
+    payload = dict(
+        db.execute(
+            "SELECT payload FROM cmap.correction WHERE action = 'edit' "
+            "ORDER BY at DESC, id DESC LIMIT 1"
+        ).fetchone()[0]
+    )
+    assert payload.get("alias_add") is None
+    assert payload["alias_remove"] == ["js"]
+
+    for path, body in (
+        (f"/entities/{entity_id}/merge", {"into": entity_id}),
+        (f"/entities/{entity_id}/never-merge", {"other": entity_id}),
+    ):
+        bad = client.post(path, headers=admin_headers, json=body)
+        assert bad.status_code == 400, path

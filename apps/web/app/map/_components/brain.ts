@@ -101,6 +101,7 @@ export type Quote = {
   chunk_id: string;
   source_id: string;
   source_title: string;
+  mention_id?: string;
   stance?: string;
   description?: string;
 };

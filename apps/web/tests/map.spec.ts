@@ -591,3 +591,93 @@ test('sources page shows a newer-version proposal and the one-click confirm', as
     await d2SeedVersions(false);
   }
 });
+
+// Repair plan G2: the admin merge flow on the entity page. Two throwaway
+// Person entities are seeded straight into the e2e database; the admin merges
+// one into the other through the entity picker, and the destination then
+// shows the moved mention. Times shown to humans are New York (EST/EDT);
+// this flow shows none.
+const G2_SRC_ID = '00000000-0000-4000-8000-0000000000f3';
+const G2_CHUNK_ID = '00000000-0000-4000-8000-0000000000f4';
+const G2_A_ID = '00000000-0000-4000-8000-0000000000f1';
+const G2_B_ID = '00000000-0000-4000-8000-0000000000f2';
+
+async function g2SeedMerge(seed: boolean): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  const brainDir = resolve(WEB_DIR, '..', 'brain');
+  const wipe =
+    `conn.execute("DELETE FROM cmap.source WHERE id = '${G2_SRC_ID}'"); ` +
+    `conn.execute("DELETE FROM cmap.entity WHERE id IN ('${G2_A_ID}', '${G2_B_ID}')"); ` +
+    "conn.execute(\"DELETE FROM cmap.correction WHERE target_key LIKE '%tester%'\"); ";
+  const script = seed
+    ? "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+      wipe +
+      `conn.execute("INSERT INTO cmap.source (id, kind, title, storage_path, sha256, bytes) ` +
+      `VALUES ('${G2_SRC_ID}', 'text', 'Widget Tester notes', 'test/g2-merge.txt', ` +
+      `'g2-e2e-merge-sha', 12)"); ` +
+      `conn.execute("INSERT INTO cmap.chunk (id, source_id, ordinal, locator, text, token_count) ` +
+      `VALUES ('${G2_CHUNK_ID}', '${G2_SRC_ID}', 0, '{}'::jsonb, ` +
+      `'Widget Tester was mentioned. W. Tester was mentioned.', 8)"); ` +
+      `conn.execute("INSERT INTO cmap.entity (id, entity_type, canonical_name, ` +
+      `mention_count, source_count) VALUES ('${G2_A_ID}', 'Person', 'Widget Tester', 1, 1), ` +
+      `('${G2_B_ID}', 'Person', 'W. Tester', 1, 1)"); ` +
+      `conn.execute("INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, ` +
+      `normalized_name, quote, entity_id) VALUES ('${G2_CHUNK_ID}', 'Person', ` +
+      `'Widget Tester', 'widget tester', 'Widget Tester was mentioned.', '${G2_A_ID}'), ` +
+      `('${G2_CHUNK_ID}', 'Person', 'W. Tester', 'w tester', 'W. Tester was mentioned.', ` +
+      `'${G2_B_ID}')"); ` +
+      'conn.commit(); conn.close()'
+    : "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+      wipe +
+      'conn.commit(); conn.close()';
+  execFileSync('uv', ['run', 'python', '-c', script], {
+    cwd: brainDir,
+    env: {
+      ...process.env,
+      DATABASE_URL: e2eEnv.databaseUrl,
+      FALKORDB_URL: e2eEnv.falkordbUrl,
+    },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+}
+
+test('entity page admin merge flow merges one entity into another', async ({
+  page,
+  context,
+}) => {
+  await g2SeedMerge(true);
+  try {
+    await signIn(context);
+    await page.goto(`/map/entity/${G2_A_ID}`);
+    const panel = page.getByTestId('entity-panel');
+    await expect(panel).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId('entity-name')).toHaveText('Widget Tester');
+    const admin = page.getByTestId('entity-admin');
+    await expect(admin).toBeVisible();
+
+    await admin.getByTestId('entity-admin-merge-open').click();
+    const picker = admin.getByTestId('entity-admin-merge-picker');
+    await picker.getByTestId('entity-picker-input').fill('Tester');
+    const option = picker
+      .getByTestId('entity-picker-option')
+      .filter({ hasText: 'W. Tester' });
+    await expect(option).toHaveCount(1, { timeout: 30_000 });
+    await option.click();
+    await admin.getByTestId('entity-admin-merge-confirm').click();
+    await expect(admin.getByTestId('entity-admin-message')).toContainText(
+      'Merged into W. Tester',
+      { timeout: 30_000 },
+    );
+    await page.screenshot({ path: resolve(SHOTS, '20-entity-merge.png'), fullPage: true });
+
+    await page.goto(`/map/entity/${G2_B_ID}`);
+    await expect(page.getByTestId('entity-name')).toHaveText('W. Tester');
+    await expect(page.getByTestId('entity-panel')).toContainText(
+      'Widget Tester was mentioned',
+      { timeout: 30_000 },
+    );
+  } finally {
+    await g2SeedMerge(false);
+  }
+});
