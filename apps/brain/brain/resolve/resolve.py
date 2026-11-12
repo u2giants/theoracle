@@ -46,6 +46,14 @@ import httpx
 import psycopg
 
 from brain.config import Settings, get_settings
+from brain.corrections import (
+    Corrections,
+    apply_renames,
+    entity_key,
+    entity_key_sets,
+    load_corrections,
+    mention_key,
+)
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
@@ -551,6 +559,48 @@ def _create_entity(conn: psycopg.Connection, mention: Mention) -> str:
     return str(row[0])
 
 
+# ------------------------------------------------------------- corrections
+
+
+def _entity_by_key(conn: psycopg.Connection, key: str) -> str | None:
+    """The entity carrying this content key (canonical name or alias), if any."""
+    norm, etype = key.rsplit("|", 1)
+    row = conn.execute(
+        "SELECT entity_id::text FROM cmap.entity_alias "
+        "WHERE entity_type = %s AND normalized_name = %s LIMIT 1",
+        (etype, norm),
+    ).fetchone()
+    if row is not None:
+        return str(row[0])
+    for entity_id, name in conn.execute(
+        "SELECT id::text, canonical_name FROM cmap.entity WHERE entity_type = %s",
+        (etype,),
+    ).fetchall():
+        if entity_key(str(name), str(etype)) == key:
+            return str(entity_id)
+    return None
+
+
+def _blocker(
+    conn: psycopg.Connection, corrections: Corrections, name_key: str
+) -> Any:
+    """``blocked(entity_id)`` honours never-merge / split pairs (G1)."""
+    cache: dict[str, bool] = {}
+
+    def blocked(entity_id: str) -> bool:
+        if entity_id not in cache:
+            row = conn.execute(
+                "SELECT canonical_name, entity_type FROM cmap.entity WHERE id = %s",
+                (entity_id,),
+            ).fetchone()
+            canonical = entity_key(str(row[0]), str(row[1])) if row else None
+            keys = entity_key_sets(conn, [entity_id]).get(entity_id, set())
+            cache[entity_id] = corrections.blocks_join(name_key, canonical, keys)
+        return cache[entity_id]
+
+    return blocked
+
+
 # ------------------------------------------------------------------------ judge
 
 
@@ -635,28 +685,51 @@ def resolve_mention(
     conn: psycopg.Connection,
     mention: Mention,
     frontier: _Frontier,
+    corrections: Corrections,
 ) -> tuple[str, str]:
-    """Run rules 1–6 for one mention; return ``(rule, entity_id)``."""
+    """Run rules 1–6 for one mention; return ``(rule, entity_id)``.
+
+    G1 corrections steer the pass: a merge pair forces the counterpart's
+    entity, and a never-merge / split pair keeps the two names apart on every
+    run — a full re-read re-creates entities, so this is re-decided from the
+    content keys each time (human corrections win over extraction).
+    """
+    name_key = mention_key(mention.normalized_name, mention.entity_type)
+    partner = corrections.merge_partner(name_key)
+    if partner is not None:
+        forced = _entity_by_key(conn, partner)
+        if forced is not None:
+            return "correction", forced
+    blocked = _blocker(conn, corrections, name_key)
     entity_id = _by_alias(conn, mention)
-    if entity_id is not None:
+    if entity_id is not None and not blocked(entity_id):
         return "alias", entity_id
     entity_id = _by_exact(conn, mention)
-    if entity_id is not None:
+    if entity_id is not None and not blocked(entity_id):
         return "exact", entity_id
     entity_id = _by_compact(conn, mention)
-    if entity_id is not None:
+    if entity_id is not None and not blocked(entity_id):
         return "compact", entity_id
     name_part = _name_part_candidates(conn, mention)
+    if name_part is not None:
+        name_part = [item for item in name_part if not blocked(item)]
+        if not name_part:
+            name_part = None
     if name_part is not None and len(name_part) == 1:
         return "name_part", name_part[0]
     if name_part is not None and len(name_part) > 1:
         chosen = _judge(
-            conn, mention, _nearest(conn, mention, frontier, name_part), frontier
+            conn,
+            mention,
+            [item for item in _nearest(conn, mention, frontier, name_part) if not blocked(item.id)],
+            frontier,
         )
         if chosen is not None:
             return "judge", chosen
         return "new", _create_entity(conn, mention)
-    nearest = _nearest(conn, mention, frontier)
+    nearest = [
+        item for item in _nearest(conn, mention, frontier) if not blocked(item.id)
+    ]
     if (
         nearest
         and nearest[0].cosine >= ASSIGN_COSINE
@@ -668,7 +741,9 @@ def resolve_mention(
     # DesignFlow); the name-cosine band fills the remaining seats.
     lexical = _lexical_candidates(conn, mention)
     band = sorted(
-        _nearest(conn, mention, frontier, lexical) if lexical else [],
+        [item for item in _nearest(conn, mention, frontier, lexical) if not blocked(item.id)]
+        if lexical
+        else [],
         key=lambda item: -item.cosine,
     )
     band_ids = {item.id for item in band}
@@ -784,9 +859,10 @@ def run_resolve(settings: Settings | None = None) -> dict[str, int]:
     stats: dict[str, int] = {}
     touched: set[str] = set()
     with get_pool().connection() as conn:
+        corrections = load_corrections(conn)
         try:
             for mention in _load_unresolved(conn):
-                rule, entity_id = resolve_mention(conn, mention, frontier)
+                rule, entity_id = resolve_mention(conn, mention, frontier, corrections)
                 _assign(conn, mention, entity_id, touched)
                 conn.commit()
                 stats[rule] = stats.get(rule, 0) + 1
@@ -797,6 +873,10 @@ def run_resolve(settings: Settings | None = None) -> dict[str, int]:
                 _refresh_counts(conn, touched)
                 conn.commit()
         stats["described"] = _describe(conn, frontier)
+        # G1: a rename correction wins over the describer's rewrite and over
+        # whatever names extraction produced (human corrections always win).
+        stats["renamed"] = apply_renames(conn, corrections)
+        conn.commit()
     stats.update(frontier.usage)
     return stats
 

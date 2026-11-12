@@ -12,10 +12,12 @@ from typing import Any
 from psycopg.types.json import Json
 
 from brain import storage as storage_mod
+from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_and_store
 from brain.read.chunk import Chunk, window_chunks
 from brain.read.cleanup import drop_orphaned, touched_entities
+from brain.read.dates import resolve_and_store, upload_floor
 from brain.read.detect import (
     KIND_CSV,
     KIND_DOCX,
@@ -132,13 +134,27 @@ def handle_read_source(job: dict[str, Any]) -> None:
     pool = get_pool()
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT kind, storage_path FROM cmap.source WHERE id = %s",
+            "SELECT id, kind, original_filename, storage_path, effective_date, "
+            "date_origin, created_at FROM cmap.source WHERE id = %s",
             (source_id,),
         ).fetchone()
     if row is None:
         raise ValueError(f"source {source_id} not found")
-    kind, storage_path = row
+    kind, storage_path = row[1], row[3]
     usage: dict[str, int] = {}
+    with pool.connection() as conn:
+        # D1: a source is never left undated, even when reading fails later.
+        conn.execute(
+            "UPDATE cmap.source SET date_origin = 'admin' WHERE id = %s "
+            "AND effective_date IS NOT NULL AND date_origin IS NULL",
+            (source_id,),
+        )
+        conn.execute(
+            "UPDATE cmap.source SET effective_date = %s, date_origin = 'upload_time' "
+            "WHERE id = %s AND effective_date IS NULL",
+            (upload_floor(row[6]), source_id),
+        )
+        conn.commit()
     set_read_state(source_id, "reading", None)
     notes = start_read_notes()
     try:
@@ -146,6 +162,9 @@ def handle_read_source(job: dict[str, Any]) -> None:
         chunks = read_chunks(read_kind(kind, storage_path), data, usage)
         _record_read_notes(source_id, notes)
         pairs = _store_chunks(source_id, chunks)
+        with pool.connection() as conn:
+            resolve_and_store(conn, row, data=data, settings=get_settings(), usage=usage)
+            conn.commit()
         if not pairs:
             # Nothing to extract: never show an empty source as read.
             set_read_state(source_id, "failed", NO_CONTENT_ERROR)

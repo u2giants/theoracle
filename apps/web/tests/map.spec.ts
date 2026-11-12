@@ -268,6 +268,16 @@ test('admin marks entity and relation wrong and resolves them on the review page
   ).toBeVisible();
   await page.screenshot({ path: resolve(SHOTS, '10-review-flags.png'), fullPage: true });
 
+  // G1: resolve requires choosing an action first, then the write creates a
+  // correction keyed by content.
+  await expect(
+    rows.filter({ hasText: 'Wrong person on this account' }).getByTestId('review-resolve'),
+  ).toBeDisabled();
+  await rows
+    .filter({ hasText: 'Wrong person on this account' })
+    .getByTestId('review-action')
+    .selectOption('reject');
+  await page.screenshot({ path: resolve(SHOTS, '18-review-resolve-action.png'), fullPage: true });
   await rows
     .filter({ hasText: 'Wrong person on this account' })
     .getByTestId('review-resolve')
@@ -420,6 +430,19 @@ test('functions page renders the curated function list', async ({ page, context 
   await expect(page.getByTestId('function-merge-submit')).toHaveCount(13);
   await expect(page.getByTestId('functions-add-form')).toBeVisible();
   await page.screenshot({ path: resolve(SHOTS, '16-functions-list.png'), fullPage: true });
+});
+
+// Repair plan D1: the source page shows the effective date and where it
+// came from. The seeded transcript is the teams-approval-2026-03-14 meeting.
+test('source page shows the effective date and its origin', async ({ page, context }) => {
+  const ids = seed();
+  await signIn(context);
+  await page.goto(`/map/source/${ids.transcript_id}`);
+  const date = page.getByTestId('source-date');
+  await expect(date).toBeVisible({ timeout: 60_000 });
+  await expect(date).toContainText('effective 2026-03-14');
+  await expect(date).toContainText('meeting start');
+  await page.screenshot({ path: resolve(SHOTS, '17-source-date.png') });
 });
 
 // Repair plan C2: the function assignment control on the source and entity

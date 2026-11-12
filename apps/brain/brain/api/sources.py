@@ -12,10 +12,11 @@ import hashlib
 import io
 import mimetypes
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -26,6 +27,13 @@ from brain.api.deps import User, admin_or_service, current_user, require_admin
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
 from brain.read.cleanup import drop_orphaned, touched_entities
+from brain.read.dates import (
+    DATE_ORIGINS,
+    ORIGIN_ADMIN,
+    ORIGIN_FILE_META,
+    ORIGIN_UPLOAD,
+    upload_floor,
+)
 from brain.read.detect import (
     KIND_DOCX,
     KIND_PPTX,
@@ -40,11 +48,14 @@ router = APIRouter()
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_TRANSCRIPT_LINES = 200_000
 
+EASTERN = ZoneInfo("America/New_York")
+
 _ZIP_KINDS = frozenset({KIND_DOCX, KIND_XLSX, KIND_PPTX})
 
 _SOURCE_COLUMNS = (
     "id, kind, title, original_filename, storage_path, sha256, bytes, "
-    "department_hint, effective_date, uploaded_by, created_at, read_state, read_error"
+    "department_hint, effective_date, date_origin, uploaded_by, created_at, "
+    "read_state, read_error"
 )
 
 
@@ -149,6 +160,7 @@ def _insert_source(
     data_len: int,
     department_hint: str | None,
     effective_date: date | None,
+    date_origin: str,
     uploaded_by: str | None,
 ) -> dict[str, Any]:
     """Insert one ``cmap.source`` row and queue its ``read_source`` job."""
@@ -156,7 +168,7 @@ def _insert_source(
     with pool.connection() as conn:
         row = conn.execute(
             f"INSERT INTO cmap.source ({_SOURCE_COLUMNS}) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), 'queued', NULL) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), 'queued', NULL) "
             "RETURNING " + _SOURCE_COLUMNS,
             (
                 source_id,
@@ -168,6 +180,7 @@ def _insert_source(
                 data_len,
                 department_hint,
                 effective_date,
+                date_origin,
                 uploaded_by,
             ),
         ).fetchone()
@@ -188,6 +201,7 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         data_len,
         department_hint,
         effective_date,
+        date_origin,
         uploaded_by,
         created_at,
         read_state,
@@ -203,6 +217,7 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         "bytes": data_len,
         "department_hint": department_hint,
         "effective_date": effective_date.isoformat() if effective_date else None,
+        "date_origin": date_origin,
         "uploaded_by": str(uploaded_by) if uploaded_by else None,
         "created_at": created_at.isoformat() if created_at else None,
         "read_state": read_state,
@@ -218,9 +233,21 @@ def ingest_bytes(
     data: bytes,
     department_hint: str | None,
     effective_date: date | None,
+    date_origin: str,
     uploaded_by: str | None,
 ) -> dict[str, Any]:
-    """Store ``data`` as a new source, or report the duplicate sha."""
+    """Store ``data`` as a new source, or report the duplicate sha.
+
+    ``date_origin`` names where ``effective_date`` came from (D1). A missing
+    date is only legal with the ``upload_time`` floor, which is stamped here
+    so no source is ever created undated.
+    """
+    if date_origin not in DATE_ORIGINS:
+        raise ValueError(f"unknown date_origin {date_origin!r}")
+    if effective_date is None:
+        if date_origin != ORIGIN_UPLOAD:
+            raise ValueError(f"date_origin {date_origin!r} needs an effective_date")
+        effective_date = upload_floor()
     sha = hashlib.sha256(data).hexdigest()
     existing = _find_by_sha256(sha)
     if existing is not None:
@@ -241,6 +268,7 @@ def ingest_bytes(
             data_len=len(data),
             department_hint=department_hint,
             effective_date=effective_date,
+            date_origin=date_origin,
             uploaded_by=uploaded_by,
         )
     except Exception:
@@ -305,13 +333,15 @@ async def create_source(
             return value
         return None
 
+    effective = _parse_effective_date(_field("effective_date"))
     return ingest_bytes(
         kind=kind,
         title=(_field("title") or "").strip() or _safe_name(raw_name),
         original_filename=raw_name,
         data=data,
         department_hint=(_field("department_hint") or "").strip() or None,
-        effective_date=_parse_effective_date(_field("effective_date")),
+        effective_date=effective,
+        date_origin=ORIGIN_ADMIN if effective is not None else ORIGIN_UPLOAD,
         uploaded_by=user.auth_user_id,
     )
 
@@ -337,13 +367,15 @@ def create_transcript_source(
             ),
         )
     title = (body.title or "").strip() or "Transcript"
+    effective = _parse_effective_date(body.effective_date)
     return ingest_bytes(
         kind="transcript",
         title=title,
         original_filename=f"{_safe_name(title)}.txt",
         data=text.encode("utf-8"),
         department_hint=(body.department_hint or "").strip() or None,
-        effective_date=_parse_effective_date(body.effective_date),
+        effective_date=effective,
+        date_origin=ORIGIN_ADMIN if effective is not None else ORIGIN_UPLOAD,
         uploaded_by=user.auth_user_id if user is not None else None,
     )
 
@@ -374,6 +406,7 @@ def import_bucket(user: Annotated[User, Depends(require_admin)]) -> dict[str, An
             data=data,
             department_hint=None,
             effective_date=None,
+            date_origin=ORIGIN_UPLOAD,
             uploaded_by=user.auth_user_id,
         )
         if result.get("duplicate"):
@@ -414,7 +447,8 @@ def import_folder(
         relative = file_path.relative_to(target)
         department_hint = relative.parts[0] if len(relative.parts) > 1 else None
         try:
-            if file_path.stat().st_size > MAX_UPLOAD_BYTES:
+            stat = file_path.stat()
+            if stat.st_size > MAX_UPLOAD_BYTES:
                 raise DetectError(
                     f"file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB cap"
                 )
@@ -425,13 +459,16 @@ def import_folder(
         except (DetectError, OSError) as exc:
             errors.append({"key": str(relative), "error": str(exc)})
             continue
+        # The file's own mtime is the upload-payload metadata date (D1).
+        modified = datetime.fromtimestamp(stat.st_mtime, EASTERN).date()
         result = ingest_bytes(
             kind=kind,
             title=file_path.name,
             original_filename=file_path.name,
             data=data,
             department_hint=department_hint,
-            effective_date=None,
+            effective_date=modified,
+            date_origin=ORIGIN_FILE_META,
             uploaded_by=user.auth_user_id,
         )
         if result.get("duplicate"):
@@ -531,6 +568,41 @@ def reread_source(
         queued = _queue_reread(conn, [str(source_id)])
         conn.commit()
     return {"id": str(source_id), "queued": bool(queued)}
+
+
+@router.post("/sources/backfill-dates")
+def backfill_dates(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
+    """Stamp D1 dates on sources that predate ``date_origin`` (idempotent).
+
+    Legacy rows holding an admin-entered date are stamped ``admin`` here;
+    every other undated source is resolved by the ``backfill_dates`` job
+    (full precedence chain, always ending dated). Rows already carrying a
+    date and origin are left alone, so a second run is a no-op.
+    """
+    del user
+    pool = get_pool()
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE cmap.source SET date_origin = %s "
+            "WHERE effective_date IS NOT NULL AND date_origin IS NULL",
+            (ORIGIN_ADMIN,),
+        )
+        pending = int(
+            conn.execute(
+                "SELECT count(*) FROM cmap.source WHERE effective_date IS NULL"
+            ).fetchone()[0]
+        )
+        queued = 0
+        if pending:
+            row = conn.execute(
+                "INSERT INTO cmap.job (kind, payload) "
+                "SELECT 'backfill_dates', '{}'::jsonb "
+                "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'backfill_dates' "
+                "AND state IN ('queued', 'running')) RETURNING id"
+            ).fetchone()
+            queued = 1 if row is not None else 0
+        conn.commit()
+    return {"pending": pending, "queued": bool(queued)}
 
 
 @router.post("/jobs/retry-failed")

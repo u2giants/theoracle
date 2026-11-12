@@ -115,6 +115,7 @@ export type ReviewFlag = {
   created_at: string | null;
   resolved_at: string | null;
   resolved_by: string | null;
+  action: string | null;
 };
 
 export type EntityDetail = {
@@ -144,6 +145,7 @@ export type SourceChunks = {
     bytes: number;
     department_hint: string | null;
     effective_date: string | null;
+    date_origin: string | null;
     created_at: string | null;
     read_state: string;
     read_notes?: {
