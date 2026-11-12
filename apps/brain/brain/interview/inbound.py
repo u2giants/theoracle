@@ -1,10 +1,11 @@
 """Incoming Teams messages for interviews (plan step 12).
 
 The Next.js bot route forwards every message here first. This module stores
-the employee's conversation reference (so the bot may later write to them),
-handles "stop" and "skip", and turns a reply to an asked question into a
-``cmap.source`` transcript that flows through the normal pipeline. Anything
-it does not handle falls through to the bot's existing join-meeting command.
+the employee's conversation reference (so the bot may later write to them)
+when — and only when — the chat is personal, handles "stop"/"skip"/"resume",
+and turns a reply to an asked question into a ``cmap.source`` transcript that
+flows through the normal pipeline. Anything it does not handle falls through
+to the bot's existing join-meeting command.
 """
 
 from __future__ import annotations
@@ -30,7 +31,12 @@ from brain.text_util import fold_key
 
 logger = logging.getLogger(__name__)
 
-ANSWER_WINDOW_DAYS = 7
+# One shared window (F4): the same days govern "free for a new question"
+# (tick) and "a reply still matches a pending question" (here). It used to be
+# 3 vs 7, which let a second question go out while the first was still
+# matchable and a late reply land on the wrong one. 7 days keeps the old
+# reply-match reach; the free window widens to match it.
+QUESTION_WINDOW_DAYS = 7
 ORACLE_SPEAKER = "The Oracle"
 EASTERN = ZoneInfo("America/New_York")
 # Owner ruling 2026-11-02: every employee in the M365 tenant can reach The
@@ -45,23 +51,27 @@ REPLY_SKIPPED = _EN.reply_skipped
 REPLY_ANSWERED = _EN.reply_answered
 
 _STOP_COMMANDS = {"stop", "停止", "暂停"}
+_RESUME_COMMANDS = {"resume", "continue", "继续", "恢复"}
 _SKIP_COMMANDS = {"skip", "跳过"}
 
 
 REPLY_CHECK_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "reply_check.md"
+INTENT_CHECK_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "intent_check.md"
+REPLY_MATCH_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "reply_match.md"
 REPLY_CHECK_TIMEOUT_SECONDS = 8.0
 
 
 def classify_reply(question: str, reply: str) -> str:
     """``answer``, ``dont_know`` or ``other`` for a reply to a pending question.
 
-    When the check cannot run the reply counts as an answer: only one question
-    is ever pending per person, so that is by far the likeliest reading.
+    Unjudged (no model, or the check fails) is never accepted as an answer:
+    the reply is held as ``other`` so the question stays pending and the
+    message still reaches the thread/volunteer path instead of being lost.
     """
     settings = get_settings()
     model = stage_model(settings, "answer")
     if not model or not settings.openrouter_api_key:
-        return "answer"
+        return "other"
     prompt = (
         REPLY_CHECK_PROMPT.read_text(encoding="utf-8")
         .replace("{{question}}", question)
@@ -81,15 +91,114 @@ def classify_reply(question: str, reply: str) -> str:
             label="reply check",
         )
         kind = str(parse_model_json(message_content(body), ()).get("kind") or "")
-    except Exception:  # noqa: BLE001 - a failed check must not lose the reply
-        logger.warning("reply check failed; treating the reply as an answer")
-        return "answer"
-    return kind if kind in {"answer", "dont_know", "other"} else "answer"
+    except Exception:  # noqa: BLE001 - a failed check must hold, not answer
+        logger.warning("reply check failed; holding the reply instead of answering")
+        return "other"
+    return kind if kind in {"answer", "dont_know", "other"} else "other"
 
 
 def _command(text: str) -> str:
     """Casefold and strip punctuation for stop/skip matching; keeps CJK."""
     return fold_key(text)
+
+
+def classify_intent(text: str) -> str:
+    """``stop``, ``resume`` or ``other``: literal commands first, then meaning.
+
+    "stop"-like phrases are recognised by meaning in both languages through
+    the judge (``_judge_intent``); the literal sets are the deterministic
+    fast path that keeps working even when the model is down.
+    """
+    command = _command(text)
+    if command in _STOP_COMMANDS:
+        return "stop"
+    if command in _RESUME_COMMANDS:
+        return "resume"
+    return _judge_intent(text)
+
+
+def _judge_intent(text: str) -> str:
+    """Meaning-based stop/resume; unjudged messages are never taken as a command."""
+    settings = get_settings()
+    model = stage_model(settings, "grade")
+    if not model or not settings.openrouter_api_key:
+        return "other"
+    prompt = (
+        INTENT_CHECK_PROMPT.read_text(encoding="utf-8").replace("{{message}}", text)
+    )
+    try:
+        body = post_chat_with_rescue(
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 20,
+                "temperature": 0,
+            },
+            settings=settings,
+            timeout=REPLY_CHECK_TIMEOUT_SECONDS,
+            error_cls=RuntimeError,
+            label="interview intent check",
+        )
+        kind = str(parse_model_json(message_content(body), ()).get("kind") or "")
+    except Exception:  # noqa: BLE001 - never accept an unjudged message as a command
+        logger.warning("intent check failed; not treating the message as a command")
+        return "other"
+    return kind if kind in {"stop", "resume"} else "other"
+
+
+def _pending_questions(conn: Any, employee_id: str) -> list[tuple[str, str]]:
+    """Up to three asked questions still inside the window, newest first."""
+    rows = conn.execute(
+        "SELECT id::text, question FROM cmap.open_question "
+        "WHERE state = 'asked' AND target_employee_id = %s "
+        "AND asked_at > now() - make_interval(days => %s) "
+        "ORDER BY asked_at DESC LIMIT 3",
+        (employee_id, QUESTION_WINDOW_DAYS),
+    ).fetchall()
+    return [(str(row[0]), str(row[1])) for row in rows]
+
+
+def match_reply(questions: list[str], reply: str) -> int | None:
+    """Index of the question the reply answers, or ``None`` to hold.
+
+    Model judgement over the candidate questions, never recency. Unjudged
+    (no model, or the check fails) matches nothing: the questions stay
+    pending rather than one being picked by guess.
+    """
+    if not questions:
+        return None
+    if len(questions) == 1:
+        return 0
+    settings = get_settings()
+    model = stage_model(settings, "grade")
+    if not model or not settings.openrouter_api_key:
+        return None
+    listing = "\n".join(
+        f"QUESTION {i}:\n<<<\n{question}\n>>>" for i, question in enumerate(questions, 1)
+    )
+    prompt = (
+        REPLY_MATCH_PROMPT.read_text(encoding="utf-8")
+        .replace("{{questions}}", listing)
+        .replace("{{reply}}", reply)
+    )
+    try:
+        body = post_chat_with_rescue(
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 20,
+                "temperature": 0,
+            },
+            settings=settings,
+            timeout=REPLY_CHECK_TIMEOUT_SECONDS,
+            error_cls=RuntimeError,
+            label="reply match",
+        )
+        index = int(parse_model_json(message_content(body), ()).get("index") or 0)
+    except Exception:  # noqa: BLE001 - never pick a question without a judgement
+        logger.warning("reply match failed; holding the reply instead of matching")
+        return None
+    return index - 1 if 1 <= index <= len(questions) else None
 
 
 def _find_employee(conn: Any, email: str | None) -> tuple[str, str, str | None] | None:
@@ -142,7 +251,14 @@ def _ensure_employee(
 def store_conversation_ref(
     conn: Any, employee_id: str, conversation_ref: dict[str, Any]
 ) -> None:
-    """Upsert the employee's conversation reference (the bot's write-back key)."""
+    """Upsert the employee's conversation reference (the bot's write-back key).
+
+    F4 chat safety: only a personal (1:1) chat may become the write-back
+    target — a group or meeting reference would send later interview
+    questions into that chat. Non-personal references are ignored.
+    """
+    if not intake.is_personal(conversation_ref):
+        return
     conn.execute(
         "INSERT INTO cmap.teams_conversation (employee_id, conversation_ref, updated_at) "
         "VALUES (%s, %s, now()) ON CONFLICT (employee_id) DO UPDATE SET "
@@ -234,11 +350,13 @@ def handle_inbound(
         if employee is None:
             return {"handled": False, "reply": None, "employee_id": None}
         employee_id, employee_name, locale = employee
-        if conversation_ref:
+        personal = intake.is_personal(conversation_ref)
+        if conversation_ref and personal:
             store_conversation_ref(conn, employee_id, conversation_ref)
         lang = reply_language(locale, text)
         command = _command(text)
-        if command in _STOP_COMMANDS:
+        intent = classify_intent(text)
+        if intent == "stop":
             conn.execute(
                 "INSERT INTO cmap.employee_flags (employee_id, interviews_paused) "
                 "VALUES (%s, true) ON CONFLICT (employee_id) DO UPDATE SET "
@@ -251,19 +369,33 @@ def handle_inbound(
                 "reply": strings(lang).reply_stopped,
                 "employee_id": employee_id,
             }
-        personal = intake.is_personal(conversation_ref)
-        if personal and not intake.is_join_request(text) and command not in _SKIP_COMMANDS and not intake.is_done(command):
+        if intent == "resume":
+            conn.execute(
+                "INSERT INTO cmap.employee_flags (employee_id, interviews_paused) "
+                "VALUES (%s, false) ON CONFLICT (employee_id) DO UPDATE SET "
+                "interviews_paused = false",
+                (employee_id,),
+            )
+            conn.commit()
+            return {
+                "handled": True,
+                "reply": strings(lang).reply_resumed,
+                "employee_id": employee_id,
+            }
+        candidates = _pending_questions(conn, employee_id)
+        if (
+            personal
+            and not candidates
+            and not intake.is_join_request(text)
+            and command not in _SKIP_COMMANDS
+            and not intake.is_done(command)
+        ):
             who = profile.get_profile(conn, employee_id)
-            pending = conn.execute(
-                "SELECT 1 FROM cmap.open_question WHERE state = 'asked' AND target_employee_id = %s "
-                "AND asked_at > now() - make_interval(days => %s) LIMIT 1",
-                (employee_id, ANSWER_WINDOW_DAYS),
-            ).fetchone()
             if (
-                pending is None
-                and who.asked
+                who.asked
                 and not who.complete
                 and intake.word_count(text) <= profile.MAX_ANSWER_WORDS
+                and profile.is_profile_answer(text)
             ):
                 return {
                     "handled": True,
@@ -272,63 +404,62 @@ def handle_inbound(
                     "profile": True,
                 }
         thread = intake.open_thread(conn, employee_id) if personal else None
-        if thread is not None and not thread[1]:
-            thread_id = thread[0]
-            pinned = intake.thread_lang(conn, thread_id)
-            thread_lang = pinned or lang
-            if intake.is_join_request(text):
-                return {"handled": False, "reply": None, "employee_id": employee_id}
-            if intake.is_done(command):
-                source_id = intake.close_thread(thread_id)
+        if thread is not None and thread[1]:
+            intake.close_thread(thread[0])
+            thread = None
+        # A reply to a pending question is matched before any open volunteered
+        # thread: the thread must never swallow an answer or a skip (F4).
+        matched: tuple[str, str] | None = None
+        if candidates and not intake.is_join_request(text) and not intake.is_done(command):
+            if command in _SKIP_COMMANDS:
+                index, kind = 0, "dont_know"
+            else:
+                index = match_reply([q for _, q in candidates], text)
+                kind = "other" if index is None else classify_reply(candidates[index][1], text)
+            if kind == "dont_know":
+                question_id = candidates[index][0]
+                conn.execute(
+                    "UPDATE cmap.open_question SET state = 'open', target_employee_id = NULL, "
+                    "asked_at = NULL, skipped_by = array_append(skipped_by, %s::uuid) "
+                    "WHERE id = %s",
+                    (employee_id, question_id),
+                )
+                conn.commit()
                 return {
                     "handled": True,
-                    "reply": strings(thread_lang).reply_done,
+                    "reply": strings(lang).reply_skipped,
+                    "employee_id": employee_id,
+                    "question_id": question_id,
+                }
+            if kind == "answer":
+                matched = candidates[index]
+        if matched is None:
+            if thread is not None:
+                thread_id = thread[0]
+                pinned = intake.thread_lang(conn, thread_id)
+                thread_lang = pinned or lang
+                if intake.is_join_request(text):
+                    return {"handled": False, "reply": None, "employee_id": employee_id}
+                if intake.is_done(command):
+                    source_id = intake.close_thread(thread_id)
+                    return {
+                        "handled": True,
+                        "reply": strings(thread_lang).reply_done,
+                        "employee_id": employee_id,
+                        "intake_id": thread_id,
+                        "source_id": source_id,
+                    }
+                intake.append_turn(conn, thread_id, employee_name, text)
+                return {
+                    "handled": True,
+                    "reply": _thread_reply(conn, thread_id, thread_lang),
                     "employee_id": employee_id,
                     "intake_id": thread_id,
-                    "source_id": source_id,
                 }
-            intake.append_turn(conn, thread_id, employee_name, text)
-            return {
-                "handled": True,
-                "reply": _thread_reply(conn, thread_id, thread_lang),
-                "employee_id": employee_id,
-                "intake_id": thread_id,
-            }
-        if thread is not None:
-            intake.close_thread(thread[0])
-        row = conn.execute(
-            "SELECT id::text, question FROM cmap.open_question "
-            "WHERE state = 'asked' AND target_employee_id = %s "
-            "AND asked_at > now() - make_interval(days => %s) "
-            "ORDER BY asked_at DESC LIMIT 1",
-            (employee_id, ANSWER_WINDOW_DAYS),
-        ).fetchone()
-        if row is None:
             return _volunteer(
                 conn, employee_id, employee_name, text, command, personal, lang, locale
             )
-        question_id, question = str(row[0]), str(row[1])
-        kind = "dont_know" if command in _SKIP_COMMANDS else classify_reply(question, text)
-        if kind == "other":
-            # Not an answer: the question stays pending and the message is
-            # handled like any other thing the employee tells the bot.
-            return _volunteer(
-                conn, employee_id, employee_name, text, command, personal, lang, locale
-            )
-        if kind == "dont_know":
-            conn.execute(
-                "UPDATE cmap.open_question SET state = 'open', target_employee_id = NULL, "
-                "asked_at = NULL, skipped_by = array_append(skipped_by, %s::uuid) "
-                "WHERE id = %s",
-                (employee_id, question_id),
-            )
-            conn.commit()
-            return {
-                "handled": True,
-                "reply": strings(lang).reply_skipped,
-                "employee_id": employee_id,
-                "question_id": question_id,
-            }
+        question_id, question = matched
     answer = text.strip()
     day = datetime.now(EASTERN).date().isoformat()
     source = ingest_bytes(

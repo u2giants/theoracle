@@ -53,6 +53,14 @@ function isClientError(err: unknown): boolean {
   return false;
 }
 
+// F4 chat safety: only a personal (1:1) chat is ever used to send interview
+// questions. A stored group/meeting reference (from before the F4 gate) must
+// never be the write-back target — it is ignored and a 1:1 chat is opened.
+function isPersonalRef(ref: Partial<ConversationReference> | null): boolean {
+  const kind = ref?.conversation?.conversationType;
+  return !kind || kind === 'personal';
+}
+
 async function resolveTeamsUser(emails: string[]): Promise<{ id: string; name?: string } | null> {
   const wanted = new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean));
   if (wanted.size === 0) return null;
@@ -140,6 +148,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   let ref = lookup.conversation_ref ?? null;
+  if (ref && !isPersonalRef(ref)) ref = null;
   if (!ref) {
     try {
       ref = await openConversation(employeeId, lookup);
