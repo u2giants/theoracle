@@ -3,9 +3,14 @@
 ``run_eval()`` answers every ``cmap.eval_question`` through the step-9
 ``answer_question`` (mode ``auto``), grades each answer against its expected
 points with the frontier model (``prompts/grade.md``) and writes one
-``cmap.eval_run`` row. Score per question = covered / total points, minus
-0.2 per contradicted point, floored at 0. The run also records which
-expected source titles the answer actually cited.
+``cmap.eval_run`` row (repair plan B2). Score per question =
+0.6 x covered points (the legacy formula: covered / total minus 0.2 per
+contradicted point, floored at 0) + 0.2 x expected sources actually cited
++ 0.2 x share of sentences supported. ``score_legacy`` keeps the legacy
+formula's number (also as the run's ``mean_score_legacy``) for three runs
+of continuity. Abstention questions score 1 only when the answer declines
+(``prompts/decline_check.md``, judged on the grade seat). A failed answer is
+reported as ``error``, kept out of the mean and fails the run.
 
 Job ``evaluate`` runs it in the worker; ``python -m brain.eval.run`` runs it
 from a shell (``--seed`` first loads ``eval/questions.seed.json``).
@@ -29,17 +34,29 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.llm import post_chat_with_rescue
 from brain.seats import seat_report, stage_model
+from brain.text_util import split_sentences
 
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 GRADE_PROMPT_PATH = PROMPTS_DIR / "grade.md"
-HASHED_PROMPTS = ("answer_local.md", "answer_global.md", "answer_map.md", "grade.md")
+DECLINE_PROMPT_PATH = PROMPTS_DIR / "decline_check.md"
+HASHED_PROMPTS = (
+    "answer_local.md",
+    "answer_global.md",
+    "answer_map.md",
+    "grade.md",
+    "decline_check.md",
+)
 SEED_PATH = Path(__file__).resolve().parents[2] / "eval" / "questions.seed.json"
 SEED_AUTHOR = "seed"
 CONTRADICTION_PENALTY = 0.2
+POINTS_WEIGHT = 0.6
+SOURCES_WEIGHT = 0.2
+SUPPORT_WEIGHT = 0.2
 GRADE_ATTEMPTS = 3
 MAX_TOKENS = 800
+CITE_MARKER = re.compile(r"\[(\d+)\]")
 
 
 class EvalError(RuntimeError):
@@ -111,6 +128,47 @@ def score_grade(total: int, covered: list[int], contradicted: list[int]) -> floa
         return 0.0
     raw = len(covered) / total - CONTRADICTION_PENALTY * len(contradicted)
     return round(max(0.0, raw), 4)
+
+
+def composite_score(points: float, sources: float, support: float) -> float:
+    """0.6 x covered points + 0.2 x sources cited + 0.2 x sentences supported."""
+    return round(
+        POINTS_WEIGHT * points + SOURCES_WEIGHT * sources + SUPPORT_WEIGHT * support,
+        4,
+    )
+
+
+def sources_share(expected_titles: list[str], cited_hits: list[str]) -> float:
+    """Fraction of expected source titles the answer cited (1.0 when none expected)."""
+    if not expected_titles:
+        return 1.0
+    return round(len(cited_hits) / len(expected_titles), 4)
+
+
+def supported_sentence_share(
+    answer_md: str, citations: list[dict[str, Any]]
+) -> float:
+    """Share of answer sentences backed by a kept citation (H1's seam).
+
+    Until H1's per-sentence support check lands, "supported" is the existing
+    citation validity: the sentence carries a ``[n]`` marker whose citation
+    survived quote validation (sentences marked ``(uncited)`` or left without
+    any marker are not). H1 swaps its own check in here; the scoring formula
+    does not change.
+    """
+    sentences = split_sentences(answer_md)
+    if not sentences:
+        return 0.0
+    kept = len(citations)
+    supported = 0
+    for sentence in sentences:
+        if "(uncited)" in sentence:
+            continue
+        if any(
+            1 <= int(value) <= kept for value in CITE_MARKER.findall(sentence)
+        ):
+            supported += 1
+    return round(supported / len(sentences), 4)
 
 
 def _indexes(value: Any, total: int) -> list[int]:
@@ -192,6 +250,39 @@ def grade_answer(
     raise EvalError("grading failed after retries") from last_error
 
 
+def render_decline_prompt(question: str, answer_md: str) -> str:
+    """Fill ``prompts/decline_check.md`` for one answer."""
+    template = DECLINE_PROMPT_PATH.read_text(encoding="utf-8")
+    return (
+        template.replace("{{question}}", question)
+        .replace("{{answer}}", answer_md.strip() or "(empty answer)")
+    )
+
+
+def judge_decline(
+    question: str, answer_md: str, settings: Settings, usage: dict[str, int]
+) -> bool:
+    """Ask the grade seat whether the answer declines to answer at all."""
+    prompt = render_decline_prompt(question, answer_md)
+    last_error: Exception | None = None
+    for _attempt in range(GRADE_ATTEMPTS):
+        try:
+            body = _post_chat([{"role": "user", "content": prompt}], settings)
+            usage["grade_calls"] = usage.get("grade_calls", 0) + 1
+            tokens = (body.get("usage") or {}).get("total_tokens")
+            if isinstance(tokens, int):
+                usage["grade_tokens"] = usage.get("grade_tokens", 0) + tokens
+            raw = parse_model_json(_content(body), ())
+            declines = raw.get("declines")
+            if not isinstance(declines, bool):
+                raise AnswerError("decline response has no boolean 'declines'")
+            return declines
+        except (EvalError, AnswerError, httpx.HTTPError) as exc:
+            logger.warning("decline check failed: %s", exc)
+            last_error = exc
+    raise EvalError("decline check failed after retries") from last_error
+
+
 def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
@@ -214,7 +305,8 @@ def load_questions() -> list[dict[str, Any]]:
     """Every eval question, in a stable order."""
     with get_pool().connection() as conn:
         rows = conn.execute(
-            "SELECT id::text, question, expected_points, expected_source_titles, author "
+            "SELECT id::text, question, expected_points, expected_source_titles, "
+            "author, abstention "
             "FROM cmap.eval_question ORDER BY question"
         ).fetchall()
     return [
@@ -224,6 +316,7 @@ def load_questions() -> list[dict[str, Any]]:
             "expected_points": list(row[2]),
             "expected_source_titles": list(row[3]),
             "author": row[4],
+            "abstention": bool(row[5]),
         }
         for row in rows
     ]
@@ -265,19 +358,23 @@ def _graph_version() -> int:
 def evaluate_question(
     item: dict[str, Any], settings: Settings, usage: dict[str, int]
 ) -> dict[str, Any]:
-    """Answer and grade one question; a failure scores 0 with the error kept."""
+    """Answer and grade one question; a failure records ``error`` (the run fails)."""
     points = list(item["expected_points"])
     result: dict[str, Any] = {
         "question_id": item["id"],
         "question": item["question"],
         "expected_points": points,
         "expected_sources": list(item["expected_source_titles"]),
+        "abstention": bool(item["abstention"]),
         "score": 0.0,
+        "score_legacy": 0.0,
         "covered": [],
         "missing": list(range(len(points))),
         "contradicted": [],
         "cited_sources": [],
         "expected_sources_cited": [],
+        "supported_share": 0.0,
+        "declined": None,
         "mode_used": None,
         "answer_md": "",
         "error": None,
@@ -294,6 +391,17 @@ def evaluate_question(
     result["expected_sources_cited"] = cited_expected(
         result["expected_sources"], result["cited_sources"]
     )
+    result["supported_share"] = supported_sentence_share(
+        answer["answer_md"], answer["citations"]
+    )
+    if result["abstention"]:
+        try:
+            result["declined"] = judge_decline(
+                item["question"], answer["answer_md"], settings, usage
+            )
+        except EvalError as exc:
+            result["error"] = f"decline check failed: {exc}"
+            return result
     try:
         grade = grade_answer(
             item["question"], points, answer["answer_md"], settings, usage
@@ -302,12 +410,29 @@ def evaluate_question(
         result["error"] = f"grading failed: {exc}"
         return result
     result.update(grade)
-    result["score"] = score_grade(len(points), grade["covered"], grade["contradicted"])
+    result["score_legacy"] = score_grade(
+        len(points), grade["covered"], grade["contradicted"]
+    )
+    if result["abstention"]:
+        result["score"] = 1.0 if result["declined"] else 0.0
+    else:
+        result["score"] = composite_score(
+            result["score_legacy"],
+            sources_share(
+                result["expected_sources"], result["expected_sources_cited"]
+            ),
+            result["supported_share"],
+        )
     return result
 
 
 def run_eval(settings: Settings | None = None) -> dict[str, Any]:
-    """Answer and grade every eval question; store and return the run."""
+    """Answer and grade every eval question; store and return the run.
+
+    A question whose answer or grading failed keeps its ``error`` and stays
+    out of ``mean_score`` (shown separately, never averaged in as a 0); the
+    run is stored with its evidence and then fails.
+    """
     cfg = settings if settings is not None else get_settings()
     questions = load_questions()
     if not questions:
@@ -316,29 +441,45 @@ def run_eval(settings: Settings | None = None) -> dict[str, Any]:
         )
     usage: dict[str, int] = {}
     results = [evaluate_question(item, cfg, usage) for item in questions]
-    mean = round(sum(item["score"] for item in results) / len(results), 4)
+    errors = [item for item in results if item["error"] is not None]
+    scored = [item for item in results if item["error"] is None]
+    mean = (
+        round(sum(item["score"] for item in scored) / len(scored), 4) if scored else 0.0
+    )
+    # The legacy mean keeps the old formula's arithmetic exactly: every
+    # question counts, a failure being its forced 0 (three runs of continuity).
+    mean_legacy = round(
+        sum(item["score_legacy"] for item in results) / len(results), 4
+    )
     version = _graph_version()
     models = model_manifest(cfg)
     models["extraction_models"] = _extraction_models()
     with get_pool().connection() as conn:
         row = conn.execute(
             "INSERT INTO cmap.eval_run "
-            "(graph_version, prompt_hashes, results, mean_score, models) "
-            "VALUES (%s, %s, %s, %s, %s) RETURNING id::text, created_at",
+            "(graph_version, prompt_hashes, results, mean_score, models, "
+            "mean_score_legacy) "
+            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id::text, created_at",
             (
                 version,
                 json.dumps(prompt_hashes()),
                 json.dumps(results),
                 mean,
                 json.dumps(models),
+                mean_legacy,
             ),
         ).fetchone()
         conn.commit()
+    if errors:
+        raise EvalError(
+            f"eval run failed: {len(errors)} of {len(results)} questions errored"
+        )
     return {
         "id": row[0],
         "created_at": row[1].isoformat(),
         "graph_version": version,
         "mean_score": mean,
+        "mean_score_legacy": mean_legacy,
         "models": models,
         "results": results,
         "usage": usage,
@@ -353,6 +494,7 @@ def handle_evaluate(job: dict[str, Any]) -> None:
         summary = {
             "eval_run_id": run["id"],
             "mean_score": run["mean_score"],
+            "mean_score_legacy": run["mean_score_legacy"],
             **run["usage"],
         }
         with get_pool().connection() as conn:
@@ -374,17 +516,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.seed:
         print(f"seed questions added: {load_seed()}")
-    run = run_eval()
+    try:
+        run = run_eval()
+    except EvalError as exc:
+        print(exc)
+        return 1
     for item in run["results"]:
         line = (
-            f"{item['score']:.2f}  {item['question']}  "
+            f"{item['score']:.2f} (legacy {item['score_legacy']:.2f})  "
+            f"{item['question']}  "
             f"sources cited {len(item['expected_sources_cited'])}/{len(item['expected_sources'])}"
         )
         if item["error"]:
             line += f"  error={item['error']}"
         print(line)
     print(
-        f"eval run {run['id']} graph_version={run['graph_version']} mean={run['mean_score']}"
+        f"eval run {run['id']} graph_version={run['graph_version']} "
+        f"mean={run['mean_score']} mean_legacy={run['mean_score_legacy']}"
     )
     print(f"models: {run['models']}")
     print(f"usage: {run['usage']}")

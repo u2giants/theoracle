@@ -24,6 +24,7 @@ type Result = {
   expected_points: string[];
   expected_sources: string[];
   score: number;
+  score_legacy: number;
   covered: number[];
   missing: number[];
   contradicted: number[];
@@ -41,6 +42,7 @@ type Run = {
   created_at: string;
   graph_version: number;
   mean_score: number;
+  mean_score_legacy: number | null;
   previous_mean: number | null;
   mean_delta: number | null;
   results: Result[];
@@ -169,7 +171,18 @@ function RunTable({ run }: { run: Run }) {
               {item.question}
               {item.error && <div className="text-xs text-red-700">{item.error}</div>}
             </td>
-            <td className="py-1 pr-2 font-medium">{pct(item.score)}</td>
+            <td className="py-1 pr-2 font-medium">
+              {item.error ? (
+                <span className="text-red-700">error</span>
+              ) : (
+                <>
+                  {pct(item.score)}
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">
+                    legacy {pct(item.score_legacy)}
+                  </span>
+                </>
+              )}
+            </td>
             <td className="py-1 pr-2">
               <Delta value={deltas.get(item.question) ?? null} />
             </td>
@@ -309,6 +322,11 @@ export function EvalClient({ isAdmin }: { isAdmin: boolean }) {
                   <td className="py-1 pr-2">{when(run.created_at)}</td>
                   <td className="py-1 pr-2 font-medium" data-testid="eval-mean">
                     {pct(run.mean_score)}
+                    {run.mean_score_legacy !== null && (
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        legacy {pct(run.mean_score_legacy)}
+                      </span>
+                    )}
                   </td>
                   <td className="py-1 pr-2">
                     <Delta value={run.mean_delta} />
