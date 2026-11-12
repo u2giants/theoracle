@@ -57,7 +57,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 | F4 | Reply matching and chat-safety fixes | — | ✅ done | `T/test_interview.py::test_group_chat_reference_never_stored`, `::test_late_reply_matched_to_right_question`, `::test_thanks_is_not_a_profile`, `T/test_inbound_zh.py::test_stop_variants_and_resume`; shared `QUESTION_WINDOW_DAYS=7`; judge prompts `B/prompts/intent_check.md`, `profile_check.md`, `reply_match.md`; PR [#550](https://github.com/u2giants/theoracle/pull/550) | 2026-11-12 1:53 AM EST |
 | F5 | Role interview ("tell me about your job") | F2, F3 | ⬜ open | | |
 | F6 | Coverage scorecard page | F1 | ⬜ open | | |
-| G1 | Corrections that stick | — | ⬜ open | | |
+| G1 | Corrections that stick | — | ✅ done | `T/test_corrections.py::test_rejected_relation_gone_after_rebuild`, `::test_correction_survives_full_reread`, `::test_edit_replaces_fact_in_answers` green (381 brain tests total); `B/sql/026_corrections.sql` + `B/corrections.py` (content-key scheme in its docstring); review-flag backfill counted in `T/test_corrections.py::test_review_flag_migration_backfills_and_is_idempotent`. Gaps: community flags have no correction target kind so they resolve without a correction row; flag creation itself writes no correction — the 026 backfill or the resolve action does | 2026-11-12 3:42 AM EST |
 | G2 | Merge, split, rename | G1 | ⬜ open | | |
 | G3 | Identity repair pass | G2 | ⬜ open | | |
 | G4 | Employee feedback on answers | G1 | ⬜ open | | |

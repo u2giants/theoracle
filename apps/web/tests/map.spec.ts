@@ -268,6 +268,16 @@ test('admin marks entity and relation wrong and resolves them on the review page
   ).toBeVisible();
   await page.screenshot({ path: resolve(SHOTS, '10-review-flags.png'), fullPage: true });
 
+  // G1: resolve requires choosing an action first, then the write creates a
+  // correction keyed by content.
+  await expect(
+    rows.filter({ hasText: 'Wrong person on this account' }).getByTestId('review-resolve'),
+  ).toBeDisabled();
+  await rows
+    .filter({ hasText: 'Wrong person on this account' })
+    .getByTestId('review-action')
+    .selectOption('reject');
+  await page.screenshot({ path: resolve(SHOTS, '18-review-resolve-action.png'), fullPage: true });
   await rows
     .filter({ hasText: 'Wrong person on this account' })
     .getByTestId('review-resolve')

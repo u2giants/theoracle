@@ -19,6 +19,7 @@ from falkordb import FalkorDB
 from falkordb.graph import Graph
 
 from brain.config import Settings, get_settings
+from brain.corrections import apply_edge_edit, entity_key_sets, load_corrections
 from brain.db import get_pool
 
 logger = logging.getLogger(__name__)
@@ -184,19 +185,31 @@ def _load_edges(
                 {"source_id": ref[0], "chunk_id": ref[1], "quote": ref[2]}
             )
     edges: list[dict[str, Any]] = []
+    corrections = load_corrections(conn)
+    edge_entity_ids = {item for key in groups for item in key[:2]}
+    key_sets = entity_key_sets(conn, sorted(edge_entity_ids))
     for (from_id, to_id, rel_type), group in groups.items():
-        edges.append(
-            {
-                "from": from_id,
-                "to": to_id,
-                "rel_type": rel_type,
-                "weight": len(group["sources"]),
-                "descriptions": group["descriptions"],
-                "stances": json.dumps(group["stances"], sort_keys=True),
-                "confidence_max": group["confidence_max"],
-                "source_refs": json.dumps(group["source_refs"], ensure_ascii=False),
-            }
-        )
+        from_keys = key_sets.get(from_id, set())
+        to_keys = key_sets.get(to_id, set())
+        # G1: a rejected relation never reaches the graph; an edited one is
+        # replaced by its correction payload (human wins over extraction).
+        verdict = corrections.relation_verdict_for(from_keys, to_keys, rel_type)
+        if verdict is not None and verdict.action == "reject":
+            continue
+        edge = {
+            "from": from_id,
+            "to": to_id,
+            "rel_type": rel_type,
+            "weight": len(group["sources"]),
+            "descriptions": group["descriptions"],
+            "stances": json.dumps(group["stances"], sort_keys=True),
+            "confidence_max": group["confidence_max"],
+            "source_refs": json.dumps(group["source_refs"], ensure_ascii=False),
+        }
+        edit = corrections.relation_edit_for(from_keys, to_keys, rel_type)
+        if edit is not None:
+            apply_edge_edit(edge, edit.payload)
+        edges.append(edge)
     return edges
 
 

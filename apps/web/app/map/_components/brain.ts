@@ -115,6 +115,7 @@ export type ReviewFlag = {
   created_at: string | null;
   resolved_at: string | null;
   resolved_by: string | null;
+  action: string | null;
 };
 
 export type EntityDetail = {

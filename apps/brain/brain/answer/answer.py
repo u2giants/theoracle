@@ -34,6 +34,12 @@ import httpx
 import psycopg
 
 from brain.config import Settings, get_settings
+from brain.corrections import (
+    apply_edge_edit,
+    entity_key,
+    entity_key_sets,
+    load_corrections,
+)
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract import flat as flat_mod
@@ -439,6 +445,64 @@ def _select_entities(question: str, vector: list[float]) -> list[dict[str, Any]]
     return list(seen.values())
 
 
+def _apply_fact_corrections(
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """G1: human corrections win in the answer context (plan Phase G).
+
+    A rejected entity or relation never reaches the answer; an ``edit``
+    correction replaces the fact's fields; a ``confirm``ed fact ranks first.
+    """
+    with get_pool().connection() as conn:
+        corrections = load_corrections(conn)
+        key_sets = entity_key_sets(conn, sorted({str(node["id"]) for node in nodes}))
+    keys_by_id: dict[str, set[str]] = {}
+    confirmed_nodes: list[dict[str, Any]] = []
+    kept_nodes: list[dict[str, Any]] = []
+    dropped: set[str] = set()
+    for node in nodes:
+        node_id = str(node["id"])
+        keys = set(key_sets.get(node_id, set()))
+        keys.add(entity_key(str(node["name"]), str(node["type"])))
+        keys_by_id[node_id] = keys
+        verdict = corrections.verdict_for(keys)
+        if verdict is not None and verdict.action == "reject":
+            dropped.add(node_id)
+            continue
+        rename = corrections.rename_for(keys)
+        if rename is not None:
+            node["name"] = str(rename.payload.get("name") or node["name"])
+        edit = corrections.edit_for(keys)
+        if edit is not None:
+            if "name" in edit.payload:
+                node["name"] = str(edit.payload["name"])
+            if "description" in edit.payload:
+                node["description"] = str(edit.payload["description"])
+        if verdict is not None and verdict.action == "confirm":
+            confirmed_nodes.append(node)
+        else:
+            kept_nodes.append(node)
+    confirmed_edges: list[dict[str, Any]] = []
+    kept_edges: list[dict[str, Any]] = []
+    for edge in edges:
+        if str(edge["from"]) in dropped or str(edge["to"]) in dropped:
+            continue
+        from_keys = keys_by_id.get(str(edge["from"]), set())
+        to_keys = keys_by_id.get(str(edge["to"]), set())
+        rel_type = str(edge["rel_type"])
+        verdict = corrections.relation_verdict_for(from_keys, to_keys, rel_type)
+        if verdict is not None and verdict.action == "reject":
+            continue
+        edit = corrections.relation_edit_for(from_keys, to_keys, rel_type)
+        if edit is not None:
+            apply_edge_edit(edge, edit.payload)
+        if verdict is not None and verdict.action == "confirm":
+            confirmed_edges.append(edge)
+        else:
+            kept_edges.append(edge)
+    return confirmed_nodes + kept_nodes, confirmed_edges + kept_edges
+
+
 def _graph_context(
     entities: list[dict[str, Any]], settings: Settings
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -516,7 +580,7 @@ def _graph_context(
         )
     edges.sort(key=lambda edge: edge["weight"], reverse=True)
     edges = edges[:GRAPH_EDGE_CAP]
-    return nodes[:GRAPH_NODE_CAP], edges
+    return _apply_fact_corrections(nodes[:GRAPH_NODE_CAP], edges)
 
 
 def _select_chunks(vector: list[float], source_ids: list[str]) -> list[dict[str, Any]]:
@@ -723,6 +787,53 @@ def _report_summary(report_md: str) -> str:
     return text.split("\n## Findings", 1)[0].strip()
 
 
+def _apply_report_corrections(
+    reports: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """G1: corrections win in report assembly (plan Phase G).
+
+    A finding that touches a rejected entity never reaches the answer; a
+    finding on a confirmed entity ranks first inside its report.
+    """
+    entity_ids: set[str] = set()
+    for report in reports:
+        for finding in report["findings"]:
+            for item in finding.get("entity_ids") or []:
+                try:
+                    entity_ids.add(str(uuid.UUID(str(item))))
+                except (ValueError, AttributeError, TypeError):
+                    continue
+    if not entity_ids:
+        return reports
+    with get_pool().connection() as conn:
+        corrections = load_corrections(conn)
+        key_sets = entity_key_sets(conn, sorted(entity_ids))
+    for report in reports:
+        confirmed: list[dict[str, Any]] = []
+        kept: list[dict[str, Any]] = []
+        for finding in report["findings"]:
+            rejected = False
+            is_confirmed = False
+            for item in finding.get("entity_ids") or []:
+                try:
+                    keys = key_sets.get(str(uuid.UUID(str(item))), set())
+                except (ValueError, AttributeError, TypeError):
+                    continue
+                verdict = corrections.verdict_for(keys) if keys else None
+                if verdict is not None and verdict.action == "reject":
+                    rejected = True
+                if verdict is not None and verdict.action == "confirm":
+                    is_confirmed = True
+            if rejected:
+                continue
+            if is_confirmed:
+                confirmed.append(finding)
+            else:
+                kept.append(finding)
+        report["findings"] = confirmed + kept
+    return reports
+
+
 def _load_reports() -> list[dict[str, Any]]:
     """The current map's level-1 community reports plus its company report.
 
@@ -752,7 +863,7 @@ def _load_reports() -> list[dict[str, Any]]:
                 "findings": [item for item in findings if isinstance(item, dict)],
             }
         )
-    return reports
+    return _apply_report_corrections(reports)
 
 
 def _reports_context(reports: list[dict[str, Any]]) -> str:

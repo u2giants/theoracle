@@ -1,7 +1,12 @@
-"""Admin review flags for the Map review gate (issue #255).
+"""Admin review flags for the Map review gate (issue #255) and their G1
+resolution into corrections.
 
 An admin marks an entity, a projected relation edge or a community as wrong
 with an optional note; the flags are listed and resolved on the review page.
+Resolving (G1) REQUIRES choosing an action — reject, edit, confirm, merge,
+split, rename or reassign — and each write creates a ``cmap.correction`` row
+keyed by content (brain/corrections.py), so the verdict survives rebuilds.
+Community flags have no correction target kind and resolve without one.
 Behind the plan §8 admin flag, like upload, delete and run.
 """
 
@@ -14,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from brain.api.deps import User, require_admin
+from brain.corrections import CORRECTION_ACTIONS, flag_target, record_correction
 from brain.db import get_pool
 
 router = APIRouter()
@@ -21,7 +27,7 @@ router = APIRouter()
 ITEM_TYPES = frozenset({"entity", "relation", "community"})
 
 _FLAG_COLUMNS = (
-    "id, item_type, item_id, note, created_by, created_at, resolved_at, resolved_by"
+    "id, item_type, item_id, note, created_by, created_at, resolved_at, resolved_by, action"
 )
 
 
@@ -31,6 +37,14 @@ class FlagBody(BaseModel):
     item_type: str
     item_id: str
     note: str | None = None
+
+
+class ResolveBody(BaseModel):
+    """The verdict chosen when resolving a flag (G1: an action is required)."""
+
+    action: str
+    reason: str | None = None
+    payload: dict[str, Any] | None = None
 
 
 def _norm_uuid(value: str, label: str) -> str:
@@ -71,6 +85,7 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         created_at,
         resolved_at,
         resolved_by,
+        action,
     ) = row
     return {
         "id": str(flag_id),
@@ -81,6 +96,7 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         "created_at": created_at.isoformat() if created_at else None,
         "resolved_at": resolved_at.isoformat() if resolved_at else None,
         "resolved_by": str(resolved_by) if resolved_by else None,
+        "action": str(action) if action is not None else None,
     }
 
 
@@ -189,25 +205,54 @@ def list_flags(
 @router.post("/flags/{flag_id}/resolve")
 def resolve_flag(
     flag_id: UUID,
+    body: ResolveBody,
     user: Annotated[User, Depends(require_admin)],
 ) -> dict[str, Any]:
-    """Resolve one flag; resolving twice keeps the first resolution."""
+    """Resolve one flag with the chosen action; the write creates a correction.
+
+    An action is required (G1). The correction's target is the flag's content
+    key, so the verdict survives rebuilds. A community flag (no correction
+    target kind) or a flag whose entity rows are gone resolves without one.
+    Resolving twice keeps the first resolution and writes nothing new.
+    """
+    if body.action not in CORRECTION_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="action must be reject, edit, confirm, merge, split, rename or reassign",
+        )
     key = str(flag_id)
     with get_pool().connection() as conn:
         row = conn.execute(
-            "UPDATE cmap.review_flag SET resolved_at = now(), resolved_by = %s "
-            f"WHERE id = %s AND resolved_at IS NULL RETURNING {_FLAG_COLUMNS}",
-            (user.auth_user_id, key),
+            f"SELECT {_FLAG_COLUMNS} FROM cmap.review_flag WHERE id = %s",
+            (key,),
         ).fetchone()
         if row is None:
+            raise HTTPException(status_code=404, detail="flag not found")
+        flag = _row_to_dict(row)
+        correction = None
+        if flag["resolved_at"] is None:
+            target = flag_target(conn, flag["item_type"], flag["item_id"])
+            if target is not None:
+                try:
+                    correction = record_correction(
+                        conn,
+                        target_kind=target[0],
+                        target_key=target[1],
+                        action=body.action,
+                        payload=body.payload,
+                        reason=(body.reason or "").strip() or flag["note"],
+                        by=str(user.auth_user_id),
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
             row = conn.execute(
-                f"SELECT {_FLAG_COLUMNS} FROM cmap.review_flag WHERE id = %s",
-                (key,),
+                "UPDATE cmap.review_flag SET resolved_at = now(), resolved_by = %s, "
+                f"action = %s WHERE id = %s AND resolved_at IS NULL "
+                f"RETURNING {_FLAG_COLUMNS}",
+                (user.auth_user_id, body.action, key),
             ).fetchone()
-        if row is not None:
-            flag = _row_to_dict(row)
-            _labels(conn, [flag])
+            if row is not None:
+                flag = _row_to_dict(row)
+        _labels(conn, [flag])
         conn.commit()
-    if row is None:
-        raise HTTPException(status_code=404, detail="flag not found")
-    return {"flag": flag}
+    return {"flag": flag, "correction": correction}

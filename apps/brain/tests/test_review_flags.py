@@ -56,6 +56,7 @@ def test_flags_are_admin_only(
         client.post(
             "/flags/00000000-0000-4000-8000-000000000000/resolve",
             headers=user_headers,
+            json={"action": "reject"},
         ).status_code
         == 403
     )
@@ -134,10 +135,20 @@ def test_resolve_flag(
         headers=admin_headers,
         json={"item_type": "relation", "item_id": items["relation_id"], "note": "No"},
     ).json()["flag"]
-    resolved = client.post(
-        f"/flags/{flag['id']}/resolve", headers=admin_headers
-    ).json()["flag"]
+    # G1: resolving requires choosing an action.
+    missing_action = client.post(
+        f"/flags/{flag['id']}/resolve", headers=admin_headers, json={}
+    )
+    assert missing_action.status_code == 422
+    resolved_body = client.post(
+        f"/flags/{flag['id']}/resolve",
+        headers=admin_headers,
+        json={"action": "reject", "reason": "She does not perform this step"},
+    )
+    assert resolved_body.status_code == 200, resolved_body.text
+    resolved = resolved_body.json()["flag"]
     assert resolved["resolved_at"] is not None
+    assert resolved["action"] == "reject"
     assert client.get("/flags", headers=admin_headers).json()["flags"] == []
     history = client.get(
         "/flags", headers=admin_headers, params={"include_resolved": True}
@@ -145,12 +156,17 @@ def test_resolve_flag(
     assert [item["id"] for item in history] == [flag["id"]]
 
     again = client.post(
-        f"/flags/{flag['id']}/resolve", headers=admin_headers
+        f"/flags/{flag['id']}/resolve",
+        headers=admin_headers,
+        json={"action": "confirm"},
     ).json()["flag"]
     assert again["resolved_at"] == resolved["resolved_at"]
+    assert again["action"] == "reject"
 
     missing = client.post(
-        "/flags/00000000-0000-4000-8000-000000000000/resolve", headers=admin_headers
+        "/flags/00000000-0000-4000-8000-000000000000/resolve",
+        headers=admin_headers,
+        json={"action": "reject"},
     )
     assert missing.status_code == 404
 
