@@ -421,3 +421,16 @@ test('functions page renders the curated function list', async ({ page, context 
   await expect(page.getByTestId('functions-add-form')).toBeVisible();
   await page.screenshot({ path: resolve(SHOTS, '16-functions-list.png'), fullPage: true });
 });
+
+// Repair plan D1: the source page shows the effective date and where it
+// came from. The seeded transcript is the teams-approval-2026-03-14 meeting.
+test('source page shows the effective date and its origin', async ({ page, context }) => {
+  const ids = seed();
+  await signIn(context);
+  await page.goto(`/map/source/${ids.transcript_id}`);
+  const date = page.getByTestId('source-date');
+  await expect(date).toBeVisible({ timeout: 60_000 });
+  await expect(date).toContainText('effective 2026-03-14');
+  await expect(date).toContainText('meeting start');
+  await page.screenshot({ path: resolve(SHOTS, '17-source-date.png') });
+});

@@ -13,6 +13,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from psycopg import OperationalError
@@ -23,9 +24,12 @@ from brain.api.sources import ingest_bytes
 from brain.db import get_pool
 from brain.interview import profile
 from brain.interview.strings import strings
+from brain.read.dates import ORIGIN_INTERVIEW
 from brain.text_util import count_units
 
 logger = logging.getLogger(__name__)
+
+EASTERN = ZoneInfo("America/New_York")
 
 SILENCE_MINUTES = 20
 MIN_CONTRIBUTION_WORDS = 12
@@ -175,17 +179,18 @@ def close_thread(thread_id: str) -> str | None:
         return None
     employee_id, started_at, turns, attempts, employee_name = row
     name = str(employee_name or "Employee")
-    day = started_at.astimezone().date().isoformat()
+    day_date = started_at.astimezone(EASTERN).date()
     try:
         source = ingest_bytes(
             kind="transcript",
-            title=f"Teams contribution — {name} — {day}",
+            title=f"Teams contribution — {name} — {day_date.isoformat()}",
             original_filename=f"teams-contribution-{thread_id}.txt",
             data=(
                 profile.transcript_header(employee_id, name) + _transcript(list(turns or []))
             ).encode("utf-8"),
             department_hint=profile.department_hint(employee_id),
-            effective_date=None,
+            effective_date=day_date,
+            date_origin=ORIGIN_INTERVIEW,
             uploaded_by=None,
         )
     except Exception as exc:

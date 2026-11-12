@@ -395,8 +395,8 @@ def get_source_chunks(
     with get_pool().connection() as conn:
         row = conn.execute(
             "SELECT id, kind, title, original_filename, bytes, department_hint, "
-            "effective_date, created_at, read_state, read_notes FROM cmap.source "
-            "WHERE id = %s",
+            "effective_date, date_origin, created_at, read_state, read_notes "
+            "FROM cmap.source WHERE id = %s",
             (key,),
         ).fetchone()
         if row is None:
@@ -415,9 +415,10 @@ def get_source_chunks(
             "bytes": int(row[4]),
             "department_hint": row[5],
             "effective_date": row[6].isoformat() if row[6] else None,
-            "created_at": row[7].isoformat() if row[7] else None,
-            "read_state": str(row[8]),
-            "read_notes": row[9] or {},
+            "date_origin": row[7],
+            "created_at": row[8].isoformat() if row[8] else None,
+            "read_state": str(row[9]),
+            "read_notes": row[10] or {},
         },
         "chunks": [
             {

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from brain.read.chunk import (
     WINDOW_TOKENS,
@@ -21,6 +23,8 @@ from brain.read.chunk import (
     window_chunks,
 )
 from brain.text_util import sentence_slices
+
+EASTERN = ZoneInfo("America/New_York")
 
 
 class TranscriptError(ValueError):
@@ -308,3 +312,81 @@ def chunk_turns(turns: Sequence[Turn]) -> list[Chunk]:
 def read_transcript(text: str) -> list[Chunk]:
     """Read a transcript into turn chunks (plan step 3, transcript.py)."""
     return chunk_turns(parse_turns(text))
+
+
+# Meeting-level start keys in a Teams/Recall JSON payload. The explicit
+# meeting keys are also looked up at the top level; the generic ones only
+# inside metadata/meeting/calendar_event objects.
+_MEETING_START_KEYS = (
+    "meeting_started_at",
+    "meeting_start_time",
+    "meeting_start",
+    "start_date_time",
+    "startDateTime",
+)
+_CONTEXT_START_KEYS = (
+    "join_at",
+    "started_at",
+    "start_time",
+    "start",
+)
+_CONTEXT_OBJECTS = ("metadata", "meeting", "calendar_event")
+
+
+def _absolute_date(value: Any) -> date | None:
+    """Return the New York calendar date of an ISO date/datetime, else None."""
+    if value is None or isinstance(value, bool) or isinstance(value, int | float):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        if len(text) == 10 and text[4] == "-" and text[7] == "-":
+            return date.fromisoformat(text)
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(EASTERN).date()
+    return parsed.date()
+
+
+def _metadata_dicts(value: Any) -> Iterator[dict[str, Any]]:
+    """Yield the payload's top-level and meeting-context metadata objects."""
+    if isinstance(value, dict):
+        yield value
+        for key in _CONTEXT_OBJECTS:
+            inner = value.get(key)
+            if isinstance(inner, dict):
+                yield inner
+
+
+def meeting_start_date(text: str) -> date | None:
+    """Return the meeting start date declared by a transcript payload.
+
+    Teams/Recall JSON may carry meeting metadata (top level or inside
+    ``metadata``/``meeting``/``calendar_event``). Failing that, the first
+    turn whose start time is an absolute date gives the meeting day.
+    Returns None when the payload declares no absolute date.
+    """
+    raw = text.strip()
+    if raw.startswith("[") or raw.startswith("{"):
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            value = None
+        if value is not None:
+            for obj in _metadata_dicts(value):
+                for key in (*_MEETING_START_KEYS, *_CONTEXT_START_KEYS):
+                    found = _absolute_date(obj.get(key))
+                    if found is not None:
+                        return found
+    try:
+        turns = parse_turns(text)
+    except TranscriptError:
+        return None
+    for turn in turns:
+        found = _absolute_date(turn.t0)
+        if found is not None:
+            return found
+    return None

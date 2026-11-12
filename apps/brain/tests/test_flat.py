@@ -55,15 +55,24 @@ def _seed_fixture(db: Any, filename: str, kind: str) -> str:
     """Insert one fixture file as a source with its chunks; return the id."""
     data = (FIXTURES_DIR / filename).read_bytes()
     chunks = read_chunks(kind, data)
+    # Synthetic fixture dates (D1): the transcript fixture is the
+    # teams-approval-2026-03-14 meeting; the document fixtures carry a
+    # document-text date. Real origins are proven in tests/test_dates.py.
+    fixture_date, fixture_origin = (
+        ("2026-03-14", "meeting_start") if kind == "transcript" else ("2025-12-01", "document_text")
+    )
     row = db.execute(
-        "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes) "
-        "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes, "
+        "effective_date, date_origin) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (
             kind,
             f"flat-test {filename}",
             f"test/{filename}",
             hashlib.sha256(data).hexdigest(),
             len(data),
+            fixture_date,
+            fixture_origin,
         ),
     ).fetchone()
     db.commit()
