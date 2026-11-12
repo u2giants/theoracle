@@ -17,7 +17,13 @@ import re
 from typing import Any
 
 import pytest
-from conftest import fake_relations, fake_scaledown, fake_vision, load_recorded
+from conftest import (
+    approve_all_questions,
+    fake_relations,
+    fake_scaledown,
+    fake_vision,
+    load_recorded,
+)
 from test_answer import (
     FLOWCHART_FIXTURE,
     _point_embeddings,
@@ -169,6 +175,7 @@ def test_eval_fixture_mean_at_least_08(
     _fixture_corpus(db, monkeypatch)
     assert load_seed() == 15
     assert load_seed() == 0
+    approve_all_questions(db)
     answers, grader = _replay(monkeypatch)
     run = run_eval()
     assert len(run["results"]) == 15
@@ -220,6 +227,7 @@ def test_eval_detects_broken_citations(
     """Citation validation that drops valid quotes pulls the score under 0.8."""
     _fixture_corpus(db, monkeypatch)
     load_seed()
+    approve_all_questions(db)
     _replay(monkeypatch)
     real_finalize = answer_mod._finalize_local
 
@@ -282,6 +290,7 @@ def test_errors_fail_run(
             (question, ["point one", "point two"], ["doc.pdf"], "test"),
         )
     db.commit()
+    approve_all_questions(db)
 
     def flaky(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         del args, kwargs
@@ -335,6 +344,7 @@ def test_score_components(
         ),
     )
     db.commit()
+    approve_all_questions(db)
 
     def fake_answer(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         del question, args, kwargs
@@ -385,6 +395,7 @@ def test_abstention_question(
             ),
         )
     db.commit()
+    approve_all_questions(db)
 
     def fake_answer(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         del args, kwargs
@@ -497,6 +508,7 @@ def test_evaluate_job_records_usage(
     """The worker's ``evaluate`` job runs the eval and stores its summary."""
     _fixture_corpus(db, monkeypatch)
     load_seed()
+    approve_all_questions(db)
     _replay(monkeypatch)
     from brain.worker import run_handler
 

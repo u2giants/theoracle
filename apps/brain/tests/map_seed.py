@@ -261,6 +261,11 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     _point_embeddings(db)
     eval_mod.load_seed()
+    # Plan B1: only approved questions count toward the eval bar; the two
+    # replayed runs score the approved seed set, while the e2e drafts below
+    # stay unapproved for the approve-flow browser test.
+    db.execute("UPDATE cmap.eval_question SET approved_at = now()")
+    db.commit()
     monkeypatch.setattr(answer_mod, "_post_chat", EvalAnswers())
     monkeypatch.setattr(eval_mod, "_post_chat", KeywordGrader())
     fake_compress(monkeypatch)
@@ -273,7 +278,41 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         )
         first = eval_mod.run_eval()
     second = eval_mod.run_eval()
-    return {"eval_first_mean": first["mean_score"], "eval_mean": second["mean_score"]}
+    # Two unapproved e2e drafts (plan B1 approve-flow test): one plain draft
+    # with a recommendation and one abstention question. Synthetic fixture
+    # wording only. They land after the replayed runs so the runs stay over
+    # the approved seed set.
+    draft_row = db.execute(
+        "INSERT INTO cmap.eval_question (question, expected_points, "
+        "expected_source_titles, author, recommendation) VALUES (%s, %s, %s, "
+        "'seed', %s) RETURNING id::text",
+        (
+            EVAL_DRAFT,
+            EVAL_DRAFT_POINTS,
+            ["licensing-approval-procedure.pdf"],
+            "Approve as written.",
+        ),
+    ).fetchone()
+    abstention_row = db.execute(
+        "INSERT INTO cmap.eval_question (question, expected_points, "
+        "expected_source_titles, author, abstention, recommendation) VALUES "
+        "(%s, %s, %s, 'seed', true, %s) RETURNING id::text",
+        (
+            EVAL_DRAFT_ABSTENTION,
+            EVAL_DRAFT_ABSTENTION_POINTS,
+            ["licensing-approval-procedure.pdf"],
+            "Approve - abstention question.",
+        ),
+    ).fetchone()
+    db.commit()
+    return {
+        "eval_first_mean": first["mean_score"],
+        "eval_mean": second["mean_score"],
+        "eval_draft": EVAL_DRAFT,
+        "eval_draft_id": draft_row[0],
+        "eval_draft_abstention": EVAL_DRAFT_ABSTENTION,
+        "eval_draft_abstention_id": abstention_row[0],
+    }
 
 
 def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
@@ -340,6 +379,18 @@ def seed_recommendations(db: Any) -> dict[str, Any]:
 
 REC_LICENSING = "Licensor sign-off stalls artwork release."
 REC_SMALL = "Sample room bookings clash."
+EVAL_DRAFT = "How long does the internal artwork review take in the procedure?"
+EVAL_DRAFT_POINTS = [
+    "The procedure defines an artwork review before release",
+    "The review is recorded before the purchase order is created",
+    "A rejection sends the package back for rework",
+]
+EVAL_DRAFT_ABSTENTION = "How many artwork reviews did the licensing team complete last quarter?"
+EVAL_DRAFT_ABSTENTION_POINTS = [
+    "The answer states the documents do not say",
+    "The answer does not guess a number",
+    "The answer names who to ask next",
+]
 INTERVIEW_OPEN = "Who covers licensor approvals when Jessica is out?"
 INTERVIEW_ANSWERED = "Who books the sample room?"
 INTERVIEW_ANSWER = "Ilona books it every Monday."
