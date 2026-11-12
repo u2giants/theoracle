@@ -19,6 +19,7 @@ from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
 from brain.interview.intake import close_stale_threads
 from brain.interview.tick import handle_interview_tick, maybe_queue_interview_tick
+from brain.read.dates import handle_backfill_dates
 from brain.read.pipeline import handle_read_source
 from brain.recommend.recommend import handle_recommend
 from brain.reembed import handle_reembed
@@ -33,6 +34,7 @@ Handler = Callable[[dict[str, Any]], None]
 
 HANDLERS: dict[str, Handler] = {
     "read_source": handle_read_source,
+    "backfill_dates": handle_backfill_dates,
     "classify_extract": handle_classify_extract,
     "relations": handle_relations,
     "resolve": handle_resolve,

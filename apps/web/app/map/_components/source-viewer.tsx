@@ -7,6 +7,16 @@ import { brainGet, describeLocator, type SourceChunks } from './brain';
 import { LoadState } from './bits';
 import { FunctionAssign } from './function-assign';
 
+// Where the source's effective date came from (repair D1).
+const DATE_ORIGIN_LABELS: Record<string, string> = {
+  admin: 'entered by admin',
+  meeting_start: 'meeting start',
+  interview_answer: 'interview answer',
+  document_text: 'document text',
+  file_metadata: 'file metadata',
+  upload_time: 'upload time',
+};
+
 export function SourceViewer({
   sourceId,
   chunkId,
@@ -61,9 +71,17 @@ export function SourceViewer({
           {source.kind}
           {source.original_filename ? ` · ${source.original_filename}` : ''}
           {source.department_hint ? ` · ${source.department_hint}` : ''}
-          {source.effective_date
-            ? ` · effective ${source.effective_date}`
-            : ' · effective date unknown'}
+          {source.effective_date ? (
+            <span data-testid="source-date">
+              {' · effective '}
+              <time dateTime={source.effective_date}>{source.effective_date}</time>
+              {source.date_origin
+                ? ` (${DATE_ORIGIN_LABELS[source.date_origin] ?? source.date_origin})`
+                : ''}
+            </span>
+          ) : (
+            ' · effective date unknown'
+          )}
           {source.created_at ? ` · added ${source.created_at.slice(0, 10)}` : ''}
           {` · ${chunks.length} passage${chunks.length === 1 ? '' : 's'}`}
         </p>

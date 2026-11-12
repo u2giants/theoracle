@@ -26,6 +26,7 @@ from brain.db import get_pool
 from brain.interview import followup, intake, profile
 from brain.interview.strings import reply_language, strings
 from brain.llm import message_content, post_chat_with_rescue
+from brain.read.dates import ORIGIN_INTERVIEW
 from brain.seats import stage_model
 from brain.text_util import fold_key
 
@@ -461,15 +462,16 @@ def handle_inbound(
             )
         question_id, question = matched
     answer = text.strip()
-    day = datetime.now(EASTERN).date().isoformat()
+    day_date = datetime.now(EASTERN).date()
     source = ingest_bytes(
         kind="transcript",
-        title=f"Interview answer — {employee_name} — {day}",
+        title=f"Interview answer — {employee_name} — {day_date.isoformat()}",
         original_filename=f"interview-answer-{question_id}.txt",
         data=(profile.transcript_header(employee_id, employee_name)
               + _transcript_text(question, employee_name, answer)).encode("utf-8"),
         department_hint=profile.department_hint(employee_id),
-        effective_date=None,
+        effective_date=day_date,
+        date_origin=ORIGIN_INTERVIEW,
         uploaded_by=None,
     )
     with pool.connection() as conn:
