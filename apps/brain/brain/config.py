@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # still classifies), and each call counts against BRAIN_MAX_FRONTIER_CALLS_PER_JOB,
     # so size that cap to at least the chunk count of the largest job.
     brain_flat_model: str | None = None
+    # Contradiction classifier (repair D3). Falls back to the frontier model.
+    brain_contradictions_model: str | None = None
     brain_vision_model: str | None = None
     brain_embed_model: str | None = None
     brain_embed_dims: int = 1024

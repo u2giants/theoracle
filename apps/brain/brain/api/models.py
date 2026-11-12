@@ -23,7 +23,7 @@ router = APIRouter()
 
 @router.get("/models", dependencies=[Depends(require_service)])
 def get_models() -> dict[str, Any]:
-    """Report the live model for each of the nine pipeline stages."""
+    """Report the live model for each pipeline stage."""
     settings = get_settings()
     seats = seat_report(settings)
     return {

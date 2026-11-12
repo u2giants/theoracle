@@ -40,6 +40,7 @@ import httpx
 from psycopg.types.json import Json
 
 from brain.config import Settings, get_settings
+from brain.contradictions import after_source_relations
 from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import ENTITY_TYPES
@@ -918,6 +919,7 @@ def handle_relations(job: dict[str, Any]) -> None:
     state = finish_source(source_id)
     logger.info("relations source=%s finished as %s (failed chunks=%d)", source_id, state, failed)
     _enqueue_resolve()
+    after_source_relations(source_id)
 
 
 def _enqueue_resolve() -> None:

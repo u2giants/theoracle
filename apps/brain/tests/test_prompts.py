@@ -47,3 +47,18 @@ def test_support_rewrite_prompt_contract() -> None:
     assert "REWRITE THIS SENTENCE" in text
     assert "{{sentence}}" in text
     assert "{{evidence}}" in text
+
+
+def test_contradiction_prompt_contract() -> None:
+    """The D3 classifier prompt names its five classes and template slot."""
+    text = (PROMPTS_DIR / "contradiction_compare.md").read_text(encoding="utf-8")
+    assert '"classification"' in text
+    assert "{{statements_json}}" in text
+    for value in (
+        "same",
+        "refinement",
+        "changed-over-time",
+        "policy-vs-practice gap",
+        "true contradiction",
+    ):
+        assert value in text, value

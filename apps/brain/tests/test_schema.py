@@ -39,6 +39,7 @@ EXPECTED_TABLES = {
     "entity_function",  # added by repair step C2 (sql/024_function_assignment.sql)
     "correction",  # added by repair step G1 (sql/026_corrections.sql)
     "source_version",  # added by repair step D2 (sql/028_source_versions.sql)
+    "contradiction",  # added by repair step D3 (sql/032_contradictions.sql)
 }
 
 

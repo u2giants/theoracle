@@ -84,6 +84,37 @@ export function EntityPanel({
         initial={entity.functions ?? []}
         isAdmin={isAdmin}
       />
+      {(entity.contradictions ?? []).length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold" data-testid="entity-contradictions-title">
+            Sources disagree
+          </h3>
+          <ul className="space-y-2">
+            {(entity.contradictions ?? []).map((item) => (
+              <li
+                key={item.id}
+                className="rounded border-l-4 border-amber-400 bg-amber-50 px-2 py-1 text-sm"
+                data-testid="entity-contradiction"
+              >
+                <div className="font-medium" data-testid="entity-contradiction-kind">
+                  {item.kind === 'policy_vs_practice'
+                    ? 'Policy vs practice'
+                    : item.kind === 'precedes_cycle'
+                      ? 'Process order cycle'
+                      : item.kind === 'changed_over_time'
+                        ? 'Changed over time'
+                        : 'Contradiction'}
+                </div>
+                <p data-testid="entity-contradiction-summary">{item.summary}</p>
+                <div className="text-xs text-muted-foreground">
+                  {item.source_a_title} vs {item.source_b_title}
+                  {item.resolution ? ` · ${item.resolution}` : ''}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {entity.aliases.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold">Also called</h3>
