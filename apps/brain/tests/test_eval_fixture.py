@@ -72,6 +72,8 @@ class EvalAnswers:
     def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
         del settings
         prompt = str(messages[-1]["content"])
+        if "FUNCTION CLASSIFICATION" in prompt:
+            return _wrap({"functions": [{"key": "licensing", "weight": 0.9}]})
         answer_md = "I could not find this in the data."
         for question, text in self.answers.items():
             if question in prompt:
@@ -154,6 +156,25 @@ def _fixture_corpus(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     run_resolve()
     run_project()
     _point_embeddings(db)
+    # C2's contract in production: every chunk and entity carries at least one
+    # function, so C4's router can scope the answer. The fixture corpus is all
+    # Licensing.
+    function_row = db.execute(
+        "INSERT INTO cmap.function (key, name, description) "
+        "VALUES ('licensing', 'Licensing', '') RETURNING id"
+    ).fetchone()
+    function_id = function_row[0]
+    db.execute(
+        "INSERT INTO cmap.chunk_function (chunk_id, function_id, weight, origin) "
+        "SELECT id, %s, 0.9, 'auto' FROM cmap.chunk",
+        (function_id,),
+    )
+    db.execute(
+        "INSERT INTO cmap.entity_function (entity_id, function_id, weight, origin) "
+        "SELECT id, %s, 0.9, 'auto' FROM cmap.entity",
+        (function_id,),
+    )
+    db.commit()
     return ids
 
 
@@ -239,11 +260,12 @@ def test_eval_detects_broken_citations(
         answer_md: str,
         raw_citations: list[dict[str, Any]],
         chunks: list[dict[str, Any]],
+        evidence: list[dict[str, Any]] | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         # A regression: quotes are checked against the wrong chunk (the first
         # retrieved one), so nearly every valid citation is thrown away.
         wrong = [dict(chunk, id=chunks[0]["id"]) for chunk in chunks[:1]]
-        return real_finalize(answer_md, raw_citations, wrong)
+        return real_finalize(answer_md, raw_citations, wrong, evidence)
 
     monkeypatch.setattr(answer_mod, "_finalize_local", broken_finalize)
     run = run_eval()

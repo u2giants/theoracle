@@ -147,10 +147,28 @@ class FakeAnswer:
     def __init__(self) -> None:
         self.prompts: list[str] = []
         self.calls: list[str] = []
+        self.route_prompts: list[str] = []
+        self.route_functions: list[dict[str, Any]] = []
+        self.route_responses: dict[str, list[dict[str, Any]]] = {}
         self.extra_citations: list[dict[str, Any]] = []
         self.override: dict[str, Any] | None = None
         self.support = FakeSupport()
         self.local_recorded = load_recorded("frontier/answer_local.json")
+
+    @staticmethod
+    def _passage(prompt: str) -> str:
+        marker = "PASSAGE:\n<<<\n"
+        if marker not in prompt:
+            return ""
+        return prompt.split(marker, 1)[1].split("\n>>>", 1)[0]
+
+    def _route(self, prompt: str) -> dict[str, Any]:
+        self.route_prompts.append(prompt)
+        passage = self._passage(prompt)
+        for match, functions in self.route_responses.items():
+            if match in passage:
+                return {"functions": list(functions)}
+        return {"functions": list(self.route_functions)}
 
     @staticmethod
     def _quotes(prompt: str) -> list[dict[str, str]]:
@@ -246,6 +264,9 @@ class FakeAnswer:
     def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
         del settings
         prompt = str(messages[-1]["content"])
+        if "FUNCTION CLASSIFICATION" in prompt:
+            self.calls.append("route")
+            return _wrap(self._route(prompt))
         self.prompts.append(prompt)
         if "list the points relevant to the question" in prompt:
             self.calls.append("map")
@@ -521,7 +542,9 @@ def test_global_answer_ranks_licensing_delay_top(
         "PO",
         "Company",
     ]
-    assert fake.calls == ["global"]
+    # C4 step 3: function reports are selected by relevance always, so the
+    # map step runs even under the old one-call token budget.
+    assert fake.calls == ["map", "global"]
 
 
 def test_invalid_citation_dropped(
@@ -578,29 +601,6 @@ def test_passages_compressed_when_over_threshold(
     assert fake.compress_calls[0]["body"]["rate"] == "auto"
     assert fake.compress_calls[0]["body"]["prompt"] == STALL_QUESTION
     assert usage["scaledown_compress_calls"] == 1
-
-
-def test_route_mode_specific_broad_and_low_confidence(
-    answer_env: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """ScaleDown classify routes specific/local, broad/global, low score/both."""
-    fake = fake_compress(monkeypatch)
-    settings = get_settings()
-    usage: dict[str, int] = {}
-    assert answer_mod._route_mode("q", settings, usage) == "local"
-    fake.route_response = {
-        "top_label": "broad",
-        "scores": {"specific": 0.1, "broad": 0.9},
-    }
-    assert answer_mod._route_mode("q", settings, usage) == "global"
-    fake.route_response = {
-        "top_label": "broad",
-        "scores": {"specific": 0.5, "broad": 0.5},
-    }
-    assert answer_mod._route_mode("q", settings, usage) == "both"
-    monkeypatch.setenv("BRAIN_SCALEDOWN_ENABLED", "false")
-    get_settings.cache_clear()
-    assert answer_mod._route_mode("q", get_settings(), usage) == "both"
 
 
 def test_history_appended_and_capped_to_six_turns() -> None:
@@ -691,6 +691,8 @@ def test_answer_endpoint_round_trip(
         "communities",
         "unknowns",
         "supported_share",
+        "functions_consulted",
+        "context_tokens",
     }
     assert body["mode_used"] == "local"
     assert body["citations"][0]["source_id"] == source_id
@@ -931,3 +933,325 @@ def test_staged_check_marks_leftovers_verifying(
     assert "plain claim alpha. [1] (verifying)" in result["answer_md"]
     assert "plain claim beta. [1] (verifying)" in result["answer_md"]
     assert result["supported_share"] == pytest.approx(round(1 / 3, 4))
+
+
+# ------------------------------- C4: function-scoped answering with a budget
+
+
+def _seed_functions(db: Any) -> dict[str, str]:
+    """Two curated functions: Licensing and Logistics (the C1 row shape)."""
+    ids: dict[str, str] = {}
+    for key, name in (("licensing", "Licensing"), ("logistics", "Logistics")):
+        row = db.execute(
+            "INSERT INTO cmap.function (key, name, description) "
+            "VALUES (%s, %s, '') RETURNING id::text",
+            (key, name),
+        ).fetchone()
+        ids[key] = str(row[0])
+    db.commit()
+    return ids
+
+
+def _seed_function_chunk(
+    db: Any, function_id: str, text: str, tag: str, theta: float = 0.0
+) -> str:
+    """One chunk assigned to ``function_id`` at weight 0.9, embedding pinned."""
+    source_id = _seed_text(db, text, tag)
+    chunk_id = str(
+        db.execute(
+            "SELECT id FROM cmap.chunk WHERE source_id = %s", (source_id,)
+        ).fetchone()[0]
+    )
+    db.execute(
+        "INSERT INTO cmap.chunk_function (chunk_id, function_id, weight, origin) "
+        "VALUES (%s, %s, 0.9, 'auto')",
+        (chunk_id, function_id),
+    )
+    db.execute(
+        "UPDATE cmap.chunk SET embedding = %s::vector WHERE id = %s",
+        (vector_literal(_direction(theta)), chunk_id),
+    )
+    db.commit()
+    return chunk_id
+
+
+def test_scoped_answer_excludes_other_functions(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """A Licensing question's context contains zero Logistics-only chunks."""
+    fake_embeds(monkeypatch, {})
+    ids = _seed_functions(db)
+    _seed_function_chunk(
+        db,
+        ids["licensing"],
+        "The licensor sign-off is recorded in the licensing approval log.",
+        "lic",
+    )
+    _seed_function_chunk(
+        db,
+        ids["logistics"],
+        "The freight forwarder books the container in the logistics dispatch log.",
+        "log",
+    )
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.route_functions = [{"key": "licensing", "weight": 0.9}]
+    result = answer_question("How does the licensing approval log work?", "auto", [])
+    assert [item["key"] for item in result["functions_consulted"]] == ["licensing"]
+    assert "licensing approval log" in fake.prompts[0]
+    assert all("logistics dispatch log" not in prompt for prompt in fake.prompts)
+
+
+def test_handoff_neighbour_included(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """One hand-off hop across the function boundary is in scope; nothing else is."""
+    fake_embeds(monkeypatch, {})
+    ids = _seed_functions(db)
+    chunk_id = _seed_function_chunk(
+        db,
+        ids["licensing"],
+        "The licensor review hands the package to freight booking.",
+        "hand",
+    )
+    entities: dict[str, str] = {}
+    for key, name, function_key, theta in (
+        ("review", "Licensor review", "licensing", 0.0),
+        ("handoff", "Freight hand-off", "logistics", 0.05),
+        ("truck", "Truck booking", "logistics", 0.05),
+    ):
+        row = db.execute(
+            "INSERT INTO cmap.entity (entity_type, canonical_name, description, "
+            "mention_count, source_count) VALUES ('Step', %s, '', 1, 1) "
+            "RETURNING id::text",
+            (name,),
+        ).fetchone()
+        entity_id = str(row[0])
+        entities[key] = entity_id
+        db.execute(
+            "UPDATE cmap.entity SET embedding = %s::vector WHERE id = %s",
+            (vector_literal(_direction(theta)), entity_id),
+        )
+        db.execute(
+            "INSERT INTO cmap.entity_function (entity_id, function_id, weight, "
+            "origin) VALUES (%s, %s, 0.9, 'auto')",
+            (entity_id, ids[function_key]),
+        )
+        db.execute(
+            "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, "
+            "normalized_name, quote, embedding, entity_id) "
+            "VALUES (%s, 'Step', %s, %s, %s, %s::vector, %s)",
+            (
+                chunk_id,
+                name,
+                name.lower(),
+                "the quoted hand-off step",
+                vector_literal(_direction(theta)),
+                entity_id,
+            ),
+        )
+    for from_key, to_key, rel_type in (
+        ("review", "handoff", "HANDS_OFF_TO"),
+        ("review", "truck", "DEPENDS_ON"),
+    ):
+        from_row = db.execute(
+            "SELECT id FROM cmap.mention WHERE entity_id = %s", (entities[from_key],)
+        ).fetchone()
+        to_row = db.execute(
+            "SELECT id FROM cmap.mention WHERE entity_id = %s", (entities[to_key],)
+        ).fetchone()
+        db.execute(
+            "INSERT INTO cmap.relation (chunk_id, from_mention_id, to_mention_id, "
+            "rel_type, description, stance, confidence, quote) "
+            "VALUES (%s, %s, %s, %s, '', 'practice', 1.0, '')",
+            (chunk_id, from_row[0], to_row[0], rel_type),
+        )
+    db.commit()
+    run_project()
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.route_functions = [{"key": "licensing", "weight": 0.9}]
+    result = answer_question("How does the licensor review hand off work?", "auto", [])
+    prompt = fake.prompts[0]
+    assert "Freight hand-off" in prompt
+    assert "Truck booking" not in prompt
+    assert [item["key"] for item in result["functions_consulted"]] == ["licensing"]
+
+
+def test_similarity_floor_returns_dont_know(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """The similarity floor: nearest-of-nothing is never evidence."""
+    fake_embeds(monkeypatch, {})
+    ids = _seed_functions(db)
+    _seed_function_chunk(
+        db,
+        ids["licensing"],
+        "The catering menu lists spring rolls.",
+        "far",
+        theta=1.4,
+    )
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.route_functions = [{"key": "licensing", "weight": 0.9}]
+    result = answer_question("Where does the licensing approval stall?", "auto", [])
+    assert "don't know" in result["answer_md"].casefold()
+    assert result["citations"] == []
+    assert result["context_tokens"] == 0
+    assert fake.calls == ["route"]
+    assert "spring rolls" not in "".join(fake.prompts)
+
+
+def test_context_never_exceeds_budget(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """The hard ceiling (BRAIN_ANSWER_CONTEXT_TOKENS) is never exceeded."""
+    monkeypatch.setenv("BRAIN_ANSWER_CONTEXT_TOKENS", "300")
+    get_settings.cache_clear()
+    fake_embeds(monkeypatch, {})
+    ids = _seed_functions(db)
+    texts = [
+        (
+            f"Procedure step {index}: the licensing desk records the batch total "
+            f"and forwards the file for counter-signature on page {index}. "
+        )
+        * 4
+        for index in range(8)
+    ]
+    for index, text in enumerate(texts):
+        _seed_function_chunk(db, ids["licensing"], text, f"b{index}")
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.route_functions = [{"key": "licensing", "weight": 0.9}]
+    result = answer_question("How does the licensing desk record batches?", "auto", [])
+    assert result["context_tokens"] <= 300
+    shown = [text for text in texts if text in fake.prompts[0]]
+    assert shown
+    assert len(shown) < len(texts)
+
+
+def test_short_alias_not_substring_matched(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Alias seeding matches on word boundaries and never for short aliases."""
+    fake_embeds(monkeypatch, {})
+    source_id = _seed_text(db, "The concatenate and wait steps of the lab process.", "alias")
+    chunk_id = str(
+        db.execute(
+            "SELECT id FROM cmap.chunk WHERE source_id = %s", (source_id,)
+        ).fetchone()[0]
+    )
+    names = {"trap": "Substring trap", "lab": "Lab process"}
+    entity_ids: dict[str, str] = {}
+    for key, name in names.items():
+        row = db.execute(
+            "INSERT INTO cmap.entity (entity_type, canonical_name, description, "
+            "mention_count, source_count) VALUES ('Step', %s, '', 1, 1) "
+            "RETURNING id::text",
+            (name,),
+        ).fetchone()
+        entity_ids[key] = str(row[0])
+        db.execute(
+            "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, "
+            "normalized_name, quote, entity_id) "
+            "VALUES (%s, 'Step', %s, %s, %s, %s)",
+            (chunk_id, name, name.lower(), "the lab process", entity_ids[key]),
+        )
+    for alias in ("it", "cat"):
+        db.execute(
+            "INSERT INTO cmap.entity_alias (entity_id, entity_type, normalized_name) "
+            "VALUES (%s, 'Step', %s)",
+            (entity_ids["trap"], alias),
+        )
+    db.execute(
+        "INSERT INTO cmap.entity_alias (entity_id, entity_type, normalized_name) "
+        "VALUES (%s, 'Step', 'lab')",
+        (entity_ids["lab"],),
+    )
+    db.commit()
+    question = "the concatenate and wait steps of the lab process"
+    vector = [1.0 / math.sqrt(_dims())] * _dims()
+    selected = answer_mod._select_entities(question, vector, False, None)
+    found = {item["name"] for item in selected}
+    assert "Lab process" in found
+    assert "Substring trap" not in found
+
+
+def test_followup_inherits_function(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """History is classified with the question, so follow-ups inherit scope."""
+    fake_embeds(monkeypatch, {})
+    ids = _seed_functions(db)
+    _seed_function_chunk(
+        db,
+        ids["licensing"],
+        "The licensor sign-off is recorded in the licensing approval log.",
+        "lic",
+    )
+    _seed_function_chunk(
+        db,
+        ids["logistics"],
+        "The freight forwarder books the container in the logistics dispatch log.",
+        "log",
+    )
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.route_responses = {
+        "licensing": [{"key": "licensing", "weight": 0.9}],
+        "logistics": [{"key": "logistics", "weight": 0.9}],
+    }
+    first = answer_question("How does the licensing approval log work?", "auto", [])
+    assert [item["key"] for item in first["functions_consulted"]] == ["licensing"]
+    history = [
+        {"role": "user", "content": "How does the licensing approval log work?"},
+        {"role": "assistant", "content": first["answer_md"]},
+    ]
+    result = answer_question("Why does it stall there?", "auto", history)
+    assert [item["key"] for item in result["functions_consulted"]] == ["licensing"]
+    assert "licensing approval log" in fake.route_prompts[1]
+    assert all("logistics dispatch log" not in prompt for prompt in fake.prompts)
+
+
+def test_low_routing_confidence_uses_one_hybrid_prompt(
+    answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Low routing confidence: the top function plus the company report, one prompt."""
+    fake_embeds(monkeypatch, {})
+    ids = _seed_functions(db)
+    _seed_function_chunk(
+        db,
+        ids["licensing"],
+        "The licensor sign-off is recorded in the licensing approval log.",
+        "lic",
+    )
+    db.execute(
+        "INSERT INTO cmap.community (level, parent_id, title, report_md, "
+        "findings, entity_ids, graph_version) "
+        "VALUES (2, NULL, 'Company', %s, %s, %s, 0)",
+        (
+            "# Company\n\nCompany-wide view.\n\n## Findings",
+            json.dumps(
+                [
+                    {
+                        "text": "Approvals queue up at the licensor review",
+                        "kind": "bottleneck",
+                        "stance": "report",
+                        "source_ids": [],
+                    }
+                ]
+            ),
+            [],
+        ),
+    )
+    db.commit()
+    fake = fake_answer(monkeypatch)
+    fake_compress(monkeypatch)
+    fake.route_functions = [{"key": "licensing", "weight": 0.3}]
+    result = answer_question("What are the biggest problems?", "auto", [])
+    assert result["mode_used"] == "hybrid"
+    assert fake.calls == ["route", "local"]
+    prompt = fake.prompts[0]
+    assert "licensing approval log" in prompt
+    assert "Company-wide view." in prompt
+    assert [item["key"] for item in result["functions_consulted"]] == ["licensing"]

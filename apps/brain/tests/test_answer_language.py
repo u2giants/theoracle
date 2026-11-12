@@ -132,15 +132,3 @@ def test_zh_injection_in_data_ignored(
     assert "NEVER translate a quote" in prompt
 
 
-def test_route_mode_zh(answer_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    fake = fake_compress(monkeypatch)
-    settings = get_settings()
-    usage: dict[str, int] = {}
-    fake.route_response = {
-        "top_label": "specific",
-        "scores": {"specific": 0.9, "broad": 0.1},
-    }
-    assert answer_mod._route_mode(ZH_QUESTION, settings, usage) == "local"
-    labels = {item["name"]: item["rubric"] for item in answer_mod.ROUTE_LABELS}
-    assert "具体问题/事实查询" in labels["specific"]
-    assert "全局/跨部门梳理" in labels["broad"]
