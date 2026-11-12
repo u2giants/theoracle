@@ -54,7 +54,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 | F1 | Systematic gap finder | C2, E2 | ⬜ open | | |
 | F2 | Real multi-turn interviews | F1 | ⬜ open | | |
 | F3 | Routing by role, referrals, re-asks | C2 | ⬜ open | | |
-| F4 | Reply matching and chat-safety fixes | — | ⬜ open | | |
+| F4 | Reply matching and chat-safety fixes | — | ✅ done | `T/test_interview.py::test_group_chat_reference_never_stored`, `::test_late_reply_matched_to_right_question`, `::test_thanks_is_not_a_profile`, `T/test_inbound_zh.py::test_stop_variants_and_resume`; shared `QUESTION_WINDOW_DAYS=7`; judge prompts `B/prompts/intent_check.md`, `profile_check.md`, `reply_match.md`; PR [#550](https://github.com/u2giants/theoracle/pull/550) | 2026-11-12 1:53 AM EST |
 | F5 | Role interview ("tell me about your job") | F2, F3 | ⬜ open | | |
 | F6 | Coverage scorecard page | F1 | ⬜ open | | |
 | G1 | Corrections that stick | — | ⬜ open | | |

@@ -6,10 +6,11 @@ system discusses with them, so it routed to the correct domain(s)."
 
 The first time an employee reaches the bot in a 1:1 chat (greeting, install,
 or a first contribution), the reply asks for both. Their next message is taken
-as the answer: the conversation model splits it into department and job title
-(raw text is always kept, and used whole if the model is unavailable). The
-profile then rides along with everything they contribute: it heads every
-transcript, sets the source's department hint, and is given to the
+as the answer only when a judge says it describes a job or department
+(``is_profile_answer``): the conversation model splits it into department and
+job title (raw text is always kept, and used whole if the model is
+unavailable). The profile then rides along with everything they contribute: it
+heads every transcript, sets the source's department hint, and is given to the
 follow-up model.
 """
 
@@ -18,8 +19,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from brain.answer.answer import parse_model_json
 from brain.config import get_settings
 from brain.db import get_pool
 from brain.interview.strings import strings
@@ -45,6 +48,8 @@ _SPLIT_PROMPT = (
     "any language; return English department/job-title keys where possible, "
     "else the original words."
 )
+
+PROFILE_CHECK_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "profile_check.md"
 
 
 @dataclass(frozen=True)
@@ -83,6 +88,41 @@ def mark_asked(conn: Any, employee_id: str) -> None:
         (employee_id,),
     )
     conn.commit()
+
+
+def is_profile_answer(text: str) -> bool:
+    """True only when the judge says the message describes a job/department.
+
+    F4 chat safety: a short message is never taken as the profile just because
+    it fits the word cap. Unjudged (no model, or the check fails) is never
+    accepted — the message stays ordinary content instead of becoming the
+    profile.
+    """
+    settings = get_settings()
+    model = stage_model(settings, "grade")
+    if not model or not settings.openrouter_api_key:
+        return False
+    prompt = (
+        PROFILE_CHECK_PROMPT.read_text(encoding="utf-8").replace("{{message}}", text)
+    )
+    try:
+        body = post_chat_with_rescue(
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 20,
+                "temperature": 0,
+            },
+            settings=settings,
+            timeout=MODEL_TIMEOUT_SECONDS,
+            error_cls=RuntimeError,
+            label="profile check",
+        )
+        data = parse_model_json(message_content(body), ())
+    except Exception:  # noqa: BLE001 - never accept an unjudged message as profile
+        logger.warning("profile check failed; not treating the message as a profile")
+        return False
+    return bool(data.get("profile"))
 
 
 def _split(text: str) -> tuple[str | None, str | None]:

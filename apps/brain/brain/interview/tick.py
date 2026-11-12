@@ -29,6 +29,7 @@ import psycopg
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.extract.normalize import normalize_name
+from brain.interview.inbound import QUESTION_WINDOW_DAYS
 from brain.interview.strings import reply_language, strings
 from brain.llm import post_chat_with_rescue
 from brain.seats import stage_model
@@ -44,10 +45,12 @@ MODEL_TIMEOUT_SECONDS = 8.0
 TICK_INTERVAL_SECONDS = 3600
 
 # Human pacing (owner 2026-11-10): one question in flight per person, and at
-# most DAILY_CAP asked per person per New York day. A reply always answers the
-# single outstanding question, so it cannot land on the wrong one.
+# most DAILY_CAP asked per person per New York day. "In flight" lasts exactly
+# QUESTION_WINDOW_DAYS — the same window inbound matches replies against (F4)
+# — so a person is never sent a new question while a reply could still land on
+# the previous one. The send record is a separate pacing rule and keeps its
+# own 7-day lookback in ``reachable_employees``.
 DAILY_CAP = 3
-OUTSTANDING_DAYS = 3
 
 # Build-out phase 3: never message people 8 PM–8 AM New York time or on weekends.
 EASTERN = ZoneInfo("America/New_York")
@@ -312,7 +315,7 @@ def _busy_employees(conn: psycopg.Connection) -> set[str]:
             "SELECT DISTINCT target_employee_id FROM cmap.open_question "
             "WHERE state = 'asked' AND target_employee_id IS NOT NULL "
             "AND asked_at > now() - make_interval(days => %s)",
-            (OUTSTANDING_DAYS,),
+            (QUESTION_WINDOW_DAYS,),
         ).fetchall()
     }
     busy |= {

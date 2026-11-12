@@ -89,13 +89,27 @@ async function offerToInterviews(context: TurnContext, text: string): Promise<bo
   if (!process.env.BRAIN_BASE_URL || !process.env.BRAIN_SHARED_TOKEN) return false;
   const sender = await senderProfile(context);
   if (!sender) return false;
+  // F4 chat safety: only a personal (1:1) chat may become the bot's
+  // write-back target. Group and meeting chats send the conversation type
+  // alone so the brain can classify the message but can never store or reuse
+  // the reference.
+  const conversationType = context.activity.conversation?.conversationType;
+  const personal = !conversationType || conversationType === 'personal';
+  const conversationRef = personal
+    ? TurnContext.getConversationReference(context.activity)
+    : {
+        conversation: {
+          id: context.activity.conversation?.id ?? '',
+          conversationType,
+        },
+      };
   try {
     const result = await brainService<InboundResult>('interview/teams/inbound', {
       method: 'POST',
       body: {
         email: sender.email,
         name: sender.name,
-        conversation_ref: TurnContext.getConversationReference(context.activity),
+        conversation_ref: conversationRef,
         text,
       },
     });

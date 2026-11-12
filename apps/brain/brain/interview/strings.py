@@ -23,6 +23,7 @@ class Strings:
     reply_done: str
     reply_nothing_open: str
     reply_stopped: str
+    reply_resumed: str
     reply_skipped: str
     reply_answered: str
     thread_followup: str
@@ -51,8 +52,9 @@ _EN = Strings(
     ),
     reply_stopped=(
         "Got it, The Oracle will not send you more questions. "
-        "Ask an admin to turn them back on any time."
+        "Say 'resume' any time to turn them back on."
     ),
+    reply_resumed="Welcome back — The Oracle will send you questions again.",
     reply_skipped="No problem, skipped.",
     reply_answered="Thanks, that's recorded.",
     thread_followup="Got it. {question} (Or say done.)",
@@ -88,7 +90,8 @@ _ZH = Strings(
     reply_ack="收到——继续说，或者说「完成」。",
     reply_done="谢谢，已记录。随时再告诉我更多。",
     reply_nothing_open="现在没有待完成的对话。告诉我某件事是怎么运作的，我会记录下来。",
-    reply_stopped="好的，The Oracle 不会再向你提问。想重新开启，随时让管理员打开。",
+    reply_stopped="好的，The Oracle 不会再向你提问。回复「继续」可随时重新开启。",
+    reply_resumed="好的，The Oracle 会重新向你提问。",
     reply_skipped="没问题，已跳过。",
     reply_answered="谢谢，已记录。",
     thread_followup="收到。{question}（或者说「完成」。）",
