@@ -42,12 +42,16 @@ Cell = str | tuple[str, int] | None
 
 
 def zip_package(members: dict[str, bytes | str]) -> bytes:
-    """Return a zip of ``members`` with fixed timestamps (stable bytes)."""
+    """Return a zip of ``members`` with fixed headers (stable bytes)."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         for name, content in members.items():
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
+            # ZipInfo.create_system defaults to the build platform (0 Windows,
+            # 3 Unix) and lands in the central directory; pin it so the bytes
+            # are identical everywhere, like the fixed date_time above.
+            info.create_system = 3
             data = content.encode("utf-8") if isinstance(content, str) else content
             archive.writestr(info, data)
     return buffer.getvalue()

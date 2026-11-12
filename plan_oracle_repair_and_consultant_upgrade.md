@@ -36,7 +36,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 | B1 | Owner-approved question set on the eval page | — | ⬜ open | | |
 | B2 | Scoring counts sources and unsupported sentences | — | ⬜ open | | |
 | B3 | Live quality gate after every deploy and nightly | B2 | ⬜ open | | |
-| B4 | Pipeline health panel | — | ⬜ open | | |
+| B4 | Pipeline health panel | — | ✅ done | `T/test_sources_health.py::test_health_surfaces_failed_and_retrying_job_errors`, `::test_health_reports_states_failed_extractions_build_and_spend`, `::test_sources_health_requires_admin`; Playwright `map.spec.ts::health panel shows the seeded failed job with its error text`; `apps/web/tests/__screenshots__/map/14-health-panel.png`; `GET /sources/health` in `B/api/sources.py` (no schema change); spend = `cmap.job` payload.usage token/call counters (no dollar-cost store exists); PR `fix/b4-health-panel` → `main` (#520) | 2026-11-11 10:58 PM EST |
 | C1 | Business-function list (curated) | — | ⬜ open | | |
 | C2 | Every source, passage and thing is assigned to functions | C1 | ⬜ open | | |
 | C3 | Clusters live inside functions; stable identities | C2 | ⬜ open | | |
