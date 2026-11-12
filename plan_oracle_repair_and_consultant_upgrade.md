@@ -144,6 +144,8 @@ Everything in the STATUS table: repairs for every confirmed audit defect (Phases
 
 ## 5. Current state of the code (commit `3c7e2e39`, 2026-11-11)
 
+**De-staled 2026-11-12:** this section is the pre-repair audit — it describes the world as of 2026-11-11 and is kept for the reasoning behind each defect. What is already FIXED is in the STATUS table at the top (Phases A–B complete; C1–C4, D1–D3, E1–E2, E4, F4, G1–G2, H1 landed): do not redo ✅ rows, and treat the defect tables below as history.
+
 Everything below is committed, on `main`, and deployed. Nothing in this plan is started.
 
 **Works and must be preserved:** verbatim-quote validation on every mention/relation (`B/extract/relations.py:220,247-250`) and on local answers (`B/answer/answer.py:290-315`); stance tracking (policy/practice/report/inference) on every relation; interview answers enter the normal pipeline as speaker-attributed transcripts (`B/interview/inbound.py:334-343`, `B/interview/intake.py:180-190`); interview pacing guards (`B/interview/tick.py`: weekly cap, quiet hours, kill switch re-read per question at `:343`, vetted-only sending at `:337`); question vetting (`B/graph/communities.py:665-739`); recommendation guardrails (`B/recommend/recommend.py:76-79,109-147`); orphan-job requeue (`B/worker.py:102-147`); Chinese handling (`B/lang.py`, `B/translate.py`, `B/text_util.py`).
