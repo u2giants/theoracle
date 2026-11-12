@@ -83,7 +83,7 @@ Needs the China-office employee Albert picks (see open items). The China group
 is marked in Oracle as Billy Li, David Huang, Elise Sun, Emma Li, Kelly Hu,
 Wisdom Chen and (added 2026-11-10 on the owner's word) Yuchen Zhou.
 
-## 4. zh interview question delivered → answer becomes a source — pending
+## 4. zh interview question delivered → answer becomes a source ✅
 
 Sampling questions queued in Oracle 2026-11-10 at the owner's direction:
 sample-round walkthrough and the sample-room date targeted at Emma Li, and the
@@ -91,14 +91,24 @@ factory fix-confirmation round targeted at Yuchen Zhou (canonical English;
 they receive Chinese text at send time per step 2.3). The zh eval drafts were
 re-cut the same day onto China operations incl. the sampling process.
 
-## 5. zh eval run — queued; calibration recorded
+Yuchen Zhou's sampling question was delivered in Chinese and answered in
+Chinese (2026-11-10) — source `Interview answer — Yuchen Zhou — 2026-11-10`,
+id `7c284c28-eed7-4750-9bea-9da2e58a14e2`:
+
+> 设计师会通过邮件告诉工厂，哪里需要改进，工厂改进好后，会发新的照片或者寄来新的样品给设计师或者客户，或者版权所有实体确认
+
+## 5. zh eval run — live run recorded; calibration recorded
 
 Ten zh draft questions (plan O4: 5 process, 3 cross-source, 2 negative) are
 seeded and graded language-neutrally. The fixture-replay calibration run is
 `25914471-8521-4d21-b465-d1540a154292` (mean 1.000 over all 15 questions).
 The production `evaluate` job `c0a1b5f5-33a8-4848-9c6c-571bdc014b15` was
 queued 2026-11-10 11:06 AM EST behind the fixture-corpus pipeline chain
-(classify/extract/relations); its run id and mean append here when it lands.
+(classify/extract/relations). The production eval run
+`45e2d569-b1fe-47e5-9e84-b6ff63fb79ee` (2026-11-10, 15 questions incl. 10 zh
+China-ops drafts) scored mean **0.3778**, below the plan's 0.6 target. The
+owner has approved keeping the 10 zh questions as drafted (Emma Li reviews
+them during her acceptance pass); a rerun follows.
 
 ## Open items (not yet proof)
 
@@ -106,3 +116,8 @@ queued 2026-11-10 11:06 AM EST behind the fixture-corpus pipeline chain
   (plan suggests Emma Li) for a 10-minute Chinese Map + chat pass; that person's
   bot conversation and one zh interview round complete items 3–4.
 - [ ] Browser screenshots of the live site (needs a signed-in human session).
+
+## Notes
+
+- ID correction (verified read-only 2026-11-11): `3a225fe6-4b4f-49a9-9896-41ec9fb4294c`
+  is Emma Li, not Albert Hazan; Albert Hazan is `5925c3b6-2c37-4f3a-956c-7fa5c9ded951`.
