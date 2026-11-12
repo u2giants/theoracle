@@ -784,3 +784,36 @@ def test_live_gate_surfaces_accept_failure(
     assert decision.passed is False
     assert "accept call failed" in decision.reason
     assert brain.accepted_ids == []
+
+
+def test_live_gate_bails_on_job_error_while_retrying(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An eval job that errored fails the gate even while A2 re-queues it.
+
+    The production shape is state=queued with the error text kept (retry with
+    backoff); waiting for state=failed only burns the poll timeout first.
+    """
+    import httpx
+
+    from brain.eval import gate
+
+    class _ErroredJob(_FakeBrain):
+        def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+            del url, kwargs
+            return _FakeResponse(
+                {
+                    "runs": [],
+                    "latest_job": {
+                        "state": "queued",
+                        "error": "no eval questions: add some on the eval page (or load the seed)",
+                    },
+                }
+            )
+
+    brain = _ErroredJob()
+    monkeypatch.setattr(httpx, "get", brain.get)
+    monkeypatch.setattr(httpx, "post", brain.post)
+    decision = gate.live_gate("https://brain.example", "token", attempts=2, interval=0)
+    assert decision.passed is False
+    assert "no eval questions" in decision.reason
