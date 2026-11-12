@@ -18,6 +18,8 @@ from brain.directory_sync import (
     maybe_queue_directory_sync,
     run_directory_sync,
 )
+from brain.function_assign import function_for_label
+from brain.migrate import migrate
 
 
 @pytest.fixture(autouse=True)
@@ -270,6 +272,38 @@ def test_never_touches_oracle_only_fields(db: Any) -> None:
         (employee_id,),
     ).fetchone()
     assert flags == ("Design", "Designer", "Designer in Design")
+
+
+def test_directory_department_title_written_and_map_to_function(db: Any) -> None:
+    """Repair C2: department/title from the DesignFlow directory land in the
+    profile fields when present, and map to a function through the C1
+    aliases (the mapping the assignment prior uses; not the external
+    directory)."""
+    migrate()
+    employee_id = _employee(db, "mapped@example.invalid")
+    apply_directory(
+        db,
+        [
+            _row(
+                "mapped@example.invalid",
+                department="Licensing",
+                title="Licensing Manager",
+            )
+        ],
+    )
+    db.commit()
+    flags = db.execute(
+        "SELECT department, job_title, profile_answer FROM cmap.employee_flags "
+        "WHERE employee_id = %s",
+        (employee_id,),
+    ).fetchone()
+    assert flags == ("Licensing", "Licensing Manager", None)
+    licensing = function_for_label(db, "Licensing")
+    assert licensing is not None and licensing["key"] == "licensing"
+    sales = function_for_label(db, "Sales Team")
+    assert sales is not None and sales["key"] == "sales-customer-accounts"
+    assert function_for_label(db, "Licensing Manager") is None
+    assert function_for_label(db, "") is None
 
 
 def test_sync_is_a_noop_without_the_flag_or_url() -> None:

@@ -814,6 +814,7 @@ def handle_resolve(job: dict[str, Any]) -> None:
             conn.commit()
     logger.info("resolve stats=%s", stats)
     _enqueue_project()
+    _enqueue_function_assign()
 
 
 def _enqueue_project() -> None:
@@ -822,5 +823,15 @@ def _enqueue_project() -> None:
         conn.execute(
             "INSERT INTO cmap.job (kind, payload) SELECT 'project', '{}'::jsonb "
             "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'project' AND state = 'queued')"
+        )
+        conn.commit()
+
+
+def _enqueue_function_assign() -> None:
+    """Queue one ``function_assign`` job (repair C2) unless one is waiting."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            "INSERT INTO cmap.job (kind, payload) SELECT 'function_assign', '{}'::jsonb "
+            "WHERE NOT EXISTS (SELECT 1 FROM cmap.job WHERE kind = 'function_assign' AND state = 'queued')"
         )
         conn.commit()

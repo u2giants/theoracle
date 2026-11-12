@@ -20,6 +20,7 @@ type Question = {
   retired_at: string | null;
   abstention: boolean;
   recommendation: string | null;
+  function: string[];
 };
 
 type Result = {
@@ -91,10 +92,18 @@ function lines(text: string): string[] {
     .filter(Boolean);
 }
 
+function commaList(text: string): string[] {
+  return text
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function QuestionForm({ onAdded }: { onAdded: () => void }) {
   const [question, setQuestion] = useState('');
   const [points, setPoints] = useState('');
   const [titles, setTitles] = useState('');
+  const [functions, setFunctions] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
   async function submit(event: FormEvent) {
@@ -105,10 +114,12 @@ function QuestionForm({ onAdded }: { onAdded: () => void }) {
         question,
         expected_points: lines(points),
         expected_source_titles: lines(titles),
+        function: commaList(functions),
       });
       setQuestion('');
       setPoints('');
       setTitles('');
+      setFunctions('');
       setMessage('Question added.');
       onAdded();
     } catch (err) {
@@ -147,6 +158,15 @@ function QuestionForm({ onAdded }: { onAdded: () => void }) {
           onChange={(event) => setTitles(event.target.value)}
         />
       </label>
+      <label className="block text-sm">
+        Functions (comma-separated; pre-filled from the question set)
+        <input
+          className="mt-1 w-full rounded border px-2 py-1"
+          value={functions}
+          onChange={(event) => setFunctions(event.target.value)}
+          data-testid="question-functions"
+        />
+      </label>
       <div className="flex items-center gap-3">
         <Button type="submit">Add question</Button>
         {message && <span className="text-sm text-muted-foreground">{message}</span>}
@@ -167,6 +187,7 @@ function QuestionEditForm({
   const [question, setQuestion] = useState(item.question);
   const [points, setPoints] = useState(item.expected_points.join('\n'));
   const [titles, setTitles] = useState(item.expected_source_titles.join('\n'));
+  const [functions, setFunctions] = useState((item.function ?? []).join(', '));
   const [message, setMessage] = useState<string | null>(null);
 
   async function submit(event: FormEvent) {
@@ -182,6 +203,7 @@ function QuestionEditForm({
           expected_source_titles: lines(titles),
           abstention: item.abstention,
           recommendation: item.recommendation,
+          function: commaList(functions),
         }),
       });
       if (!response.ok) {
@@ -222,6 +244,15 @@ function QuestionEditForm({
           rows={3}
           value={titles}
           onChange={(event) => setTitles(event.target.value)}
+        />
+      </label>
+      <label className="block text-sm">
+        Functions (comma-separated)
+        <input
+          className="mt-1 w-full rounded border px-2 py-1"
+          value={functions}
+          onChange={(event) => setFunctions(event.target.value)}
+          data-testid="question-functions"
         />
       </label>
       <div className="flex items-center gap-3">

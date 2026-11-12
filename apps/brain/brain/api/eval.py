@@ -36,7 +36,7 @@ MAX_POINTS = 6
 
 _QUESTION_COLUMNS = (
     "id::text, question, expected_points, expected_source_titles, author, "
-    "approved_at, retired_at, abstention, recommendation"
+    "approved_at, retired_at, abstention, recommendation, function"
 )
 
 
@@ -48,6 +48,7 @@ class QuestionBody(BaseModel):
     expected_source_titles: list[str] = []
     abstention: bool = False
     recommendation: str | None = None
+    function: list[str] | None = None
 
 
 def _clean(items: list[str]) -> list[str]:
@@ -65,6 +66,7 @@ def _question_dict(row: tuple) -> dict[str, Any]:
         "retired_at": row[6].isoformat() if row[6] else None,
         "abstention": bool(row[7]),
         "recommendation": row[8],
+        "function": list(row[9]) if row[9] else [],
     }
 
 
@@ -110,8 +112,8 @@ def add_question(
         row = conn.execute(
             "INSERT INTO cmap.eval_question "
             "(question, expected_points, expected_source_titles, author, "
-            "abstention, recommendation) "
-            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id::text",
+            "abstention, recommendation, function) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id::text",
             (
                 question,
                 points,
@@ -119,6 +121,7 @@ def add_question(
                 user.employee_id,
                 body.abstention,
                 body.recommendation,
+                _clean(body.function or []),
             ),
         ).fetchone()
         conn.commit()
@@ -138,9 +141,18 @@ def edit_question(
     with get_pool().connection() as conn:
         row = conn.execute(
             "UPDATE cmap.eval_question SET question = %s, expected_points = %s, "
-            "expected_source_titles = %s, abstention = %s, recommendation = %s "
+            "expected_source_titles = %s, abstention = %s, recommendation = %s, "
+            "function = COALESCE(%s, function) "
             "WHERE id = %s RETURNING id",
-            (question, points, titles, body.abstention, body.recommendation, key),
+            (
+                question,
+                points,
+                titles,
+                body.abstention,
+                body.recommendation,
+                _clean(body.function) if body.function is not None else None,
+                key,
+            ),
         ).fetchone()
         conn.commit()
     if row is None:
