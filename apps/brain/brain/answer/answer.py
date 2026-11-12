@@ -3,7 +3,8 @@
 ``POST /answer`` asks one question in one of three modes:
 
 - ``local`` — embed the question, take the nearest entities and their depth-2
-  graph neighbourhood (60 nodes / 150 edges, edges ranked by weight), retrieve
+  graph neighbourhood (60 nodes / 150 edges, edges ranked by kind weight x
+  source count), retrieve
   chunks by cosine from the edge sources plus the open corpus, compress the
   passages with ScaleDown ``/compress/raw/`` when they exceed the token
   threshold (the quotes list stays uncompressed for citation), and answer from
@@ -57,7 +58,7 @@ from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract import flat as flat_mod
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
-from brain.graph.communities import _tokens
+from brain.graph.communities import _tokens, edge_rank
 from brain.graph.project import connect as connect_graph
 from brain.graph.version import current_graph_version
 from brain.llm import post_chat_with_rescue
@@ -1004,7 +1005,7 @@ def _graph_context(
                 ],
             }
         )
-    edges.sort(key=lambda edge: edge["weight"], reverse=True)
+    edges.sort(key=edge_rank, reverse=True)
     edges = edges[:GRAPH_EDGE_CAP]
     return _apply_fact_corrections(nodes[:GRAPH_NODE_CAP], edges)
 

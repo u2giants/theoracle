@@ -21,7 +21,7 @@ from test_resolve import _fake as _fake_resolve
 from brain.config import get_settings
 from brain.extract.flat import handle_classify_extract
 from brain.extract.relations import handle_relations
-from brain.graph.communities import run_communities
+from brain.graph.communities import edge_rank, run_communities
 from brain.graph.project import run_project
 from brain.resolve import resolve as resolve_mod
 from brain.resolve.resolve import run_resolve
@@ -828,3 +828,340 @@ def test_recommendation_and_flag_references_survive_regeneration(
     assert str(rec[0]) == l0_id
     flag = db.execute("SELECT item_id FROM cmap.review_flag").fetchone()
     assert flag[0] == function_id
+
+
+# --- Repair E4: boundary hand-offs and the company hand-off matrix ----------
+
+
+def _seed_board(db: Any) -> tuple[str, str]:
+    """One entity outside every function: (entity id, its mention id)."""
+    source = _seed_text(db, "The package goes to the review board.", "board")
+    board = _entity(db, "Role", "Review Board", mentions=1, sources=1)
+    board_m = _mention(db, source, "Role", "Review Board", board)
+    return board, board_m
+
+
+def _report_prompt(fake: FakeReport, scope: str, needle: str | None = None) -> str:
+    """The report prompt for one scope; ``needle`` picks among several."""
+    matches = [
+        prompt
+        for prompt in fake.prompts
+        if scope in prompt
+        and not prompt.startswith("You are compressing")
+        and not prompt.startswith("QUESTION VETTING")
+        and (needle is None or needle in prompt)
+    ]
+    assert matches, f"no report prompt for scope {scope!r} with {needle!r}"
+    return matches[-1]
+
+
+def _seed_flow(
+    db: Any, function_id: str, steps: list[tuple[str, str]]
+) -> str:
+    """One E2 process flow over the given (step entity, performer) steps."""
+    process = _entity(db, "Process", "package approval process", mentions=1, sources=1)
+    flow_id = str(
+        db.execute(
+            "INSERT INTO cmap.process_flow (process_entity_id, function_id, title) "
+            "VALUES (%s, %s, 'Package approval flow') RETURNING id",
+            (process, function_id),
+        ).fetchone()[0]
+    )
+    for ordinal, (step_entity_id, performer_id) in enumerate(steps, start=1):
+        db.execute(
+            "INSERT INTO cmap.flow_step (flow_id, ordinal, step_entity_id, "
+            "performer_entity_id) VALUES (%s, %s, %s, %s)",
+            (flow_id, ordinal, step_entity_id, performer_id),
+        )
+    db.commit()
+    return flow_id
+
+
+def test_boundary_handoffs_in_function_report(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """E4: level-0 and level-1 reports receive their boundary edges.
+
+    A relation from a function's entity to one outside it is listed under
+    "Hand-offs in / out" in the report's context and in the stored report
+    text, so cross-boundary work reaches the summaries written from them.
+    """
+    entities = _seed_approval_map(db)
+    function_id = _seed_function(db, "licensing", "Licensing")
+    for entity_id in entities.values():
+        _assign_function(db, entity_id, function_id)
+    board, board_m = _seed_board(db)
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["jessica"]),
+        board_m,
+        "HANDS_OFF_TO",
+        "Jessica hands the package to the review board",
+    )
+    run_project()
+    fake = _fake(monkeypatch)
+    run_communities()
+
+    l1_prompt = _report_prompt(fake, "one part of the company")
+    assert "Hand-offs in / out" in l1_prompt
+    assert "out:" in l1_prompt
+    assert "Review Board" in l1_prompt
+    assert "HANDS_OFF_TO" in l1_prompt
+    l1_md = db.execute(
+        "SELECT report_md FROM cmap.community WHERE level = 1"
+    ).fetchone()[0]
+    assert "## Hand-offs in / out" in l1_md
+    assert "Review Board" in l1_md
+    assert "- out:" in l1_md
+
+    l0_prompt = _report_prompt(
+        fake,
+        "one area of how a company operates",
+        needle="Jessica Smith (Licensing Manager)",
+    )
+    assert "Hand-offs in / out" in l0_prompt
+    assert "Review Board" in l0_prompt
+    l0_id = _community_of(db, "Jessica Smith (Licensing Manager)")
+    l0_md = db.execute(
+        "SELECT report_md FROM cmap.community WHERE id = %s", (l0_id,)
+    ).fetchone()[0]
+    assert "## Hand-offs in / out" in l0_md
+    assert "Review Board" in l0_md
+
+
+def test_company_report_has_handoff_matrix(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """E4: the company report receives the function-to-function matrix.
+
+    The matrix is computed from relations and from E2's flow-step hand-offs:
+    a cross-function relation contributes its cell and a pair of consecutive
+    flow steps performed in different functions contributes another.
+    """
+    entities = _seed_approval_map(db)
+    licensing = _seed_function(db, "licensing", "Licensing")
+    operations = _seed_function(db, "operations", "Operations")
+    for entity_id in entities.values():
+        _assign_function(db, entity_id, licensing)
+    _seed_second_cluster(db)
+    for name in ("Acme Factory", "Big Box", "Line 7"):
+        _assign_function(db, _entity_id(db, name), operations)
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["jessica"]),
+        _mention_id(db, _entity_id(db, "Acme Factory")),
+        "HANDS_OFF_TO",
+        "the package moves from licensing to the factory",
+    )
+    factory_step = _entity(db, "Step", "factory run", mentions=1, sources=1)
+    _seed_flow(
+        db,
+        licensing,
+        [
+            (entities["step"], entities["jessica"]),
+            (factory_step, _entity_id(db, "Acme Factory")),
+        ],
+    )
+    run_project()
+    fake = _fake(monkeypatch)
+    run_communities()
+
+    company_prompt = _report_prompt(fake, "the whole company")
+    assert "Hand-offs in / out" in company_prompt
+    assert "Licensing -> Operations" in company_prompt
+    assert "relations x1 (HANDS_OFF_TO x1)" in company_prompt
+    assert "flow steps x1" in company_prompt
+    company_md = db.execute(
+        "SELECT report_md FROM cmap.community WHERE level = 2"
+    ).fetchone()[0]
+    assert "## Hand-offs in / out" in company_md
+    assert "Licensing -> Operations" in company_md
+    assert "flow steps x1" in company_md
+
+
+def test_boundary_relation_regenerates_report(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """E4: the content hash covers boundary edges.
+
+    A relation crossing the cluster/function boundary changes the hash of the
+    reports that list it — under the old inside-only hash the new hand-off
+    line would have been stale — while an unchanged rebuild reuses everything
+    and the stable ids survive both.
+    """
+    entities = _seed_approval_map(db)
+    function_id = _seed_function(db, "licensing", "Licensing")
+    for entity_id in entities.values():
+        _assign_function(db, entity_id, function_id)
+    board, board_m = _seed_board(db)
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["jessica"]),
+        board_m,
+        "HANDS_OFF_TO",
+        "Jessica hands the package to the review board",
+    )
+    run_project()
+    _fake(monkeypatch)
+    run_communities()
+    l1_first = db.execute(
+        "SELECT id, content_hash FROM cmap.community WHERE level = 1"
+    ).fetchone()
+    l0_id = _community_of(db, "Jessica Smith (Licensing Manager)")
+    l0_first = db.execute(
+        "SELECT id, content_hash FROM cmap.community WHERE id = %s", (l0_id,)
+    ).fetchone()
+
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["step"]),
+        board_m,
+        "PRECEDES",
+        "the board follows the step",
+    )
+    run_project()
+    _fake(monkeypatch)
+    second = run_communities()
+    l1_after = db.execute(
+        "SELECT id, content_hash FROM cmap.community WHERE level = 1"
+    ).fetchone()
+    l0_after = db.execute(
+        "SELECT id, content_hash FROM cmap.community WHERE id = %s", (l0_id,)
+    ).fetchone()
+    assert str(l1_after[0]) == function_id
+    assert l1_after[1] != l1_first[1]
+    assert str(l0_after[0]) == str(l0_first[0])
+    assert l0_after[1] != l0_first[1]
+    assert second["reports_reused"] == 0
+
+    run_project()
+    fake = _fake(monkeypatch)
+    third = run_communities()
+    assert third["reports_reused"] == third["reports"]
+    assert fake.prompts == []
+    assert db.execute(
+        "SELECT 1 FROM cmap.community WHERE id = %s", (l0_id,)
+    ).fetchone()
+    assert db.execute(
+        "SELECT 1 FROM cmap.community WHERE id = %s", (function_id,)
+    ).fetchone()
+
+
+def test_flow_change_regenerates_company_report(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """E4: the company hash covers the flow-step matrix inputs.
+
+    A flow-step performer change alters the hand-off matrix even when no
+    entity or relation moved, so the company report must regenerate (the
+    level-0/1 reports, whose hand-offs are relations only, are reused).
+    """
+    entities = _seed_approval_map(db)
+    licensing = _seed_function(db, "licensing", "Licensing")
+    operations = _seed_function(db, "operations", "Operations")
+    for entity_id in entities.values():
+        _assign_function(db, entity_id, licensing)
+    _seed_second_cluster(db)
+    for name in ("Acme Factory", "Big Box", "Line 7"):
+        _assign_function(db, _entity_id(db, name), operations)
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["jessica"]),
+        _mention_id(db, _entity_id(db, "Acme Factory")),
+        "HANDS_OFF_TO",
+        "the package moves from licensing to the factory",
+    )
+    factory_step = _entity(db, "Step", "factory run", mentions=1, sources=1)
+    flow_id = _seed_flow(
+        db,
+        licensing,
+        [
+            (entities["step"], entities["jessica"]),
+            (factory_step, _entity_id(db, "Acme Factory")),
+        ],
+    )
+    run_project()
+    _fake(monkeypatch)
+    run_communities()
+    first = db.execute(
+        "SELECT id, content_hash FROM cmap.community WHERE level = 2"
+    ).fetchone()
+    first_md = db.execute(
+        "SELECT report_md FROM cmap.community WHERE level = 2"
+    ).fetchone()[0]
+    assert "flow steps x1" in first_md
+
+    db.execute(
+        "UPDATE cmap.flow_step SET performer_entity_id = %s "
+        "WHERE flow_id = %s AND ordinal = 2",
+        (entities["jessica"], flow_id),
+    )
+    db.commit()
+    run_project()
+    _fake(monkeypatch)
+    second = run_communities()
+    after = db.execute(
+        "SELECT id, content_hash, report_md FROM cmap.community WHERE level = 2"
+    ).fetchone()
+    assert str(after[0]) == str(first[0])
+    assert after[1] != first[1]
+    assert second["reports_reused"] == second["reports"] - 1
+    # The same-function flow pair is no longer a hand-off: the matrix in the
+    # regenerated report lost its flow-step cell.
+    assert "Licensing -> Operations" in after[2]
+    assert "flow steps" not in after[2]
+
+
+def test_edge_cap_keeps_once_stated_sequence(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """E4: edge caps rank by kind weight x source count.
+
+    A once-stated PRECEDES survives a tight edge cap above a MENTIONS link
+    repeated across several sources — the old source-count ranking cut the
+    sequence and kept the generic mention (the shared ``edge_rank`` key is
+    what ``answer/answer.py``'s cap sorts by too).
+    """
+    from brain.graph import communities as comm
+
+    assert edge_rank({"rel_type": "PRECEDES", "weight": 1}) > edge_rank(
+        {"rel_type": "MENTIONS", "weight": 3}
+    )
+    assert edge_rank({"rel_type": "HANDS_OFF_TO", "weight": 1}) > edge_rank(
+        {"rel_type": "MENTIONS", "weight": 5}
+    )
+    assert edge_rank({"rel_type": "PRECEDES", "weight": 1}) > edge_rank(
+        {"rel_type": "USES", "weight": 2}
+    )
+
+    entities = _seed_approval_map(db)
+    _relation(
+        db,
+        _first_source(db),
+        _mention_id(db, entities["step"]),
+        _mention_id(db, entities["issue"]),
+        "PRECEDES",
+        "the review comes before the bottleneck",
+    )
+    j_m = _mention_id(db, entities["jessica"])
+    s_m = _mention_id(db, entities["step"])
+    for title in ("generic one", "generic two", "generic three"):
+        source = _seed_text(db, "Jessica and the approval step are named.", title)
+        _relation(db, source, j_m, s_m, "MENTIONS", "a generic mention")
+    run_project()
+    monkeypatch.setattr(comm, "MAX_EDGES_IN_CONTEXT", 1)
+    fake = _fake(monkeypatch)
+    run_communities()
+    prompt = _report_prompt(
+        fake,
+        "one area of how a company operates",
+        needle="Jessica Smith (Licensing Manager)",
+    )
+    edges_part = prompt.split("EDGES:", 1)[1].split("SOURCES", 1)[0]
+    assert "PRECEDES" in edges_part
+    assert "MENTIONS" not in edges_part
