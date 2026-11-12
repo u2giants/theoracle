@@ -50,6 +50,7 @@ HASHED_PROMPTS = (
     "decline_check.md",
 )
 SEED_PATH = Path(__file__).resolve().parents[2] / "eval" / "questions.seed.json"
+B1_SEED_PATH = Path(__file__).resolve().parents[2] / "eval" / "questions.b1.json"
 SEED_AUTHOR = "seed"
 CONTRADICTION_PENALTY = 0.2
 POINTS_WEIGHT = 0.6
@@ -303,12 +304,15 @@ def cited_expected(expected_titles: list[str], cited_titles: list[str]) -> list[
 
 
 def load_questions() -> list[dict[str, Any]]:
-    """Every eval question, in a stable order."""
+    """Every approved, not-retired eval question, in a stable order (plan B1:
+    only owner-approved questions count toward the eval bar)."""
     with get_pool().connection() as conn:
         rows = conn.execute(
             "SELECT id::text, question, expected_points, expected_source_titles, "
             "author, abstention "
-            "FROM cmap.eval_question ORDER BY question"
+            "FROM cmap.eval_question "
+            "WHERE approved_at IS NOT NULL AND retired_at IS NULL "
+            "ORDER BY question"
         ).fetchall()
     return [
         {
@@ -331,14 +335,17 @@ def load_seed(path: Path = SEED_PATH) -> int:
         for item in data["questions"]:
             row = conn.execute(
                 "INSERT INTO cmap.eval_question "
-                "(question, expected_points, expected_source_titles, author) "
-                "SELECT %s, %s, %s, %s WHERE NOT EXISTS "
+                "(question, expected_points, expected_source_titles, author, "
+                "abstention, recommendation) "
+                "SELECT %s, %s, %s, %s, %s, %s WHERE NOT EXISTS "
                 "(SELECT 1 FROM cmap.eval_question WHERE question = %s) RETURNING id",
                 (
                     item["question"],
                     item["expected_points"],
                     item["expected_source_titles"],
                     SEED_AUTHOR,
+                    bool(item.get("abstention", False)),
+                    item.get("recommendation"),
                     item["question"],
                 ),
             ).fetchone()
@@ -521,6 +528,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.seed:
         print(f"seed questions added: {load_seed()}")
+        print(f"B1 draft questions added: {load_seed(B1_SEED_PATH)}")
     try:
         run = run_eval()
     except EvalError as exc:

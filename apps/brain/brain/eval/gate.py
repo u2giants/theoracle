@@ -11,8 +11,10 @@ compares means and error flags (the new score, not ``score_legacy``).
 ``python -m brain.eval.gate --live`` queues one eval on the deployed brain
 (``BRAIN_BASE_URL`` with the shared token in ``BRAIN_SHARED_TOKEN``, sent as
 ``x-brain-token`` like the web proxy), waits for the run to land and applies
-the same rule; ``.github/workflows/brain-quality.yml`` runs this after every
-verified deploy and nightly.
+the same rule; a passing run is marked accepted through the brain's own
+``POST /eval/runs/{id}/accept`` so the baseline chain survives without CI
+touching the database. ``.github/workflows/brain-quality.yml`` runs this after
+every verified deploy and nightly.
 """
 
 from __future__ import annotations
@@ -146,6 +148,16 @@ def _run_payload(base: str, headers: dict[str, str]) -> dict[str, Any]:
     return dict(response.json())
 
 
+def _accept_remote(base: str, headers: dict[str, str], run_id: str) -> None:
+    """Mark a passing run accepted through the brain's own endpoint."""
+    response = httpx.post(
+        f"{base}/eval/runs/{run_id}/accept",
+        headers=headers,
+        timeout=HTTP_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+
+
 def live_gate(
     base: str,
     token: str,
@@ -163,8 +175,7 @@ def live_gate(
     except httpx.HTTPError as exc:
         return GateDecision(passed=False, reason=f"eval endpoint error: {exc}")
     logger.info("live gate: eval queued=%s", response.json().get("queued"))
-    deadline = time.monotonic() + attempts * interval
-    while time.monotonic() < deadline:
+    for _ in range(attempts):
         time.sleep(interval)
         try:
             payload = _run_payload(base, headers)
@@ -178,7 +189,25 @@ def live_gate(
                 (item for item in runs[position + 1 :] if item.get("accepted")),
                 None,
             )
-            return decide(run, last_accepted)
+            decision = decide(run, last_accepted)
+            if decision.passed:
+                try:
+                    _accept_remote(base, headers, str(run.get("id")))
+                except httpx.HTTPError as exc:
+                    # A passing run that cannot be recorded as the baseline
+                    # must fail loudly, or the drop check loses its reference.
+                    return GateDecision(
+                        passed=False,
+                        reason=(
+                            f"quality check passed but the accept call failed: "
+                            f"{exc} (run not recorded as the baseline)"
+                        ),
+                        run_id=decision.run_id,
+                        mean_score=decision.mean_score,
+                        previous_mean=decision.previous_mean,
+                        drop=decision.drop,
+                    )
+            return decision
         job = payload.get("latest_job") or {}
         if job.get("state") == "failed":
             return GateDecision(

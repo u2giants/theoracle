@@ -16,6 +16,10 @@ type Question = {
   expected_points: string[];
   expected_source_titles: string[];
   author: string;
+  approved_at: string | null;
+  retired_at: string | null;
+  abstention: boolean;
+  recommendation: string | null;
 };
 
 type Result = {
@@ -151,6 +155,110 @@ function QuestionForm({ onAdded }: { onAdded: () => void }) {
   );
 }
 
+function QuestionEditForm({
+  item,
+  onSaved,
+  onCancel,
+}: {
+  item: Question;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [question, setQuestion] = useState(item.question);
+  const [points, setPoints] = useState(item.expected_points.join('\n'));
+  const [titles, setTitles] = useState(item.expected_source_titles.join('\n'));
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/brain/eval/questions/${encodeURIComponent(item.id)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          expected_points: lines(points),
+          expected_source_titles: lines(titles),
+          abstention: item.abstention,
+          recommendation: item.recommendation,
+        }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(body.detail ?? `edit failed (${response.status})`);
+      }
+      onSaved();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'edit failed');
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-2 rounded border p-2" data-testid="question-edit-form">
+      <label className="block text-sm">
+        Question
+        <input
+          className="mt-1 w-full rounded border px-2 py-1"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          required
+        />
+      </label>
+      <label className="block text-sm">
+        Expected points (3 to 6, one per line)
+        <textarea
+          className="mt-1 w-full rounded border px-2 py-1"
+          rows={4}
+          value={points}
+          onChange={(event) => setPoints(event.target.value)}
+          required
+        />
+      </label>
+      <label className="block text-sm">
+        Expected source titles (one per line)
+        <textarea
+          className="mt-1 w-full rounded border px-2 py-1"
+          rows={3}
+          value={titles}
+          onChange={(event) => setTitles(event.target.value)}
+        />
+      </label>
+      <div className="flex items-center gap-3">
+        <Button type="submit" data-testid="question-save">
+          Save
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel} data-testid="question-cancel">
+          Cancel
+        </Button>
+        {message && <span className="text-sm text-muted-foreground">{message}</span>}
+      </div>
+    </form>
+  );
+}
+
+function QuestionStatus({ item }: { item: Question }) {
+  if (item.retired_at) {
+    return (
+      <span className="text-xs text-muted-foreground" data-testid="question-status">
+        Retired {when(item.retired_at)} — does not count toward the eval bar
+      </span>
+    );
+  }
+  if (item.approved_at) {
+    return (
+      <span className="text-xs text-green-700" data-testid="question-status">
+        Approved {when(item.approved_at)} — counts toward the eval bar
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs text-muted-foreground" data-testid="question-status">
+      Draft — does not count toward the eval bar yet
+    </span>
+  );
+}
+
 function RunTable({ run }: { run: Run }) {
   const deltas = new Map(run.diff.map((item) => [item.question, item.delta]));
   return (
@@ -216,6 +324,7 @@ export function EvalClient({ isAdmin }: { isAdmin: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
 
   const [tick, setTick] = useState(0);
   const load = useCallback(() => setTick((value) => value + 1), []);
@@ -263,6 +372,26 @@ export function EvalClient({ isAdmin }: { isAdmin: boolean }) {
       load();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'delete failed');
+    }
+  }
+
+  async function approve(id: string) {
+    setMessage(null);
+    try {
+      await brainPost(`eval/questions/${encodeURIComponent(id)}/approve`, {});
+      load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'approve failed');
+    }
+  }
+
+  async function retire(id: string) {
+    setMessage(null);
+    try {
+      await brainPost(`eval/questions/${encodeURIComponent(id)}/retire`, {});
+      load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'retire failed');
     }
   }
 
@@ -357,28 +486,96 @@ export function EvalClient({ isAdmin }: { isAdmin: boolean }) {
         <h2 className="text-lg font-semibold">Questions ({questions.length})</h2>
         <ul className="space-y-2 text-sm">
           {questions.map((item) => (
-            <li key={item.id} className="rounded border p-3">
+            <li
+              key={item.id}
+              className={`rounded border p-3 ${item.retired_at ? 'opacity-60' : ''}`}
+              data-testid="eval-question"
+              data-question-id={item.id}
+              data-status={item.retired_at ? 'retired' : item.approved_at ? 'approved' : 'draft'}
+            >
               <div className="flex items-start justify-between gap-2">
                 <span className="font-medium">{item.question}</span>
                 {isAdmin && (
-                  <button
-                    type="button"
-                    className="text-xs text-red-700 underline"
-                    onClick={() => remove(item.id)}
-                  >
-                    Remove
-                  </button>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {!item.approved_at && !item.retired_at && (
+                      <button
+                        type="button"
+                        className="text-xs text-green-700 underline"
+                        data-testid="question-approve"
+                        onClick={() => approve(item.id)}
+                      >
+                        Approve
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="text-xs underline"
+                      data-testid="question-edit"
+                      onClick={() => setEditing(editing === item.id ? null : item.id)}
+                    >
+                      Edit
+                    </button>
+                    {!item.retired_at && (
+                      <button
+                        type="button"
+                        className="text-xs text-red-700 underline"
+                        data-testid="question-retire"
+                        onClick={() => retire(item.id)}
+                      >
+                        Retire
+                      </button>
+                    )}
+                    {!item.approved_at && !item.retired_at && (
+                      <button
+                        type="button"
+                        className="text-xs text-red-700 underline"
+                        onClick={() => remove(item.id)}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </span>
                 )}
               </div>
-              <ul className="list-disc pl-5 text-xs">
-                {item.expected_points.map((point) => (
-                  <li key={point}>{point}</li>
-                ))}
-              </ul>
-              {item.expected_source_titles.length > 0 && (
-                <div className="text-xs text-muted-foreground">
-                  Sources: {item.expected_source_titles.join(', ')}
+              <QuestionStatus item={item} />
+              {isAdmin && item.recommendation && (
+                <div
+                  className="mt-1 rounded bg-muted px-2 py-1 text-xs"
+                  data-testid="question-recommendation"
+                >
+                  Recommended: {item.recommendation}
                 </div>
+              )}
+              {item.abstention && (
+                <div
+                  className="mt-1 rounded bg-muted px-2 py-1 text-xs italic"
+                  data-testid="question-abstention"
+                >
+                  The documents do not say — the correct answer admits ignorance.
+                </div>
+              )}
+              {editing === item.id && isAdmin ? (
+                <QuestionEditForm
+                  item={item}
+                  onSaved={() => {
+                    setEditing(null);
+                    load();
+                  }}
+                  onCancel={() => setEditing(null)}
+                />
+              ) : (
+                <>
+                  <ul className="list-disc pl-5 text-xs">
+                    {item.expected_points.map((point) => (
+                      <li key={point}>{point}</li>
+                    ))}
+                  </ul>
+                  {item.expected_source_titles.length > 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      Sources: {item.expected_source_titles.join(', ')}
+                    </div>
+                  )}
+                </>
               )}
             </li>
           ))}

@@ -121,6 +121,13 @@ def db() -> Iterator[psycopg.Connection]:
     conn.close()
 
 
+def approve_all_questions(db: Any) -> None:
+    """Approve every seeded eval question so the eval runner will score them
+    (plan B1: only approved questions count toward the eval bar)."""
+    db.execute("UPDATE cmap.eval_question SET approved_at = now()")
+    db.commit()
+
+
 @pytest.fixture()
 def storage(monkeypatch: pytest.MonkeyPatch) -> FakeStorage:
     """Swap Supabase Storage for an in-memory fake."""

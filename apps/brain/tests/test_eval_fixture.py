@@ -17,7 +17,13 @@ import re
 from typing import Any
 
 import pytest
-from conftest import fake_relations, fake_scaledown, fake_vision, load_recorded
+from conftest import (
+    approve_all_questions,
+    fake_relations,
+    fake_scaledown,
+    fake_vision,
+    load_recorded,
+)
 from test_answer import (
     FLOWCHART_FIXTURE,
     _point_embeddings,
@@ -169,6 +175,7 @@ def test_eval_fixture_mean_at_least_08(
     _fixture_corpus(db, monkeypatch)
     assert load_seed() == 15
     assert load_seed() == 0
+    approve_all_questions(db)
     answers, grader = _replay(monkeypatch)
     run = run_eval()
     assert len(run["results"]) == 15
@@ -220,6 +227,7 @@ def test_eval_detects_broken_citations(
     """Citation validation that drops valid quotes pulls the score under 0.8."""
     _fixture_corpus(db, monkeypatch)
     load_seed()
+    approve_all_questions(db)
     _replay(monkeypatch)
     real_finalize = answer_mod._finalize_local
 
@@ -282,6 +290,7 @@ def test_errors_fail_run(
             (question, ["point one", "point two"], ["doc.pdf"], "test"),
         )
     db.commit()
+    approve_all_questions(db)
 
     def flaky(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         del args, kwargs
@@ -335,6 +344,7 @@ def test_score_components(
         ),
     )
     db.commit()
+    approve_all_questions(db)
 
     def fake_answer(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         del question, args, kwargs
@@ -385,6 +395,7 @@ def test_abstention_question(
             ),
         )
     db.commit()
+    approve_all_questions(db)
 
     def fake_answer(question: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         del args, kwargs
@@ -497,6 +508,7 @@ def test_evaluate_job_records_usage(
     """The worker's ``evaluate`` job runs the eval and stores its summary."""
     _fixture_corpus(db, monkeypatch)
     load_seed()
+    approve_all_questions(db)
     _replay(monkeypatch)
     from brain.worker import run_handler
 
@@ -523,6 +535,7 @@ def test_gate_detects_drop(
 
     _fixture_corpus(db, monkeypatch)
     load_seed()
+    approve_all_questions(db)
     _replay(monkeypatch)
     good = run_eval()
     assert good["mean_score"] >= 0.8
@@ -611,7 +624,9 @@ def test_gate_fails_on_question_error(db: Any) -> None:
     assert gate.run_gate().passed is True
 
 
-def test_eval_service_calls_queue_and_read_runs(db: Any, client: Any) -> None:
+def test_eval_service_calls_queue_and_read_runs(
+    db: Any, client: Any, user_headers: dict[str, str]
+) -> None:
     """The shared token alone queues and reads runs for the quality workflow."""
     from conftest import TEST_TOKEN
 
@@ -626,13 +641,146 @@ def test_eval_service_calls_queue_and_read_runs(db: Any, client: Any) -> None:
         "queued": False,
         "detail": "an eval run is already queued or running",
     }
-    db.execute(
+    run_id = db.execute(
         "INSERT INTO cmap.eval_run "
         "(graph_version, prompt_hashes, results, mean_score, models) "
-        "VALUES (1, '{}', %s, %s, '{}')",
+        "VALUES (1, '{}', %s, %s, '{}') RETURNING id::text",
         (json.dumps([{"question": "q", "score": 0.5, "error": None}]), 0.5),
-    )
+    ).fetchone()[0]
     db.commit()
     runs = client.get("/eval/runs", headers=service).json()
     assert runs["runs"][0]["mean_score"] == pytest.approx(0.5)
     assert runs["runs"][0]["accepted"] is False
+    # The accept round-trip (B3): the service marks the baseline run accepted.
+    assert client.post(f"/eval/runs/{run_id}/accept").status_code == 401
+    assert (
+        client.post(f"/eval/runs/{run_id}/accept", headers=user_headers).status_code
+        == 403
+    )
+    assert (
+        client.post("/eval/runs/not-a-uuid/accept", headers=service).status_code == 404
+    )
+    assert (
+        client.post(
+            "/eval/runs/11111111-1111-1111-1111-111111111111/accept",
+            headers=service,
+        ).status_code
+        == 404
+    )
+    accepted = client.post(f"/eval/runs/{run_id}/accept", headers=service).json()
+    assert accepted == {"id": run_id, "mean_score": pytest.approx(0.5), "accepted": True}
+    assert client.get("/eval/runs", headers=service).json()["runs"][0]["accepted"] is True
+
+
+class _FakeResponse:
+    """Minimal stand-in for an httpx response in the live gate tests."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+
+class _FakeBrain:
+    """The deployed brain's run store and accept endpoint, as a fake.
+
+    ``POST /eval/run`` lands the next prepared run (the worker); the accept
+    endpoint sets ``accepted`` so the next decision sees the baseline — the
+    exact production round-trip the gate must make.
+    """
+
+    def __init__(self, *runs: dict[str, Any]) -> None:
+        self.pending = list(runs)
+        self.runs: list[dict[str, Any]] = []
+        self.accepted_ids: list[str] = []
+        self.accept_error: Exception | None = None
+
+    def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+        del url, kwargs
+        return _FakeResponse(
+            {
+                "runs": [dict(item) for item in self.runs],
+                "latest_job": {"state": "done", "error": None},
+            }
+        )
+
+    def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+        del kwargs
+        if url.endswith("/eval/run"):
+            if self.pending:
+                self.runs.insert(0, dict(self.pending.pop(0)))
+            return _FakeResponse({"queued": True, "job_id": "job"})
+        run_id = url.rsplit("/", 2)[1]
+        if self.accept_error is not None:
+            raise self.accept_error
+        for item in self.runs:
+            if str(item.get("id")) == run_id:
+                item["accepted"] = True
+        self.accepted_ids.append(run_id)
+        return _FakeResponse({"id": run_id, "accepted": True})
+
+
+def _fake_run(run_id: str, mean: float) -> dict[str, Any]:
+    return {
+        "id": run_id,
+        "mean_score": mean,
+        "accepted": False,
+        "results": [{"question": "q", "score": mean, "error": None}],
+    }
+
+
+def test_live_gate_marks_accepted_and_catches_drop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live runs record the accepted baseline and fail the next big drop.
+
+    The second live run dropping 0.10 against the accepted first MUST fail —
+    without the accept round-trip no baseline exists and the drop check would
+    silently never fire.
+    """
+    import httpx
+
+    from brain.eval import gate
+
+    brain = _FakeBrain(
+        _fake_run("run-good", 0.90), _fake_run("run-bad", 0.80), _fake_run("run-back", 0.88)
+    )
+    monkeypatch.setattr(httpx, "get", brain.get)
+    monkeypatch.setattr(httpx, "post", brain.post)
+
+    first = gate.live_gate("https://brain.example", "token", attempts=2, interval=0)
+    assert first.passed is True
+    assert brain.accepted_ids == ["run-good"]
+    assert brain.runs[0]["accepted"] is True
+
+    second = gate.live_gate("https://brain.example", "token", attempts=2, interval=0)
+    assert second.passed is False
+    assert second.previous_mean == pytest.approx(0.90)
+    assert second.drop == pytest.approx(0.10)
+    assert brain.accepted_ids == ["run-good"]
+
+    third = gate.live_gate("https://brain.example", "token", attempts=2, interval=0)
+    assert third.passed is True
+    assert brain.accepted_ids == ["run-good", "run-back"]
+
+
+def test_live_gate_surfaces_accept_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A passing run whose accept call fails is never silently swallowed."""
+    import httpx
+
+    from brain.eval import gate
+
+    brain = _FakeBrain(_fake_run("run-good", 0.90))
+    brain.accept_error = httpx.ConnectError("accept endpoint down")
+    monkeypatch.setattr(httpx, "get", brain.get)
+    monkeypatch.setattr(httpx, "post", brain.post)
+    decision = gate.live_gate("https://brain.example", "token", attempts=2, interval=0)
+    assert decision.passed is False
+    assert "accept call failed" in decision.reason
+    assert brain.accepted_ids == []

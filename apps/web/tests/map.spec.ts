@@ -310,6 +310,45 @@ test('zh locale shows translations and keeps chrome English', async ({ page, con
   await expect(page.getByText('Saved.').first()).toBeVisible({ timeout: 30_000 });
 });
 
+// Repair plan B1: the owner-approved question set. Admin sees a draft
+// question with its recommendation, approves it, and the question now counts
+// toward the eval bar; the abstention draft keeps its badge and its draft
+// status. Times shown to humans are New York (EST/EDT).
+test('admin approves a draft eval question and it counts', async ({ page, context }) => {
+  await signIn(context);
+  await page.goto('/map/eval');
+  const draft = page
+    .getByTestId('eval-question')
+    .filter({ hasText: 'How long does the internal artwork review take in the procedure?' });
+  await expect(draft).toHaveCount(1, { timeout: 60_000 });
+  await expect(draft).toHaveAttribute('data-status', 'draft');
+  await expect(draft.getByTestId('question-status')).toContainText(
+    'does not count toward the eval bar yet',
+  );
+  await expect(draft.getByTestId('question-recommendation')).toContainText(
+    'Approve as written.',
+  );
+  await page.screenshot({ path: resolve(SHOTS, '14-eval-draft-question.png'), fullPage: true });
+
+  await draft.getByTestId('question-approve').click();
+  await expect(draft).toHaveAttribute('data-status', 'approved');
+  await expect(draft.getByTestId('question-status')).toContainText('EST');
+  await expect(draft.getByTestId('question-status')).toContainText(
+    'counts toward the eval bar',
+  );
+  await expect(draft.getByTestId('question-approve')).toHaveCount(0);
+
+  const abstention = page
+    .getByTestId('eval-question')
+    .filter({ hasText: 'How many artwork reviews did the licensing team complete last quarter?' });
+  await expect(abstention).toHaveCount(1);
+  await expect(abstention).toHaveAttribute('data-status', 'draft');
+  await expect(abstention.getByTestId('question-abstention')).toContainText(
+    'The documents do not say',
+  );
+  await page.screenshot({ path: resolve(SHOTS, '15-eval-approved-question.png'), fullPage: true });
+});
+
 // Repair plan B4: the admin health panel on /map/sources surfaces a seeded
 // failed job with its error text (nothing falls back silently).
 const B4_SEED_ERROR = 'B4 seeded failure: provider returned 503';
