@@ -34,6 +34,9 @@ EXPECTED_TABLES = {
     "review_flag",  # added by the Map review gate (sql/010_review_flags.sql)
     "translation",  # added by the zh translation sidecar (sql/011_translation.sql)
     "function",  # added by repair step C1 (sql/022_functions.sql)
+    "source_function",  # added by repair step C2 (sql/024_function_assignment.sql)
+    "chunk_function",  # added by repair step C2 (sql/024_function_assignment.sql)
+    "entity_function",  # added by repair step C2 (sql/024_function_assignment.sql)
 }
 
 

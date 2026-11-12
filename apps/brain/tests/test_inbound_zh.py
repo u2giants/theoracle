@@ -96,3 +96,64 @@ def test_cjk_name_guard() -> None:
     assert invented_names("张三丰 handles this?", allowed) == {"张三丰"}
     assert invented_names("王五 handles this?", allowed) == set()
     assert invented_names("还有哪些部门参与审批？", "Marco does the artwork.") == set()
+
+
+def test_stop_variants_and_resume(db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """F4: stop-like phrases are recognised by meaning in both languages, and resume exists."""
+    from brain.interview import inbound as inbound_mod
+
+    real_judge_intent = inbound_mod._judge_intent
+
+    def _paused() -> bool:
+        row = db.execute(
+            "SELECT interviews_paused FROM cmap.employee_flags WHERE employee_id = %s",
+            (EMPLOYEE_ID,),
+        ).fetchone()
+        return bool(row[0]) if row else False
+
+    def _judge(text: str) -> str:
+        folded = text.casefold()
+        if "stop" in folded or "别再问" in text or "不要再" in text:
+            return "stop"
+        if "resume" in folded or "继续" in text or "恢复" in text:
+            return "resume"
+        return "other"
+
+    monkeypatch.setattr(inbound_mod, "_judge_intent", _judge)
+
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="please stop asking me questions",
+    )
+    assert reply["reply"] == strings("en").reply_stopped
+    assert _paused() is True
+
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="别再问我问题了"
+    )
+    assert reply["reply"] == strings("zh-CN").reply_stopped
+    assert _paused() is True
+
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="actually, you can resume"
+    )
+    assert reply["reply"] == strings("en").reply_resumed
+    assert _paused() is False
+
+    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="继续吧")
+    assert reply["reply"] == strings("zh-CN").reply_resumed
+    assert _paused() is False
+
+    # Judge down: a variant is never accepted as a command (never-accept)...
+    monkeypatch.setattr(inbound_mod, "_judge_intent", real_judge_intent)
+    monkeypatch.setattr(inbound_mod, "stage_model", lambda settings, stage: None)
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="please stop sending me anything"
+    )
+    assert reply["reply"] != strings("en").reply_stopped
+    assert _paused() is False
+    # ...while the literal commands still work.
+    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="stop")
+    assert reply["reply"] == strings("en").reply_stopped
+    assert _paused() is True

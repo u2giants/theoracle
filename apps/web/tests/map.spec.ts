@@ -434,3 +434,88 @@ test('source page shows the effective date and its origin', async ({ page, conte
   await expect(date).toContainText('meeting start');
   await page.screenshot({ path: resolve(SHOTS, '17-source-date.png') });
 });
+
+// Repair plan C2: the function assignment control on the source and entity
+// pages. Seeded rows show weight and origin (auto = the assignment job,
+// admin = set here and never overwritten by a re-run — the re-run contract is
+// proven in apps/brain/tests/test_functions.py). Times shown to humans are
+// New York (EST/EDT); this control shows none.
+async function c2SeedAssignments(assign: boolean): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  const brainDir = resolve(WEB_DIR, '..', 'brain');
+  const { jessica_id, transcript_id } = seed();
+  const wipe =
+    `conn.execute("DELETE FROM cmap.source_function WHERE source_id = '${transcript_id}'"); ` +
+    `conn.execute("DELETE FROM cmap.entity_function WHERE entity_id = '${jessica_id}'"); `;
+  const script = assign
+    ? "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+      wipe +
+      `conn.execute("INSERT INTO cmap.source_function (source_id, function_id, weight, origin) ` +
+      `SELECT '${transcript_id}', id, 0.8, 'auto' FROM cmap.function WHERE key = 'licensing'"); ` +
+      `conn.execute("INSERT INTO cmap.entity_function (entity_id, function_id, weight, origin) ` +
+      `SELECT '${jessica_id}', id, 0.9, 'admin' FROM cmap.function WHERE key = 'licensing'"); ` +
+      `conn.execute("INSERT INTO cmap.entity_function (entity_id, function_id, weight, origin) ` +
+      `SELECT '${jessica_id}', id, 0.4, 'auto' FROM cmap.function WHERE key = 'sampling'"); ` +
+      'conn.commit(); conn.close()'
+    : "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+      wipe +
+      'conn.commit(); conn.close()';
+  execFileSync('uv', ['run', 'python', '-c', script], {
+    cwd: brainDir,
+    env: {
+      ...process.env,
+      DATABASE_URL: e2eEnv.databaseUrl,
+      FALKORDB_URL: e2eEnv.falkordbUrl,
+    },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+}
+
+test('entity and source pages show function assignments and the admin sets one', async ({
+  page,
+  context,
+}) => {
+  await c2SeedAssignments(true);
+  try {
+    await signIn(context);
+    const { jessica_id, transcript_id } = seed();
+    await page.goto(`/map/entity/${jessica_id}`);
+    const control = page.getByTestId('function-assign');
+    await expect(control).toBeVisible({ timeout: 60_000 });
+    const licensingRow = control
+      .getByTestId('function-assign-row')
+      .filter({ hasText: 'Licensing' });
+    await expect(licensingRow).toHaveCount(1);
+    await expect(licensingRow.getByTestId('function-assign-origin')).toHaveText('admin');
+    const samplingRow = control
+      .getByTestId('function-assign-row')
+      .filter({ hasText: 'Sampling' });
+    await expect(samplingRow).toHaveCount(1);
+    await expect(samplingRow.getByTestId('function-assign-origin')).toHaveText('auto');
+
+    const designOption = control
+      .getByTestId('function-assign-option')
+      .filter({ hasText: 'Product Design & Development' });
+    await designOption.getByTestId('function-assign-check').check();
+    await designOption.getByTestId('function-assign-weight').fill('0.6');
+    await control.getByTestId('function-assign-save').click();
+    await expect(control.getByTestId('function-assign-message')).toHaveText('Saved.');
+    const designRow = control
+      .getByTestId('function-assign-row')
+      .filter({ hasText: 'Product Design & Development' });
+    await expect(designRow).toHaveCount(1);
+    await expect(designRow.getByTestId('function-assign-origin')).toHaveText('admin');
+    await expect(licensingRow).toHaveCount(1); // the seeded admin row survived the save
+    await page.screenshot({ path: resolve(SHOTS, '17-function-assignment.png'), fullPage: true });
+
+    await page.goto(`/map/source/${transcript_id}`);
+    const sourceControl = page.getByTestId('function-assign');
+    await expect(sourceControl).toBeVisible({ timeout: 60_000 });
+    await expect(
+      sourceControl.getByTestId('function-assign-row').filter({ hasText: 'Licensing' }),
+    ).toHaveCount(1);
+  } finally {
+    await c2SeedAssignments(false);
+  }
+});

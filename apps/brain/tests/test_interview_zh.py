@@ -137,7 +137,10 @@ def test_answer_becomes_source_zh(
 ) -> None:
     from conftest import fake_embeddings
 
+    from brain.interview import inbound as inbound_mod
+
     fake_embeddings(monkeypatch)
+    monkeypatch.setattr(inbound_mod, "classify_reply", lambda question, reply: "answer")
     _set_locale(db, "zh-CN")
     qid = _question(db, "谁签署授权方审批表？")
     db.execute(

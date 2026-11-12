@@ -1,4 +1,4 @@
-"""Debounce of the resolve→project→communities chain (issue #415).
+"""Debounce of the resolve→project→function_assign→communities chain (issue #415).
 
 Several sources ingested within a short window must produce one ``resolve``
 and one ``communities`` run. The Map still updates within the stated bound:
@@ -16,9 +16,11 @@ from typing import Any
 import pytest
 from conftest import fake_embeddings, fake_relations, fake_scaledown
 
+from brain import function_assign as fa_mod
 from brain.config import get_settings
 from brain.extract import relations as relations_mod
 from brain.extract.relations import _enqueue_resolve
+from brain.migrate import migrate
 from brain.resolve import resolve as resolve_mod
 from brain.worker import claim_next_job, finish_job, run_handler
 
@@ -194,11 +196,13 @@ def test_burst_of_sources_runs_the_chain_once(
 ) -> None:
     """Done-when: several sources ingested close together produce one resolve
     and one communities run, and the Map updates within the stated bound."""
+    migrate()  # the C1 function vocabulary the assignment job classifies against
     fake_scaledown(monkeypatch, "transcript.json")
     rel = fake_relations(monkeypatch)
     rel.override = _response()
     chain = ChainFake()
     monkeypatch.setattr(resolve_mod, "_post_chat", chain)
+    monkeypatch.setattr(fa_mod, "_post_chat", chain)
 
     for title in ["burst one", "burst two", "burst three"]:
         response = client.post(
@@ -223,13 +227,18 @@ def test_burst_of_sources_runs_the_chain_once(
     db.execute("UPDATE cmap.job SET run_after = now() WHERE kind = 'resolve'")
     db.commit()
 
-    chain_kinds = _drain(monkeypatch, ("resolve", "project", "communities"))
-    assert chain_kinds == ["resolve", "project", "communities"]
+    chain_kinds = _drain(
+        monkeypatch, ("resolve", "project", "function_assign", "communities")
+    )
+    assert chain_kinds[0] == "resolve" and chain_kinds[-1] == "communities"
+    assert sorted(chain_kinds[1:-1]) == ["function_assign", "project"]
     done = db.execute(
-        "SELECT kind, state FROM cmap.job WHERE kind IN ('resolve', 'project', 'communities')"
+        "SELECT kind, state FROM cmap.job "
+        "WHERE kind IN ('resolve', 'project', 'function_assign', 'communities')"
     ).fetchall()
     assert sorted(done) == [
         ("communities", "done"),
+        ("function_assign", "done"),
         ("project", "done"),
         ("resolve", "done"),
     ]
@@ -314,6 +323,12 @@ def test_stalled_chain_is_healed(db: Any) -> None:
     db.execute(
         "UPDATE cmap.job SET state = 'done', started_at = now(), finished_at = now() "
         "WHERE kind = 'project'"
+    )
+    db.commit()
+    assert run_ensure_chain()["function_assign"] == 1
+    db.execute(
+        "UPDATE cmap.job SET state = 'done', started_at = now(), finished_at = now() "
+        "WHERE kind = 'function_assign'"
     )
     db.commit()
     assert run_ensure_chain()["communities"] == 1

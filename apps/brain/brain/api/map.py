@@ -16,6 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from brain.api.deps import User, current_user, require_admin
+from brain.api.functions import item_assignments
 from brain.db import get_pool
 from brain.graph.communities import _split_report_md
 from brain.graph.project import _load_edges
@@ -322,6 +323,7 @@ def get_entity(
                 (sorted(other_ids),),
             ).fetchall()
         }
+        functions = item_assignments(conn, "entity_function", "entity_id", key)
     grouped: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
     for rel_type, from_id, to_id, quote, chunk_id, source_id, title, stance, desc in relations:
         outgoing = str(from_id) == key
@@ -380,6 +382,7 @@ def get_entity(
             for item in mentions
         ],
         "neighbours": neighbours,
+        "functions": functions,
         "translations": translations_for("entity", key),
     }
 
@@ -406,6 +409,7 @@ def get_source_chunks(
             "WHERE source_id = %s ORDER BY ordinal",
             (key,),
         ).fetchall()
+        functions = item_assignments(conn, "source_function", "source_id", key)
     return {
         "source": {
             "id": str(row[0]),
@@ -430,6 +434,7 @@ def get_source_chunks(
             }
             for item in chunks
         ],
+        "functions": functions,
     }
 
 

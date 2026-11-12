@@ -392,6 +392,79 @@ def test_unrelated_reply_is_not_saved_as_the_answer(
     assert _states(db)[qid] == "open"
 
 
+def test_late_reply_matched_to_right_question(
+    db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F4: model judgement picks the question a late reply answers, not recency.
+
+    Also: an open volunteered thread never swallows that reply, and a reply
+    whose judging fails is held (question stays pending) instead of being
+    filed as the answer.
+    """
+    from brain.interview import inbound as inbound_mod
+
+    real_classify_reply = inbound_mod.classify_reply
+    person = _person(db, EMPLOYEE_NAME)
+    older = _question(db, "Who signs the licensor approval form?", [person])
+    newer = _question(db, "Who packs the sample boxes?", [person])
+    # Both sit in the asked state (legacy multi-pending data): the reply below
+    # belongs to the OLDER question, so recency alone would file it wrong.
+    db.execute(
+        "UPDATE cmap.open_question SET state = 'asked', target_employee_id = %s, "
+        "asked_at = now() - make_interval(days => 2) WHERE id = %s",
+        (EMPLOYEE_ID, older),
+    )
+    db.execute(
+        "UPDATE cmap.open_question SET state = 'asked', target_employee_id = %s, "
+        "asked_at = now() - make_interval(days => 1) WHERE id = %s",
+        (EMPLOYEE_ID, newer),
+    )
+    db.commit()
+
+    def _match(questions: list[str], reply: str) -> int | None:
+        key = "licensor" if "Jessica" in reply else "sample" if "Marcus" in reply else ""
+        if not key:
+            return None
+        for i, question in enumerate(questions):
+            if key in question:
+                return i
+        return None
+
+    monkeypatch.setattr(inbound_mod, "match_reply", _match)
+    monkeypatch.setattr(
+        inbound_mod, "classify_reply", lambda question, reply: "answer" if "Jessica" in reply else "other"
+    )
+    # An open volunteered thread is waiting; it must not swallow the reply.
+    opened = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    assert "intake_id" in opened
+
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="Jessica signs the licensor approval form.",
+    )
+    assert reply["handled"] is True
+    assert reply["reply"] == REPLY_ANSWERED
+    assert reply["question_id"] == older
+    assert _states(db) == {older: "answered", newer: "asked"}
+    (turns,) = db.execute(
+        "SELECT turns FROM cmap.teams_intake WHERE id = %s", (opened["intake_id"],)
+    ).fetchone()
+    assert all("Jessica" not in str(turn.get("text", "")) for turn in turns)
+
+    # The reply judge being down holds the reply: nothing is filed as an answer.
+    monkeypatch.setattr(inbound_mod, "classify_reply", real_classify_reply)
+    monkeypatch.setattr(inbound_mod, "stage_model", lambda settings, stage: None)
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="Marcus packs the sample boxes.",
+    )
+    assert reply.get("question_id") is None
+    assert reply.get("source_id") is None
+    assert _states(db) == {older: "answered", newer: "asked"}
+
+
 def test_stop_pauses(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None:
     person = _person(db, EMPLOYEE_NAME)
     _question(db, "Who approves samples?", [person])
@@ -416,7 +489,11 @@ def test_answer_becomes_source(
     storage: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """F4: a judged answer becomes a transcript source in the read pipeline."""
+    from brain.interview import inbound as inbound_mod
+
     fake_embeddings(monkeypatch)
+    monkeypatch.setattr(inbound_mod, "classify_reply", lambda question, reply: "answer")
     person = _person(db, EMPLOYEE_NAME)
     qid = _question(db, "Who signs the licensor approval form?", [person])
     _connect()
@@ -773,6 +850,32 @@ def test_group_chat_is_not_intake(db: Any) -> None:
     assert reply["handled"] is False
 
 
+def test_group_chat_reference_never_stored(db: Any) -> None:
+    """F4: only a personal chat may become the bot's write-back target."""
+    group = {**CONVERSATION_REF, "conversation": {"id": "19:x", "conversationType": "groupChat"}}
+    meeting = {**CONVERSATION_REF, "conversation": {"id": "19:y", "conversationType": "channel"}}
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=group, text="hi")
+    assert db.execute("SELECT count(*) FROM cmap.teams_conversation").fetchone()[0] == 0
+
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi")
+    row = db.execute(
+        "SELECT conversation_ref->'conversation'->>'id' FROM cmap.teams_conversation "
+        "WHERE employee_id = %s",
+        (EMPLOYEE_ID,),
+    ).fetchone()
+    assert row == ("a:test-conversation",)
+
+    # A later group/meeting message must never overwrite the personal chat.
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=group, text=VOLUNTEERED)
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=meeting, text=VOLUNTEERED)
+    row = db.execute(
+        "SELECT conversation_ref->'conversation'->>'id' FROM cmap.teams_conversation "
+        "WHERE employee_id = %s",
+        (EMPLOYEE_ID,),
+    ).fetchone()
+    assert row == ("a:test-conversation",)
+
+
 def test_volunteer_becomes_source(db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Volunteered messages buffer into one thread; "done" ingests one transcript."""
     fake_embeddings(monkeypatch)
@@ -1061,6 +1164,7 @@ def test_first_greeting_asks_department_and_title(
     from brain.interview import profile
 
     _forget_profile(db)
+    monkeypatch.setattr(profile, "is_profile_answer", lambda text: True)
     monkeypatch.setattr(profile, "_split", lambda text: ("Licensing", "Licensing Coordinator"))
     hello = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi")
     assert profile.PROFILE_QUESTION in hello["reply"]
@@ -1084,6 +1188,7 @@ def test_profile_kept_raw_when_model_unavailable(db: Any, monkeypatch: pytest.Mo
     from brain.interview import profile
 
     _forget_profile(db)
+    monkeypatch.setattr(profile, "is_profile_answer", lambda text: True)
     monkeypatch.setattr(profile, "_split", lambda text: (None, None))
     handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hello")
     reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Sales, account manager")
@@ -1098,6 +1203,7 @@ def test_first_contribution_asks_profile_and_keeps_content(
     from brain.interview import profile
 
     _forget_profile(db)
+    monkeypatch.setattr(profile, "is_profile_answer", lambda text: "planner" in text.casefold())
     monkeypatch.setattr(profile, "_split", lambda text: ("Production", "Planner"))
     first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
     assert profile.PROFILE_QUESTION in first["reply"]
@@ -1107,3 +1213,49 @@ def test_first_contribution_asks_profile_and_keeps_content(
         "SELECT department_hint FROM cmap.source WHERE id = %s", (done["source_id"],)
     ).fetchone()
     assert hint == ("Production",)
+
+
+def test_thanks_is_not_a_profile(db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """F4: only a judge-confirmed job/department becomes the profile."""
+    from brain.interview import profile
+
+    real_is_profile_answer = profile.is_profile_answer
+    _forget_profile(db)
+    monkeypatch.setattr(
+        profile,
+        "is_profile_answer",
+        lambda text: "coordinator" in text.casefold() or "manager" in text.casefold(),
+    )
+    monkeypatch.setattr(profile, "_split", lambda text: ("Licensing", "Licensing Coordinator"))
+    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi")
+
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="thanks, that helps!"
+    )
+    assert reply.get("profile") is not True
+    assert reply["reply"] != profile.REPLY_PROFILE_THANKS
+    assert reply["reply"] != profile.REPLY_PROFILE_THANKS_RAW
+    assert db.execute(
+        "SELECT department, job_title, profile_answer FROM cmap.employee_flags "
+        "WHERE employee_id = %s",
+        (EMPLOYEE_ID,),
+    ).fetchone() == (None, None, None)
+
+    # Unjudged (the judging model is down) is never accepted as a profile.
+    monkeypatch.setattr(profile, "is_profile_answer", real_is_profile_answer)
+    monkeypatch.setattr(profile, "stage_model", lambda settings, stage: None)
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="sales manager"
+    )
+    assert reply.get("profile") is not True
+
+    # A real job line is accepted.
+    monkeypatch.setattr(profile, "is_profile_answer", lambda text: True)
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="licensing coordinator"
+    )
+    assert reply["profile"] is True
+    assert db.execute(
+        "SELECT department, job_title FROM cmap.employee_flags WHERE employee_id = %s",
+        (EMPLOYEE_ID,),
+    ).fetchone() == ("Licensing", "Licensing Coordinator")

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { brainGet, describeLocator, type SourceChunks } from './brain';
 import { LoadState } from './bits';
+import { FunctionAssign } from './function-assign';
 
 // Where the source's effective date came from (repair D1).
 const DATE_ORIGIN_LABELS: Record<string, string> = {
@@ -16,7 +17,15 @@ const DATE_ORIGIN_LABELS: Record<string, string> = {
   upload_time: 'upload time',
 };
 
-export function SourceViewer({ sourceId, chunkId }: { sourceId: string; chunkId: string | null }) {
+export function SourceViewer({
+  sourceId,
+  chunkId,
+  isAdmin,
+}: {
+  sourceId: string;
+  chunkId: string | null;
+  isAdmin: boolean;
+}) {
   const [data, setData] = useState<SourceChunks | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +86,12 @@ export function SourceViewer({ sourceId, chunkId }: { sourceId: string; chunkId:
           {` · ${chunks.length} passage${chunks.length === 1 ? '' : 's'}`}
         </p>
       </header>
+      <FunctionAssign
+        kind="sources"
+        itemId={source.id}
+        initial={data.functions ?? []}
+        isAdmin={isAdmin}
+      />
       {unreadable.length > 0 ? (
         <section
           className="rounded border border-amber-500 bg-amber-50 p-3"
