@@ -1,11 +1,15 @@
 """Interview tick (plan step 12): route open questions to employees over Teams.
 
 The worker loop queues one ``interview_tick`` job per hour. Each tick looks at
-every ``open_question`` in state ``open``, prefers an employee who contributed
-evidence about the question's entities (their own Teams contributions or
-interview answers mention those entities), and otherwise asks a Person the
-question itself names, ranked by summed edge weight — never whoever is merely
-connected. The ask goes out through the Next.js proactive route.
+every ``open_question`` in state ``open``. A vetted question (its department is
+set) goes only to the person the vetting suggested or to that department's own
+people, ranked by own-evidence contribution about the question's entities; an
+empty department means nobody suitable and the question waits. A question with
+no department prefers an employee who contributed evidence about the question's
+entities (their own Teams contributions or interview answers mention those
+entities), and otherwise asks a Person the question itself names, ranked by
+summed edge weight — never whoever is merely connected. The ask goes out
+through the Next.js proactive route.
 
 Guardrail: nothing is sent unless ``BRAIN_INTERVIEW_ENABLED`` is true. The
 employee does not have to message first — when no conversation is stored yet
@@ -217,7 +221,7 @@ def select_target(
     question: dict[str, Any],
     reachable: dict[str, Target],
 ) -> Target | None:
-    """Pick who to ask: manual pick, then evidence owner, then a named Person."""
+    """Pick who to ask: manual pick, then the vetted pool, else a named Person."""
     skipped = {str(item) for item in question.get("skipped_by") or []}
     manual = question.get("target_employee_id")
     if manual:
@@ -226,12 +230,12 @@ def select_target(
                 return target
         return None
     if question.get("department") is not None:
-        # Vetted question: ask whoever the vetting picked, never a bystander.
-        picked = _suggested_target(conn, question, reachable, skipped)
-        if picked is not None:
-            return picked
-        # The vetting found nobody: only someone who owns evidence qualifies.
-        return _evidence_contributor(conn, question, reachable, skipped)
+        department = str(question.get("department") or "").strip()
+        if not department:
+            # PR #514's rule: an empty department means "nobody suitable" —
+            # only an explicit suggested_person, never an evidence scatter.
+            return _suggested_person(question, reachable, skipped)
+        return _department_target(conn, question, reachable, skipped, department)
     picked = _evidence_contributor(conn, question, reachable, skipped)
     if picked is not None:
         return picked
@@ -251,6 +255,24 @@ def select_target(
     return None
 
 
+def _own_evidence_rows(
+    conn: psycopg.Connection,
+    question: dict[str, Any],
+) -> list[tuple[str, int, int]]:
+    """Employees whose own sources mention the question's entities, best first."""
+    ids = [str(item) for item in question.get("entity_ids") or []]
+    text = str(question.get("question") or "")
+    if not ids and not text.strip():
+        return []
+    q_person = normalize_name(text, "Person") if text.strip() else ""
+    q_proc = normalize_name(text, "Process") if text.strip() else ""
+    rows = conn.execute(
+        _EVIDENCE_CONTRIBUTOR_SQL,
+        {"ids": ids, "q_person": q_person, "q_proc": q_proc},
+    ).fetchall()
+    return [(str(eid), int(sources), int(entities)) for eid, sources, entities in rows]
+
+
 def _evidence_contributor(
     conn: psycopg.Connection,
     question: dict[str, Any],
@@ -258,53 +280,96 @@ def _evidence_contributor(
     skipped: set[str],
 ) -> Target | None:
     """The reachable employee who contributed the most evidence about the topic."""
-    ids = [str(item) for item in question.get("entity_ids") or []]
-    text = str(question.get("question") or "")
-    if not ids and not text.strip():
-        return None
-    q_person = normalize_name(text, "Person") if text.strip() else ""
-    q_proc = normalize_name(text, "Process") if text.strip() else ""
     by_id = {target.employee_id: target for target in reachable.values()}
-    rows = conn.execute(
-        _EVIDENCE_CONTRIBUTOR_SQL,
-        {"ids": ids, "q_person": q_person, "q_proc": q_proc},
-    ).fetchall()
-    for employee_id, _sources, _entities in rows:
-        target = by_id.get(str(employee_id))
+    for employee_id, _sources, _entities in _own_evidence_rows(conn, question):
+        target = by_id.get(employee_id)
         if target is not None and target.employee_id not in skipped:
             return target
     return None
 
 
-def _suggested_target(
-    conn: psycopg.Connection,
+# Department membership uses the employee's own department column first and
+# the directory's employee_flags.department second (the matching the tick has
+# always used for vetted questions).
+_DEPARTMENT_MEMBERS_SQL = """
+SELECT e.id::text FROM public.employees e
+LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id
+WHERE e.disabled_at IS NULL
+  AND lower(trim(COALESCE(NULLIF(trim(f.department), ''),
+                         NULLIF(trim(to_jsonb(e)->>'department'), '')))) = lower(%s)
+ORDER BY (SELECT max(s.sent_at) FROM cmap.interview_send s
+          WHERE s.employee_id = e.id) NULLS FIRST, e.name
+"""
+
+
+def _suggested_person(
     question: dict[str, Any],
     reachable: dict[str, Target],
     skipped: set[str],
 ) -> Target | None:
-    """The person the vetting named, else the department's least-asked member."""
+    """The person the vetting named, if reachable and not skipped."""
     person = str(question.get("suggested_person") or "").strip()
-    if person:
-        target = reachable.get(normalize_name(person, "Person"))
-        if target is not None and target.employee_id not in skipped:
-            return target
-    department = str(question.get("department") or "").strip()
-    if not department:
+    if not person:
         return None
+    target = reachable.get(normalize_name(person, "Person"))
+    if target is not None and target.employee_id not in skipped:
+        return target
+    return None
+
+
+def _department_target(
+    conn: psycopg.Connection,
+    question: dict[str, Any],
+    reachable: dict[str, Target],
+    skipped: set[str],
+    department: str,
+) -> Target | None:
+    """The vetted pick or the department's own evidence owner; else defer.
+
+    The pool is the vetting's suggested person plus every reachable member of
+    the question's department — never the all-employee evidence search and
+    never a famous bystander the question's entities name. The pool is ranked
+    by own-evidence contribution about the question's entities (evidence owners
+    first) and tie-broken least recently asked. An exhausted pool leaves the
+    question open for a later tick.
+    """
+    pool: dict[str, Target] = {}
+    picked = _suggested_person(question, reachable, skipped)
+    if picked is not None:
+        pool[picked.employee_id] = picked
     by_id = {target.employee_id: target for target in reachable.values()}
-    rows = conn.execute(
-        "SELECT e.id::text FROM public.employees e "
-        "LEFT JOIN cmap.employee_flags f ON f.employee_id = e.id "
-        "WHERE e.disabled_at IS NULL AND lower(trim(COALESCE(NULLIF(trim(f.department), ''), NULLIF(trim(to_jsonb(e)->>'department'), '')))) = lower(%s) "
-        "ORDER BY (SELECT max(s.sent_at) FROM cmap.interview_send s "
-        "WHERE s.employee_id = e.id) NULLS FIRST, e.name",
-        (department,),
-    ).fetchall()
-    for (employee_id,) in rows:
+    for (employee_id,) in conn.execute(_DEPARTMENT_MEMBERS_SQL, (department,)).fetchall():
         target = by_id.get(str(employee_id))
         if target is not None and target.employee_id not in skipped:
-            return target
-    return None
+            pool[target.employee_id] = target
+    if not pool:
+        return None
+    evidence = {
+        employee_id: (sources, entities)
+        for employee_id, sources, entities in _own_evidence_rows(conn, question)
+    }
+    last_asked = {
+        str(employee_id): sent_at
+        for employee_id, sent_at in conn.execute(
+            "SELECT employee_id, max(sent_at) FROM cmap.interview_send "
+            "WHERE employee_id = ANY(%s::uuid[]) GROUP BY employee_id",
+            (list(pool),),
+        ).fetchall()
+    }
+
+    def _rank(target: Target) -> tuple[Any, ...]:
+        sources, entities = evidence.get(target.employee_id, (0, 0))
+        sent_at = last_asked.get(target.employee_id)
+        # Least-recently-asked first: never asked, then the longest ago.
+        return (
+            -sources,
+            -entities,
+            sent_at is not None,
+            sent_at or datetime.min.replace(tzinfo=EASTERN),
+            target.name,
+        )
+
+    return sorted(pool.values(), key=_rank)[0]
 
 
 def _busy_employees(conn: psycopg.Connection) -> set[str]:
