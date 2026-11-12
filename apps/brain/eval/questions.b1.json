@@ -1,0 +1,445 @@
+{
+  "questions": [
+    {
+      "question": "Walk the path of a licensed product from first concept to the purchase order. Which hand-offs between Sales, Creative, Technical Design, Sourcing and the Licensing Team are documented the same way in the flowchart and in the business-process document - and which are not?",
+      "expected_points": [
+        "Concept work starts from buyer interest in a product",
+        "Creative prepares concept art before technical design work begins",
+        "The Licensing Team handles the licensor submission",
+        "The purchase order is cut only after licensor sign-off"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "Licensed_Team_Responsibilities_2_-_tagged.txt"
+      ],
+      "functions": ["Sales & Customer Accounts", "Licensing", "Product Design & Development", "Sourcing & Vendor Management"],
+      "recommendation": "Approve - core cross-function journey question."
+    },
+    {
+      "question": "Where does a concept sit while it waits for licensor approval, and who is allowed to move it forward in the meantime? Compare what the flowchart shows with what the responsibilities document and the business-process document say.",
+      "expected_points": [
+        "Concepts wait for licensor sign-off before release",
+        "No purchase order can be raised while approval is pending",
+        "The Licensing Team records the sign-off",
+        "A licensor rejection sends the package back for rework"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "Licensed_Team_Responsibilities_2_-_tagged.txt"
+      ],
+      "functions": ["Licensing", "Product Design & Development"],
+      "recommendation": "Approve - check expected point 3 against the responsibilities document."
+    },
+    {
+      "question": "When the licensor comes back with changes, which roles re-do work and in what order? Follow the rework loop across the flowchart, the business-process document and the Licensing Sheet Automation workflow.",
+      "expected_points": [
+        "A licensor rejection sends the package back through a rework loop",
+        "Creative and technical design re-do their steps after changes",
+        "The corrected package is resubmitted into the same approval queue",
+        "Each rejection adds time to the sign-off date"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "Licensing_Sheet_Automation_Workflow.pdf"
+      ],
+      "functions": ["Licensing", "Product Design & Development"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "Between the buyer's interest and the first sample, who touches the product and in which system or file does each person record their step? Cite the SOPs where they describe it and the transcript where practice is discussed.",
+      "expected_points": [
+        "Sales raises the sampling request from buyer interest",
+        "Technical design develops the product into a sample",
+        "Sample feedback is recorded before the sample room review",
+        "The sample room walkthrough is a joint confirmation step"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "SOP_Mockup_Creation.pdf",
+        "transcript-Book_report_overview.txt"
+      ],
+      "functions": ["Sales & Customer Accounts", "Product Design & Development", "Sampling"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "What does 'approved' mean at each of the three approval points (buyer, licensor, internal art/tech approval)? Where do the documents disagree about what approval includes?",
+      "expected_points": [
+        "Buyer approval covers the concept or sample the buyer reviews",
+        "Licensor approval is recorded before the purchase order is created",
+        "Internal art and technical approvals follow the artwork standards",
+        "The documents describe the approval points differently"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "SOP_Artwork_standards_creation_and_saving.pdf"
+      ],
+      "functions": ["Sales & Customer Accounts", "Licensing", "Product Design & Development"],
+      "recommendation": "Approve - expected point 4 needs your eye for the real disagreements."
+    },
+    {
+      "question": "The packaging SOP describes creating and saving packaging files. How does that official path compare with the way packaging is actually handled as described in the business-process document and the meeting transcript?",
+      "expected_points": [
+        "The packaging SOP defines how packaging files are created and saved",
+        "The business-process document places packaging in the wider product flow",
+        "The transcript describes how packaging is handled in practice"
+      ],
+      "expected_source_titles": [
+        "SOP_Packaging_creating___saving.pdf",
+        "1781478944645-business-process.md",
+        "transcript-Book_report_overview.txt"
+      ],
+      "functions": ["Product Design & Development", "Production & Quality"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "What does the artwork-standards SOP require before art files are saved and shared, and where do the mockup SOP and the flowchart assume those standards were already met?",
+      "expected_points": [
+        "The artwork standards SOP sets requirements for saving and sharing art files",
+        "The mockup SOP assumes artwork already meets the standards",
+        "The flowchart moves art work forward without restating the standards"
+      ],
+      "expected_source_titles": [
+        "SOP_Artwork_standards_creation_and_saving.pdf",
+        "SOP_Mockup_Creation.pdf",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ],
+      "functions": ["Product Design & Development"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "Which steps in the mockup-creation SOP are confirmed by anyone outside the design team, and which hand-offs does the business-process document show that the SOP never mentions?",
+      "expected_points": [
+        "The mockup SOP covers the design team's mockup steps",
+        "Confirmation from outside the design team happens at the sample review",
+        "The business-process document shows hand-offs the SOP never mentions"
+      ],
+      "expected_source_titles": [
+        "SOP_Mockup_Creation.pdf",
+        "1781478944645-business-process.md",
+        "Licensed_Team_Responsibilities_2_-_tagged.txt"
+      ],
+      "functions": ["Product Design & Development", "Sampling"],
+      "recommendation": "Approve - expected point 2 wording may need your edit."
+    },
+    {
+      "question": "The transcript shows people discussing how work really flows. Name two places where that discussion contradicts a written SOP or the flowchart, with sources for both sides.",
+      "expected_points": [
+        "The transcript describes actual practice at the company",
+        "At least two transcript statements contradict a written SOP or the flowchart",
+        "The answer gives sources for both sides of each contradiction"
+      ],
+      "expected_source_titles": [
+        "transcript-Book_report_overview.txt",
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ],
+      "functions": ["Executive/Company-wide", "Product Design & Development", "Production & Quality"],
+      "recommendation": "Approve - the policy-vs-practice probe; expect partial credit until contradictions are tracked (plan D3)."
+    },
+    {
+      "question": "Where do files actually live at each stage (concept art, tech pack, packaging, licensing sheet)? Compare the SOPs' file rules with the flowchart and the business-process document.",
+      "expected_points": [
+        "Concept art, tech packs, packaging files and the licensing sheet each have a defined home",
+        "The SOPs define where files are created and saved",
+        "The flowchart and business-process document show the same stages differently"
+      ],
+      "expected_source_titles": [
+        "SOP_Artwork_standards_creation_and_saving.pdf",
+        "SOP_Packaging_creating___saving.pdf",
+        "1781478944645-business-process.md"
+      ],
+      "functions": ["Product Design & Development", "IT & Systems"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "What is the Licensing Sheet Automation workflow supposed to automate, and which manual steps around it are described in the business-process document or the Licensed Team responsibilities that the automation does not cover?",
+      "expected_points": [
+        "The automation workflow covers licensing sheet creation and updates",
+        "Manual steps around the licensing sheet remain in the team's responsibilities",
+        "The business-process document shows licensing sheet steps the automation does not cover"
+      ],
+      "expected_source_titles": [
+        "Licensing_Sheet_Automation_Workflow.pdf",
+        "1781478944645-business-process.md",
+        "Licensed_Team_Responsibilities_2_-_tagged.txt"
+      ],
+      "functions": ["Licensing", "IT & Systems"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "When the licensing sheet is wrong or late, what breaks downstream? Trace the impact through the flowchart, the automation workflow document and the transcript.",
+      "expected_points": [
+        "A wrong or late licensing sheet delays the licensor submission",
+        "Purchase order creation waits on the licensing record",
+        "Downstream production and shipping dates move when the sheet is late"
+      ],
+      "expected_source_titles": [
+        "Licensing_Sheet_Automation_Workflow.pdf",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "transcript-Book_report_overview.txt"
+      ],
+      "functions": ["Licensing", "Production & Quality", "Logistics & Shipping"],
+      "recommendation": "Approve - expected point 3 is inferred from the flow; check it against the transcript."
+    },
+    {
+      "question": "Who is supposed to create, update and verify the licensing sheet at each stage? Compare the automation workflow with the responsibilities document and the business-process document.",
+      "expected_points": [
+        "The Licensing Team owns the licensing sheet",
+        "The automation workflow defines who creates and updates the sheet",
+        "Verifying the sheet is a separate step from creating it"
+      ],
+      "expected_source_titles": [
+        "Licensing_Sheet_Automation_Workflow.pdf",
+        "Licensed_Team_Responsibilities_2_-_tagged.txt",
+        "1781478944645-business-process.md"
+      ],
+      "functions": ["Licensing", "IT & Systems"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "For the same job (for example preparing a licensor submission), what does each source say the buyer, the creative designer, the technical designer and the licensing team each own? Where does ownership overlap or go unnamed?",
+      "expected_points": [
+        "The buyer drives the commercial requirement",
+        "Creative owns concept artwork while technical design owns the tech pack",
+        "The Licensing Team owns the licensor submission",
+        "At least one hand-off overlaps or goes unnamed across the sources"
+      ],
+      "expected_source_titles": [
+        "Licensed_Team_Responsibilities_2_-_tagged.txt",
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ],
+      "functions": ["Sales & Customer Accounts", "Product Design & Development", "Licensing"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "When two departments disagree about a product detail, what is the documented escalation path, and what does the transcript show happening instead?",
+      "expected_points": [
+        "Escalation of product-detail disagreements goes to the director level",
+        "The business-process document defines the escalation path",
+        "The transcript shows how disagreements are handled in practice"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "transcript-Book_report_overview.txt",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ],
+      "functions": ["Executive/Company-wide", "Sales & Customer Accounts"],
+      "recommendation": "Approve - the escalation target needs your confirmation."
+    },
+    {
+      "question": "Which decisions require the director's approval (art, tech packs, samples, buyers), and which documents mention approvals that skip that level?",
+      "expected_points": [
+        "The director approves artwork and tech packs",
+        "Sample and buyer-facing decisions have defined approval levels",
+        "At least one document shows an approval that skips the director level"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "SOP_Mockup_Creation.pdf",
+        "SOP_Packaging_creating___saving.pdf"
+      ],
+      "functions": ["Executive/Company-wide", "Product Design & Development"],
+      "recommendation": "Approve - expected point 1 needs your confirmation of the real approval matrix."
+    },
+    {
+      "question": "What does a retail buyer need from us at each stage (concept, sample, PO), and where do the internal documents show we prepare it later than the buyer-facing flow implies?",
+      "expected_points": [
+        "Buyers review concepts before samples are made",
+        "Samples go to the buyer before the purchase order stage",
+        "Internal documents show preparation happening later than the buyer-facing flow implies"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "transcript-Book_report_overview.txt"
+      ],
+      "functions": ["Sales & Customer Accounts", "Sampling"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "When does a factory first see the product, and what do they receive? Compare the business-process document, the packaging and artwork SOPs and the flowchart's factory lanes.",
+      "expected_points": [
+        "Factories first see the product at the purchase order stage",
+        "Factories receive the tech pack and packaging files",
+        "The flowchart's factory lanes start after the internal approvals"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "SOP_Packaging_creating___saving.pdf",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ],
+      "functions": ["Sourcing & Vendor Management", "Production & Quality", "Logistics & Shipping"],
+      "recommendation": "Approve - expected point 1 timing needs your check."
+    },
+    {
+      "question": "Which licensor requirements (style guides, approvals, submission numbers) appear in more than one source, and where do the sources describe them differently?",
+      "expected_points": [
+        "Licensor style guide requirements appear in more than one source",
+        "Approval and submission-number requirements are described in multiple places",
+        "At least one requirement is described differently across the sources"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "Licensing_Sheet_Automation_Workflow.pdf",
+        "Licensed_Team_Responsibilities_2_-_tagged.txt"
+      ],
+      "functions": ["Licensing", "Compliance & Testing"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "If licensing approval is late, which later stages (mockup, packaging, artwork standards, PO) show visible effects in the sources? Name the stage, the effect and the evidence for at least three stages.",
+      "expected_points": [
+        "Late licensing approval pushes mockup and sample work",
+        "Packaging work waits on the released artwork",
+        "The purchase order cannot be cut until sign-off is recorded"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "Licensing_Sheet_Automation_Workflow.pdf"
+      ],
+      "functions": ["Licensing", "Sampling", "Production & Quality"],
+      "recommendation": "Approve as written."
+    },
+    {
+      "question": "What has to be tested or certified before a product ships, and which documents say so? Compare the compliance expectations with the production and shipping flow.",
+      "expected_points": [
+        "Products require testing or certification before shipment",
+        "The production flow shows quality checks before shipping",
+        "The documents differ on where compliance checks sit in the flow"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "transcript-Book_report_overview.txt"
+      ],
+      "functions": ["Compliance & Testing", "Production & Quality", "Logistics & Shipping"],
+      "recommendation": "Approve after checking the expected points - compliance evidence may be thin in the Map."
+    },
+    {
+      "question": "How does the company stay inside a licensor's style guide, and where is compliance with it checked or recorded?",
+      "expected_points": [
+        "Licensor style guides define the allowed product artwork",
+        "Compliance with the style guide is checked before licensor submission",
+        "Records of the check sit with the licensing documentation"
+      ],
+      "expected_source_titles": [
+        "Licensed_Team_Responsibilities_2_-_tagged.txt",
+        "SOP_Artwork_standards_creation_and_saving.pdf",
+        "Licensing_Sheet_Automation_Workflow.pdf"
+      ],
+      "functions": ["Compliance & Testing", "Licensing"],
+      "recommendation": "Approve after checking the expected points against the responsibilities document."
+    },
+    {
+      "question": "How do product cost, wholesale price and payment terms move through the flow from buyer interest to the purchase order? Which documents define them and which only mention them?",
+      "expected_points": [
+        "Product cost and price are agreed before the purchase order",
+        "Payment terms are part of the purchase-order stage",
+        "The documents define costing steps unevenly"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png",
+        "transcript-Book_report_overview.txt"
+      ],
+      "functions": ["Finance & Accounting", "Sourcing & Vendor Management", "Sales & Customer Accounts"],
+      "recommendation": "Approve after checking the expected points - finance detail may not be in the current sources (that is itself a finding)."
+    },
+    {
+      "question": "Who signs off spend on samples and production runs, and where do the documents define that approval?",
+      "expected_points": [
+        "Sample spend follows the sampling process approvals",
+        "Production-run spend is committed at the purchase-order stage",
+        "Spend approval authority is defined at director level or above"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "SOP_Mockup_Creation.pdf",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ],
+      "functions": ["Finance & Accounting", "Executive/Company-wide", "HR & Administration"],
+      "recommendation": "Approve after checking expected point 3 against your real approval rules."
+    },
+    {
+      "question": "Who works on the China side of the business day to day, and how does the China office hand work to and from the main office and the factories?",
+      "expected_points": [
+        "The China office works directly with the factories",
+        "Sample and production feedback travels between the factory, the China office and the main office",
+        "The business-process document shows the hand-offs between offices"
+      ],
+      "expected_source_titles": [
+        "1781478944645-business-process.md",
+        "transcript-Book_report_overview.txt",
+        "1779386018838-Pop_Creations_Flow_12112025__1_.png"
+      ],
+      "functions": ["HR & Administration", "China Office Operations", "Sampling"],
+      "recommendation": "Approve - China-office coverage is thin in the Map; this question probes exactly that."
+    },
+    {
+      "question": "What is the average margin on licensed products?",
+      "expected_points": [
+        "The answer states the documents do not say",
+        "The answer does not guess a margin figure",
+        "The answer names who to ask next"
+      ],
+      "expected_source_titles": ["1781478944645-business-process.md"],
+      "abstention": true,
+      "functions": ["Finance & Accounting", "Sales & Customer Accounts"],
+      "recommendation": "Approve - abstention question: the correct answer is an admission of ignorance."
+    },
+    {
+      "question": "What is the average lead time from purchase order to port for each factory?",
+      "expected_points": [
+        "The answer states the documents do not say",
+        "The answer does not guess lead times",
+        "The answer names who to ask next"
+      ],
+      "expected_source_titles": ["1781478944645-business-process.md"],
+      "abstention": true,
+      "functions": ["Logistics & Shipping", "Sourcing & Vendor Management"],
+      "recommendation": "Approve - abstention question: the correct answer is an admission of ignorance."
+    },
+    {
+      "question": "How is the China office's headcount budget set each year?",
+      "expected_points": [
+        "The answer states the documents do not say",
+        "The answer does not guess a budget process",
+        "The answer names who to ask next"
+      ],
+      "expected_source_titles": ["1781478944645-business-process.md"],
+      "abstention": true,
+      "functions": ["China Office Operations", "HR & Administration"],
+      "recommendation": "Approve - abstention question: the correct answer is an admission of ignorance."
+    },
+    {
+      "question": "How many products failed compliance testing last year?",
+      "expected_points": [
+        "The answer states the documents do not say",
+        "The answer does not guess a number",
+        "The answer names who to ask next"
+      ],
+      "expected_source_titles": ["1781478944645-business-process.md"],
+      "abstention": true,
+      "functions": ["Compliance & Testing"],
+      "recommendation": "Approve - abstention question: the correct answer is an admission of ignorance."
+    },
+    {
+      "question": "How long does a licensing sheet automation run take end to end?",
+      "expected_points": [
+        "The answer states the documents do not say",
+        "The answer does not guess a duration",
+        "The answer names who to ask next"
+      ],
+      "expected_source_titles": ["Licensing_Sheet_Automation_Workflow.pdf"],
+      "abstention": true,
+      "functions": ["IT & Systems", "Licensing"],
+      "recommendation": "Approve - abstention question: the correct answer is an admission of ignorance."
+    }
+  ]
+}

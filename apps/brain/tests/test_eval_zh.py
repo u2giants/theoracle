@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import approve_all_questions
 from test_eval_fixture import _fixture_corpus, _replay
 
 from brain.answer import answer as answer_mod
@@ -46,13 +47,13 @@ def _cjk_questions() -> list[dict[str, Any]]:
 
 
 def test_seed_loads_zh_questions(eval_env: None, db: Any) -> None:
-    del db
     seed = _cjk_questions()
     assert len(seed) == 10  # O4: 5 process, 3 cross-source, 2 negative
     added = load_seed()
     assert added >= len(seed)
     again = load_seed()
     assert again == 0  # seeding only inserts when absent
+    approve_all_questions(db)
     questions = [item["question"] for item in load_questions()]
     for item in seed:
         assert item["question"] in questions
@@ -75,6 +76,7 @@ def test_eval_detects_broken_citations_zh(
 ) -> None:
     _fixture_corpus(db, monkeypatch)
     load_seed()
+    approve_all_questions(db)
     answers, grader = _replay(monkeypatch)
     answers.answers[ZH_QUESTION] = ZH_ANSWER
     grader.keywords[ZH_POINTS[0]] = ["内部审批"]
