@@ -49,6 +49,16 @@ def test_support_rewrite_prompt_contract() -> None:
     assert "{{evidence}}" in text
 
 
+def test_process_pass_prompt_contract() -> None:
+    """The E2 process-pass prompt names its JSON contract and template slots."""
+    text = (PROMPTS_DIR / "process_pass.md").read_text(encoding="utf-8")
+    assert '"steps"' in text
+    assert '"evidence"' in text
+    assert "{{outline}}" in text
+    assert "{{entities_json}}" in text
+    assert "{{evidence_json}}" in text
+
+
 def test_contradiction_prompt_contract() -> None:
     """The D3 classifier prompt names its five classes and template slot."""
     text = (PROMPTS_DIR / "contradiction_compare.md").read_text(encoding="utf-8")
