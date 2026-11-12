@@ -549,3 +549,157 @@ def retry_failed_jobs(
     for (kind,) in rows:
         kinds[str(kind)] = kinds.get(str(kind), 0) + 1
     return {"requeued": len(rows), "by_kind": kinds}
+
+
+_SOURCE_STATES = ("queued", "reading", "extracting", "read", "partial", "failed")
+_HEALTH_LIST_CAP = 200
+_NY_DAY_START_SQL = "((now() AT TIME ZONE 'America/New_York')::date) AT TIME ZONE 'America/New_York'"
+
+
+def _job_row(row: tuple) -> dict[str, Any]:
+    """Shape one ``cmap.job`` row for the health panel."""
+    return {
+        "id": str(row[0]),
+        "kind": row[1],
+        "payload": row[2],
+        "state": row[3],
+        "attempts": int(row[4]),
+        "error": row[5],
+        "created_at": row[6].isoformat() if row[6] else None,
+        "started_at": row[7].isoformat() if row[7] else None,
+        "finished_at": row[8].isoformat() if row[8] else None,
+    }
+
+
+@router.get("/sources/health")
+def sources_health(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
+    """Pipeline health for the sources admin panel (repair plan B4).
+
+    Everything the panel shows is existing state, read four ways:
+
+    - ``sources_by_state`` counts every ``read_state`` (including zero counts).
+    - ``jobs.failed`` is ``cmap.job`` rows in ``failed``; ``jobs.retrying`` is
+      rows back on the queue with their error kept and ``run_after`` in the
+      future (``worker.finish_job``). Error text is returned verbatim.
+    - ``failed_extractions`` is ``cmap.extraction`` rows with ``error`` set
+      (repair A2: a passage whose model call failed after its retries).
+    - ``last_build`` is the newest ``cmap.graph_version`` row, which is written
+      only after a successful projection, plus ``map_version`` — the version
+      the map pages read (``brain.graph.version.current_graph_version``).
+    - ``spend_today`` sums the model usage counters each job records in
+      ``payload.usage`` for jobs created in the New York day. There is no
+      dollar-cost store in the system; ``usage`` is kept per counter so
+      nothing is hidden.
+    """
+    del user
+    pool = get_pool()
+    with pool.connection() as conn:
+        state_rows = conn.execute(
+            "SELECT read_state, count(*) FROM cmap.source GROUP BY read_state"
+        ).fetchall()
+        states = {state: 0 for state in _SOURCE_STATES}
+        for state, count in state_rows:
+            states[str(state)] = int(count)
+
+        job_columns = "id, kind, payload, state, attempts, error, created_at, started_at, finished_at"
+        failed_jobs = [
+            _job_row(row)
+            for row in conn.execute(
+                f"SELECT {job_columns} FROM cmap.job WHERE state = 'failed' "
+                f"ORDER BY created_at DESC LIMIT {_HEALTH_LIST_CAP}"
+            ).fetchall()
+        ]
+        retry_rows = conn.execute(
+            "SELECT id, kind, payload, state, attempts, error, created_at, started_at, run_after "
+            "FROM cmap.job WHERE state = 'queued' AND error IS NOT NULL "
+            f"ORDER BY created_at DESC LIMIT {_HEALTH_LIST_CAP}"
+        ).fetchall()
+        retrying_jobs = [
+            {
+                "id": str(row[0]),
+                "kind": row[1],
+                "payload": row[2],
+                "state": row[3],
+                "attempts": int(row[4]),
+                "error": row[5],
+                "created_at": row[6].isoformat() if row[6] else None,
+                "started_at": row[7].isoformat() if row[7] else None,
+                "run_after": row[8].isoformat() if row[8] else None,
+            }
+            for row in retry_rows
+        ]
+
+        failed_extractions = [
+            {
+                "chunk_id": str(row[0]),
+                "source_id": str(row[1]),
+                "source_title": row[2],
+                "ordinal": int(row[3]),
+                "locator": row[4],
+                "stage": row[5],
+                "error": row[6],
+            }
+            for row in conn.execute(
+                "SELECT c.id, c.source_id, s.title, c.ordinal, c.locator, e.stage, e.error "
+                "FROM cmap.extraction e "
+                "JOIN cmap.chunk c ON c.id = e.chunk_id "
+                "JOIN cmap.source s ON s.id = c.source_id "
+                "WHERE e.error IS NOT NULL "
+                f"ORDER BY s.title, c.ordinal LIMIT {_HEALTH_LIST_CAP}"
+            ).fetchall()
+        ]
+
+        build_row = conn.execute(
+            "SELECT version, projected_at, node_count, edge_count FROM cmap.graph_version "
+            "ORDER BY version DESC LIMIT 1"
+        ).fetchone()
+        map_version_row = conn.execute(
+            "SELECT MAX(graph_version) FROM cmap.community"
+        ).fetchone()
+        last_build = None
+        if build_row is not None:
+            last_build = {
+                "version": int(build_row[0]),
+                "projected_at": build_row[1].isoformat() if build_row[1] else None,
+                "node_count": int(build_row[2]) if build_row[2] is not None else None,
+                "edge_count": int(build_row[3]) if build_row[3] is not None else None,
+                "map_version": (
+                    int(map_version_row[0]) if map_version_row[0] is not None else None
+                ),
+            }
+
+        day_row = conn.execute(
+            "SELECT (now() AT TIME ZONE 'America/New_York')::date::text"
+        ).fetchone()
+        usage_rows = conn.execute(
+            "SELECT payload -> 'usage' FROM cmap.job "
+            f"WHERE created_at >= {_NY_DAY_START_SQL}"
+        ).fetchall()
+
+    usage_totals: dict[str, float] = {}
+    for (usage,) in usage_rows:
+        if not isinstance(usage, dict):
+            continue
+        for key, value in usage.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                usage_totals[key] = usage_totals.get(key, 0) + value
+    tokens = int(
+        sum(value for key, value in usage_totals.items() if key.endswith("_tokens"))
+    )
+    calls = int(
+        sum(value for key, value in usage_totals.items() if key.endswith("_calls"))
+    )
+
+    return {
+        "sources_by_state": states,
+        "jobs": {"failed": failed_jobs, "retrying": retrying_jobs},
+        "failed_extractions": failed_extractions,
+        "last_build": last_build,
+        "spend_today": {
+            "day": str(day_row[0]),
+            "timezone": "America/New_York",
+            "tokens": tokens,
+            "calls": calls,
+            "usage": usage_totals,
+        },
+    }
