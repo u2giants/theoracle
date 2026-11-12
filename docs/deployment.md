@@ -48,6 +48,14 @@ Every `apps/brain` change merged to `main` publishes `ghcr.io/u2giants/theoracle
 via `brain-image.yml`. Coolify deploys the tag named in its `BRAIN_IMAGE_TAG` variable; that deploy is a
 separate action. Oracle 2 and the old Trigger.dev workers were removed in #398 (2026-11-04).
 
+Verified pin procedure (2026-11-12): the image tag is the **bare full commit sha** (the workflow tags
+`ghcr.io/u2giants/theoracle-brain:${{ github.sha }}`, no `sha-` prefix). Pin with the scoped deploy key
+(vault item `Coolify API token - Oracle deploy - release sessions only (theoracle)`): `PATCH
+/applications/<uuid>/envs` with only `key`/`value`/`is_preview`/`is_multiline`/`is_literal` (the API
+rejects `uuid`, `is_secret`, `is_build_time`), then `POST /deploy?uuid=<uuid>`. The deploy is not done
+until `GET /health` returns `{"ok":true,"db":true,"graph":true}` and a route added by the release
+answers (404 means old code). Never redeploy while `cmap.job` has queued/running rows.
+
 ### Database
 
 Database migrations are also manual today:

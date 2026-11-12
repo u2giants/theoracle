@@ -18,6 +18,17 @@ A report written while a child report failed is stored ``incomplete`` so the
 next run regenerates it instead of caching it without the child. Over-budget
 context is map-reduced (summarised in batches, then combined) — never
 truncated silently.
+
+Cross-boundary hand-offs (repair E4): every level-0 and level-1 report also
+receives its **boundary edges** (relations to entities outside the cluster or
+function) listed under "Hand-offs in / out", in its context and in its report
+text; the company report receives the full function-to-function hand-off
+matrix computed from relations and from E2's ``cmap.flow_step`` performer
+transitions. Edge caps rank by kind weight x source count (``edge_rank``) so a
+once-stated sequence or hand-off survives above repeatedly-stated generic
+links. The content hash covers each report's boundary relations (and the
+company's flow-step matrix inputs) so a hand-off change regenerates the
+report that lists it.
 """
 
 from __future__ import annotations
@@ -70,10 +81,13 @@ REPORT_WORKERS = 6
 # Repair C3: a level-0 cluster continues the previous build's cluster with the
 # highest Jaccard overlap at or above this threshold (same function only).
 CLUSTER_MATCH_MIN_JACCARD = 0.5
-# Clustering edges: MENTIONS and CONTRADICTS say nothing about how work moves;
-# sequence and hand-off relations carry the flow of work and count double.
+# Clustering edges and edge-cap ranking: MENTIONS and CONTRADICTS say nothing
+# about how work moves; sequence and hand-off relations carry the flow of work
+# and count double (repair E4 ranks every edge cap by this kind weight times
+# the source count). A generic MENTIONS link is demoted so that, however often
+# it repeats, it cannot crowd a once-stated sequence out of a capped list.
 CLUSTER_EDGE_EXCLUDED = frozenset({"MENTIONS", "CONTRADICTS"})
-CLUSTER_EDGE_KIND_WEIGHTS = {"PRECEDES": 2.0, "HANDS_OFF_TO": 2.0}
+EDGE_KIND_WEIGHTS = {"PRECEDES": 2.0, "HANDS_OFF_TO": 2.0, "MENTIONS": 0.1}
 
 SCOPE_L0 = "one area of how a company operates"
 SCOPE_L1 = "one part of the company"
@@ -181,34 +195,230 @@ def _clustering_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if rel_type in CLUSTER_EDGE_EXCLUDED:
             continue
         weighted = dict(edge)
-        weighted["weight"] = float(edge["weight"]) * CLUSTER_EDGE_KIND_WEIGHTS.get(
+        weighted["weight"] = float(edge["weight"]) * EDGE_KIND_WEIGHTS.get(
             rel_type, 1.0
         )
         out.append(weighted)
     return out
 
 
-def _content_hash(conn: psycopg.Connection, entity_ids: list[str]) -> str:
+def edge_rank(edge: dict[str, Any]) -> tuple[float, float]:
+    """Edge-cap ranking key (repair E4): kind weight x source count.
+
+    Sequence and hand-off kinds carry the flow of work; ranking by the source
+    count alone let frequently-repeated generic MENTIONS links crowd a
+    once-stated sequence out of every capped list. Ties go to the higher kind
+    weight, so the sequence is never cut before a generic link of equal score.
+    Used by this module's edge caps and by ``answer/answer.py``'s
+    graph-neighbourhood cap.
+    """
+    kind_weight = EDGE_KIND_WEIGHTS.get(str(edge.get("rel_type") or ""), 1.0)
+    return (kind_weight * float(edge.get("weight") or 0.0), kind_weight)
+
+
+def _content_hash(
+    conn: psycopg.Connection, entity_ids: list[str], *, flows: bool = False
+) -> str:
     """Hash of a report's inputs: sorted entity and relation ids, stamped.
 
     The hash changes whenever any member entity or any relation among them
     changes (their updated-at), so a report regenerates on a new relation even
-    when its entity set is unchanged (audit C2).
+    when its entity set is unchanged (audit C2). Repair E4: a report also lists
+    its boundary relations under "Hand-offs in / out" with the outside ends'
+    function labels, so relations crossing the member set and the entity-function
+    pairs of members and their neighbours join the hash as well. ``flows`` (the
+    company report only) adds the ``cmap.flow_step`` performer transitions its
+    hand-off matrix is computed from — flow rows carry no updated_at, so their
+    identity is hashed as content.
     """
     if not entity_ids:
         return hashlib.sha256(b"").hexdigest()
     rows = conn.execute(
-        "SELECT 'e', e.id::text, e.updated_at FROM cmap.entity e "
+        "SELECT 'e', e.id::text, e.updated_at::text FROM cmap.entity e "
         "WHERE e.id = ANY(%s::uuid[]) "
         "UNION ALL "
-        "SELECT 'r', r.id::text, r.updated_at FROM cmap.relation r "
+        # Repair E4: the OR includes boundary relations (exactly one end in the
+        # set) — their hand-off lines are part of the report's content.
+        "SELECT 'r', r.id::text, r.updated_at::text FROM cmap.relation r "
         "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
         "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
-        "WHERE fm.entity_id = ANY(%s::uuid[]) AND tm.entity_id = ANY(%s::uuid[])",
-        (entity_ids, entity_ids, entity_ids),
+        "WHERE fm.entity_id = ANY(%s::uuid[]) OR tm.entity_id = ANY(%s::uuid[]) "
+        "UNION ALL "
+        # Function labels of members and one-hop neighbours (the counterparty
+        # labels in the hand-off lines).
+        "SELECT 'x', ef.entity_id::text || ':' || ef.function_id::text, '' "
+        "FROM cmap.entity_function ef "
+        "WHERE ef.entity_id = ANY(%s::uuid[]) "
+        "OR ef.entity_id IN ("
+        "SELECT other_id FROM ("
+        "SELECT tm.entity_id AS other_id FROM cmap.relation r "
+        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+        "WHERE fm.entity_id = ANY(%s::uuid[]) "
+        "UNION "
+        "SELECT fm.entity_id AS other_id FROM cmap.relation r "
+        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+        "WHERE tm.entity_id = ANY(%s::uuid[])) neighbours)",
+        (entity_ids, entity_ids, entity_ids, entity_ids, entity_ids, entity_ids),
     ).fetchall()
-    parts = sorted(f"{kind}:{row_id}:{stamp.isoformat()}" for kind, row_id, stamp in rows)
+    parts = sorted(f"{kind}:{row_id}:{stamp}" for kind, row_id, stamp in rows)
+    if flows:
+        for flow_id, ordinal, performer in conn.execute(
+            "SELECT fs.flow_id::text, fs.ordinal, "
+            "COALESCE(fs.performer_entity_id::text, '') "
+            "FROM cmap.flow_step fs ORDER BY fs.flow_id, fs.ordinal"
+        ).fetchall():
+            parts.append(f"f:{flow_id}:{ordinal}:{performer}")
+        parts.sort()
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def _function_names(conn: psycopg.Connection) -> dict[str, list[str]]:
+    """entity id -> names of the active functions it is assigned to."""
+    out: dict[str, list[str]] = {}
+    for entity_id, name in conn.execute(
+        "SELECT ef.entity_id::text, f.name FROM cmap.entity_function ef "
+        "JOIN cmap.function f ON f.id = ef.function_id "
+        "WHERE f.active ORDER BY f.name"
+    ).fetchall():
+        out.setdefault(str(entity_id), []).append(str(name))
+    return out
+
+
+def _boundary_edges(
+    edges: list[dict[str, Any]], member_ids: set[str]
+) -> list[dict[str, Any]]:
+    """Edges with exactly one endpoint in the set (repair E4).
+
+    These are the report's boundary edges — the relations to entities outside
+    the cluster or function — and the raw material of "Hand-offs in / out".
+    """
+    out: list[dict[str, Any]] = []
+    for edge in edges:
+        from_in = edge["from"] in member_ids
+        to_in = edge["to"] in member_ids
+        if from_in != to_in:
+            out.append(edge)
+    return out
+
+
+def _handoff_lines(
+    edges: list[dict[str, Any]],
+    member_ids: set[str],
+    names: dict[str, str],
+    function_names: dict[str, list[str]],
+) -> list[str]:
+    """"Hand-offs in / out" lines for one level-0/level-1 report (repair E4).
+
+    Every boundary relation crossing the cluster or function boundary is
+    listed with its direction (``out`` when the edge leaves the report's own
+    entities, ``in`` when it arrives), the counterparty's function labels and
+    the source count, capped and ranked by ``edge_rank``.
+    """
+    boundary = _boundary_edges(edges, member_ids)
+    boundary.sort(key=edge_rank, reverse=True)
+    lines: list[str] = []
+    for edge in boundary[:MAX_EDGES_IN_CONTEXT]:
+        if edge["from"] in member_ids:
+            direction, inner, outer = "out", edge["from"], edge["to"]
+        else:
+            direction, inner, outer = "in", edge["to"], edge["from"]
+        target = names.get(outer, outer)
+        outer_functions = function_names.get(outer)
+        if outer_functions:
+            target = f"{target} [{', '.join(outer_functions)}]"
+        descriptions = "; ".join(edge.get("descriptions") or [])
+        lines.append(
+            f"- {direction}: {names.get(inner, inner)} -[{edge['rel_type']}]-> "
+            f"{target} sources={edge['weight']} {descriptions}".rstrip()
+        )
+    return lines
+
+
+def _flow_performer_pairs(conn: psycopg.Connection) -> list[tuple[str, str]]:
+    """(from performer, to performer) for consecutive steps of each flow.
+
+    E2's ``cmap.flow_step`` rows order the steps of a process by ``ordinal``;
+    when consecutive steps have different performers, work moved between them
+    — the flow half of the company's hand-off matrix (repair E4).
+    """
+    by_flow: dict[str, list[tuple[int, str]]] = {}
+    for flow_id, ordinal, performer in conn.execute(
+        "SELECT fs.flow_id::text, fs.ordinal, fs.performer_entity_id::text "
+        "FROM cmap.flow_step fs WHERE fs.performer_entity_id IS NOT NULL "
+        "ORDER BY fs.flow_id, fs.ordinal"
+    ).fetchall():
+        by_flow.setdefault(str(flow_id), []).append((int(ordinal), str(performer)))
+    pairs: list[tuple[str, str]] = []
+    for steps in by_flow.values():
+        steps.sort()
+        for (_ordinal_before, performer_before), (
+            _ordinal_after,
+            performer_after,
+        ) in zip(steps, steps[1:], strict=False):
+            if performer_before != performer_after:
+                pairs.append((performer_before, performer_after))
+    return pairs
+
+
+def _handoff_matrix_lines(
+    edges: list[dict[str, Any]],
+    function_names: dict[str, list[str]],
+    flow_pairs: list[tuple[str, str]],
+) -> list[str]:
+    """The function-to-function hand-off matrix for the company report (E4).
+
+    Every ordered pair of distinct functions with any signal between them gets
+    one line: projected relation edges from the first function's entities to
+    the second's (broken down by kind) plus E2 flow-step performer transitions
+    between them. Computed from relations and flows, uncapped — the full
+    matrix. An entity assigned to several functions contributes to each pair
+    its assignments form.
+    """
+    relations: dict[tuple[str, str], dict[str, int]] = {}
+    kinds: dict[tuple[str, str], dict[str, int]] = {}
+    flows: dict[tuple[str, str], int] = {}
+
+    def _add(cell: dict[str, int], pair: tuple[str, str]) -> None:
+        cell[pair] = cell.get(pair, 0) + 1
+
+    for edge in edges:
+        from_functions = function_names.get(edge["from"], [])
+        to_functions = function_names.get(edge["to"], [])
+        for source in from_functions:
+            for target in to_functions:
+                if source == target:
+                    continue
+                pair = (source, target)
+                _add(relations, pair)
+                kind_counts = kinds.setdefault(pair, {})
+                kind_counts[edge["rel_type"]] = kind_counts.get(edge["rel_type"], 0) + 1
+    for performer_before, performer_after in flow_pairs:
+        for source in function_names.get(performer_before, []):
+            for target in function_names.get(performer_after, []):
+                if source != target:
+                    _add(flows, (source, target))
+    pairs = sorted(
+        set(relations) | set(flows),
+        key=lambda pair: (
+            -(relations.get(pair, 0) + flows.get(pair, 0)),
+            pair[0],
+            pair[1],
+        ),
+    )
+    lines: list[str] = []
+    for pair in pairs:
+        parts: list[str] = []
+        if pair in relations:
+            breakdown = ", ".join(
+                f"{kind} x{count}" for kind, count in sorted(kinds[pair].items())
+            )
+            parts.append(f"relations x{relations[pair]} ({breakdown})")
+        if pair in flows:
+            parts.append(f"flow steps x{flows[pair]}")
+        lines.append(f"- {pair[0]} -> {pair[1]}: " + " + ".join(parts))
+    return lines
 
 
 def _function_buckets(
@@ -610,8 +820,9 @@ def _context_l0(
     edges: list[dict[str, Any]],
     frontier: _Frontier,
     function_name: str | None = None,
+    handoffs: list[str] | None = None,
 ) -> str:
-    """Entity list, top edges and quotes for one level-0 community."""
+    """Entity list, top edges, boundary hand-offs and quotes for one community."""
     member_ids = {member["id"] for member in members}
     names = {member["id"]: member["name"] for member in members}
     lines = []
@@ -626,7 +837,7 @@ def _context_l0(
     scoped = [
         edge for edge in edges if edge["from"] in member_ids and edge["to"] in member_ids
     ]
-    scoped.sort(key=lambda edge: edge["weight"], reverse=True)
+    scoped.sort(key=edge_rank, reverse=True)
     lines.append("EDGES:")
     for edge in scoped[:MAX_EDGES_IN_CONTEXT]:
         descriptions = "; ".join(edge.get("descriptions") or [])
@@ -635,6 +846,12 @@ def _context_l0(
             f"{names.get(edge['to'], edge['to'])} weight={edge['weight']} "
             f"stances={edge.get('stances') or '{}'} {descriptions}"
         )
+    if handoffs:
+        lines.append(
+            "Hand-offs in / out (relations to entities outside this area; "
+            "out leaves the area, in arrives):"
+        )
+        lines.extend(handoffs)
     quotes = _quote_rows(conn, [member["id"] for member in members])
     lines.append("SOURCES (findings must cite these ids):")
     seen: dict[str, str] = {}
@@ -654,12 +871,22 @@ def _context_l0(
 
 
 def _context_reports(
-    rows: list[dict[str, Any]], frontier: _Frontier, header: str | None = None
+    rows: list[dict[str, Any]],
+    frontier: _Frontier,
+    header: str | None = None,
+    handoffs: list[str] | None = None,
 ) -> str:
-    """Level-1/2 context: the reports beneath, with findings."""
+    """Level-1/2 context: the reports beneath, with findings and hand-offs.
+
+    ``handoffs`` is the report's own boundary list (level 1) or the
+    function-to-function hand-off matrix (level 2, repair E4).
+    """
     lines = []
     if header:
         lines.append(header)
+    if handoffs:
+        lines.append("Hand-offs in / out:")
+        lines.extend(handoffs)
     lines.append("REPORTS:")
     for row in rows:
         lines.append(f"## {row['title']}")
@@ -710,6 +937,11 @@ def _report_md(report: dict[str, Any]) -> str:
         lines.append("## Open questions")
         for question in report["open_questions"]:
             lines.append(f"- {question}")
+    handoffs = report.get("handoffs") or []
+    if handoffs:
+        lines.append("")
+        lines.append("## Hand-offs in / out")
+        lines.extend(handoffs)
     return "\n".join(lines)
 
 
@@ -768,6 +1000,7 @@ def _store(
         "summary": summary_en or report["summary"],
         "findings": findings,
         "open_questions": report["open_questions"],
+        "handoffs": report.get("handoffs") or [],
     }
     community_id = row_id or str(uuid.uuid4())
     row = conn.execute(
@@ -1189,6 +1422,8 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         cluster_edges = _clustering_edges(edges)
         entity_sources = _entity_sources(conn)
         entity_vectors = _entity_vectors(conn)
+        names = {node["id"]: node["name"] for node in nodes}
+        function_names = _function_names(conn)
 
         buckets = _function_buckets(conn, nodes)
         stats["unassigned_entities"] = sum(
@@ -1240,6 +1475,12 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         by_function: dict[str | None, list[dict[str, Any]]] = {}
         for cluster in clusters:
             cluster["content_hash"] = _content_hash(conn, cluster["member_ids"])
+            cluster["handoffs"] = _handoff_lines(
+                edges,
+                set(cluster["member_ids"]),
+                names,
+                function_names,
+            )
             cluster["failed"] = False
             cluster["kept"] = False
             cluster["summary"] = None
@@ -1281,6 +1522,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                         edges,
                         frontier,
                         function_name=cluster["function_name"],
+                        handoffs=cluster["handoffs"],
                     ),
                 )
                 for cluster in ask_items
@@ -1307,6 +1549,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 stats["reports_failed"] += 1
                 cluster["failed"] = True
                 continue
+            report["handoffs"] = cluster["handoffs"]
             row_id, dropped = _store(
                 conn,
                 0,
@@ -1347,6 +1590,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 {member for cluster in group for member in cluster["member_ids"]}
             )
             content_hash = _content_hash(conn, member_ids)
+            function_handoffs = _handoff_lines(
+                edges, set(member_ids), names, function_names
+            )
             available = [
                 cluster["summary"] for cluster in group if cluster["summary"] is not None
             ]
@@ -1384,7 +1630,10 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 SCOPE_L1,
                 "",
                 _context_reports(
-                    available, frontier, header=f"FUNCTION: {function_name}"
+                    available,
+                    frontier,
+                    header=f"FUNCTION: {function_name}",
+                    handoffs=function_handoffs,
                 ),
             )
             if report is None:
@@ -1396,6 +1645,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                     )
                     conn.commit()
                 continue
+            report["handoffs"] = function_handoffs
             row_id, dropped = _store(
                 conn,
                 1,
@@ -1424,7 +1674,12 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         l0_summaries = [
             cluster["summary"] for cluster in clusters if cluster["summary"] is not None
         ]
-        company_hash = _content_hash(conn, entity_ids)
+        matrix_lines = _handoff_matrix_lines(
+            edges, function_names, _flow_performer_pairs(conn)
+        )
+        # The matrix is computed from relations and flows (E4): the hash covers
+        # the flow-step hand-offs too, so a flow change regenerates it.
+        company_hash = _content_hash(conn, entity_ids, flows=True)
         existing_company = _company_row(conn)
         if (
             existing_company
@@ -1445,10 +1700,11 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 frontier,
                 SCOPE_L2,
                 COMPANY_EXTRA,
-                _context_reports(l0_summaries, frontier),
+                _context_reports(l0_summaries, frontier, handoffs=matrix_lines),
             )
             if company is None:
                 raise RuntimeError("company community report failed after retries")
+            company["handoffs"] = matrix_lines
             company_row, dropped = _store(
                 conn,
                 2,

@@ -82,7 +82,7 @@ from brain.function_assign import (
 from brain.function_assign import (
     validate_response as validate_function_response,
 )
-from brain.graph.communities import CLUSTER_EDGE_KIND_WEIGHTS, _tokens
+from brain.graph.communities import EDGE_KIND_WEIGHTS, _tokens, edge_rank
 from brain.graph.project import connect as connect_graph
 from brain.graph.version import current_graph_version
 from brain.llm import post_chat_with_rescue
@@ -1074,7 +1074,7 @@ def _graph_context(
             candidate = str(to_id)
             if allowed is not None and candidate not in allowed:
                 continue
-            weight = CLUSTER_EDGE_KIND_WEIGHTS.get(str(rel_type), 1.0)
+            weight = EDGE_KIND_WEIGHTS.get(str(rel_type), 1.0)
             if weight > kind_score.get(candidate, 0.0):
                 kind_score[candidate] = weight
             if candidate in seen:
@@ -1165,7 +1165,7 @@ def _graph_context(
                 ],
             }
         )
-    edges.sort(key=lambda edge: edge["weight"], reverse=True)
+    edges.sort(key=edge_rank, reverse=True)
     edges = edges[:GRAPH_EDGE_CAP]
     return _apply_fact_corrections(nodes[:GRAPH_NODE_CAP], edges)
 
