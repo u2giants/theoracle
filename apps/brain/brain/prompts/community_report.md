@@ -10,7 +10,7 @@ Return JSON only:
      "stance": "policy|practice|report|inference",
      "entity_ids": ["..."], "source_ids": ["..."]}
   ],
-  "open_questions": ["<at most 3, and none when nothing important is unclear: only a gap that stops us explaining how this area's work flows, who decides, or why it stalls — phrased in the dominant language of the cluster's quotes as a question one employee could answer in one sentence>"]
+  "open_questions": ["<at most 3, and none when nothing important is unclear: only a gap that stops us explaining how this area's work flows, who decides, or why it stalls — written in English as a question one employee could answer in one sentence; open questions are stored and asked in English and translated for zh-CN recipients at send time, so NEVER write them in another language, whatever language the quotes are in>"]
 }
 Rules: 5-12 findings. Prefer findings supported by two or more different sources; say so in the text ("Both the procedure and the 14 March conversation..."). Where policy and practice differ, state both. Do not invent numbers. Every finding must list at least one source_id from DATA. When the DATA lists "Hand-offs in / out", weave the most important hand-offs into the summary so how work crosses this area's boundary is visible.
 {{extra_instructions}}

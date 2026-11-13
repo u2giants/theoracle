@@ -54,7 +54,7 @@ from brain.embed import embed_texts, vector_literal
 from brain.graph.project import _load_edges, _load_entities
 from brain.lang import detect_language
 from brain.resolve.resolve import FrontierCapReached, _Frontier
-from brain.translate import upsert_translation
+from brain.translate import ensure_english_question, upsert_translation
 
 logger = logging.getLogger(__name__)
 
@@ -1167,7 +1167,14 @@ def _store_open_questions(
         if key and key not in seen:
             seen.add(key)
             fresh.append(question)
-    verdicts = vet_questions(conn, fresh, _area_people(conn, entity_ids), frontier, settings)
+    # Stored questions are English-only canon (owner 2026-11-13); anything the
+    # model wrote in another language is rewritten here, zh-CN happens at send.
+    english = []
+    for question in fresh:
+        rewritten = ensure_english_question(question, frontier.ask)
+        if rewritten:
+            english.append(rewritten)
+    verdicts = vet_questions(conn, english, _area_people(conn, entity_ids), frontier, settings)
     written = 0
     for question in _worth_asking(verdicts, MAX_QUESTIONS_PER_AREA):
         verdict = verdicts[question]
