@@ -84,6 +84,12 @@ class FakeReport:
                 ],
                 "usage": {"total_tokens": 5},
             }
+        if prompt.startswith("ENGLISH QUESTION REWRITE"):
+            body = prompt.split("<<<", 1)[1].rsplit(">>>", 1)[0].strip()
+            return {
+                "choices": [{"message": {"content": json.dumps({"question_en": body})}}],
+                "usage": {"total_tokens": 5},
+            }
         if prompt.startswith("QUESTION VETTING"):
             results = [
                 {
