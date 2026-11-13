@@ -110,11 +110,52 @@ China-ops drafts) scored mean **0.3778**, below the plan's 0.6 target. The
 owner has approved keeping the 10 zh questions as drafted (Emma Li reviews
 them during her acceptance pass); a rerun follows.
 
+Rerun `2103eaaf-fa70-446d-a889-1ed2daa8a905` (2026-11-12/13) scored mean
+**0.4892** (up from 0.3778). Owner accepted the current score — verbatim
+'Accept 49% for now' (chat 2026-11-12). Gate 0.6 held open for future
+improvement, not blocking acceptance.
+
+## 6. Production routing + language fixes (2026-11-12/13)
+
+**Language root cause + fix.** PR #483's prompt clause (zh plan step 1.2,
+commit `fb9b2aa2`) made open questions inherit the cluster's quote language;
+short-English misdetection produced Russian/Vietnamese/etc. Fixed at source in
+PR #581 (`1fec1ec4`, brain image `1fec1ec4` deployed 2026-11-13):
+English-only question generation + store guard. zh send-time localization for
+the China team unchanged. Cleanup: 385 non-English open/asked questions
+translated to English (0 remaining).
+
+**Select-target routing.** `select_target` now routes vetted questions inside
+a strict department pool (evidence-contributor preference, role-gated
+multi-department matching, duplicate-name-safe manual targets). PRs
+https://github.com/u2giants/theoracle/pull/541 (`fb52eb16`),
+https://github.com/u2giants/theoracle/pull/578 (`db042840`),
+https://github.com/u2giants/theoracle/pull/580 (`2a48b9f6`). Live tick
+evidence 2026-11-12/13: licensing questions routed to Laura Arevalo + Ilona
+Kereki only, ZERO licensing questions to Albert Hazan after deploy;
+famous-bystander scatter eliminated (defers instead). Production pool for
+`department='Licensing'` = exactly {Laura Arevalo, Ilona Kereki}.
+
+## Owner rulings (chat 2026-11-12/13)
+
+- Licensing team = Laura Arevalo + Ilona Kereki only ('Laura and Ilona only').
+- Weekly quota = 2 conversation-starting questions per person per week;
+  replies/follow-ups free.
+- Interview bot re-enabled with approval ('Yes, switch it back on').
+- Business-flow + techpack-automation questions → Jessica Cortazar
+  (`52a0662e-f24b-46bb-87bf-706286c20255`).
+- Authoritative project-status record = DesignFlow PLM (owner answer filed as
+  source `5d051eb0-eb0b-4c03-b724-403e81302912`, fully integrated, retrieval
+  rank #1).
+
 ## Open items (not yet proof)
 
-- [ ] Item 3/4 + business acceptance: Albert picks the China-office employee
-  (plan suggests Emma Li) for a 10-minute Chinese Map + chat pass; that person's
-  bot conversation and one zh interview round complete items 3–4.
+- [ ] Item 3 + live proof: Emma Li's 10-minute acceptance pass (invited
+  2026-11-12). Her zh chat contribution is the live proof. Two sampling
+  questions re-created (`21a9d424-7e3e-4b28-91f4-eeaa81788108`,
+  `650a9c2f-7730-4d20-83ca-51fe85c3b0f9`) but waiting on her weekly allowance
+  (2 sends already used 2026-11-12/13) — owner to say exception or wait
+  (~Nov 19).
 - [ ] Browser screenshots of the live site (needs a signed-in human session).
 
 ## Notes
