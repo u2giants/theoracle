@@ -14,7 +14,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from brain.api.deps import User, require_admin, require_service
+from brain.api.deps import (
+    User,
+    admin_or_enabled_service,
+    require_admin,
+    require_service,
+)
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
 from brain.interview.inbound import handle_inbound, store_conversation_ref
@@ -77,18 +82,20 @@ def teams_inbound(body: InboundBody) -> dict[str, Any]:
 
 @router.get(
     "/interview/teams/conversation/{employee_id}",
-    dependencies=[Depends(require_service)],
+    dependencies=[Depends(admin_or_enabled_service)],
 )
 def teams_conversation(employee_id: str) -> dict[str, Any]:
-    """Employee identity plus the stored conversation reference (nullable).
+    """Employee identity plus stored conversation reference (nullable).
 
-    Always readable: this lookup is what lets the web layer write back into a
-    Teams chat (two-way communication, owner test 2026-11-02). A null
-    ``conversation_ref`` means no chat is stored yet — the web layer then
-    opens the 1:1 chat itself before the first send (measured 2026-11-04: 11
-    Teams-licensed employees never got questions because their install
-    conversation update never arrived). The outbound interview tick gates
-    itself on ``interviews_enabled``; the lookup does not.
+    This lookup is what lets the web layer write back into a Teams chat
+    (two-way communication, owner test 2026-11-02), so it is gated like the
+    proactive send itself (#591): an admin caller may always read it (the
+    sanctioned nudge/invite pattern), a token-only service call only while
+    the interview feature is enabled — the tick never sends otherwise. A
+    null ``conversation_ref`` means no chat is stored yet — the web layer
+    then opens the 1:1 chat itself before the first send (measured
+    2026-11-04: 11 Teams-licensed employees kept the app but never got
+    questions because their install conversation update never arrived).
     """
     employee_id = _uuid(employee_id, "employee_id")
     pool = get_pool()
@@ -129,9 +136,16 @@ def teams_conversation(employee_id: str) -> dict[str, Any]:
     }
 
 
-@router.post("/interview/teams/conversation", dependencies=[Depends(require_service)])
+@router.post(
+    "/interview/teams/conversation",
+    dependencies=[Depends(admin_or_enabled_service)],
+)
 def store_teams_conversation(body: ConversationRefBody) -> dict[str, Any]:
-    """Store a conversation reference for a chat the web layer opened."""
+    """Store a conversation reference for a chat the web layer opened.
+
+    Gated exactly like the lookup it pairs with (#591): admin callers always,
+    token-only service calls only while interviews are enabled.
+    """
     employee_id = _uuid(body.employee_id, "employee_id")
     conversation = body.conversation_ref.get("conversation") or {}
     if not conversation.get("id"):
