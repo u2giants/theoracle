@@ -59,6 +59,61 @@ export type CommunityCard = {
   translations?: Translations;
 };
 
+/** Repair C5: one card per function on the map page. The coverage score from
+ * F6 is not landed — counts and open issues are the honest fallback. */
+export type FunctionIssue = { text: string; kind: 'contradiction' | 'gap' };
+
+export type FunctionCard = {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  report_id: string | null;
+  summary: string;
+  entity_count: number;
+  source_count: number;
+  process_count: number;
+  person_count: number;
+  open_contradictions: number;
+  open_gaps: number;
+  top_issues: FunctionIssue[];
+};
+
+export type FunctionDetail = {
+  function: { id: string; key: string; name: string; description: string };
+  report: {
+    id: string;
+    title: string;
+    summary: string;
+    report_md: string;
+    findings: Finding[];
+  } | null;
+  sub_topics: { id: string; title: string; summary: string; entity_count: number }[];
+  processes: {
+    id: string;
+    name: string;
+    type: string;
+    source_count: number;
+    sources: SourceRef[];
+  }[];
+  people: { id: string; name: string; type: string; source_count: number }[];
+  gaps: {
+    id: string;
+    question: string;
+    why: string;
+    state: string;
+    suggested_person: string | null;
+  }[];
+  contradictions: {
+    id: string;
+    kind: string;
+    status: string;
+    summary: string;
+    source_a_title: string;
+    source_b_title: string;
+  }[];
+};
+
 export type GraphNode = {
   id: string;
   type: string;

@@ -3,8 +3,13 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { brainGet, pickText, type CommunityCard, type Finding } from './brain';
+import { brainGet, type Finding } from './brain';
 import { LoadState, Markdown, SourceChip, StanceBadge } from './bits';
+
+// Repair C5: the map page is organised by business function. Left stays the
+// company report; the centre column is one card per curated function with its
+// counts and the open issues known today (disagreements and gaps). The F6
+// coverage score is not landed, so no score is shown yet.
 
 type Company = {
   id: string;
@@ -14,9 +19,29 @@ type Company = {
   issues: Finding[];
 };
 
-export function MapHome({ isAdmin, lang = '' }: { isAdmin: boolean; lang?: string }) {
+type FunctionCardData = {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  report_id: string | null;
+  summary: string;
+  entity_count: number;
+  source_count: number;
+  process_count: number;
+  person_count: number;
+  open_contradictions: number;
+  open_gaps: number;
+  top_issues: { text: string; kind: string }[];
+};
+
+function issueLabel(kind: string): string {
+  return kind === 'contradiction' ? 'disagreement' : 'gap';
+}
+
+export function MapHome({ isAdmin }: { isAdmin: boolean }) {
   const [company, setCompany] = useState<Company | null>(null);
-  const [cards, setCards] = useState<CommunityCard[]>([]);
+  const [cards, setCards] = useState<FunctionCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,12 +49,12 @@ export function MapHome({ isAdmin, lang = '' }: { isAdmin: boolean; lang?: strin
     let cancelled = false;
     Promise.all([
       brainGet<{ company: Company | null }>('map/company'),
-      brainGet<{ communities: CommunityCard[] }>('communities?level=1'),
+      brainGet<{ functions: FunctionCardData[] }>('map/functions'),
     ])
       .then(([companyBody, cardBody]) => {
         if (cancelled) return;
         setCompany(companyBody.company);
-        setCards(cardBody.communities);
+        setCards(cardBody.functions);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'load failed');
@@ -112,29 +137,54 @@ export function MapHome({ isAdmin, lang = '' }: { isAdmin: boolean; lang?: strin
             </>
           )}
         </section>
-        <section className="grid content-start gap-3 sm:grid-cols-2" data-testid="community-cards">
+        <section className="grid content-start gap-3 sm:grid-cols-2" data-testid="function-cards">
           {cards.map((card) => (
             <Link
               key={card.id}
-              href={`/map/community/${card.id}`}
-              data-testid="community-card"
-              data-community-id={card.id}
+              href={`/map/function/${encodeURIComponent(card.key)}`}
+              data-testid="function-card"
+              data-function-id={card.id}
+              data-function-key={card.key}
               className="block"
             >
               <Card className="h-full transition hover:border-foreground/40">
                 <CardHeader>
-                  <CardTitle className="text-base">
-          {pickText(card.translations, lang, 'title', card.title)}
-        </CardTitle>
+                  <CardTitle className="text-base">{card.name}</CardTitle>
                   <CardDescription>
-                    {card.finding_count} finding{card.finding_count === 1 ? '' : 's'} ·{' '}
-                    {card.entity_count} things
+                    {card.source_count} source{card.source_count === 1 ? '' : 's'} ·{' '}
+                    {card.entity_count} thing{card.entity_count === 1 ? '' : 's'} ·{' '}
+                    {card.process_count} process{card.process_count === 1 ? '' : 'es'} ·{' '}
+                    {card.person_count} {card.person_count === 1 ? 'person' : 'people'}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <p className="line-clamp-4 text-sm text-muted-foreground">
-          {pickText(card.translations, lang, 'summary', card.summary)}
-        </p>
+                <CardContent className="space-y-2">
+                  <p className="line-clamp-3 text-sm text-muted-foreground">
+                    {card.summary || card.description}
+                  </p>
+                  {(card.open_contradictions > 0 || card.open_gaps > 0) && (
+                    <p className="text-xs text-muted-foreground" data-testid="function-card-open">
+                      {card.open_contradictions} open{' '}
+                      {card.open_contradictions === 1 ? 'disagreement' : 'disagreements'} ·{' '}
+                      {card.open_gaps} open {card.open_gaps === 1 ? 'gap' : 'gaps'}
+                    </p>
+                  )}
+                  {card.top_issues.length > 0 && (
+                    <ul className="space-y-1" data-testid="function-card-issues">
+                      {card.top_issues.map((issue, index) => (
+                        <li
+                          key={`${index}-${issue.text}`}
+                          className="flex items-start gap-1.5 text-xs text-muted-foreground"
+                          data-testid="function-card-issue"
+                          data-issue-kind={issue.kind}
+                        >
+                          <span className="mt-0.5 shrink-0 rounded bg-muted px-1.5 py-0.5">
+                            {issueLabel(issue.kind)}
+                          </span>
+                          <span className="line-clamp-2">{issue.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </CardContent>
               </Card>
             </Link>
