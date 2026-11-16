@@ -26,6 +26,8 @@ from psycopg.types.json import Json
 from test_flat import PDF_FIXTURE, TRANSCRIPT_FIXTURE, _seed_fixture
 from test_resolve import _fake as _fake_resolve
 
+from brain import llm
+from brain import process_pass as process_pass_mod
 from brain.config import get_settings
 from brain.extract.flat import handle_classify_extract
 from brain.extract.normalize import normalize_name
@@ -533,3 +535,77 @@ def test_flowchart_image_yields_flow(monkeypatch: pytest.MonkeyPatch, db: Any) -
     ).fetchone()[0]["process_pass"]
     assert marker["status"] == "done"
     assert marker["drop_reasons"]["ungrounded_step"] == 0
+
+
+# ------------------------------------------- bounded JSON repair seam (#592)
+
+
+class _Reply:
+    """One canned chat-completions HTTP reply."""
+
+    def __init__(self, content: str, status_code: int = 200) -> None:
+        self.status_code = status_code
+        self.text = content
+        self._content = content
+
+    def json(self) -> dict[str, Any]:
+        return {"choices": [{"message": {"content": self._content}}]}
+
+
+def test_process_pass_repairs_non_json_reply_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#592: a prose reply from the process seat is re-asked once, then parses.
+
+    The seat's model id comes from the seat (patched here to a fixture id);
+    one malformed reply must not burn a whole job attempt.
+    """
+    monkeypatch.setattr(
+        process_pass_mod, "stage_model", lambda settings, stage: "test/frontier-model"
+    )
+    seen: list[dict[str, Any]] = []
+
+    def fake_post(url: str, **kw: Any) -> _Reply:
+        seen.append(kw["json"])
+        if len(seen) == 1:
+            return _Reply("Happy to help! Here is a summary of the flow in prose.")
+        return _Reply(json.dumps({"title": "Licensing approval flow", "steps": []}))
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    settings = get_settings().model_copy(update={"openrouter_api_key": "k"})
+    body = process_pass_mod._post_chat(
+        [{"role": "user", "content": "extract the flow"}], settings
+    )
+    payload = process_pass_mod.parse_process_json(
+        process_pass_mod.message_content(body)
+    )
+    assert payload["title"] == "Licensing approval flow"
+    assert len(seen) == 2, "exactly one repair re-ask"
+    assert seen[1]["messages"][-1]["role"] == "user"
+    assert "ONLY the JSON object" in seen[1]["messages"][-1]["content"]
+    assert seen[1]["max_tokens"] == process_pass_mod.MAX_TOKENS * 2
+
+
+def test_process_pass_persistent_non_json_fails_naming_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#592: a persistently non-JSON reply fails with a provider-bearing error."""
+    monkeypatch.setattr(
+        process_pass_mod, "stage_model", lambda settings, stage: "test/frontier-model"
+    )
+    calls: list[int] = []
+
+    def fake_post(url: str, **kw: Any) -> _Reply:
+        calls.append(1)
+        return _Reply("I would rather explain the process in prose.")
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    settings = get_settings().model_copy(update={"openrouter_api_key": "k"})
+    with pytest.raises(
+        process_pass_mod.ProcessPassError,
+        match=r"provider openrouter, model 'test/frontier-model'",
+    ):
+        process_pass_mod._post_chat(
+            [{"role": "user", "content": "extract the flow"}], settings
+        )
+    assert len(calls) == 2, "bounded: first call plus one repair re-ask"
