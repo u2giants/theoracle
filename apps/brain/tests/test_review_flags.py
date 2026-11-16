@@ -1,7 +1,9 @@
-"""Admin review flags for the Map review gate (issue #255).
+"""Review flags for the Map review gate (issue #255).
 
 The endpoints are exercised the way the ``/map`` surfaces and the review page
 call them through the proxy: create with a note, list open flags, resolve.
+Creating is open to every logged-in employee (issue #597); listing and
+resolving stay admin-only.
 """
 
 from __future__ import annotations
@@ -40,18 +42,30 @@ def test_flags_need_the_token(client: TestClient) -> None:
     assert client.post("/flags", json={"item_type": "entity"}).status_code == 401
 
 
-def test_flags_are_admin_only(
+def test_employee_can_create_a_flag(
+    client: TestClient, user_headers: dict[str, str], db: Any
+) -> None:
+    items = _seed_items(db)
+    response = client.post(
+        "/flags",
+        headers=user_headers,
+        json={
+            "item_type": "entity",
+            "item_id": items["entity_id"],
+            "note": "Wrong department reviewer",
+        },
+    )
+    assert response.status_code == 200, response.text
+    flag = response.json()["flag"]
+    assert flag["item_type"] == "entity"
+    assert flag["note"] == "Wrong department reviewer"
+    assert flag["resolved_at"] is None
+
+
+def test_employee_cannot_list_or_resolve_flags(
     client: TestClient, user_headers: dict[str, str]
 ) -> None:
     assert client.get("/flags", headers=user_headers).status_code == 403
-    assert (
-        client.post(
-            "/flags",
-            headers=user_headers,
-            json={"item_type": "entity", "item_id": "x"},
-        ).status_code
-        == 403
-    )
     assert (
         client.post(
             "/flags/00000000-0000-4000-8000-000000000000/resolve",
@@ -60,6 +74,27 @@ def test_flags_are_admin_only(
         ).status_code
         == 403
     )
+
+
+def test_admin_create_list_resolve_unaffected(
+    client: TestClient, admin_headers: dict[str, str], db: Any
+) -> None:
+    items = _seed_items(db)
+    created = client.post(
+        "/flags",
+        headers=admin_headers,
+        json={"item_type": "entity", "item_id": items["entity_id"], "note": "A1"},
+    )
+    assert created.status_code == 200
+    flag_id = created.json()["flag"]["id"]
+    listed = client.get("/flags", headers=admin_headers)
+    assert listed.status_code == 200
+    assert [flag["id"] for flag in listed.json()["flags"]] == [flag_id]
+    resolved = client.post(
+        f"/flags/{flag_id}/resolve", headers=admin_headers, json={"action": "reject"}
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["flag"]["resolved_at"] is not None
 
 
 def test_flag_entity_relation_and_community(

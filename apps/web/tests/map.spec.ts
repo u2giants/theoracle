@@ -290,6 +290,52 @@ test('admin marks entity and relation wrong and resolves them on the review page
   await page.screenshot({ path: resolve(SHOTS, '11-review-resolved.png'), fullPage: true });
 });
 
+// Issue #597: the mark-as-wrong control is open to every logged-in employee
+// so department people can review the Map; the employee stays non-admin here
+// and still creates a flag (the admin-only review page is not visited).
+async function setE2eEmployeeAdmin(admin: boolean): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  const brainDir = resolve(WEB_DIR, '..', 'brain');
+  const script =
+    "import os, psycopg; conn = psycopg.connect(os.environ['DATABASE_URL']); " +
+    `conn.execute("UPDATE public.employees SET is_admin = ${admin} ` +
+    `WHERE id = '00000000-0000-4000-8000-0000000000e1'"); conn.commit(); conn.close()`;
+  execFileSync('uv', ['run', 'python', '-c', script], {
+    cwd: brainDir,
+    env: {
+      ...process.env,
+      DATABASE_URL: e2eEnv.databaseUrl,
+      FALKORDB_URL: e2eEnv.falkordbUrl,
+    },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+}
+
+test('non-admin employee can mark a community wrong', async ({ page, context }) => {
+  const ids = seed();
+  await setE2eEmployeeAdmin(false);
+  try {
+    await signIn(context);
+    await page.goto(`/map/community/${ids.licensing_community_id}`);
+    await expect(page.getByTestId('community-title')).toBeVisible({ timeout: 60_000 });
+
+    const communityFlag = page.locator(
+      '[data-testid="mark-wrong"][data-item-type="community"]',
+    );
+    await expect(communityFlag.getByTestId('mark-wrong-button')).toBeVisible();
+    await communityFlag.getByTestId('mark-wrong-button').click();
+    await communityFlag.getByTestId('mark-wrong-note').fill('Not our department any more');
+    await communityFlag.getByTestId('mark-wrong-save').click();
+    await expect(communityFlag.getByTestId('mark-wrong-flagged')).toContainText(
+      'Not our department any more',
+    );
+    await page.screenshot({ path: resolve(SHOTS, '22-nonadmin-community-flag.png'), fullPage: true });
+  } finally {
+    await setE2eEmployeeAdmin(true);
+  }
+});
+
 test('zh locale shows translations and keeps chrome English', async ({ page, context }) => {
   const ids = seed();
   await signIn(context);

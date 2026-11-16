@@ -1,13 +1,16 @@
-"""Admin review flags for the Map review gate (issue #255) and their G1
+"""Review flags for the Map review gate (issue #255) and their G1
 resolution into corrections.
 
-An admin marks an entity, a projected relation edge or a community as wrong
-with an optional note; the flags are listed and resolved on the review page.
+Any logged-in employee marks an entity, a projected relation edge or a
+community as wrong with an optional note (issue #597: the Map review has to
+be done by people in the respective departments); admins list the flags and
+resolve them on the review page.
 Resolving (G1) REQUIRES choosing an action — reject, edit, confirm, merge,
 split, rename or reassign — and each write creates a ``cmap.correction`` row
 keyed by content (brain/corrections.py), so the verdict survives rebuilds.
 Community flags have no correction target kind and resolve without one.
-Behind the plan §8 admin flag, like upload, delete and run.
+Listing and resolving stay behind the plan §8 admin gate, like upload, delete
+and run; creating a flag only needs a logged-in employee.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from brain.api.deps import User, require_admin
+from brain.api.deps import User, current_user, require_admin
 from brain.corrections import CORRECTION_ACTIONS, flag_target, record_correction
 from brain.db import get_pool
 
@@ -141,11 +144,12 @@ def _labels(conn: Any, rows: list[dict[str, Any]]) -> None:
 @router.post("/flags")
 def create_flag(
     body: FlagBody,
-    user: Annotated[User, Depends(require_admin)],
+    user: Annotated[User, Depends(current_user)],
 ) -> dict[str, Any]:
     """Flag one entity, relation or community as wrong.
 
-    A second open flag on the same item just refreshes the note.
+    Open to every logged-in employee (issue #597); a second open flag on the
+    same item just refreshes the note.
     """
     item_id = _norm_item(body.item_type, body.item_id)
     note = (body.note or "").strip() or None

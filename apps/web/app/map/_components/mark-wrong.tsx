@@ -1,8 +1,9 @@
 'use client';
 
-// Admin "Mark as wrong" control (issue #255): flags an entity, a projected
+// "Mark as wrong" control (issue #255): flags an entity, a projected
 // relation edge or a community in cmap.review_flag through the brain proxy.
-// Non-admins never see it; an open flag is shown on later visits too.
+// Open to every logged-in employee (issue #597); the open-flag pre-check
+// (GET /flags) stays admin-only, so non-admins start from the button.
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -26,7 +27,10 @@ export function MarkWrongButton({
 }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
-  const [flag, setFlag] = useState<ReviewFlag | null | undefined>(undefined);
+  // Non-admins skip the admin-only pre-check and start on the button.
+  const [flag, setFlag] = useState<ReviewFlag | null | undefined>(
+    isAdmin ? undefined : null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,7 +51,7 @@ export function MarkWrongButton({
     };
   }, [isAdmin, itemType, itemId]);
 
-  if (!isAdmin || flag === undefined) return null;
+  if (flag === undefined) return null;
 
   async function submit() {
     setBusy(true);
