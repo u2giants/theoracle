@@ -21,7 +21,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 
 | Step | Title | State | Evidence / blocker | Updated (EDT) |
 |---|---|---|---|---|
-| 0.1 | Prove Graph transcript access; wire `AZURE_*` into the brain env | ⬜ open | — | — |
+| 0.1 | Prove Graph transcript access; wire `AZURE_*` into the brain env | 🟨 env wired; transcript read blocked on tenant consent | #593 (2026-11-16): token + directory read OK with the vault credential; every transcript variant (`getAllTranscripts(meetingOrganizerUserId=…)`, v1.0 and beta, bare and date-windowed) returns 403 — Entra app lacks the admin-consented `OnlineMeetingTranscript.Read.All` application permission (Graph: "Missing role permissions on the request. API requires one of 'OnlineMeetingTranscript.Read.All'."), plus a Teams application access policy; transcript shape/VTT probe therefore pending consent. `AZURE_TENANT_ID` / `AZURE_GRAPH_CLIENT_ID` / `AZURE_GRAPH_CLIENT_SECRET` added to the brain's Coolify env (201 each, key names verified, values match source); no deploy (env-only) | 2026-11-16 |
 | 0.2 | `cmap.transcript_candidate` staging table (migration) | ⬜ open | — | — |
 | 0.3 | Brain-side Microsoft Graph client (`brain/meetings/graph_ms.py`) | ⬜ open | — | — |
 | 1.1 | Hourly transcript sweep job (enumerate → stage candidates) | ⬜ open | — | — |
