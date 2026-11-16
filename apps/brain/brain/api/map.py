@@ -16,6 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from brain.api.deps import User, current_user, require_admin
+from brain.api.functions import _resolve as _function_by_ref
 from brain.api.functions import item_assignments
 from brain.contradictions import entity_contradictions, list_rows
 from brain.db import get_pool
@@ -30,6 +31,14 @@ MAX_GRAPH_NODES = 2000
 MAX_GRAPH_EDGES = 5000
 MAX_QUOTES_PER_NEIGHBOUR = 5
 COMPANY_ISSUES = 10
+# Repair C5: the map page is organised by function. The card "top issues"
+# degrade to what exists today — open D3 conflicts and the gap rows D3 writes
+# (department = function name) — until F6's coverage scorecard lands.
+CONFLICT_KINDS = ("true_contradiction", "policy_vs_practice", "precedes_cycle")
+FUNCTION_CARD_ISSUES = 3
+FUNCTION_PEOPLE_TYPES = ("Person", "Role")
+FUNCTION_SECTION_CAP = 50
+FUNCTION_SOURCES_PER_ENTITY = 3
 
 
 def _uuid(value: str, label: str) -> str:
@@ -183,6 +192,270 @@ def get_company(user: Annotated[User, Depends(current_user)]) -> dict[str, Any]:
             "issues": issues,
         },
         "graph_version": version,
+    }
+
+
+def _function_counts(conn: Any) -> dict[str, dict[str, int]]:
+    """Per function: assigned entities (split into processes and people),
+    assigned sources, open conflicts (D3) and open gaps (D3's ``department``
+    column carries the function name)."""
+    counts: dict[str, dict[str, int]] = {}
+    for row in conn.execute(
+        "SELECT ef.function_id::text, count(*), "
+        "count(*) FILTER (WHERE e.entity_type = 'Process'), "
+        "count(*) FILTER (WHERE e.entity_type = ANY(%s)) "
+        "FROM cmap.entity_function ef JOIN cmap.entity e ON e.id = ef.entity_id "
+        "GROUP BY 1",
+        (list(FUNCTION_PEOPLE_TYPES),),
+    ).fetchall():
+        counts[str(row[0])] = {
+            "entities": int(row[1]),
+            "processes": int(row[2]),
+            "people": int(row[3]),
+        }
+    for row in conn.execute(
+        "SELECT function_id::text, count(*) FROM cmap.source_function GROUP BY 1"
+    ).fetchall():
+        counts.setdefault(str(row[0]), {})["sources"] = int(row[1])
+    for row in conn.execute(
+        "SELECT f.id::text, count(*) FROM cmap.open_question q "
+        "JOIN cmap.function f ON f.name = q.department "
+        "WHERE q.state IN ('open', 'asked') GROUP BY 1"
+    ).fetchall():
+        counts.setdefault(str(row[0]), {})["gaps"] = int(row[1])
+    for row in conn.execute(
+        "SELECT pick.function_id::text, count(*) FROM cmap.contradiction ct "
+        "JOIN LATERAL ("
+        "  SELECT ef.function_id FROM cmap.relation r "
+        "  JOIN cmap.mention m ON m.id IN (r.from_mention_id, r.to_mention_id) "
+        "  JOIN cmap.entity_function ef ON ef.entity_id = m.entity_id "
+        "  WHERE r.id IN (ct.relation_a, ct.relation_b) "
+        "  GROUP BY ef.function_id ORDER BY sum(ef.weight) DESC LIMIT 1"
+        ") pick ON TRUE "
+        "WHERE ct.status = 'open' AND ct.kind = ANY(%s) GROUP BY 1",
+        (list(CONFLICT_KINDS),),
+    ).fetchall():
+        counts.setdefault(str(row[0]), {})["contradictions"] = int(row[1])
+    return counts
+
+
+def _function_issues(
+    conn: Any, function_id: str | None = None
+) -> dict[str, list[dict[str, str]]]:
+    """Per function, the card's top issue lines: open D3 conflict summaries
+    first (each conflict belongs to its entities' heaviest function, the same
+    rule D3's gap targeting uses), then open gap questions."""
+    issues: dict[str, list[dict[str, str]]] = {}
+    sql = (
+        "SELECT pick.function_id::text, ct.summary FROM cmap.contradiction ct "
+        "JOIN LATERAL ("
+        "  SELECT ef.function_id FROM cmap.relation r "
+        "  JOIN cmap.mention m ON m.id IN (r.from_mention_id, r.to_mention_id) "
+        "  JOIN cmap.entity_function ef ON ef.entity_id = m.entity_id "
+        "  WHERE r.id IN (ct.relation_a, ct.relation_b) "
+        "  GROUP BY ef.function_id ORDER BY sum(ef.weight) DESC LIMIT 1"
+        ") pick ON TRUE "
+        "WHERE ct.status = 'open' AND ct.kind = ANY(%s)"
+    )
+    params: list[Any] = [list(CONFLICT_KINDS)]
+    if function_id is not None:
+        sql += " AND pick.function_id = %s::uuid"
+        params.append(function_id)
+    for row in conn.execute(sql, params).fetchall():
+        issues.setdefault(str(row[0]), []).append(
+            {"text": str(row[1]), "kind": "contradiction"}
+        )
+    gap_sql = (
+        "SELECT f.id::text, q.question FROM cmap.open_question q "
+        "JOIN cmap.function f ON f.name = q.department "
+        "WHERE q.state IN ('open', 'asked')"
+    )
+    gap_params: list[Any] = []
+    if function_id is not None:
+        gap_sql += " AND f.id = %s::uuid"
+        gap_params.append(function_id)
+    for row in conn.execute(gap_sql, gap_params).fetchall():
+        issues.setdefault(str(row[0]), []).append({"text": str(row[1]), "kind": "gap"})
+    return issues
+
+
+@router.get("/map/functions")
+def get_function_cards(user: Annotated[User, Depends(current_user)]) -> dict[str, Any]:
+    """One card per active function for the map page (repair C5).
+
+    Left of the cards the page keeps the company report; each card carries
+    counts and the top open issues. The coverage score from F6 is not landed,
+    so no score is returned yet — the counts are the honest fallback.
+    """
+    del user
+    with get_pool().connection() as conn:
+        version = _current_version(conn)
+        rows = conn.execute(
+            "SELECT f.id::text, f.key, f.name, f.description, c.id::text, c.report_md "
+            "FROM cmap.function f LEFT JOIN cmap.community c "
+            "ON c.function_id = f.id AND c.level = 1 AND c.graph_version = %s "
+            "WHERE f.active ORDER BY f.sort, f.name",
+            (version if version is not None else -1,),
+        ).fetchall()
+        counts = _function_counts(conn)
+        issues = _function_issues(conn)
+    cards: list[dict[str, Any]] = []
+    for function_id, key, name, description, report_id, report_md in rows:
+        _, summary = _split_report_md(str(report_md or ""))
+        card = counts.get(function_id, {})
+        cards.append(
+            {
+                "id": function_id,
+                "key": str(key),
+                "name": str(name),
+                "description": str(description or ""),
+                "report_id": str(report_id) if report_id else None,
+                "summary": summary,
+                "entity_count": card.get("entities", 0),
+                "source_count": card.get("sources", 0),
+                "process_count": card.get("processes", 0),
+                "person_count": card.get("people", 0),
+                "open_contradictions": card.get("contradictions", 0),
+                "open_gaps": card.get("gaps", 0),
+                "top_issues": issues.get(function_id, [])[:FUNCTION_CARD_ISSUES],
+            }
+        )
+    return {"functions": cards, "graph_version": version}
+
+
+def _function_entities(
+    conn: Any, function_id: str, types: tuple[str, ...], with_sources: bool
+) -> list[dict[str, Any]]:
+    """The function's entities of one kind (C5: processes and people), each
+    with its top sources so the page can link straight to the evidence."""
+    rows = conn.execute(
+        "SELECT e.id::text, e.canonical_name, e.entity_type, e.source_count "
+        "FROM cmap.entity e JOIN cmap.entity_function ef ON ef.entity_id = e.id "
+        "WHERE ef.function_id = %s AND e.entity_type = ANY(%s) "
+        "ORDER BY e.source_count DESC, e.canonical_name LIMIT %s",
+        (function_id, list(types), FUNCTION_SECTION_CAP),
+    ).fetchall()
+    items = [
+        {
+            "id": str(row[0]),
+            "name": str(row[1]),
+            "type": str(row[2]),
+            "source_count": int(row[3]),
+            "sources": [],
+        }
+        for row in rows
+    ]
+    if with_sources and items:
+        sources: dict[str, list[dict[str, str]]] = {item["id"]: [] for item in items}
+        for row in conn.execute(
+            "SELECT m.entity_id::text, s.id::text, s.title, count(*) AS hits "
+            "FROM cmap.mention m JOIN cmap.chunk ch ON ch.id = m.chunk_id "
+            "JOIN cmap.source s ON s.id = ch.source_id "
+            "WHERE m.entity_id = ANY(%s::uuid[]) "
+            "GROUP BY 1, 2, 3 ORDER BY 1, 4 DESC, s.title",
+            ([item["id"] for item in items],),
+        ).fetchall():
+            bucket = sources[str(row[0])]
+            if len(bucket) < FUNCTION_SOURCES_PER_ENTITY:
+                bucket.append({"id": str(row[1]), "title": str(row[2])})
+        for item in items:
+            item["sources"] = sources[item["id"]]
+    return items
+
+
+@router.get("/map/functions/{ref}")
+def get_function_detail(ref: str, user: Annotated[User, Depends(current_user)]) -> dict[str, Any]:
+    """The function page (repair C5): its report (the C3 level-1 community),
+    its processes (linked to their sources until E5's flow pages land), its
+    sub-topics, its people, its open gaps and the open conflicts touching it."""
+    del user
+    with get_pool().connection() as conn:
+        function = _function_by_ref(conn, ref.strip())
+        row = conn.execute(
+            "SELECT id, title, report_md, findings, graph_version FROM cmap.community "
+            "WHERE function_id = %s AND level = 1 ORDER BY graph_version DESC LIMIT 1",
+            (function["id"],),
+        ).fetchone()
+        report: dict[str, Any] | None = None
+        sub_topics: list[dict[str, Any]] = []
+        if row is not None:
+            version = int(row[4])
+            _, summary = _split_report_md(str(row[2] or ""))
+            report = {
+                "id": str(row[0]),
+                "title": str(row[1] or function["name"]),
+                "summary": summary,
+                "report_md": str(row[2] or ""),
+                "findings": _with_sources(conn, _findings(row[3])),
+            }
+            for sub in conn.execute(
+                "SELECT id, title, report_md, cardinality(entity_ids) FROM cmap.community "
+                "WHERE function_id = %s AND level = 0 AND graph_version = %s",
+                (function["id"], version),
+            ).fetchall():
+                _, sub_summary = _split_report_md(str(sub[2] or ""))
+                sub_topics.append(
+                    {
+                        "id": str(sub[0]),
+                        "title": str(sub[1] or "Untitled area"),
+                        "summary": sub_summary,
+                        "entity_count": int(sub[3] or 0),
+                    }
+                )
+            sub_topics.sort(key=lambda item: (-item["entity_count"], item["title"]))
+        processes = _function_entities(conn, function["id"], ("Process",), True)
+        people = _function_entities(conn, function["id"], FUNCTION_PEOPLE_TYPES, False)
+        gaps = conn.execute(
+            "SELECT id::text, question, why, state, suggested_person "
+            "FROM cmap.open_question WHERE department = %s "
+            "AND state IN ('open', 'asked') "
+            "ORDER BY asked_at NULLS FIRST LIMIT %s",
+            (function["name"], FUNCTION_SECTION_CAP),
+        ).fetchall()
+        contradictions = conn.execute(
+            "SELECT ct.id::text, ct.kind, ct.status, ct.summary, sa.title, sb.title "
+            "FROM cmap.contradiction ct "
+            "JOIN cmap.relation ra ON ra.id = ct.relation_a "
+            "JOIN cmap.relation rb ON rb.id = ct.relation_b "
+            "JOIN cmap.chunk ca ON ca.id = ra.chunk_id "
+            "JOIN cmap.chunk cb ON cb.id = rb.chunk_id "
+            "JOIN cmap.source sa ON sa.id = ca.source_id "
+            "JOIN cmap.source sb ON sb.id = cb.source_id "
+            "WHERE ct.status = 'open' AND ct.kind = ANY(%s) AND EXISTS ("
+            "  SELECT 1 FROM cmap.relation r "
+            "  JOIN cmap.mention m ON m.id IN (r.from_mention_id, r.to_mention_id) "
+            "  JOIN cmap.entity_function ef ON ef.entity_id = m.entity_id "
+            "  WHERE r.id IN (ct.relation_a, ct.relation_b) AND ef.function_id = %s"
+            ") LIMIT %s",
+            (list(CONFLICT_KINDS), function["id"], FUNCTION_SECTION_CAP),
+        ).fetchall()
+    return {
+        "function": function,
+        "report": report,
+        "sub_topics": sub_topics,
+        "processes": processes,
+        "people": people,
+        "gaps": [
+            {
+                "id": str(item[0]),
+                "question": str(item[1]),
+                "why": str(item[2]),
+                "state": str(item[3]),
+                "suggested_person": item[4],
+            }
+            for item in gaps
+        ],
+        "contradictions": [
+            {
+                "id": str(item[0]),
+                "kind": str(item[1]),
+                "status": str(item[2]),
+                "summary": str(item[3]),
+                "source_a_title": str(item[4]),
+                "source_b_title": str(item[5]),
+            }
+            for item in contradictions
+        ],
     }
 
 

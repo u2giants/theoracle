@@ -165,6 +165,14 @@ def seed_map(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "ON CONFLICT (entity_id, function_id) DO UPDATE SET weight = EXCLUDED.weight",
         (function_id,),
     )
+    # Repair C2's live promise is "every source has a function"; the seed
+    # assigns the fixture corpus the same way so C5's counts are honest.
+    db.execute(
+        "INSERT INTO cmap.source_function (source_id, function_id, weight, origin) "
+        "SELECT id, %s, 1.0, 'auto' FROM cmap.source "
+        "ON CONFLICT (source_id, function_id) DO UPDATE SET weight = EXCLUDED.weight",
+        (function_id,),
+    )
     db.commit()
     monkeypatch.setattr(resolve_mod, "_post_chat", MapReports())
     run_communities()
@@ -177,13 +185,28 @@ def seed_map(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "AND %s = ANY(c.entity_ids) LIMIT 1",
         (LICENSING_TITLE, jessica[0]),
     ).fetchone()
+    # Repair C5: the gate path is company → function → process → source, so
+    # the seed names the function's strongest Process entity (mentioned in the
+    # transcript, so the entity page links straight to a source).
+    process = db.execute(
+        "SELECT e.id, e.canonical_name FROM cmap.entity e "
+        "JOIN cmap.entity_function ef ON ef.entity_id = e.id "
+        "JOIN cmap.mention m ON m.entity_id = e.id "
+        "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
+        "WHERE ef.function_id = %s AND e.entity_type = 'Process' AND ch.source_id = %s "
+        "ORDER BY e.source_count DESC, e.canonical_name LIMIT 1",
+        (function_id, transcript),
+    ).fetchone()
     return {
         "transcript_id": transcript,
         "pdf_id": pdf,
         "flowchart_id": flowchart,
         "jessica_id": str(jessica[0]),
         "jessica_name": str(jessica[1]),
+        "licensing_function_id": function_id,
         "licensing_community_id": str(licensing[0]) if licensing else None,
+        "licensing_process_id": str(process[0]) if process else None,
+        "licensing_process_name": str(process[1]) if process else None,
     }
 
 
@@ -357,8 +380,9 @@ def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
         "'{\"conversation\": {\"id\": \"a:map-e2e\"}}'::jsonb)"
     )
     db.execute(
-        "INSERT INTO cmap.open_question (question, why, entity_ids) VALUES (%s, %s, %s)",
-        (INTERVIEW_OPEN, "Licensing approval", [jessica_id]),
+        "INSERT INTO cmap.open_question (question, why, entity_ids, department) "
+        "VALUES (%s, %s, %s, %s)",
+        (INTERVIEW_OPEN, "Licensing approval", [jessica_id], LICENSING_TITLE),
     )
     db.execute(
         "INSERT INTO cmap.open_question (question, why, entity_ids, target_employee_id, "
@@ -467,7 +491,11 @@ def _contradiction_source(db: Any, title: str, effective_date: str) -> str:
 
 
 def seed_contradictions(db: Any) -> dict[str, Any]:
-    """D3 page seed: one open conflict and one recorded timeline change."""
+    """D3 page seed: one open conflict and one recorded timeline change.
+
+    Both entities join the licensing function (C2 assigns everything), so the
+    C5 function page and its card carry the open conflict.
+    """
     person = str(
         db.execute(
             "INSERT INTO cmap.entity (entity_type, canonical_name) "
@@ -480,6 +508,16 @@ def seed_contradictions(db: Any) -> dict[str, Any]:
             "VALUES ('Process', 'Sample sign-off') RETURNING id::text"
         ).fetchone()[0]
     )
+    licensing = db.execute(
+        "SELECT id FROM cmap.function WHERE key = 'licensing'"
+    ).fetchone()
+    if licensing:
+        db.execute(
+            "INSERT INTO cmap.entity_function (entity_id, function_id, weight, origin) "
+            "VALUES (%s::uuid, %s::uuid, 1.0, 'auto'), (%s::uuid, %s::uuid, 1.0, 'auto') "
+            "ON CONFLICT (entity_id, function_id) DO UPDATE SET weight = EXCLUDED.weight",
+            (person, str(licensing[0]), process, str(licensing[0])),
+        )
     memo = _contradiction_source(db, "Ownership memo", "2026-01-10")
     notes = _contradiction_source(db, "Team standup notes", "2026-01-10")
     rel_a = _contradiction_relation(

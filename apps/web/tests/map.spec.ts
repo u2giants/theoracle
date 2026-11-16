@@ -11,7 +11,10 @@ type Seed = {
   transcript_id: string;
   jessica_id: string;
   jessica_name: string;
+  licensing_function_id: string;
   licensing_community_id: string;
+  licensing_process_id: string;
+  licensing_process_name: string;
   eval_first_mean: number;
   eval_mean: number;
   interview_open: string;
@@ -98,13 +101,16 @@ test('map → licensing community → Jessica → quote → highlighted transcri
 
   await page.goto('/map');
   const card = page.locator(
-    `[data-testid="community-card"][data-community-id="${ids.licensing_community_id}"]`,
+    `[data-testid="function-card"][data-function-id="${ids.licensing_function_id}"]`,
   );
   await expect(card).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('top-issues').locator('li').first()).toBeVisible();
   await page.screenshot({ path: resolve(SHOTS, '01-map-home.png'), fullPage: true });
 
+  // Repair C5: the card opens the function page; its report heading is the
+  // level-1 community title (the function name).
   await card.click();
+  await expect(page).toHaveURL(new RegExp('/map/function/licensing'));
   await expect(page.getByTestId('community-title')).toHaveText('Licensing approval');
   await expect(page.getByTestId('finding').first()).toBeVisible();
   await expect(page.getByTestId('stance-badge').first()).toBeVisible();
@@ -758,4 +764,55 @@ test('contradictions page and entity section show the sources disagree', async (
       .getByTestId('entity-contradiction-summary')
       .filter({ hasText: seed().contradiction_summary }),
   ).toBeVisible();
+});
+
+// Repair plan C5 gate: the map page is organised by function, and the path
+// company → function → process → source is clickable end to end.
+test('company map → function page → process → source', async ({ page, context }) => {
+  const ids = seed();
+  await signIn(context);
+
+  // Company map: the function card carries counts and its top open issues.
+  await page.goto('/map');
+  const card = page.locator(
+    `[data-testid="function-card"][data-function-id="${ids.licensing_function_id}"]`,
+  );
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  await expect(card.getByTestId('function-card-open')).toContainText('1 open disagreement');
+  await expect(card.getByTestId('function-card-open')).toContainText('1 open gap');
+  await expect(
+    card.getByTestId('function-card-issue').filter({ hasText: ids.contradiction_summary }),
+  ).toBeVisible();
+
+  // Function page: report, processes, people, gaps and disagreements.
+  await card.click();
+  await expect(page).toHaveURL(new RegExp('/map/function/licensing'));
+  await expect(page.getByTestId('function-name')).toHaveText('Licensing approval');
+  await expect(page.getByTestId('community-title')).toHaveText('Licensing approval');
+  await expect(page.getByTestId('finding').first()).toBeVisible();
+  await expect(page.getByTestId('function-person').first()).toBeVisible();
+  await expect(page.getByTestId('function-gap').first()).toBeVisible();
+  await expect(
+    page.getByTestId('function-contradiction').filter({ hasText: ids.contradiction_summary }),
+  ).toBeVisible();
+  await page.screenshot({ path: resolve(SHOTS, '23-function-page.png'), fullPage: true });
+
+  // Process: its row links to the entity page and shows its source chips.
+  const process = page.locator(
+    `[data-testid="function-process"][data-process-id="${ids.licensing_process_id}"]`,
+  );
+  await expect(process).toBeVisible();
+  await expect(process.getByTestId('source-chip').first()).toBeVisible();
+  await expect(process.getByTestId('function-process-name')).toHaveText(
+    ids.licensing_process_name,
+  );
+  await process.getByTestId('function-process-name').click();
+  await expect(page).toHaveURL(new RegExp(`/map/entity/${ids.licensing_process_id}`));
+  await expect(page.getByTestId('entity-panel')).toBeVisible({ timeout: 60_000 });
+
+  // Source: the entity's sources land on the transcript page.
+  const sourceChip = page.getByTestId('source-chip').first();
+  await sourceChip.click();
+  await expect(page.getByTestId('source-title')).toBeVisible({ timeout: 60_000 });
+  await page.screenshot({ path: resolve(SHOTS, '24-function-process-source.png'), fullPage: true });
 });
