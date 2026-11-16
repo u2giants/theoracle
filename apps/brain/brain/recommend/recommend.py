@@ -292,7 +292,13 @@ def _context(
         lines.append(f'- [{item["source_id"]}] "{item["quote"]}"')
     lines.append(f"AREA REPORT ({candidate['title']}):")
     lines.append(candidate["report_md"])
-    return _fit(lines, frontier)
+    context, cut = _fit(lines, frontier)
+    if cut:
+        logger.warning(
+            "recommendation context hard-fitted under the token budget at a "
+            "sentence boundary (#586); the cut is marked inside the context"
+        )
+    return context
 
 
 def _store(conn: psycopg.Connection, community_id: str, rec: dict[str, Any]) -> str:

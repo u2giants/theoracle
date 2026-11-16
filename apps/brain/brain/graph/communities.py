@@ -17,7 +17,11 @@ stable id, so recommendation and review-flag references survive every rebuild.
 A report written while a child report failed is stored ``incomplete`` so the
 next run regenerates it instead of caching it without the child. Over-budget
 context is map-reduced (summarised in batches, then combined) — never
-truncated silently.
+truncated silently. When the bounded reduce rounds still cannot meet the
+budget, the combined summaries are hard-fitted under it at sentence
+boundaries with a visible cut marker and the report is stored ``incomplete``
+so the next run regenerates it — the job converges instead of failing
+(#586).
 
 Cross-boundary hand-offs (repair E4): every level-0 and level-1 report also
 receives its **boundary edges** (relations to entities outside the cluster or
@@ -37,6 +41,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -114,7 +119,7 @@ def _tokens(text: str) -> int:
     return len(encoder.encode(text, disallowed_special=()))
 
 
-def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> str:
+def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> tuple[str, bool]:
     """Join context lines under the token budget by map-reduce, never truncation.
 
     An over-budget context is split into batches, each batch is summarised by
@@ -123,12 +128,27 @@ def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> str:
     ``MAX_SUMMARY_ROUNDS`` rounds. Every input line reaches a model call — the
     old behaviour silently dropped lines from the end and marked the damage
     "context truncated" (audit C2).
+
+    Repair #586: the reduce passes are bounded and deterministic — when the
+    budget still cannot be met after ``MAX_SUMMARY_ROUNDS`` rounds, the hard
+    fallback ``_fit_sentences`` fits the combined summaries under the budget
+    at sentence boundaries with a visible cut marker, and the caller stores
+    the report ``incomplete`` so the next run regenerates it, instead of
+    raising and failing the job. Returns ``(text, incomplete)``.
     """
     text = "\n".join(lines)
     if _tokens(text) <= MAX_CONTEXT_TOKENS:
-        return text
+        return text, False
     if _round >= MAX_SUMMARY_ROUNDS:
-        raise RuntimeError("context map-reduce did not converge under the token budget")
+        fitted, cut = _fit_sentences(text, MAX_CONTEXT_TOKENS)
+        logger.warning(
+            "context map-reduce did not converge in %d rounds; hard-fitted "
+            "the context under the token budget at a sentence boundary "
+            "(cut=%s)",
+            MAX_SUMMARY_ROUNDS,
+            cut,
+        )
+        return fitted, cut
     summaries = [
         _ask_summary(frontier, "\n".join(batch))
         for batch in _batch_lines(lines, max(64, MAX_CONTEXT_TOKENS // 2))
@@ -139,6 +159,81 @@ def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> str:
     ]
     combined.extend(summaries)
     return _fit(combined, frontier, _round + 1)
+
+
+# Repair #586: the marker every hard-fitted context ends with. The cut is
+# visible to the model AND the stored report carries incomplete=true, so a
+# sentence-boundary cut is never a silent truncation (audit C2's rule stands).
+CONTEXT_CUT_MARKER = (
+    "[CONTEXT INCOMPLETE: bounded map-reduce rounds could not fit every "
+    "summary under the token budget; the rest was cut at a sentence boundary "
+    "and this report is stored incomplete (#586).]"
+)
+
+_SENTENCE_END = re.compile(r"(?<=[.!?。！？…])\s+")
+
+
+def _sentence_units(text: str) -> list[str]:
+    """Content units in order: sentence ends inside each line, CJK included."""
+    units: list[str] = []
+    for line in text.split("\n"):
+        units.extend(unit for unit in _SENTENCE_END.split(line) if unit.strip())
+    return units
+
+
+def _word_fit(text: str, room_tokens: int) -> str:
+    """Cut ``text`` at word boundaries into ``room_tokens`` tokens.
+
+    A single word larger than the room (a CJK run without spaces) is trimmed
+    character by character — the budget is a hard guarantee.
+    """
+    if room_tokens <= 0:
+        return ""
+    piece: list[str] = []
+    for word in text.split(" "):
+        candidate = [*piece, word]
+        if _tokens(" ".join(candidate)) > room_tokens:
+            break
+        piece = candidate
+    if piece:
+        return " ".join(piece)
+    cut = max(1, int(len(text) * room_tokens / max(1, _tokens(text))))
+    while cut > 1 and _tokens(text[:cut]) > room_tokens:
+        cut -= 1
+    return text[:cut].rstrip()
+
+
+def _fit_sentences(text: str, budget_tokens: int) -> tuple[str, bool]:
+    """Hard-fit ``text`` under ``budget_tokens`` at sentence boundaries (#586).
+
+    The map-reduce fallback of last resort: whole sentences are kept in order
+    while they fit; the first sentence that does not fit is cut at word
+    boundaries inside itself so one pathological sentence cannot empty the
+    context; the visible ``CONTEXT_CUT_MARKER`` closes the result. Returns
+    the fitted text and whether anything was dropped.
+    """
+    units = _sentence_units(text)
+    plain = "\n".join(units)
+    if _tokens(plain) <= budget_tokens:
+        return plain, False
+    room = budget_tokens - _tokens(CONTEXT_CUT_MARKER) - 2
+    kept: list[str] = []
+    for unit in units:
+        if _tokens("\n".join([*kept, unit])) <= room:
+            kept.append(unit)
+            continue
+        if not kept:
+            kept.append(_word_fit(unit, room))
+        break
+    fitted = "\n".join([*kept, "", CONTEXT_CUT_MARKER])
+    # Defensive trim: the budget is a hard guarantee, not an approximation.
+    while _tokens(fitted) > budget_tokens and len(kept) > 1:
+        kept.pop()
+        fitted = "\n".join([*kept, "", CONTEXT_CUT_MARKER])
+    while _tokens(fitted) > budget_tokens and kept and len(kept[-1]) > 1:
+        kept[-1] = kept[-1][:-1].rstrip()
+        fitted = "\n".join([*kept, "", CONTEXT_CUT_MARKER])
+    return fitted, True
 
 
 def _batch_lines(lines: list[str], budget_tokens: int) -> list[list[str]]:
@@ -821,8 +916,12 @@ def _context_l0(
     frontier: _Frontier,
     function_name: str | None = None,
     handoffs: list[str] | None = None,
-) -> str:
-    """Entity list, top edges, boundary hand-offs and quotes for one community."""
+) -> tuple[str, bool]:
+    """Entity list, top edges, boundary hand-offs and quotes for one community.
+
+    Returns the context and whether the token-budget hard fallback cut it
+    (#586) — the report is then stored ``incomplete``.
+    """
     member_ids = {member["id"] for member in members}
     names = {member["id"]: member["name"] for member in members}
     lines = []
@@ -875,11 +974,13 @@ def _context_reports(
     frontier: _Frontier,
     header: str | None = None,
     handoffs: list[str] | None = None,
-) -> str:
+) -> tuple[str, bool]:
     """Level-1/2 context: the reports beneath, with findings and hand-offs.
 
     ``handoffs`` is the report's own boundary list (level 1) or the
-    function-to-function hand-off matrix (level 2, repair E4).
+    function-to-function hand-off matrix (level 2, repair E4). Returns the
+    context and whether the token-budget hard fallback cut it (#586) — the
+    report is then stored ``incomplete``.
     """
     lines = []
     if header:
@@ -1513,27 +1614,27 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
 
         # Ask level 0 only where the content hash changed or the row is new.
         # Contexts (and their map-reduce summaries) build serially first, so
-        # the written rows match a serial pass exactly.
+        # the written rows match a serial pass exactly. A context the bounded
+        # map-reduce could only hard-fit under the budget (#586) stores its
+        # report incomplete so the next run regenerates it.
         ask_items = [cluster for cluster in clusters if not cluster["reuse"]]
         for position, cluster in enumerate(ask_items):
             cluster["ask_index"] = position
+        contexts: list[str] = []
+        for cluster in ask_items:
+            context, incomplete = _context_l0(
+                conn,
+                cluster["members"],
+                edges,
+                frontier,
+                function_name=cluster["function_name"],
+                handoffs=cluster["handoffs"],
+            )
+            contexts.append(context)
+            cluster["context_incomplete"] = incomplete
         asked = _ask_many(
             frontier,
-            [
-                (
-                    SCOPE_L0,
-                    "",
-                    _context_l0(
-                        conn,
-                        cluster["members"],
-                        edges,
-                        frontier,
-                        function_name=cluster["function_name"],
-                        handoffs=cluster["handoffs"],
-                    ),
-                )
-                for cluster in ask_items
-            ],
+            [(SCOPE_L0, "", context) for context in contexts],
         )
         for cluster in clusters:
             if cluster["reuse"]:
@@ -1568,6 +1669,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 row_id=cluster["row_id"],
                 function_id=cluster["function_id"],
                 content_hash=cluster["content_hash"],
+                incomplete=cluster["context_incomplete"],
                 title_override=cluster["title_override"],
             )
             stats["findings_dropped"] += dropped
@@ -1632,17 +1734,13 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                     )
                     conn.commit()
                 continue
-            report = _ask_with_retry(
+            context, context_incomplete = _context_reports(
+                available,
                 frontier,
-                SCOPE_L1,
-                "",
-                _context_reports(
-                    available,
-                    frontier,
-                    header=f"FUNCTION: {function_name}",
-                    handoffs=function_handoffs,
-                ),
+                header=f"FUNCTION: {function_name}",
+                handoffs=function_handoffs,
             )
+            report = _ask_with_retry(frontier, SCOPE_L1, "", context)
             if report is None:
                 stats["reports_failed"] += 1
                 if existing:
@@ -1664,7 +1762,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 row_id=function_id,
                 function_id=function_id,
                 content_hash=content_hash,
-                incomplete=not complete,
+                incomplete=not complete or context_incomplete,
                 title_override=function_name,
             )
             stats["findings_dropped"] += dropped
@@ -1703,11 +1801,11 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             conn.commit()
             stats["reports_reused"] += 1
         else:
+            company_context, context_incomplete = _context_reports(
+                l0_summaries, frontier, handoffs=matrix_lines
+            )
             company = _ask_with_retry(
-                frontier,
-                SCOPE_L2,
-                COMPANY_EXTRA,
-                _context_reports(l0_summaries, frontier, handoffs=matrix_lines),
+                frontier, SCOPE_L2, COMPANY_EXTRA, company_context
             )
             if company is None:
                 raise RuntimeError("company community report failed after retries")
@@ -1722,7 +1820,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 valid_sources,
                 row_id=existing_company["row_id"] if existing_company else None,
                 content_hash=company_hash,
-                incomplete=any_failed,
+                incomplete=any_failed or context_incomplete,
             )
             stats["findings_dropped"] += dropped
             stats["open_questions"] += _store_open_questions(

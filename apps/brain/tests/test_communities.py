@@ -1171,3 +1171,126 @@ def test_edge_cap_keeps_once_stated_sequence(
     edges_part = prompt.split("EDGES:", 1)[1].split("SOURCES", 1)[0]
     assert "PRECEDES" in edges_part
     assert "MENTIONS" not in edges_part
+
+
+# --- #586: the map-reduce converges; the hard fallback marks incomplete ------
+
+
+NEVER_SHRINKS = ("unshrinkable batch digest. " * 18).strip()
+
+
+def test_map_reduce_converges_and_marks_incomplete(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """#586: a never-shrinking summariser still yields a finished job.
+
+    The pathological frontier answers every summarisation batch with the same
+    over-budget text, so no reduce round can fit the company context under
+    the token budget — the input that used to raise "context map-reduce did
+    not converge under the token budget" and hold the worker for ~90
+    minutes. Now the reduce stays within its bounded rounds, the context is
+    hard-fitted under the budget at sentence boundaries with a visible cut
+    marker, and the report row is stored incomplete=true (so the next run
+    regenerates it) instead of failing the job.
+    """
+    from brain.config import get_settings
+    from brain.graph import communities as comm
+    from brain.resolve.resolve import _Frontier
+
+    monkeypatch.setattr(comm, "MAX_CONTEXT_TOKENS", 200)
+    assert comm._tokens(NEVER_SHRINKS) > 100  # each batch digest stays fat
+
+    _seed_approval_map(db)
+    _seed_second_cluster(db)
+    run_project()
+    fake = _fake(
+        monkeypatch,
+        summary=("detail-line " * 60) + "UNIQUEMARK",
+        numbered=True,
+        summarise=lambda prompt: NEVER_SHRINKS,
+    )
+
+    real_batch_lines = comm._batch_lines
+    batch_rounds: list[int] = []
+
+    def _counting_batch_lines(lines: list[str], budget_tokens: int) -> list[list[str]]:
+        batches = real_batch_lines(lines, budget_tokens)
+        batch_rounds.append(len(batches))
+        return batches
+
+    monkeypatch.setattr(comm, "_batch_lines", _counting_batch_lines)
+    stats = run_communities()  # the old code raised here (#586)
+    assert stats["reports_failed"] == 0
+    del batch_rounds[:]
+    # The pathological company context: exactly the bounded rounds ran, then
+    # the hard fallback fitted the combined digests under the budget.
+    context, incomplete = comm._fit(
+        [f"## Area {number}\n{NEVER_SHRINKS}" for number in range(1, 4)],
+        _Frontier(get_settings(), "reports"),
+    )
+    assert len(batch_rounds) == comm.MAX_SUMMARY_ROUNDS
+    assert incomplete is True
+    assert comm._tokens(context) <= comm.MAX_CONTEXT_TOKENS
+    assert comm.CONTEXT_CUT_MARKER in context
+    assert context.startswith("COMBINED SUMMARIES") or "unshrinkable" in context
+
+    # The stored company report row carries incomplete=true, and the model saw
+    # the visible cut marker — the cut is never silent.
+    assert any(flag is True for _level, flag in db.execute(
+        "SELECT level, incomplete FROM cmap.community"
+    ).fetchall())
+    assert db.execute(
+        "SELECT incomplete FROM cmap.community WHERE level = 2"
+    ).fetchone()[0] is True
+    assert any(comm.CONTEXT_CUT_MARKER in prompt for prompt in fake.prompts)
+    assert all("context truncated" not in prompt for prompt in fake.prompts)
+
+    # An incomplete report never caches: the next run regenerates it (and
+    # finishes again instead of raising).
+    before = len(fake.prompts)
+    second = run_communities()
+    assert second["reports_reused"] < second["reports"]
+    assert any(
+        comm.CONTEXT_CUT_MARKER in prompt for prompt in fake.prompts[before:]
+    )
+
+
+def test_hard_fallback_fits_at_sentence_boundaries() -> None:
+    """#586: the hard fallback keeps whole sentences, CJK included, in order.
+
+    The budget is a hard guarantee: the fitted text (with its visible cut
+    marker) never exceeds it, sentences are kept whole from the top, and a
+    first sentence larger than the whole budget is cut at word boundaries
+    inside itself rather than emptying the context.
+    """
+    from brain.graph import communities as comm
+
+    budget = 60
+    sentences = [
+        "First sentence stays. ",
+        "第二句保留。 ",
+        "Third sentence stays too. ",
+        "The fourth sentence is dropped at the boundary. ",
+    ] * 6
+    fitted, cut = comm._fit_sentences("".join(sentences), budget)
+    assert cut is True
+    assert comm._tokens(fitted) <= budget
+    assert fitted.startswith("First sentence stays.")
+    assert "第二句保留。" in fitted
+    assert "The fourth sentence is dropped" not in fitted
+    assert comm.CONTEXT_CUT_MARKER in fitted
+
+    # A single sentence larger than the whole budget: word-cut, never empty.
+    huge = "word " * 400
+    fitted_huge, cut_huge = comm._fit_sentences(huge, budget)
+    assert cut_huge is True
+    assert comm._tokens(fitted_huge) <= budget
+    assert fitted_huge.startswith("word word")
+    assert fitted_huge.endswith(comm.CONTEXT_CUT_MARKER)
+
+    # Nothing dropped, nothing marked: a fitting text passes through intact.
+    small = "One small sentence. Another one."
+    fitted_small, cut_small = comm._fit_sentences(small, 60)
+    assert cut_small is False
+    assert "One small sentence." in fitted_small
+    assert comm.CONTEXT_CUT_MARKER not in fitted_small
