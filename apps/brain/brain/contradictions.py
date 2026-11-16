@@ -40,7 +40,7 @@ from psycopg.types.json import Json
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.function_assign import function_for_label
-from brain.llm import message_content, post_chat_with_rescue
+from brain.llm import message_content, parse_json_reply, post_chat_json_body
 from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
@@ -121,13 +121,17 @@ def build_prompt(rel_a: dict[str, Any], rel_b: dict[str, Any]) -> str:
 def _post_chat(
     messages: list[dict[str, Any]], settings: Settings
 ) -> dict[str, Any]:
-    """POST one contradiction-classifier chat request on the frontier seat."""
+    """POST one contradiction-classifier chat request on the frontier seat.
+
+    The reply must be JSON: a first reply that is not parses triggers one
+    bounded repair re-ask before the stage error is raised (issue #592).
+    """
     model = stage_model(settings, "contradictions")
     if model is None:
         raise ContradictionError(
             "no model on the contradictions seat (BRAIN_FRONTIER_MODEL)"
         )
-    return post_chat_with_rescue(
+    return post_chat_json_body(
         {
             "model": model,
             "messages": messages,
@@ -139,18 +143,27 @@ def _post_chat(
         timeout=180.0,
         error_cls=ContradictionError,
         label="contradiction compare",
+        parse=parse_contradiction_json,
     )
 
 
-def _parse_response(body: dict[str, Any]) -> dict[str, Any]:
-    raw = message_content(body)
+def parse_contradiction_json(content: str) -> dict[str, Any]:
+    """Parse one classifier reply into its classification payload.
+
+    Fences and framing prose around the JSON are tolerated
+    (``brain.llm.parse_json_reply``); anything else is the stage error.
+    """
     try:
-        payload = json.loads(raw)
+        payload = parse_json_reply(content)
     except ValueError as exc:
         raise ContradictionError("contradiction response is not JSON") from exc
     if not isinstance(payload, dict):
         raise ContradictionError("contradiction response is not a JSON object")
     return payload
+
+
+def _parse_response(body: dict[str, Any]) -> dict[str, Any]:
+    return parse_contradiction_json(message_content(body))
 
 
 # ------------------------------------------------------------- classification

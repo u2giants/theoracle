@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from brain import contradictions as cx
+from brain import llm
 from brain.config import get_settings
 
 
@@ -427,3 +428,64 @@ def test_entity_and_answers_surface_the_conflict(
         "sources disagree: sources make opposing claims "
         "(Ownership policy vs Team notes)"
     ]
+
+
+# ------------------------------------------- bounded JSON repair seam (#592)
+
+
+class _Reply:
+    """One canned chat-completions HTTP reply."""
+
+    def __init__(self, content: str, status_code: int = 200) -> None:
+        self.status_code = status_code
+        self.text = content
+        self._content = content
+
+    def json(self) -> dict[str, Any]:
+        return {"choices": [{"message": {"content": self._content}}]}
+
+
+def test_contradictions_repairs_non_json_reply_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#592: a prose reply from the contradictions seat re-asks once, then parses."""
+    monkeypatch.setattr(cx, "stage_model", lambda settings, stage: "test/frontier-model")
+    seen: list[dict[str, Any]] = []
+
+    def fake_post(url: str, **kw: Any) -> _Reply:
+        seen.append(kw["json"])
+        if len(seen) == 1:
+            return _Reply("Sure, comparing the two statements: they look similar.")
+        return _Reply(json.dumps({"classification": "same", "summary": "one claim"}))
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    settings = get_settings().model_copy(update={"openrouter_api_key": "k"})
+    body = cx._post_chat(
+        [{"role": "user", "content": "classify the pair"}], settings
+    )
+    assert cx._parse_response(body) == {"classification": "same", "summary": "one claim"}
+    assert len(seen) == 2, "exactly one repair re-ask"
+    assert seen[1]["messages"][-1]["role"] == "user"
+    assert "ONLY the JSON object" in seen[1]["messages"][-1]["content"]
+    assert seen[1]["max_tokens"] == cx.MAX_TOKENS * 2
+
+
+def test_contradictions_persistent_non_json_fails_naming_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#592: a persistently non-JSON reply fails with a provider-bearing error."""
+    monkeypatch.setattr(cx, "stage_model", lambda settings, stage: "test/frontier-model")
+    calls: list[int] = []
+
+    def fake_post(url: str, **kw: Any) -> _Reply:
+        calls.append(1)
+        return _Reply("I would rather discuss the statements in prose.")
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    settings = get_settings().model_copy(update={"openrouter_api_key": "k"})
+    with pytest.raises(
+        cx.ContradictionError,
+        match=r"provider openrouter, model 'test/frontier-model'",
+    ):
+        cx._post_chat([{"role": "user", "content": "classify the pair"}], settings)
+    assert len(calls) == 2, "bounded: first call plus one repair re-ask"
