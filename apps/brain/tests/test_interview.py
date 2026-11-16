@@ -973,13 +973,14 @@ def test_personal_sender_is_not_auto_registered(db: Any) -> None:
     assert stored == 0
 
 
-def test_conversation_lookup_works_while_interviews_off(
-    db: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+def test_conversation_lookup_admin_works_while_interviews_off(
+    db: Any, client: Any, admin_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The write-back lookup is not gated on the interviews switch.
+    """The write-back lookup stays open to admins while interviews are off.
 
-    The owner's two-way Teams test (2026-11-02) needed the bot to answer
-    while outbound interviews stay off; the ask tick gates itself.
+    The owner's two-way Teams test (2026-11-02) needed the bot to write back
+    while outbound interviews stay off. Since #591 that sanctioned shape is
+    the admin user context; the token alone no longer carries it.
     """
     from conftest import TEST_TOKEN
 
@@ -987,17 +988,107 @@ def test_conversation_lookup_works_while_interviews_off(
     _connect()
     response = client.get(
         f"/interview/teams/conversation/{EMPLOYEE_ID}",
-        headers={"x-brain-token": TEST_TOKEN},
+        headers=admin_headers,
     )
     assert response.status_code == 200
     assert response.json()["conversation_ref"]
+    # The token-only service shape is refused while the feature is off: the
+    # interview tick never sends then, so only the free-form channel closes.
+    refused = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}",
+        headers={"x-brain-token": TEST_TOKEN},
+    )
+    assert refused.status_code == 403
+    assert refused.json()["detail"] == "interviews are disabled"
 
 
-def test_lookup_carries_identity_without_a_conversation(client: Any) -> None:
+def test_proactive_gate_rejects_non_admin_caller(
+    db: Any, client: Any, user_headers: dict[str, str], enabled: None
+) -> None:
+    """A logged-in non-admin cannot unlock the proactive channel (#591)."""
+    _connect()
+    lookup = client.get(f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=user_headers)
+    assert lookup.status_code == 403
+    assert lookup.json()["detail"] == "admin required"
+    stored = client.post(
+        "/interview/teams/conversation",
+        json={"employee_id": EMPLOYEE_ID, "conversation_ref": CONVERSATION_REF},
+        headers=user_headers,
+    )
+    assert stored.status_code == 403
+
+
+def test_proactive_gate_rejects_service_caller_while_interviews_off(
+    db: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Token-only callers may resolve a chat only while interviews run.
+
+    Both halves of the tick's own condition count: the env flag and the
+    admin-page switch. With either off, the shared token alone is refused.
+    """
+    from conftest import TEST_TOKEN
+
+    _connect()
+    service_headers = {"x-brain-token": TEST_TOKEN}
+
+    monkeypatch.setattr(get_settings(), "brain_interview_enabled", True)
+    db.execute("UPDATE cmap.interview_setting SET enabled = false")
+    db.commit()
+    switch_off = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=service_headers
+    )
+    assert switch_off.status_code == 403
+    assert switch_off.json()["detail"] == "interviews are disabled"
+
+    db.execute("UPDATE cmap.interview_setting SET enabled = true")
+    db.commit()
+    monkeypatch.setattr(get_settings(), "brain_interview_enabled", False)
+    env_off = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=service_headers
+    )
+    assert env_off.status_code == 403
+    assert env_off.json()["detail"] == "interviews are disabled"
+
+
+def test_proactive_gate_allows_admin_with_interviews_on(
+    db: Any, client: Any, admin_headers: dict[str, str], enabled: None
+) -> None:
+    """Admin + interviews on: the sanctioned nudge/invite still sends (#591)."""
+    _connect()
+    lookup = client.get(f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=admin_headers)
+    assert lookup.status_code == 200
+    assert lookup.json()["conversation_ref"] == CONVERSATION_REF
+
+
+def test_proactive_gate_allows_service_caller_while_interviews_on(
+    db: Any, client: Any, enabled: None
+) -> None:
+    """The interview tick's own shape keeps working: token only, enabled."""
+    from conftest import TEST_TOKEN
+
+    _connect()
+    response = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}",
+        headers={"x-brain-token": TEST_TOKEN},
+    )
+    assert response.status_code == 200
+    assert response.json()["conversation_ref"] == CONVERSATION_REF
+    stored = client.post(
+        "/interview/teams/conversation",
+        json={"employee_id": EMPLOYEE_ID, "conversation_ref": CONVERSATION_REF},
+        headers={"x-brain-token": TEST_TOKEN},
+    )
+    assert stored.status_code == 200
+
+
+def test_lookup_carries_identity_without_a_conversation(
+    client: Any, enabled: None
+) -> None:
     """The lookup returns identity and a null reference when no chat is stored.
 
     The web layer needs the emails to open the 1:1 chat itself, and the
     tenant service URL to open it on the right Bot Connector endpoint.
+    Read through the tick's service shape (interviews on).
     """
     from conftest import TEST_TOKEN
 

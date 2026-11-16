@@ -1,5 +1,7 @@
 // Server-to-server calls to the brain service (plan step 12). The Teams bot
-// routes act for no logged-in employee, so they send only the shared token.
+// routes act for no logged-in employee, so they send only the shared token;
+// a route that also knows the caller's Supabase user id may pass it as
+// `userId` so the brain can enforce admin identity (#591).
 // Never import this from client components.
 
 export function brainServiceConfig(): { base: string; token: string } {
@@ -13,11 +15,12 @@ export function brainServiceConfig(): { base: string; token: string } {
 
 export async function brainService<T>(
   path: string,
-  init: { method?: 'GET' | 'POST'; body?: unknown } = {},
+  init: { method?: 'GET' | 'POST'; body?: unknown; userId?: string } = {},
 ): Promise<{ status: number; body: T | null }> {
   const { base, token } = brainServiceConfig();
   const headers: Record<string, string> = { 'x-brain-token': token };
   if (init.body !== undefined) headers['content-type'] = 'application/json';
+  if (init.userId) headers['x-user-id'] = init.userId;
   const res = await fetch(`${base}/${path.replace(/^\/+/, '')}`, {
     method: init.method ?? 'GET',
     headers,

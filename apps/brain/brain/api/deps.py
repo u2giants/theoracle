@@ -102,3 +102,34 @@ def employee_or_service(
         require_service(x_brain_token)
         return None
     return current_user(x_brain_token=x_brain_token, x_user_id=x_user_id)
+
+
+def _interviews_enabled() -> bool:
+    """The tick's own send condition: env flag and admin-page switch both on."""
+    # Imported lazily: brain.interview.tick pulls in the api package, so a
+    # module-level import here would be circular.
+    from brain.interview.tick import interviews_enabled
+
+    with get_pool().connection() as conn:
+        return interviews_enabled(conn, get_settings())
+
+
+def admin_or_enabled_service(
+    x_brain_token: str = Header(default=""),
+    x_user_id: str = Header(default=""),
+) -> User | None:
+    """Gate for the endpoints behind the proactive Teams send (#591).
+
+    The proactive channel used to answer to the shared token alone. Now an
+    ``x-user-id`` caller must be an admin — the sanctioned nudge/invite
+    pattern carries the brain token plus an admin user context — and a
+    token-only service call is accepted only while the interview feature is
+    enabled, the very condition the interview tick sends under, so the tick
+    keeps working while the free-form channel stays closed otherwise.
+    """
+    if not x_user_id:
+        require_service(x_brain_token)
+        if not _interviews_enabled():
+            raise HTTPException(status_code=403, detail="interviews are disabled")
+        return None
+    return require_admin(current_user(x_brain_token=x_brain_token, x_user_id=x_user_id))

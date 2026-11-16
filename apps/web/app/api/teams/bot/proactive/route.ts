@@ -1,13 +1,18 @@
 // POST /api/teams/bot/proactive  (plan step 12)
 //
-// Called only by the brain's interview tick with the shared token:
-// { employee_id, text }. Sends into the employee's Teams chat using the
+// Sends { employee_id, text } into the employee's Teams chat using the
 // stored conversation reference. When none is stored (Teams never delivered
 // a conversation update and the employee never opened the chat — 11
 // install-wave employees were stuck this way), the bot opens the 1:1 chat
 // itself, stores the reference with the brain, and sends. 404 not_reachable
-// when no Teams chat can be opened at all; the outbound interview tick stays
-// gated on the interviews switch.
+// when no Teams chat can be opened at all.
+//
+// Gating (#591): the shared token alone is no longer enough. The brain's
+// conversation lookup behind this route accepts either an admin user
+// context (x-brain-token + x-user-id of an is_admin employee — the
+// sanctioned nudge/invite pattern) or a token-only service call while the
+// interview feature is enabled — the shape the interview tick sends under.
+// Anything else gets the brain's 401/403 passed straight back.
 
 import { NextResponse, type NextRequest } from 'next/server';
 import {
@@ -75,6 +80,7 @@ async function resolveTeamsUser(emails: string[]): Promise<{ id: string; name?: 
 async function openConversation(
   employeeId: string,
   lookup: EmployeeLookup,
+  authUserId: string | null,
 ): Promise<Partial<ConversationReference>> {
   const user = await resolveTeamsUser(lookup.emails ?? []);
   if (!user) {
@@ -110,6 +116,7 @@ async function openConversation(
     await brainService('interview/teams/conversation', {
       method: 'POST',
       body: { employee_id: employeeId, conversation_ref: holder.ref },
+      ...(authUserId ? { userId: authUserId } : {}),
     });
   } catch (err) {
     console.warn('[teams/bot/proactive] could not store the new conversation reference', err);
@@ -127,12 +134,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!employeeId || !text) {
     return NextResponse.json({ error: 'employee_id and text are required' }, { status: 400 });
   }
+  // Forwarded so the brain can enforce the #591 gate: an admin user context
+  // is the sanctioned nudge/invite; without it only the interview tick's
+  // shape (token only, interviews enabled) may send.
+  const authUserId = req.headers.get('x-user-id');
 
   let lookup: EmployeeLookup;
   try {
     const response = await brainService<EmployeeLookup>(
       `interview/teams/conversation/${encodeURIComponent(employeeId)}`,
+      authUserId ? { userId: authUserId } : {},
     );
+    if (response.status === 401 || response.status === 403) {
+      const detail = (response.body as unknown as { detail?: string } | null)?.detail;
+      return NextResponse.json(
+        { error: 'forbidden', detail: detail ?? 'proactive sends are gated (#591)' },
+        { status: response.status },
+      );
+    }
     if (response.status === 404) {
       return NextResponse.json(
         { error: 'not_reachable', detail: response.body?.detail ?? 'no such employee' },
@@ -151,7 +170,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (ref && !isPersonalRef(ref)) ref = null;
   if (!ref) {
     try {
-      ref = await openConversation(employeeId, lookup);
+      ref = await openConversation(employeeId, lookup, authUserId);
     } catch (err) {
       if ((err as { unreachable?: boolean }).unreachable || isClientError(err)) {
         console.warn('[teams/bot/proactive] cannot open a chat for', employeeId, err);
