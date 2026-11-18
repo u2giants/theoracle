@@ -16,19 +16,16 @@ does not.
 
 ## 0. Business decisions only the owner can make
 
-Put these to Albert in ONE message before starting; none blocks Steps 1–9.
-
-*A wrong guess is recoverable:*
-1. **How long is one sitting?** The plan assumes The Oracle stops after 5 exchanges
-   with one person and comes back no sooner than the next working day. Recommendation:
-   keep 5. Affects only two settings (plan §8 O1). Asked 2026-11-18; unanswered.
-2. **Who are the two volunteers** for the live trial after Albert's own chat (plan
-   Step 11)? Recommendation: one English speaker and one Chinese speaker who have
-   answered the bot before. Blocks only the last half of Step 11.
+None — nothing in this workstream needs the owner (both earlier questions were
+answered 2026-11-18; see below).
 
 *Already settled — do NOT re-ask:*
 - Serial, one message at a time; answer processed before the next message; each reply
   must use the answer (Albert, 2026-11-18).
+- No limit on conversation length "as long as it's flowing and making sense. we just
+  can't go back to the spamming that we got last week" (Albert, 2026-11-18; plan L9).
+- First employees after Albert's own chat: Ilona, Jen, Carlos, Jessica (Albert,
+  2026-11-18; plan L10). Albert will start the build in a new session himself.
 - One question at a time at human pace; no dedupe against old question text; questions
   go to the relevant department (Albert, 2026-11-10/11, issue #518).
 
@@ -86,8 +83,7 @@ stores are sound; the conversation machinery around them is missing.
 
 ## 6. Exact next steps
 
-1. Ask Albert the two questions in §0 in one message. *Worked when:* answers are
-   recorded on issue 604.
+1. (Done 2026-11-18 — both owner questions answered; see §0.)
 2. Execute the plan from Step 1 using its lead launch prompt (end of the plan).
    *Worked when:* each STATUS row cites its artefact and Step 11's evidence is on the
    issue.
@@ -124,5 +120,6 @@ https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-11-11T1229Z-edge-
 3. Every detail for flawless execution — yes: goal plan §1, state §3, failures §4,
    decisions plan §8, risks §9 and plan §13, gates per step.
 4. Owner reading only §0 sees every business decision — yes: a line-by-line pass found
-   two (sitting length, volunteers); the remaining "open" items are technical and are
+   two (sitting length, volunteers), both answered the same day and moved to "already
+   settled"; the remaining "open" items are technical and are
    assigned to plan steps or #520.
