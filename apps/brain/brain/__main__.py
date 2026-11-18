@@ -7,6 +7,7 @@ import threading
 
 import uvicorn
 
+from brain.config import get_settings
 from brain.db import INTERVIEW_LANE, MAIN_LANE
 from brain.main import app
 from brain.migrate import migrate
@@ -38,7 +39,11 @@ def main() -> None:
             name=f"brain-worker-{lane}",
             daemon=True,
         )
-        for lane in (MAIN_LANE, INTERVIEW_LANE)
+        for lane in (
+            (MAIN_LANE, INTERVIEW_LANE)
+            if get_settings().brain_interview_lane_enabled
+            else (MAIN_LANE,)
+        )
     ]
     for worker in workers:
         worker.start()

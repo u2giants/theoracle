@@ -51,8 +51,8 @@ MODEL_TIMEOUT_SECONDS = 8.0
 TICK_INTERVAL_SECONDS = 3600
 
 # Human pacing (owner 2026-11-10, #604): one conversation open per person and
-# one sitting per person per New York working day; a sitting holds at most
-# ``interview_setting.max_exchanges_per_sitting`` exchanges.
+# one sitting opened per person per New York working day. A sitting has no
+# exchange limit (owner ruling L9).
 
 # Build-out phase 3: never message people 8 PM–8 AM New York time or on weekends.
 EASTERN = ZoneInfo("America/New_York")
@@ -661,6 +661,21 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
             try:
                 localized = _localized_question(conn, qid, text, lang, cfg)
                 sent_text = strings(lang).message_template.format(question=localized)
+                # Send once (plan Step 8, M6): the row and its key exist before
+                # the send; this call opened the conversation, so only it sends.
+                turn_id = conv_mod.add_turn(
+                    conn,
+                    conversation_id,
+                    "out",
+                    "question",
+                    sent_text,
+                    question_id=qid,
+                    send_key=f"{conversation_id}:open",
+                    send_state="sending",
+                )
+                if turn_id is None:
+                    busy.add(target.employee_id)
+                    continue
                 activity_id = _post_proactive(target.employee_id, sent_text, cfg)
             except InterviewUnreachableError as exc:
                 logger.warning(
@@ -682,15 +697,7 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
                 _drop_conversation(conn, conversation_id)
                 result["failed"] += 1
                 continue
-            conv_mod.add_turn(
-                conn,
-                conversation_id,
-                "out",
-                "question",
-                sent_text,
-                teams_activity_id=activity_id,
-                question_id=qid,
-            )
+            conv_mod.mark_sent(conn, turn_id, activity_id)
             conn.execute(
                 "UPDATE cmap.interview_conversation SET exchanges = exchanges + 1 "
                 "WHERE id = %s",

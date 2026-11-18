@@ -390,17 +390,37 @@ def _send(
 ) -> str | None:
     from brain.interview import tick  # noqa: PLC0415 - tick imports inbound
 
-    activity_id = tick._post_proactive(conv["employee_id"], text, settings)
+    # Send once (plan Step 5, M6): one reply per batch of employee messages.
+    # Record the turn with its key first; only the inserter sends. A retried
+    # job or a self-heal finds the key and sends nothing.
+    (last_in,) = conn.execute(
+        "SELECT COALESCE(max(seq), 0) FROM cmap.interview_turn "
+        "WHERE conversation_id = %s AND direction = 'in'",
+        (conv["id"],),
+    ).fetchone()
     turn_id = conv_mod.add_turn(
         conn,
         conv["id"],
         "out",
         kind,
         text,
-        teams_activity_id=activity_id,
         question_id=question_id,
         meta=meta or {},
+        send_key=f"{conv['id']}:after:{last_in}",
+        send_state="sending",
     )
+    if turn_id is None:
+        logger.info("interview reply for %s already sent; not resending", conv["id"])
+        return None
+    try:
+        activity_id = tick._post_proactive(conv["employee_id"], text, settings)
+    except Exception as exc:
+        conv_mod.mark_send_failed(conn, turn_id, str(exc))
+        conv_mod.close_conversation(conn, conv["id"], "send_failed")
+        if question_id:
+            conv_mod.release_question(conn, question_id, None, skipped=False)
+        raise
+    conv_mod.mark_sent(conn, turn_id, activity_id)
     conn.execute(
         "UPDATE cmap.interview_conversation SET exchanges = exchanges + 1 WHERE id = %s",
         (conv["id"],),

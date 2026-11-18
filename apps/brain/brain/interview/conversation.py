@@ -23,8 +23,8 @@ from brain.db import INTERVIEW_LANE, get_pool, lane_for
 
 logger = logging.getLogger(__name__)
 
+STUCK_SENDING_MINUTES = 5
 STUCK_PROCESSING_MINUTES = 15
-DEFAULT_MAX_EXCHANGES = 5
 DEFAULT_ANSWER_WAIT_HOURS = 24
 
 _TURN_COLUMNS = (
@@ -76,14 +76,32 @@ def _conv(row: Any) -> dict[str, Any]:
     return dict(zip(_CONV_KEYS, row, strict=True))
 
 
-def sitting_settings(conn: Any) -> tuple[int, int]:
-    """``(max_exchanges_per_sitting, answer_wait_hours)`` from settings."""
+def mark_sent(conn: Any, turn_id: str, activity_id: str | None) -> None:
+    """The message for a ``sending`` turn went out."""
+    conn.execute(
+        "UPDATE cmap.interview_turn SET send_state = 'sent', teams_activity_id = %s "
+        "WHERE id = %s",
+        (activity_id, turn_id),
+    )
+    conn.commit()
+
+
+def mark_send_failed(conn: Any, turn_id: str, error: str) -> None:
+    """A send raised: never resent automatically (a duplicate is worse than late)."""
+    conn.execute(
+        "UPDATE cmap.interview_turn SET send_state = 'failed', "
+        "meta = meta || jsonb_build_object('send_error', %s::text) WHERE id = %s",
+        (error[:500], turn_id),
+    )
+    conn.commit()
+
+
+def answer_wait_hours(conn: Any) -> int:
+    """How long an unanswered question waits before the sitting closes."""
     row = conn.execute(
-        "SELECT max_exchanges_per_sitting, answer_wait_hours FROM cmap.interview_setting WHERE id"
+        "SELECT answer_wait_hours FROM cmap.interview_setting WHERE id"
     ).fetchone()
-    if row is None:
-        return DEFAULT_MAX_EXCHANGES, DEFAULT_ANSWER_WAIT_HOURS
-    return int(row[0]), int(row[1])
+    return int(row[0]) if row else DEFAULT_ANSWER_WAIT_HOURS
 
 
 def current_conversation(conn: Any, employee_id: str) -> dict[str, Any] | None:
@@ -133,8 +151,10 @@ def add_turn(
     source_id: str | None = None,
     in_reply_to: str | None = None,
     meta: dict[str, Any] | None = None,
+    send_key: str | None = None,
+    send_state: str | None = None,
 ) -> str | None:
-    """Append one turn; ``None`` when this Teams message was already stored."""
+    """Append one turn; ``None`` when this Teams message (or send key) was already stored."""
     try:
         conn.execute(
             "SELECT 1 FROM cmap.interview_conversation WHERE id = %s FOR UPDATE",
@@ -142,8 +162,9 @@ def add_turn(
         )
         row = conn.execute(
             "INSERT INTO cmap.interview_turn (conversation_id, seq, direction, kind, text, "
-            "teams_activity_id, quoted_activity_id, question_id, source_id, in_reply_to, meta) "
-            "SELECT %s, COALESCE(max(seq), 0) + 1, %s, %s, %s, %s, %s, %s, %s, %s, %s "
+            "teams_activity_id, quoted_activity_id, question_id, source_id, in_reply_to, meta, "
+            "send_key, send_state) "
+            "SELECT %s, COALESCE(max(seq), 0) + 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s "
             "FROM cmap.interview_turn WHERE conversation_id = %s RETURNING id::text",
             (
                 conversation_id,
@@ -156,6 +177,8 @@ def add_turn(
                 source_id,
                 in_reply_to,
                 Json(meta or {}),
+                send_key,
+                send_state,
                 conversation_id,
             ),
         ).fetchone()
@@ -296,7 +319,23 @@ def queue_reply(conversation_id: str, **extra: Any) -> bool:
         )
 
 
-def source_chain_ended(source_id: str, *, failed: bool) -> bool:
+def awaits_reply(source_id: str) -> bool:
+    """True when this source is the answer of a conversation in processing."""
+    with get_pool().connection() as conn:
+        return (
+            conn.execute(
+                "SELECT 1 FROM cmap.interview_turn t "
+                "JOIN cmap.interview_conversation c ON c.id = t.conversation_id "
+                "WHERE t.source_id = %s AND c.state = 'processing' LIMIT 1",
+                (source_id,),
+            ).fetchone()
+            is not None
+        )
+
+
+def source_chain_ended(
+    source_id: str, *, failed: bool, resolve: str | None = None
+) -> bool:
     """The answer's processing finished (or failed for good): queue the reply.
 
     Called at the end of ``relations`` and from the worker's failure path.
@@ -312,10 +351,13 @@ def source_chain_ended(source_id: str, *, failed: bool) -> bool:
         if row is None:
             return False
         conversation_id = str(row[0])
+        meta: dict[str, Any] = {"processing_failed": True} if failed else {}
+        if resolve is not None:
+            meta["resolve"] = resolve
         conn.execute(
             "UPDATE cmap.interview_turn SET processed = true, "
             "meta = meta || %s::jsonb WHERE source_id = %s",
-            (Json({"processing_failed": True} if failed else {}), source_id),
+            (Json(meta), source_id),
         )
         conn.commit()
         payload: dict[str, Any] = {
@@ -329,9 +371,23 @@ def source_chain_ended(source_id: str, *, failed: bool) -> bool:
 
 def sweep_conversations() -> dict[str, int]:
     """Close idle conversations and heal ones stuck in processing (plan Step 8)."""
-    counts = {"closed_idle": 0, "healed": 0}
+    counts = {"closed_idle": 0, "healed": 0, "send_failed": 0}
     with get_pool().connection() as conn:
-        _, wait_hours = sitting_settings(conn)
+        # A send left 'sending' (the process died mid-send) is marked failed for
+        # a human and never resent: a duplicate message is worse than a late one.
+        lost = conn.execute(
+            "UPDATE cmap.interview_turn SET send_state = 'failed', "
+            'meta = meta || \'{"send_error": "stuck in sending"}\'::jsonb '
+            "WHERE send_state = 'sending' AND created_at < now() - make_interval(mins => %s) "
+            "RETURNING id::text, conversation_id::text",
+            (STUCK_SENDING_MINUTES,),
+        ).fetchall()
+        conn.commit()
+        for turn_id, conversation_id in lost:
+            logger.error("interview send %s stuck in sending; marked failed", turn_id)
+            close_conversation(conn, str(conversation_id), "send_failed")
+            counts["send_failed"] += 1
+        wait_hours = answer_wait_hours(conn)
         idle = conn.execute(
             "SELECT id::text FROM cmap.interview_conversation WHERE state = 'awaiting_answer' "
             "AND last_activity_at < now() - make_interval(hours => %s)",

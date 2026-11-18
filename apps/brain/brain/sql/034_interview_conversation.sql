@@ -51,8 +51,6 @@ CREATE INDEX IF NOT EXISTS interview_turn_source_idx
 ALTER TABLE cmap.job ADD COLUMN IF NOT EXISTS lane text NOT NULL DEFAULT 'main';
 CREATE INDEX IF NOT EXISTS job_lane_idx ON cmap.job (lane, state, created_at);
 
--- Sitting length and answer wait (plan O1, O2) live in settings, not code.
-ALTER TABLE cmap.interview_setting
-  ADD COLUMN IF NOT EXISTS max_exchanges_per_sitting int NOT NULL DEFAULT 5;
+-- Answer wait (plan O2) lives in settings, not code. No exchange limit (L9).
 ALTER TABLE cmap.interview_setting
   ADD COLUMN IF NOT EXISTS answer_wait_hours int NOT NULL DEFAULT 24;

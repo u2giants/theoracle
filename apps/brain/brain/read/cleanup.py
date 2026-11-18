@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from brain.db import lock_entity_writes
 from brain.extract.normalize import normalize_name
 
 
@@ -37,6 +38,7 @@ def drop_orphaned(conn: Any, touched: set[str]) -> dict[str, int]:
     """
     if not touched:
         return {"entities": 0, "aliases": 0}
+    lock_entity_writes(conn)  # never interleaves with resolve's writes (#604)
     ids = sorted(touched)
     removed = conn.execute(
         "DELETE FROM cmap.entity e WHERE e.id = ANY(%s::uuid[]) "
