@@ -32,8 +32,12 @@ def _run(monkeypatch: pytest.MonkeyPatch, out: dict[str, Any]) -> int:
 
 
 def test_good_replies_pass(monkeypatch: pytest.MonkeyPatch, no_db: None) -> None:
-    out = {"reflect": "So it lives in the item library.", "action": "next_question",
-           "text": "Thanks.", "question_index": 1}
+    out = {
+        "reflect": "So it lives in the item library.",
+        "action": "next_question",
+        "text": "Thanks.",
+        "question_index": 1,
+    }
     assert _run(monkeypatch, out) == 0
 
 
@@ -42,14 +46,19 @@ def test_fallback_fails(monkeypatch: pytest.MonkeyPatch, no_db: None) -> None:
 
 
 def test_invented_name_fails(monkeypatch: pytest.MonkeyPatch, no_db: None) -> None:
-    out = {"reflect": "Got it.", "action": "followup",
-           "text": "Does Maria Gonzalez in Shipwell handle that?"}
+    out = {
+        "reflect": "Got it.",
+        "action": "followup",
+        "text": "Does Maria Gonzalez in Shipwell handle that?",
+    }
     assert _run(monkeypatch, out) == 1
 
 
 def test_old_fixed_string_fails() -> None:
     bad = replay_interview.problems(
         {"text": replay_interview.OLD_REPLY, "action": "close", "path": "model"},
-        "q", "a", "answer",
+        "q",
+        "a",
+        "answer",
     )
     assert bad

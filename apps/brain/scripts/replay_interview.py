@@ -72,7 +72,9 @@ QUEUE: list[tuple[str, str, str]] = [
 ]
 
 
-def build(question: str, message: str, kind: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def build(
+    question: str, message: str, kind: str
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     conv = {
         "id": "replay",
         "employee_id": "00000000-0000-0000-0000-000000000000",
@@ -81,22 +83,40 @@ def build(question: str, message: str, kind: str) -> tuple[dict[str, Any], list[
         "state": "processing",
     }
     tlist = [
-        {"seq": 1, "direction": "out", "kind": "question", "text": question,
-         "source_id": None, "question_id": QUEUE[0][0]},
-        {"seq": 2, "direction": "in", "kind": kind, "text": message,
-         "source_id": None, "question_id": None},
+        {
+            "seq": 1,
+            "direction": "out",
+            "kind": "question",
+            "text": question,
+            "source_id": None,
+            "question_id": QUEUE[0][0],
+        },
+        {
+            "seq": 2,
+            "direction": "in",
+            "kind": kind,
+            "text": message,
+            "source_id": None,
+            "question_id": None,
+        },
     ]
     return conv, tlist
 
 
-def problems(result: dict[str, Any], question: str, message: str, kind: str) -> list[str]:
+def problems(
+    result: dict[str, Any], question: str, message: str, kind: str
+) -> list[str]:
     text = " ".join(str(result.get("text") or "").split())
     found = []
     if not text or text == OLD_REPLY:
         found.append("empty or old fixed reply")
     if result.get("path") == "fallback":
         found.append("model failed; deterministic fallback used")
-    if kind == "answer" and result.get("action") != "close" and not result.get("reflect"):
+    if (
+        kind == "answer"
+        and result.get("action") != "close"
+        and not result.get("reflect")
+    ):
         found.append("no reflection of the answer")
     # The composer's own guard: names in the reflection or in a follow-up.
     allowed = f"{message}\n{question}\n" + "\n".join(q for _, q, _ in QUEUE)
@@ -110,7 +130,10 @@ def problems(result: dict[str, Any], question: str, message: str, kind: str) -> 
 
 
 def compose(
-    conn: Any, conv: dict[str, Any], tlist: list[dict[str, Any]], question: str,
+    conn: Any,
+    conv: dict[str, Any],
+    tlist: list[dict[str, Any]],
+    question: str,
     settings: Settings,
 ) -> dict[str, Any]:
     """The reply production would write: a pushback gets a clarified question."""
@@ -141,7 +164,9 @@ def replay(conn: Any, settings: Settings) -> int:
         print(f"Q:      {question}")
         print(f"A:      {message}")
         print(f"before: {OLD_REPLY}")
-        print(f"after:  [{result.get('action')}/{result.get('path')}] {result.get('text')}")
+        print(
+            f"after:  [{result.get('action')}/{result.get('path')}] {result.get('text')}"
+        )
         for b in bad:
             print(f"  ! {b}")
     print(f"\n{len(EXCHANGES) - failures}/{len(EXCHANGES)} passed")
@@ -149,7 +174,9 @@ def replay(conn: Any, settings: Settings) -> int:
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
     settings = get_settings()
     if settings.database_url is None:
         print("DATABASE_URL is not set", file=sys.stderr)
