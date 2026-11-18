@@ -423,8 +423,16 @@ def _conversation_message(
         if kind == "other" and intake.word_count(text) >= MIN_CONTRIBUTION_WORDS:
             kind = "answer"
     if kind == "other":
+        prev = conn.execute(
+            "SELECT kind FROM cmap.interview_turn WHERE conversation_id = %s "
+            "AND direction = 'in' ORDER BY seq DESC LIMIT 1",
+            (conv["id"],),
+        ).fetchone()
         if store("other") is None:
             return base
+        if prev and prev[0] in converse.UNUSABLE_KINDS:
+            conv_mod.close_conversation(conn, conv["id"], "unusable")
+            return {**base, "reply": s.close}
         conv_mod.set_state(conn, conv["id"], "awaiting_answer")
         loc = question
         return {**base, "reply": s.restate.format(question=loc) if loc else s.reply_ack}
@@ -494,7 +502,12 @@ def handle_inbound(
                 "reply": strings(lang).reply_stopped,
                 "employee_id": employee_id,
             }
-        if intent == "resume":
+        paused = conn.execute(
+            "SELECT COALESCE(bool_or(interviews_paused), false) FROM cmap.employee_flags "
+            "WHERE employee_id = %s",
+            (employee_id,),
+        ).fetchone()[0]
+        if intent == "resume" and paused:
             conn.execute(
                 "INSERT INTO cmap.employee_flags (employee_id, interviews_paused) "
                 "VALUES (%s, false) ON CONFLICT (employee_id) DO UPDATE SET "

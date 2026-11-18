@@ -15,7 +15,7 @@ Rules:
 Return JSON only: {"reflect": "...", "action": "followup"|"next_question"|"close", "text": "...", "question_index": 1|2|3|null}
 
 EMPLOYEE: {{employee}}
-EXCHANGES USED: {{exchanges_used}} of EXCHANGES ALLOWED: {{exchanges_allowed}}
+EXCHANGES SO FAR: {{exchanges_used}} (there is no limit; close only when nothing worthwhile is left to ask)
 FOLLOWUPS USED: {{followups_used}} of FOLLOWUPS ALLOWED: {{followups_allowed}}
 
 CONVERSATION SO FAR (oldest first):
