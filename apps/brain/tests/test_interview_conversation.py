@@ -129,7 +129,7 @@ def _finish_chain(db: Any) -> None:
     """The answer's relations step finished: the chain end queues the reply."""
     (source_id,) = db.execute(
         "SELECT source_id::text FROM cmap.interview_turn WHERE source_id IS NOT NULL "
-        "ORDER BY created_at DESC LIMIT 1"
+        "ORDER BY created_at DESC, seq DESC LIMIT 1"
     ).fetchone()
     assert conv_mod.source_chain_ended(source_id, failed=False)
 
@@ -320,25 +320,47 @@ def test_request_gets_capabilities_and_the_question_again(
     assert "Who signs off step 0?" in sent[-1]["text"]
 
 
-def test_sitting_closes_at_the_exchange_limit(
+def test_long_flowing_conversation_is_not_cut_off(
     db: Any, enabled: None, sent: list[dict[str, Any]], model: list[dict[str, Any]],
     no_ingest: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    db.execute("UPDATE cmap.interview_setting SET max_exchanges_per_sitting = 2")
-    db.commit()
-    try:
-        _open(db, sent)
-        _kind(monkeypatch, "answer")
-        _say("Maria signs it after the artwork check.")
+    """Owner ruling L9: no exchange count ever closes a sitting."""
+    _open(db, sent, n=22)
+    _kind(monkeypatch, "answer")
+    for i in range(1, 21):
+        _say(f"Maria signs step {i - 1} after the artwork check.")
         cid = _conv(db)[0]
         _finish_chain(db)
-        run_interview_reply(cid)
-        assert sent[-1]["text"] == strings("en").close
-        assert _conv(db)[1] == "closed"
-        assert run_interview_tick()["asked"] == 0  # one sitting per day
-    finally:
-        db.execute("UPDATE cmap.interview_setting SET max_exchanges_per_sitting = 5")
+        model.append({"reflect": "Thanks.", "action": "next_question",
+                      "text": f"Thanks. Who signs off step {i}?", "question_index": 1})
+        assert run_interview_reply(cid)["action"] == "next_question"
+        assert _conv(db)[1] == "awaiting_answer"
+        db.execute("DELETE FROM cmap.job WHERE kind = 'interview_reply'")  # the worker's claim
         db.commit()
+    assert _conv(db)[2] >= 20
+    assert run_interview_tick()["asked"] == 0  # still one sitting per day
+
+
+def test_two_unusable_replies_close_the_sitting(
+    db: Any, enabled: None, sent: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _open(db, sent)
+    _kind(monkeypatch, "other")
+    assert "Who signs off step 0?" in _say("hmm")["reply"]
+    assert _say("whatever")["reply"] == strings("en").close
+    assert _conv(db)[1] == "closed"
+
+
+def test_resume_words_inside_a_conversation_are_not_a_command(
+    db: Any, enabled: None, sent: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'keep going' while not paused must reach the conversation, not 'welcome back'."""
+    _open(db, sent)
+    monkeypatch.setattr(inbound_mod, "_judge_intent", lambda text: "resume")
+    _kind(monkeypatch, "other")
+    reply = _say("keep going")
+    assert reply["reply"] != strings("en").reply_resumed
+    assert "Who signs off step 0?" in reply["reply"]
 
 
 def test_processing_failure_still_moves_on(
