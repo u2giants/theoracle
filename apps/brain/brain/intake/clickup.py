@@ -32,6 +32,7 @@ from brain.intake.sizing import (
     clickup_member,
     involves,
     resolve_people,
+    task_comments,
     window_tasks,
 )
 from brain.read.chunk import count_tokens
@@ -138,12 +139,12 @@ def collect(
         wanted = set(uids)
         for task in window_tasks(c, team["id"], since):
             tid = str(task["id"])
-            if tid in seen or not involves(task, wanted):
+            if tid in seen:
+                continue
+            comments = task_comments(c, tid)
+            if not involves(task, wanted, comments):
                 continue
             seen.add(tid)
-            comments = (
-                _get(c, f"{CLICKUP}/task/{tid}/comment").json().get("comments", [])
-            )
             yield task, task_items(task, comments)
 
 

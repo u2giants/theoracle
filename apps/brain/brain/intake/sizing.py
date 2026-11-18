@@ -189,12 +189,40 @@ def window_tasks(c: httpx.Client, team_id: str, since: datetime) -> Iterator[dic
         page += 1
 
 
-def involves(task: dict, wanted: set[str]) -> bool:
-    """True when a wanted user is assignee, watcher or creator of the task."""
+def task_comments(c: httpx.Client, task_id: str) -> list[dict]:
+    """Every comment of one task, oldest first.
+
+    ClickUp returns the 25 newest comments; older pages are asked for with the
+    oldest comment's ``date`` and ``id`` as ``start`` and ``start_id``.
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    params: dict[str, Any] = {}
+    while True:
+        page = (
+            _get(c, f"{CLICKUP}/task/{task_id}/comment", params=params or None)
+            .json()
+            .get("comments", [])
+        )
+        fresh = [cm for cm in page if str(cm.get("id")) not in seen]
+        if not fresh:
+            break
+        seen.update(str(cm.get("id")) for cm in fresh)
+        out.extend(fresh)
+        if len(page) < 25:
+            break
+        oldest = min(fresh, key=lambda cm: int(cm.get("date") or 0))
+        params = {"start": oldest.get("date"), "start_id": oldest.get("id")}
+    return sorted(out, key=lambda cm: int(cm.get("date") or 0))
+
+
+def involves(task: dict, wanted: set, comments: list[dict] | None = None) -> bool:
+    """True when a wanted user is assignee, watcher, creator or commenter."""
     people_on = {
         u.get("id") for u in task.get("assignees", []) + task.get("watchers", [])
     }
     people_on.add((task.get("creator") or {}).get("id"))
+    people_on.update((cm.get("user") or {}).get("id") for cm in comments or [])
     return bool(people_on & wanted)
 
 
@@ -210,12 +238,13 @@ def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> No
                     f"ClickUp: {uids.count(None)} person(s) not matched to exactly one member"
                 )
             wanted = set(uids)
-            # Kept when either person is assignee, creator or watcher (comment
-            # authorship is seen only after fetching comments, so it widens the
-            # pilot, not this count).
+            # Kept when either person is assignee, creator, watcher or commenter.
             for task in window_tasks(c, team["id"], since):
                 t.scanned += 1
-                if task["id"] in seen_tasks or not involves(task, wanted):
+                if task["id"] in seen_tasks:
+                    continue
+                comments = task_comments(c, task["id"])
+                if not involves(task, wanted, comments):
                     continue
                 seen_tasks.add(task["id"])
                 header = "\n".join(
@@ -228,11 +257,6 @@ def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> No
                     )
                 )
                 kept = t.message(header) + t.message(task.get("text_content") or "")
-                comments = (
-                    _get(c, f"{CLICKUP}/task/{task['id']}/comment")
-                    .json()
-                    .get("comments", [])
-                )
                 for cm in comments:
                     kept += t.message(cm.get("comment_text") or "")
                 t.thread(kept)

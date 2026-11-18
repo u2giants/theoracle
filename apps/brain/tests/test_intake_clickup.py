@@ -290,3 +290,36 @@ def test_upsert_is_idempotent_and_updates_changed_comments(db: psycopg.Connectio
         ).fetchone()[0]
         == 1
     )
+
+
+def _comment(cid: int, date: int, user: int = 202) -> dict:
+    return {
+        "id": str(cid),
+        "date": str(date),
+        "comment_text": f"c{cid}",
+        "user": {"id": user},
+    }
+
+
+def test_task_comments_pages_back_to_oldest() -> None:
+    """25 newest first, then older pages via start/start_id, returned oldest first."""
+    all_c = [_comment(i, 1000 + i) for i in range(30)]
+    calls: list[dict] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(dict(req.url.params))
+        start = req.url.params.get("start")
+        older = [c for c in all_c if start is None or int(c["date"]) < int(start)]
+        page = sorted(older, key=lambda c: -int(c["date"]))[:25]
+        return httpx.Response(200, json={"comments": page})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        got = sizing.task_comments(c, "X1")
+    assert [cm["id"] for cm in got] == [str(i) for i in range(30)]
+    assert len(calls) == 2
+
+
+def test_commenter_counts_as_involved() -> None:
+    task = make_task("Z9", assignees=())
+    assert not sizing.involves(task, {101})
+    assert sizing.involves(task, {101}, [_comment(1, 1, user=101)])
