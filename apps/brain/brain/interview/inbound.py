@@ -507,7 +507,10 @@ def handle_inbound(
             "WHERE employee_id = %s",
             (employee_id,),
         ).fetchone()[0]
-        if intent == "resume" and paused:
+        # Inside an open conversation, "keep going"-style words are part of it.
+        if intent == "resume" and (
+            paused or conv_mod.current_conversation(conn, employee_id) is None
+        ):
             conn.execute(
                 "INSERT INTO cmap.employee_flags (employee_id, interviews_paused) "
                 "VALUES (%s, false) ON CONFLICT (employee_id) DO UPDATE SET "
