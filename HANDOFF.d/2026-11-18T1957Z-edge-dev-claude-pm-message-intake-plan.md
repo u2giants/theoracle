@@ -56,7 +56,7 @@ Albert said the brain has too little good data to judge the questions it asks em
 
 - Cost is driven by one chat call per passage in two stages plus one date call per source: [relations.py](https://github.com/u2giants/theoracle/blob/main/apps/brain/brain/extract/relations.py), [flat.py](https://github.com/u2giants/theoracle/blob/main/apps/brain/brain/extract/flat.py), [dates.py](https://github.com/u2giants/theoracle/blob/main/apps/brain/brain/read/dates.py).
 - Evidence must be verbatim, so summaries and compression can only triage, never feed extraction.
-- The transcript reader ([transcript.py](https://github.com/u2giants/theoracle/blob/main/apps/brain/brain/read/transcript.py)) already handles speaker lines; kept threads reuse it.
+- The transcript reader ([transcript.py](https://github.com/u2giants/theoracle/blob/main/apps/brain/brain/read/transcript.py)) is reused, but only through its JSON turn list (speaker lines cannot carry timestamps), and short messages must be packed into full passages. Transcript sources make no date call. Both corrections came from the Muse second opinion on 2026-11-18 and are in the plan (steps 1.5, 1.6, 2.1, 2.3, 2.4).
 - No batch path exists; all chat goes through OpenRouter, which gives no batch discount.
 - Teams chat read and ClickUp read already work with existing credentials. Channel posts and email do not.
 - Three other vault items mention ClickUp ("ClickUp MCP Server - official remote setup", "clickup.com for ai", "Cloudflare D1 API - ClickUp monitoring data (The Oracle)"). They were **not** opened. Before building the collector (plan step 1.2), check whether the last one means ClickUp data is already being collected somewhere and reuse it if so.

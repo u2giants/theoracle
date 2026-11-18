@@ -39,6 +39,8 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 4.1 | Full-window run + live proof | ⬜ open | — | — |
 | 5.1 | Email collector | ⛔ blocked | Tenant admin consent for `Mail.Read` (application), restricted to the two mailboxes by an application access policy. No tenant-admin credential is reachable from AI sessions (same family as #593). Do not work around. | 2026-11-18 |
 
+**Second opinion (2026-11-18, Muse Spark): "sound with changes".** Each point was checked against the code and folded in the same day: thread rendering and passage packing (1.6); the date call is not a saving (§6); the thread gate is conditional and calibrated (1.5); short threads are never merged and signatures are removed only by exact match (1.4); larger, unbiased gold with confidence bounds and a judge that is not a candidate (2.1, 2.3); call-shape variants and an end-to-end check (2.3); seat mechanics (2.3); caching measured before built (2.4). One point not taken as stated: HTML-to-text stays, as format conversion with the original kept (1.4).
+
 **Decisions by Albert that bind this plan (2026-11-18, from his chat, verbatim):**
 - The problem: *"it's hard to test if the Oracle system is working because we don't have enough good data in the brain for it to ask employees relevant questions for us to judge its judgement."*
 - The scope and method: *"probably the project managers: Jessica and Carlos. emails, teams messages and clickup data will be a LOT (very expensive with an LLM). we need to use first scaledown.ai extract and/or scaledown.ai summarize (use /slm-agent:evaluate Skill). then use gtp-6-Luna medium batch and/or Haiku 5.5 medium batch or GLM 5.3 flash or deepseek 4.1 flash to further process. the processing must be designed to do an impeccable job with the least amount of cost for perfect performance."* (his spelling preserved; "gtp-6-Luna" = gpt-6-luna.)
@@ -87,8 +89,8 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 - **Passage classification** already runs on ScaleDown: `flat.py:54` (`CLASSIFY_LABELS`), `:213` (`classify_body`), `:382` (`is_chatter`, skip at `CHATTER_SKIP_SCORE = 0.8`, `:51`).
 - **Flat extraction** runs on the seated flat model (`flat.py:250` `_post_chat`); ScaleDown `/extract` is the fallback path (`:218`, `:423`).
 - **Relations** — the cost centre — is one chat call per non-chatter passage: `apps/brain/brain/extract/relations.py:224` (`_post_chat`), `:431` (`_call_model`), `:839` (`handle_relations`). Windows: transcripts use `exchange_windows` (`brain/read/transcript.py:317`), everything else the anchor plus previous passages (`relations.py:193`). Every relation must carry a quote found verbatim in stored text (`:259` `find_quote`, `:293` `validate_response`).
-- **Source date** costs one model call per source for text without metadata (`brain/read/dates.py:184`, `:264`).
-- **Transcript reader** already parses `Speaker: text` lines and timestamps into turns (`brain/read/transcript.py:198`, `:226`, `:280`) and finds a start date (`:374`).
+- **Source date** costs one model call per source for documents without metadata (`document_text_date` in `brain/read/dates.py`); transcripts skip it (`:293`).
+- **Transcript reader** parses a JSON list of turns with speaker, text and time (`brain/read/transcript.py:87`) or plain `Speaker: text` lines without times (labels with a clock time or more than five words are not speakers, `:174-195`); chunks one passage per speaker run (`:280`); finds a start date.
 - `cmap.source.kind` is constrained to `pdf, docx, xlsx, pptx, text, image, transcript` (`apps/brain/brain/sql/001*.sql:6`).
 - **No batch path.** Every call is synchronous through OpenRouter.
 - Live seats on 2026-11-18: flat `z-ai/glm-5.3-flash`; relations `meta/muse-spark-1.3-contributor`; resolve, reports, recommend, grade `openai/gpt-6-luna`; answer `anthropic/claude-haiku-5.5`. Read the table, do not trust this line.
@@ -98,7 +100,8 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 
 1. **The bill is driven by calls per passage, twice** (flat, relations), plus one date call per source. Message data multiplies sources and passages, so the only large savings are (a) never sending a passage, (b) a cheaper model per passage, (c) a cheaper price for the same call.
 2. **Most message text is not about how the company works.** Greetings, scheduling, "ok thanks", quoted reply chains, signatures, notifications. All of that can be removed for free or for a fraction of a cent before any chat model sees it.
-3. **Each record already has its date.** The date call is pure waste for these sources.
+3. **Each record already has its date,** so the source date is exact. (No saving: transcript sources already skip the date model call, `dates.py:293`.)
+3a. **Chat is the worst shape for the current chunker.** One passage per speaker run (`transcript.py:280`) turns a back-and-forth chat into many tiny passages, each paying two model calls. Packing messages into full passages is the largest single saving in this plan.
 4. **ClickUp is mostly structured.** Assignee, status, list, due date, dependencies are fields, not prose. They need formatting, not a model.
 5. **Access (probed 2026-11-18, counts only):** ClickUp API key works and both managers are in the 48-member workspace. The Entra app already holds `ChatMessage.Read.All`, `Chat.ReadWrite.All`, `User.Read.All`; chat listing (41+ and 50+ chats on the first page, more pages exist) and message reads return 200. Mail read returns 403.
 6. **ScaleDown summarize is a private preview** per the report. It may not be enabled on the account; step 1.5 probes it and has a fallback.
@@ -121,7 +124,7 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 
 **Locked (do not relitigate):**
 - L1. Evidence is verbatim. Cleaning is **drop-only** (whole lines or whole messages removed, never reworded).
-- L2. A thread is dropped by the gate only at chatter score ≥ 0.9 on **every** slice (the repo's drop threshold for cleaning); anything less certain is kept. The per-passage skip at 0.8 stays as is.
+- L2. A thread is dropped by the gate only when **every** slice clears a threshold that is calibrated on real message slices and is never below 0.9; anything less certain is kept. The per-passage skip at 0.8 (`flat.py:51`) stays as is.
 - L3. Dropped threads stay in staging with their verdict. Nothing disappears silently.
 - L4. No model id in code. New choices are seats in `cmap.model_seat`.
 - L5. Quality gates before cost; grader fixed for the whole bake-off.
@@ -146,7 +149,7 @@ collect (free) -> clean + assemble threads (free) -> gate each thread (ScaleDown
    -> failed validations retried once on the reference seat -> rest of the normal pipeline
 ```
 
-Cost levers in order of size: drop before paying (cleaning, gate, existing 0.8 skip); cheapest passing model per passage; batch price and cached prompt prefix; no date call; escalate only failures.
+Cost levers in order of size: fewer, fuller passages (packing short messages, step 1.6); drop before paying (cleaning, the existing 0.8 skip, and the thread gate if it earns its keep); fewer calls per passage (step 2.3 variants); cheapest passing model per passage; batch price; escalate only failures. Not a lever: the date call (transcript sources never make one).
 
 ## 9. The plan
 
@@ -169,7 +172,7 @@ Cost levers in order of size: drop before paying (cleaning, gate, existing 0.8 s
 
 **1.2 ClickUp collector.** `helper-ok` — stop and ask if the API shape differs from what is written here or a call needs a scope the key lacks.
 - `apps/brain/brain/intake/clickup.py`: ClickUp API v2, key from env `CLICKUP_API_TOKEN` (new; add to `brain/config.py` and `docs/configuration.md`). For each manager: tasks they are assigned to, created or commented on, updated inside the window (`GET /team/{id}/task` with `assignees[]`, `date_updated_gt`, `include_closed=true`, `subtasks=true`, paged), then each task's comments.
-- One thread per task. First item is a deterministic header built from fields only, in speaker-line form the transcript reader accepts, e.g. `ClickUp [2026-11-02 14:05]: Task "<name>" in list "<list>" · status <status> · assignee <name> · due <date> · depends on <task names>`. Then description and comments as `Author [timestamp]: text`.
+- One thread per task. First item is a header turn from speaker `ClickUp` built from fields only, **each field value copied character for character** (no re-casing, trimming or rewording), one field per line: task name, list, status, assignee, due date, dependencies. Then the description and each comment as its own turn with author and timestamp. Rendering into turns follows step 1.6.
 - Respect rate limits (honour `X-RateLimit-Reset`, back off on 429). Upsert by `(origin, external_id)`.
 - Gate: `tests/test_intake_clickup.py` green against recorded synthetic fixtures; a dry run prints item and thread counts that match step 0.1 within 2%.
 
@@ -180,22 +183,26 @@ Cost levers in order of size: drop before paying (cleaning, gate, existing 0.8 s
 
 **1.4 Free cleaning and thread assembly.** `lead-only` (decides what evidence survives).
 - `apps/brain/brain/intake/clean.py`, pure functions, no network:
-  - HTML to text (tags stripped, entities decoded, mentions kept as names).
+  - HTML to text (tags stripped, entities decoded, mentions kept as names). This is format conversion, the same kind the document readers do; the converted text is what is stored and what quotes are checked against, and the original is kept in `raw`. The drop-only rule applies from this point on.
   - Drop whole lines that are quoted reply history (`>` prefixes, `From:/Sent:/To:/Subject:` blocks, "On … wrote:"), signatures after a `-- ` line or a recognised sign-off block, legal disclaimers, and tracking boilerplate.
   - Drop whole messages that are: empty after cleaning; a reaction or single emoji; an automated notification (no-reply senders, calendar invitations and responses, ClickUp/Teams system notices); exact duplicates by `content_hash`.
-  - Drop whole messages matching a secret pattern (password, key or token shapes) with `drop_reason = 'secret'` and blank the stored `body_text` and `raw` for that row.
+  - Drop whole messages matching a secret pattern (password, key or token shapes) with `drop_reason = 'secret'` and blank the stored `body_text` and `raw` for that row; the rendered thread keeps a marker turn (`[message removed]`, author and time kept) so the order of the conversation stays intact.
+  - Signatures and sign-offs are removed only by an exact allowlist built from the two managers' real signature blocks (kept in the private store), never by a loose pattern — a loose rule can delete a line stating someone's role.
   - Every drop records `drop_reason`. No function may alter the characters of a kept line.
-- Thread assembly: ClickUp one per task; Teams one per chat per conversation (rule O2); email (later) one per `conversationId`. Threads shorter than 40 tokens after cleaning are merged into the previous thread of the same chat when within 24 hours, else dropped as `too_short`.
+- Thread assembly: ClickUp one per task; Teams one per chat per conversation (rule O2); email (later) one per `conversationId`. Threads shorter than 40 tokens after cleaning are dropped as `too_short`, never merged into a neighbour — merging unrelated conversations invents links between them.
 - Gate: `tests/test_intake_clean.py` proves, for every fixture, that each kept line is a byte-identical substring of the input (the drop-only property) and that every adversarial row in §9a passes.
 
 **1.5 Thread gate and triage summary.** `lead-only`.
-- `apps/brain/brain/intake/gate.py`: split a thread into slices of at most 1,500 tokens on message boundaries; call ScaleDown `/classify` once per slice with `flat.classify_body` (same labels, `"reasoning": false`); store scores in `gate_scores`. Verdict `dropped` only if **every** slice has chatter ≥ 0.9 (L2); else `kept`.
+- **Build the gate only if step 0.1 and a 200-thread probe show it pays:** it costs one ScaleDown call per slice, and if most threads are kept it adds cost and saves nothing (the per-passage 0.8 skip already catches small talk). Build it when the probe predicts at least 30% of thread tokens would be dropped; otherwise mark this row "not needed" in STATUS with the numbers and keep only the summary and listing parts below.
+- `apps/brain/brain/intake/gate.py`: split a thread into slices of at most 1,500 tokens on message boundaries; call ScaleDown `/classify` once per slice with `flat.classify_body` (same labels, `"reasoning": false`); store scores in `gate_scores`. Verdict `dropped` only if **every** slice clears the drop threshold (L2); else `kept`. The labels were tuned on 400-token document passages, so **calibrate the threshold on message slices** with the gold threads: the lowest threshold at which no gold thread containing a relation is dropped, and never below 0.9.
 - For kept threads call ScaleDown summarize with the instruction "Two sentences: what work this conversation is about and what was decided or is stuck." Store in `intake_thread.summary`. First probe the endpoint once; if the account lacks access (non-200), leave `summary` null, record that on #607, and continue — the summary is a convenience, not a dependency.
 - Admin API `GET /intake/threads?verdict=` in `apps/brain/brain/api/` (admin only, same auth as other admin routes) returning title, dates, counts, verdict, scores, summary — no body text.
 - Gate: `tests/test_intake_gate.py` (mocked ScaleDown) covers kept, dropped, mixed-slice, ScaleDown outage (thread stays `pending`, never auto-kept or auto-dropped), and summarize-unavailable.
 
 **1.6 Kept thread becomes a source.** `lead-only` (touches the main pipeline).
-- `apps/brain/brain/intake/ingest.py`: render the cleaned thread as speaker lines, store through `brain/storage.py` as a `transcript` source with `origin` and `external_ref` set and the source date set directly from `started_at` via `brain/read/dates.py:311` (`set_source_date`). In `dates.py` `resolve_and_store` (`:333`), return early when `source.origin` is not null so no date call is made.
+- `apps/brain/brain/intake/ingest.py`: store the cleaned thread through `brain/storage.py` as a `transcript` source with `origin` and `external_ref` set. **Render it as the JSON turn list the reader already accepts** (`transcript.py:87` `_turn_from_object`: `speaker`, `text`, `timestamp` per message), not as `Name [time]: text` lines — the speaker-line parser rejects any label containing a clock time or more than five words (`transcript.py:174-195`) and never keeps a time, so timestamped lines would be glued onto the previous turn.
+- **Pack short messages.** `chunk_turns` (`transcript.py:280`) makes one passage per speaker run, so a chat of one-line messages becomes dozens of 10-50-token passages, each paying a flat call and a relations call whose fixed prompt dwarfs the content. For sources with an `origin`, pack consecutive messages (speaker names kept inline, a message never split) up to the normal 400-token passage size. Passage text must stay byte-identical to stored text so quotes still validate.
+- Source date: set from `started_at` via `set_source_date` in `brain/read/dates.py`. This is for correctness, not savings — transcript sources already skip the date model call (`dates.py:293`).
 - Re-collection of a thread that gained messages creates a new version through `brain/versions.py`, not a duplicate source.
 - New job kinds `intake_collect`, `intake_gate`, `intake_ingest` registered in `worker.py:37`; a `maybe_queue_intake` sweep in the style of the existing hourly sweeps, **disabled unless `BRAIN_INTAKE_ENABLED=true`**.
 - Gate: `tests/test_intake_ingest.py` — a synthetic thread yields one source, correct date, zero date-model calls (assert the mock was not called), and re-ingest yields a version, not a second source.
@@ -203,7 +210,8 @@ Cost levers in order of size: drop before paying (cleaning, gate, existing 0.8 s
 ### Phase 2 — choose the cheapest models that pass *(context cut point: start a fresh session here)*
 
 **2.1 Gold sample.** `lead-only`.
-- Draw 60 kept threads stratified by origin and length from the pilot window; store them only in the private test store on edge-dev3 (see §12), never in git.
+- Draw **200** kept threads stratified by origin and length from the pilot window (50 for tuning, 150 for scoring); store them only in the private test store on edge-dev3 (see §12), never in git. Report every bake-off rate with a 95% confidence interval and require the **lower bound** to clear the gate; if 150 threads cannot separate two candidates, enlarge the set rather than pick by noise.
+- Gold must not favour the incumbent: produce candidate relations from the reference seat **and** from the two strongest candidates, pool and shuffle them without model labels, and have the lead judge each against its quote; a second, different model family re-judges a random 20% and the lead settles disagreements. Record counts of corrections by type.
 - Produce reference output by running the current relations and flat seats; then the lead reviews every reference relation against its quote and corrects the set by hand. Record the count of corrections. This corrected set is the gold.
 - Gate: gold file exists in the private store with a manifest (thread ids, counts, hash) and the manifest hash is on #607.
 
@@ -213,14 +221,17 @@ Cost levers in order of size: drop before paying (cleaning, gate, existing 0.8 s
 - Gate: results table (numbers only) committed to `docs/verification/` and linked from STATUS.
 
 **2.3 Relations bake-off.** `lead-only`.
-- Candidates: L8's four, each at the effort the owner named, same prompt (`apps/brain/brain/prompts/relations.md`), temperature 0, run through `brain/eval` so the fixed grade seat scores them.
+- Candidates: L8's four, each at the effort the owner named, same prompt (`apps/brain/brain/prompts/relations.md`), temperature 0. Scoring is a small new script, `apps/brain/brain/intake/bakeoff.py`, that compares each candidate's validated relations with gold (`brain/eval` grades answers, not relations, so it is used only for the end-to-end check below). **The judge of correctness must not be a candidate:** the live grade seat is one of the four, so judge with the reference relations model, or prove on 30 items that the grade seat shows no preference for its own output.
+- **Call-shape variants, each measured on the same gold and adopted only if every gate still passes:** (a) skip the relations call when the passage has fewer than two mentions from the flat stage (today only chatter with no mentions is skipped, `relations.py:858`) and count what is lost; (b) one joint flat-plus-relations call for threads under about 400 tokens; (c) wider context (4-6 turns, or 800-1,200 tokens) against today's two-turn window (`transcript.py:317`), judged on recall as well as cost because decisions in chat often span many messages; (d) dropping near-identical recurring threads (automated digests and the like) beyond exact duplicates — whole threads only, and only when the lead confirms the group is machine-generated.
+- **End-to-end check before seating:** build the map from the scoring threads with the winner and with the reference, ask the same 15 questions through `brain/eval`, and require the winner's grade to be no lower.
 - Measure: (a) share of relations whose quote validates (`validate_response`); (b) grader-judged correctness of validated relations; (c) recall against gold; (d) truncation and malformed-JSON rate; (e) measured cost per 1,000 passages at sync and batch prices.
 - **Gates to pass, all four:** correctness ≥ the reference seat's; recall ≥ 95% of the reference seat's; quote validation ≥ 98%; truncation ≤ 1%. Among passers the lowest measured cost wins. If none passes, try the cheapest candidate with failed passages escalated to the reference seat and count the blended cost; if that still loses to the reference alone, keep the reference and say so on #607.
-- Gate: results table in `docs/verification/`; winning model written to a new `relations_messages` seat in `cmap.model_seat`; `relations.py` reads that seat when the source has an `origin`, else the existing seat (`tests/test_model_seats.py` extended).
+- Gate: results table in `docs/verification/`; the winning model is selectable for message sources. `seats.py:22` `STAGES` is a fixed list and an unknown stage raises, so either add a `relations_messages` stage (extend `STAGES`, seed the row in the step 1.1 SQL file style, mind the seat cache) or keep stage `relations` and choose the model by source `origin` — whichever touches less. `tests/test_model_seats.py` extended.
 
 **2.4 Batch and cached-prefix path.** `lead-only`.
 - Only if the 2.3 winner's provider offers a batch interface (check the provider's current documentation; do not assume). Add `apps/brain/brain/llm_batch.py`: submit a job's passages as one batch, poll from the worker with backoff, map results back by passage id, then run the unchanged `validate_response`. Provider key from a new env var documented in `docs/configuration.md`; a missing key falls back to the synchronous path with a logged warning.
-- Reorder the relations prompt assembly (`relations.py:206` `build_prompt`) so all fixed text comes first and the per-passage parts last, so provider prompt caching applies. Output must be unchanged: re-run the 2.3 scoring set and confirm the gates still pass.
+- Prompt caching: the relations template (`relations.py:206` `build_prompt`) already starts with fixed text, and the mention list and context vary per call, so the cacheable share may be small. **Measure the cache-hit share on a 100-passage run first**; restructure the prompt only if the measured saving is worth it, and if you do, re-run the 2.3 scoring set and confirm the gates still pass.
+- A direct provider path needs a provider key and a change to provider resolution in `brain/llm.py`; OpenRouter gives no batch discount.
 - Gate: `tests/test_llm_batch.py` (mocked provider: success, partial failure, expiry, duplicate result ids); a 100-passage live batch on gold costs within 10% of the forecast batch price.
 
 ### Phase 3 — pilot *(cut point)*
@@ -245,6 +256,8 @@ Cost levers in order of size: drop before paying (cleaning, gate, existing 0.8 s
 | Input | Hostile case | Test that proves it |
 |---|---|---|
 | Message text | Text addressed to the model ("ignore your instructions…") | `test_intake_clean.py::test_instruction_text_is_data` — stored verbatim, and `test_relations.py::test_message_instruction_not_followed` (mock asserts prompt wraps passages as quoted data) |
+| Renderer output | A rendered thread that the transcript reader mis-parses (timestamps or long names in the speaker label, colons in names) | `test_intake_ingest.py::test_rendered_thread_round_trips_parse_turns` — every message becomes exactly one turn with the right speaker and time |
+| Short messages | Hundreds of one-line messages from alternating speakers | `test_intake_ingest.py::test_short_messages_packed_into_full_passages` — passage count is near tokens/400, not near message count |
 | Message HTML | Script tags, hidden text, giant inline images | `test_intake_clean.py::test_html_stripped_no_script_no_data_uri` |
 | Message text | Pasted password, key or token | `test_intake_clean.py::test_secret_message_dropped_and_blanked` |
 | Thread size | One chat with 50,000 messages | `test_intake_gate.py::test_huge_thread_sliced_and_capped` |
