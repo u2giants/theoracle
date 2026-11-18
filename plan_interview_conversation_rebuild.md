@@ -249,11 +249,17 @@ path.
   answer.
 - L3 (owner, 2026-11-10, #518). One question at a time at human pace; never a flood.
   No dedupe against old question text. Questions go to the relevant department.
-- L4 (planner, 2026-11-18). **"Processed" means:** the answer is stored as a source and
-  `read_source`, `classify_extract` and `relations` have completed successfully for
-  that source, so its facts are in Postgres with provenance. The global steps
-  (`resolve`, `project`, `communities`, …) still run afterwards in the normal lane and
-  are not waited for.
+- L4 (planner, 2026-11-18; revised the same day after the Muse debate, M4).
+  **"Processed" means:** the answer is stored as a source; `read_source`,
+  `classify_extract` and `relations` have completed for that source; **and that
+  source's mentions have been assigned to map entities** by a source-scoped resolve
+  (Step 5), so its facts are in Postgres with provenance *and* attached to the map.
+  Why the last part: without it `mention.entity_id` is NULL, the relation half of
+  `followup.py::map_context` (:113–123) and the evidence query behind question
+  selection (`tick.py:119–121, 139–145`) ignore the fresh answer, and the next
+  question is chosen as if the answer never happened. The whole-corpus steps
+  (`resolve`'s describe/rename phase, `project`, `communities`, …) still run
+  afterwards in the normal lane and are not waited for.
 - L5 (planner, 2026-11-18). Postgres is the conversation's only store. FalkorDB is not
   read or written on the conversation path.
 - L6 (planner, 2026-11-18). A quoted Teams message id, when present and belonging to
@@ -294,8 +300,8 @@ path.
 - O2. How long to wait for an answer before the conversation is considered paused:
   default 24 hours; after that the conversation closes and the unanswered question
   returns to `open`.
-- O3. Whether the fast lane reuses the existing handlers unchanged or needs a
-  per-source lock (Step 4 gives the test that decides).
+- O3. *Settled 2026-11-18 after the Muse debate — see Step 4 "Shared writes".* One
+  advisory lock around `drop_orphaned` and `resolve`'s write phase; nothing else.
 
 ---
 
@@ -327,16 +333,28 @@ New `apps/brain/brain/sql/034_interview_conversation.sql`, hand-written, idempot
   `clarify`, `close`; in: `answer`, `dont_know`, `unclear`, `request`, `other`),
   `text text`, `teams_activity_id text`, `quoted_activity_id text`,
   `question_id uuid null fk cmap.open_question`, `source_id uuid null`,
-  `in_reply_to uuid null fk interview_turn`, `created_at`. Unique
+  `in_reply_to uuid null fk interview_turn`, `created_at`,
+  `send_state text null check in ('sending','sent','failed')` and
+  `send_key text null` for `out` turns (unique where not null — the send-once key,
+  Step 5), `meta jsonb not null default '{}'` (composer path, drop reasons). Unique
   `(conversation_id, seq)`; unique `teams_activity_id` where not null and
   `direction='in'` (idempotency for Teams redelivery); index on `teams_activity_id`.
 - `cmap.job`: `ADD COLUMN IF NOT EXISTS lane text NOT NULL DEFAULT 'main'`; index
   `(lane, state, created_at)`.
 - `cmap.interview_setting`: `answer_wait_hours int default 24`. (No exchange-limit
-  setting — L9.)
+  setting — L9.) Step 8 must read this setting; a test asserts changing it changes
+  the close time.
+- `cmap.open_question`: `ADD COLUMN IF NOT EXISTS dismiss_reason text` and
+  `skipped_by` (array of employee ids, same type as `interview_send.employee_id`) if
+  no equivalent column exists — check `003_interviews.sql` first and reuse.
+- Seat: add `"converse"` to `seats.py::STAGES` (:22–34) and to `env_model` (:79–93)
+  with the same fallback `followup.py` uses today; `stage_model(settings,"converse")`
+  raises `ValueError` until this is done (M3).
 *Depends on:* nothing. *Gate:* `python -m brain.migrate` twice against local Postgres
 (localhost:5433 `brain_test`) with no error; `test_conversation_schema.py::
-test_one_open_conversation_per_employee` proves the second open insert fails.
+test_one_open_conversation_per_employee` proves the second open insert fails;
+`::test_concurrent_open_only_one_wins` (two threads open for the same employee at
+once; exactly one row); `test_seats.py::test_converse_seat_resolves`.
 
 **Step 2 — Teams message ids through the web app.** `helper-ok` (two named files,
 exact edits). 
@@ -349,10 +367,21 @@ exact edits).
   null`, `quoted_ids: string[]` and `text_plain`. Add a pure function
   `parseQuote(text, attachments)` in a new `apps/web/lib/teams-quote.ts` returning
   `{quotedIds, plainText}`: collect every `messageId="…"`/`itemid="…"` value from
-  Teams quote markup in `activity.text` and in any `text/html` attachment, digits only,
-  at most 5; `plainText` is the text with the quote block removed. Keep sending the
+  Teams quote markup in `activity.text` and in any `text/html` attachment, at most 5,
+  each matching the id shape **observed in the capture below** (do not assume
+  digits-only — M5); `plainText` is the text with the quote block removed. Keep sending the
   original `text` too. When the brain returns `handled: true` with no `reply`, send a
   typing activity.
+- **Capture first, code second (M5/M7).** Before writing the parser, log in a preview
+  deployment (values redacted to shape: length, character classes) for Albert's chat:
+  the `ResourceResponse.id` of a proactive send; `activity.id` and `replyToId` of a
+  plain reply and of a quote reply; the quote markup; and whether a proactive `typing`
+  activity renders and for how long. Record the shapes in the issue. If the id
+  returned on send is not the id a later quote carries, stop and bring it to the lead.
+- Typing: one typing activity is short-lived. While a conversation is `processing`
+  the brain asks the proactive route for `{typing:true}` roughly every 10 s (from the
+  interview-lane worker between job polls; never more than 3 minutes). No "got it"
+  text message — that is the generic reply this plan removes (§7).
 *Stop-and-ask:* if a real Teams quote reply (capture one from Albert's chat by logging
 the activity shape in a preview deployment, values redacted) does not carry the id in
 either place, stop and bring the captured shape to the lead.
@@ -367,39 +396,84 @@ filed).
   (`open_conversation`, `add_turn`, `turn_by_activity`, `close_conversation`,
   `current_conversation`).
 - `api/interview.py` inbound model: accept the new fields (all optional, validated:
-  ids `^[0-9]{1,32}$`, `quoted_ids` max 5, `text` capped at 8,000 characters).
+  ids matching the shape captured in Step 2 and at most 128 characters,
+  `quoted_ids` max 5, `text` capped at 8,000 characters).
 - `interview/inbound.py::handle_inbound`: first, if `activity_id` already exists as an
   `in` turn → return `handled: true`, no reply (redelivery). Then resolve the target
   turn in this order: (a) a `quoted_ids` entry that is an `out` turn **of this
-  employee**; (b) `reply_to_id` likewise; (c) the conversation's single in-flight
-  question; (d) only when none of these exist (legacy questions sent before this
-  change), today's `match_reply()` guess. A quoted id belonging to another employee is
-  ignored and logged, never used.
+  employee**; (b) `reply_to_id` likewise, **personal (1:1) chats only**; (c) the
+  conversation's single in-flight question; (d) only when none of these exist (legacy
+  questions sent before this change), today's `match_reply()` guess. A quoted id
+  belonging to another employee is ignored and logged, never used.
+  Refinements from the Muse debate (M5):
+  - A quote that matches an `out` turn which is **not** the in-flight question (an
+    older question, a clarify, a close) is filed on that turn's `question_id` if it
+    has one, but does **not** advance the conversation's in-flight question; if the
+    turn has no `question_id` the message is kind `other`.
+  - If `quoted_ids` is non-empty and none matches this employee's turns, do **not**
+    silently fall to (c): pass the message to the reply classifier (Step 7) with the
+    in-flight question as context and file it there only if it comes back `answer`;
+    otherwise `other`.
+  - Messages combined during processing (Step 5) keep their own `quoted_activity_id`
+    per `in` turn; matching runs per turn before they are combined.
 *Gate:* `test_interview_conversation.py::test_quote_reply_matches_quoted_question`,
-`::test_quoted_id_of_other_employee_ignored`, `::test_duplicate_activity_is_ignored`;
+`::test_quoted_id_of_other_employee_ignored`, `::test_duplicate_activity_is_ignored`,
+`::test_quote_of_old_question_does_not_advance_inflight`,
+`::test_unmatched_quote_is_not_auto_filed`;
 existing `test_interview.py` green.
 
 **Step 4 — Interview fast lane.** `lead-only` (concurrency in the job queue).
-- `db.py::enqueue_job(kind, payload, lane=None)`: `lane` defaults to a `ContextVar`
-  `current_lane` (default `'main'`), **but only for kinds in
-  `{'classify_extract','relations','interview_reply'}`**; every other kind always goes
-  to `'main'` so global rebuilds never enter the fast lane.
-- `worker.py`: `claim_next_job(lane)` adds `AND lane = %s`; `run_worker(stop, lane)`
-  sets `current_lane` around each handler call. `main.py` (where the worker thread is
-  started) starts a second thread with `lane='interview'`. The fast lane handles only
+(Revised after the Muse debate, 2026-11-18 — M1, M2, M9. The earlier context-variable
+design is dropped: explicit is simpler and cannot be lost across threads.)
+- **Explicit lane.** `db.py::enqueue_job(kind, payload, lane='main')`. Only three call
+  sites ever pass `'interview'`: the inbound `read_source` (Step 5), and
+  `read_source`→`classify_extract` (`read/pipeline.py:192`) and
+  `classify_extract`→`relations` (`extract/flat.py:720`), which pass
+  `'interview'` **iff their own job payload carries `interview_turn_id`**, and forward
+  that id. `relations`→`interview_reply` likewise. Every raw `INSERT INTO cmap.job`
+  (`extract/relations.py:942`, `resolve/resolve.py:907,917`, `graph/project.py:343`,
+  `chain.py:43,54,88,114`, `interview/tick.py:638`, `contradictions.py`) stays `main`
+  by the column default — list them in the PR and confirm none is missed
+  (`grep -rn "INSERT INTO cmap.job" apps/brain/brain`).
+- `worker.py`: `claim_next_job(lane)` adds `AND lane = %s` and keeps the existing
+  `run_after` condition. `run_worker(stop, lane='main')`; the 60-second schedule block
+  (`worker.py:205–222`: tick, directory sync, ensure_chain, stale threads) and the
+  orphan sweep run **only when `lane == 'main'`**.
+- The worker thread is started in `apps/brain/brain/__main__.py:31–37`; start a
+  second thread there with `lane='interview'`. The fast lane handles only
   `read_source`, `classify_extract`, `relations`, `interview_reply`.
-- `extract/relations.py:942`: unchanged (it enqueues `resolve`, which the allow-list
-  forces to `main`).
-- Judgment (O3): the two workers may now run `classify_extract`/`relations` for
-  *different* sources at once. Read those handlers for writes not scoped to
-  `source_id` (shared counters, "delete then insert" on global tables, embeddings
-  caches). If any exists, guard it with a Postgres advisory lock keyed on that
-  resource; do not serialise the whole lane. Criterion: the concurrency test below
-  passes 20 consecutive runs.
+- **Connection pool.** `db.py:23` is `max_size=5`, and each extraction handler fans
+  out to 8 threads (`flat.py:691`, `relations.py:887`). Two lanes can exhaust it.
+  Make the pool size a setting (default 12; confirm the Supabase pooler limit in
+  `AGENTS.md` first) and run interview-lane handlers with `CONCURRENCY` 2 — an
+  interview answer is one or two chunks.
+- **Shared writes (O3, now decided).** Checked 2026-11-18: for a first-time source
+  `flat._replace_previous` (`flat.py:575–595`) deletes nothing, so the fast lane does
+  not delete entities under `resolve`. The deleting path runs only on re-extraction
+  (`flat.py:622`) → `read/cleanup.py::drop_orphaned` (:42–65), which removes
+  `cmap.entity`/`entity_alias` rows and refreshes counts — the same global rows
+  `resolve` writes (`resolve.py:334–350, 764, 828–845`). Rule: take one Postgres
+  advisory lock (a named constant key) around `drop_orphaned` and around
+  `run_resolve`'s write phase, so the two can never interleave whichever lane they
+  run in. Do not serialise anything else.
+- **Chain healing must not fork a second chain.** `chain.py::_heal_sources` (:93–119)
+  re-queues `classify_extract` for a source stuck in `extracting`. Its "active job"
+  check already looks at all jobs for the source regardless of lane — keep it that
+  way, and when the source's last job payload carried `interview_turn_id`, re-queue
+  with that id and `lane='interview'`.
 *Gate:* `test_worker_lanes.py::test_interview_lane_runs_while_main_lane_is_busy`
 (a main-lane handler sleeps; an interview-lane job finishes first),
 `::test_global_kinds_never_enter_interview_lane`,
-`::test_two_sources_extract_concurrently_without_cross_writes`;
+`::test_interview_chain_stays_in_interview_lane` (real handlers with a fake model:
+read→extract→relations→reply all `lane='interview'`, the `resolve` it queues is
+`main`),
+`::test_schedule_runs_only_on_main_lane`,
+`::test_two_sources_extract_concurrently_without_cross_writes`,
+`::test_resolve_and_reextraction_do_not_interleave` (run `run_resolve` against a
+re-extraction of a source sharing entity names, 20 consecutive runs, no dangling
+`mention.entity_id`, no lost alias),
+`::test_pool_survives_both_lanes_busy`,
+`test_chain.py::test_heal_does_not_fork_interview_source`;
 `test_worker_orphans.py` green.
 
 **Step 5 — Answer processed, then reply.** `lead-only`.
@@ -417,7 +491,17 @@ existing `test_interview.py` green.
 - If the employee sends more messages while `state='processing'`, append each as an
   `in` turn and to the same pending answer; the reply job handles them together
   (below).
-- At the end of the `relations` handler: if payload has `interview_turn_id`, enqueue
+- **Source-scoped resolve (L4).** Add `resolve/resolve.py::resolve_source(source_id)`:
+  the same loop as `run_resolve` (:856–882) — `resolve_mention` → `_assign` → commit
+  per mention, then `_refresh_counts` — over `_load_unresolved` restricted to
+  `c.source_id = %s` (:309–317 is whole-corpus only by its WHERE clause). It does
+  **not** run `_describe`, `apply_renames` or `apply_entity_edits`; the normal
+  `resolve` job does those later. It takes the Step 4 advisory lock with a 30-second
+  wait; if the lock is not obtained (a main-lane resolve is mid-write) it skips,
+  records `meta.resolve='skipped'` on the turn, and the reply proceeds at mention
+  level rather than keeping the employee waiting.
+- At the end of the `relations` handler: if payload has `interview_turn_id`, run
+  `resolve_source` for that source, then enqueue
   `interview_reply {conversation_id}` (lane `interview`). If `read_source`,
   `classify_extract` or `relations` fails permanently for that source, the worker's
   failure path enqueues the same job with `{"processing_failed": true}` — the
@@ -425,12 +509,27 @@ existing `test_interview.py` green.
 - New handler `interview_reply` (`interview/converse.py::run_interview_reply`): if
   newer unprocessed `in` turns exist for the conversation, ingest them (one combined
   source) and exit — their `relations` will re-enqueue this job. Otherwise call the
-  composer (Step 6), send via `_post_proactive`, write the `out` turn, set
-  `state='awaiting_answer'` or `closed`.
+  composer (Step 6), then **send exactly once (M6):** insert the `out` turn first with
+  `send_state='sending'` and `send_key = conversation_id || ':' || seq` (unique); only
+  the inserter sends via `_post_proactive`; then mark `sent` with the returned
+  activity id and set `state='awaiting_answer'` or `closed`. A retry (`finish_job`
+  retries 3×, `worker.py:102–133`) or the self-heal that finds the key already present
+  does not send again — this includes a proactive call that timed out after Teams
+accepted it; a turn left `sending` for more than 5 minutes is marked
+  `failed` and logged for a human — never auto-resent, because a duplicate message is
+  worse than a late one. A proactive 404/403 (expired chat reference) closes the
+  conversation with `close_reason='unreachable'` and returns the question to `open`.
+- "Done" for the gate below means the `relations` job state is `done`; `failed`
+  takes the `processing_failed` path. There is no third state to wait on.
 *Gate:* `test_interview_conversation.py::test_reply_not_sent_before_relations_done`
 (asserts no proactive call until the `relations` job for that source is `done`),
 `::test_messages_during_processing_are_combined`,
-`::test_processing_failure_still_replies`.
+`::test_processing_failure_still_replies`,
+`::test_answer_mentions_resolved_before_reply` (after the reply, no mention of that
+source has NULL `entity_id`; the main-lane `resolve` that follows changes none of
+them), `::test_resolve_lock_busy_still_replies`,
+`::test_retry_after_send_does_not_send_twice` (kill the job after the proactive call,
+rerun: one proactive call total), `::test_unreachable_chat_closes_conversation`.
 
 **Step 6 — The composer.** `lead-only` (this is the product).
 New `interview/converse.py::compose_next(conn, conversation_id) -> Composed` and prompt
@@ -454,13 +553,23 @@ Output: strict JSON `{"reflect": str, "action": "followup"|"clarify"|"next_quest
 Rules enforced **in code after the model returns**, not only in the prompt:
 - `reflect` is one sentence, restates the employee's point, and every person/system
   name in it appears in the employee's own turns (L7). Reuse and generalise the
-  unknown-name guard from `followup.py`.
+  unknown-name guard from `followup.py`. That guard alone is too weak (M8): its
+  stoplist and "2–4 CJK characters" rule (`followup.py:44–55, 71–73`) miss lowercase
+  system names, long Chinese names and name-free facts. So also require: every
+  number, and every capitalised or CJK token run in `reflect`, occurs in the
+  employee's turns or the in-flight question text (case-folded substring); and
+  `reflect` is at most 30 words. This is still not a proof — the prompt gives the
+  composer blocks 3–4 for *choosing*, and the reply text is the risk surface — so the
+  Step 11 transcripts are read by the lead specifically for stated map facts.
 - `followup` only if the extracted facts leave a specific gap (missing who / which
   system / what happens next) and fewer than `MAX_FOLLOWUPS` follow-ups have been asked
   on this question; otherwise `next_question`.
-- `next_question` must pick from block 4 by index (it may reword the lead-in to connect
-  it to what was said, but the question text sent must contain the stored question);
-  the picked question moves to `asked` and gets its `question_id` on the `out` turn.
+- `next_question` must pick from block 4 by index. The model writes only a short
+  lead-in (`text`); **code appends the stored question itself as its own paragraph,
+  localised through `tick.py::_localized_question` (:508–525)** — the model never
+  retypes the question, so it cannot alter it and Chinese replies do not embed English
+  (M8). The picked question moves to `asked` and gets its `question_id` on the `out`
+  turn.
 - `close` when block 4 is empty and no follow-up is warranted, the employee said
   done, or the last two employee turns were not usable answers (L9). Never because
   of a count.
@@ -470,7 +579,9 @@ Rules enforced **in code after the model returns**, not only in the prompt:
   path was taken on the turn row (`kind` plus a `composer` note in a jsonb `meta`
   column — add it in Step 1 if you are reading ahead).
 - Timeout budget 45 s (it runs in the worker, not in a web request).
-The message sent is `reflect + " " + text`. Drop the "Quick question from The Oracle
+The message sent is `reflect + " " + text` (plus, for `next_question`, a blank line
+and the localised stored question). `prompts/interview_converse.md` has a zh-CN
+counterpart or an explicit language instruction, tested by the zh test below. Drop the "Quick question from The Oracle
 (reply in one or two sentences…)" wrapper for every message after the first in a
 conversation.
 *Gate:* `test_converse.py::test_reply_reflects_the_answer` (fake model; asserts the
@@ -484,7 +595,8 @@ and `test_converse_zh.py::test_zh_conversation_replies_in_chinese`. Plus a recor
 transcript check: replay the six real exchanges listed in §6.3–6.5 through
 `compose_next` with the live `converse` seat (script
 `apps/brain/scripts/replay_interview.py`, read-only, prints only) and paste the
-before/after into the issue.
+before/after into the issue. The script exits non-zero if any reply fails the code
+rules above or equals the old fixed string, so it is a check, not only a printout.
 
 **Step 7 — Reply kinds.** `lead-only` for the prompt and branching; tests `helper-ok`.
 Extend `classify_reply()` / `prompts/reply_check.md` to return one of
@@ -498,8 +610,9 @@ and `max_tokens` high enough that the label is never cut off:
   `open_question` state `dismissed` and reason `unclear_to_employee`, and the
   conversation moves to `next_question`.
 - `dont_know`: not ingested as a fact. Ask once "Who would know?"; ingest that reply
-  (it is real routing knowledge); return the question to `open` so routing can send it
-  elsewhere.
+  (it is real routing knowledge); return the question to `open` **with this employee
+  added to `skipped_by`**, and make `tick.py` selection exclude employees in
+  `skipped_by` — otherwise `_evidence_contributor` routes it straight back (M10).
 - `request` (e.g. "number your questions", "ask me later", "is this optional?"):
   answer honestly in one sentence from a small fixed capability list in
   `strings.py` (what the bot can and cannot do), then restate the in-flight question.
@@ -508,7 +621,8 @@ and `max_tokens` high enough that the label is never cut off:
 *Stop-and-ask (tests):* if a test needs behaviour not written above, ask the lead.
 *Gate:* `test_reply_kinds.py::test_unclear_gets_clarified_not_recorded`,
 `::test_second_unclear_dismisses_question`, `::test_dont_know_asks_who_would_know`,
-`::test_request_is_answered_and_question_restated`, `::test_stop_closes_conversation`.
+`::test_request_is_answered_and_question_restated`, `::test_stop_closes_conversation`,
+`::test_dont_know_question_not_reasked_to_same_employee`.
 
 **Step 8 — Tick only opens conversations.** `lead-only`.
 `tick.py`: a target is eligible only if they have **no open conversation** (replace
@@ -516,16 +630,27 @@ and `max_tokens` high enough that the label is never cut off:
 a question = `open_conversation` + first `out` turn. Replace `DAILY_CAP = 3` with "at most
 one conversation *opened* per employee per working day" (L9); a conversation already
 open has no cap.
+**Open atomically (M6).** Today the tick checks, sends, then records
+(`tick.py:528–617`), so the hourly tick and a manual `POST /interview/tick`
+(`api/interview.py:350–355`) can both send. New order: insert the conversation row
+(`INSERT … ON CONFLICT DO NOTHING` on the partial unique index) and the first `out`
+turn with its `send_key` **before** sending; send only if this call inserted the row.
+The once-per-working-day rule is checked in the same transaction from
+`interview_conversation.opened_at`.
 Add to the tick: close conversations idle longer than `answer_wait_hours`, returning
 the unanswered question to `open` (`close_reason='no_answer'`); re-enqueue
 `interview_reply` for any conversation stuck in `processing` more than 15 minutes with
-no running/queued interview-lane job (self-heal).
+no interview-lane job for it in state `queued` **or** `running` (including queued
+with a future `run_after`) (self-heal). The heal never sends by itself; it only
+re-enqueues, and the send-once key in Step 5 covers a late original.
 *Gate:* `test_interview_conversation.py::test_tick_skips_employee_with_open_conversation`,
 `::test_no_second_message_while_awaiting_answer` (run the tick and the reply job
 repeatedly with no employee reply; exactly one outbound turn exists),
 `::test_one_conversation_opened_per_working_day`,
 `::test_idle_conversation_closes_and_requeues_question`,
-`::test_stuck_processing_is_healed`.
+`::test_stuck_processing_is_healed`,
+`::test_two_concurrent_ticks_send_one_message` (two threads, same target: one
+proactive call), `::test_heal_does_not_duplicate_running_job`.
 
 **Step 9 — Retire the old paths.** `helper-ok` once Steps 5–8 are merged (mechanical
 removal with named targets).
@@ -549,7 +674,11 @@ with more than zero questions in `asked`, return all of them to `open` **except*
 are kept in flight (no stored message ids exist for them, so they cannot be matched
 reliably); the next tick opens a clean conversation. Do not touch `answered` or
 `dismissed`. Record the before/after counts in the issue. Take the 29 mis-filed
-answers no further here: list the two confirmed wrong pairings from §6.3 in the issue
+answers no further here. Releasing ~50 questions means many employees become
+eligible the next working morning — one opening question each, which is within L9,
+but the bot stays restricted to Albert and then the four L10 employees by Step 11's
+pause flags until the evidence is posted, so no burst reaches staff before proof.
+On the mis-filed answers: list the two confirmed wrong pairings from §6.3 in the issue
 for the repair plan (#520) to re-file.
 *Gate:* after apply, `select count(*) from cmap.open_question where state='asked'`
 is 0 and `open` rose by the same amount.
@@ -562,10 +691,13 @@ record who was already paused so they are restored exactly), run one sitting in
 Albert's real chat. Capture from the database: each turn, the `relations` job
 `finished_at` for the answer's source, and the following `out` turn's `created_at`.
 Accept only if, for every exchange: (a) the out turn is later than the relations
-finish; (b) the reply's first sentence reflects the answer; (c) a quote reply to an
+finish (query joins `relations.finished_at < out.created_at` per exchange and counts
+outbound turns while `awaiting_answer` — must be exactly one); (b) the reply's first sentence reflects the answer; (c) a quote reply to an
 older message is filed on the quoted question; (d) "that's vague" produces a clarified
 question; (e) median answer-to-reply time is under 3 minutes while a `communities` job
-is running. Then un-pause the four first employees in L10 (Ilona, Jen, Carlos, Jessica), one
+is running; (g) the typing indicator showed without a silent gap of more than about
+20 seconds (Albert's screen or a recording); (h) no reply states a map fact the
+employee did not say. Then un-pause the four first employees in L10 (Ilona, Jen, Carlos, Jessica), one
 conversation each, same checks, plus (f) nobody received a message they had not just
 replied to, other than the single opening question. Then restore everyone. Post the evidence table to the issue.
 *Gate:* evidence posted; STATUS rows updated with the commit SHAs and the issue
@@ -653,7 +785,7 @@ Done when all are true:
 
 Risks and rollback:
 - *Second worker causes cross-writes.* Mitigated by Step 4's test and advisory locks.
-  Rollback: stop starting the interview-lane thread (one line in `main.py`); jobs in
+  Rollback: stop starting the interview-lane thread (one line in `__main__.py`); jobs in
   that lane are then picked up by making `claim_next_job` ignore lane — keep that as a
   settings switch `interview_lane_enabled`.
 - *Composer says something wrong or odd to staff.* Code-side guards + deterministic
@@ -666,7 +798,35 @@ Risks and rollback:
 
 Genuinely uncertain:
 - Exact Teams quote payload shape (Step 2 captures it; stop-and-ask defined).
-- Whether `classify_extract`/`relations` are safe side by side (O3; test decides).
+- `classify_extract`/`relations` side by side: decided in Step 4 (O3); its tests must
+  pass 20 consecutive runs before the second worker is deployed.
+
+### 13a. Second-opinion debate (Muse, 2026-11-18)
+
+Muse reviewed this plan against the code; verdict "sound with changes". Each point,
+the planner's check, and the outcome (all folded into the steps above):
+
+| # | Muse's point | Checked against code | Outcome |
+|---|---|---|---|
+| M1 | Two workers race on global entity tables | Partly. First-time extraction deletes nothing (`flat.py:575–595` only acts on re-extraction, `:622`); the real overlap is `drop_orphaned` vs `resolve` | Advisory lock on exactly those two; new resolve-vs-re-extraction test (Step 4) |
+| M2 | Context-variable lane is lost in thread pools; schedule would run twice; pool of 5 too small; wrong entry file | Lane loss: not as stated — both chain enqueues (`flat.py:720`, `relations.py:921`) run in the handler thread. The other three are correct | Explicit lane anyway (simpler); schedule main-only; pool setting; `__main__.py` (Step 4) |
+| M3 | `converse` seat would raise | Correct (`seats.py:22–34`) | Spelled out in Step 1 with a test |
+| M4 | Without `resolve` the composer reads unresolved data; `map_context` returns nothing | Half right. `map_context` (`followup.py:99–125`) matches *existing* entities by name in the employee's words, so it does return context; but the new facts are indeed mention-level | First rejected, then **conceded on rebuttal**: `tick.py:119–121` ignores unresolved mentions, so the next question would be chosen as if the answer never happened, and `resolve.py:309–317` is whole-corpus only by its WHERE clause. L4 now includes a source-scoped resolve (Step 5) |
+| M5 | Quote ids may not be numeric; fallback order can misfile | Correct; shape is unobserved | Capture before coding; no digits rule; old-quote and unmatched-quote rules; reply-to only in 1:1 (Steps 2–3) |
+| M6 | Retries, heal and concurrent ticks can double-send | Correct (`worker.py:102–133`, `tick.py:528–617`) | Send-once key, insert-before-send, heal checks running jobs (Steps 5, 8) |
+| M7 | One typing event will not cover 1–2 minutes | Plausible, unverifiable from the repo | Heartbeat + capture + acceptance (g). "Got it" waiter text **rejected** — it is the generic reply the owner complained about |
+| M8 | Name guard too weak; verbatim question fights Chinese | Correct | Stronger token/number guard, honest limit, lead reads transcripts; code appends the localised stored question (Step 6) |
+| M9 | Heal and raw inserts bypass lanes | Correct for heal; raw inserts defaulting to `main` is the intended behaviour | Lane-aware heal with test (Step 4) |
+| M10 | Weak gates; missing columns; `dont_know` loop; backfill burst | Correct, except the burst is one message per person and is held back by Step 11's pause flags | Gates tightened; columns in Step 1; `skipped_by`; note in Step 10 |
+
+Second round: Muse conceded M1 (no deletes for a new source; main-lane `resolve`
+may assign a fresh mention early, which is harmless) and M2 (no enqueue happens
+inside a pool thread), and found no remaining likely path to an unsolicited or
+duplicate message. Final verdict: sound with changes — all adopted here.
+
+Not adopted: Muse's alternative of a single worker with pre-emption (§7 already
+rejects a priority flag: a 75-minute `communities` job cannot be pre-empted at job
+boundaries).
 
 ---
 
