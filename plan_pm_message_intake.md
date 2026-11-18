@@ -39,6 +39,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 4.1 | Full-window run + live proof | ⬜ open | — | — |
 | 5.1 | Email collector | ⛔ blocked | Tenant admin consent for `Mail.Read` (application), restricted to the two mailboxes by an application access policy. No tenant-admin credential is reachable from AI sessions (same family as #593). Do not work around. | 2026-11-18 |
 
+**Owner rulings, 2026-11-18 (second message, verbatim):** *"the oracle should read carlos' and jess' mailboxes, teams accounts (private and group chats) and our clickup."* and *"we can't afford frontier models"*. Recorded as L9 and L10; the method (ScaleDown first, then the four named models) is unchanged.
 **Second opinion (2026-11-18, Muse Spark): "sound with changes".** Each point was checked against the code and folded in the same day: thread rendering and passage packing (1.6); the date call is not a saving (§6); the thread gate is conditional and calibrated (1.5); short threads are never merged and signatures are removed only by exact match (1.4); larger, unbiased gold with confidence bounds and a judge that is not a candidate (2.1, 2.3); call-shape variants and an end-to-end check (2.3); seat mechanics (2.3); caching measured before built (2.4). One point not taken as stated: HTML-to-text stays, as format conversion with the original kept (1.4).
 
 **Decisions by Albert that bind this plan (2026-11-18, from his chat, verbatim):**
@@ -130,13 +131,15 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 - L5. Quality gates before cost; grader fixed for the whole bake-off.
 - L6. No paid call before the step 0.1 forecast is on the issue, and every run has a hard spend cap.
 - L7. Raw message content lives only in the private database and private test store, never in the repo, issues, PRs or logs.
-- L8. The four candidates for relations are the owner's list: gpt-6-luna (medium effort, batch), claude-haiku-5.5 (medium, batch), glm-5.3-flash, deepseek-4.1-flash. The current relations seat is the **reference**, not a candidate.
+- L8. The four candidates for relations are the owner's list: gpt-6-luna (medium effort, batch), claude-haiku-5.5 (medium, batch), glm-5.3-flash, deepseek-4.1-flash.
+- L9. **No frontier model anywhere in this pipeline** (owner, 2026-11-18: *"we can't afford frontier models"*). ScaleDown first, then only the four models in L8 — for extraction, relations, retries, gold-building, and judging. If the seated flat, relations or grade model is a frontier model, message sources must not use it; say so on #607 and seat a candidate instead. Where this plan says "reference", read "the lead-judged gold".
+- L10. Sources in scope (owner, 2026-11-18): both project managers' mailboxes, their Teams chats (one-to-one and group), and the company ClickUp.
 
 **Open (implementer's judgment, criteria given):**
 - O1. Time window. Default **the last 90 days**; the pilot uses the last 14. Widen only if the 90-day map is still thin.
 - O2. Conversation split for Teams chats: default a new thread after a 4-hour silence. Tune in step 1.4 on real data so threads are neither single lines nor whole weeks.
 - O3. Whether ScaleDown extract or the seated flat model wins on message text — decided by step 2.2.
-- O4. Whether one-to-one chats are included. Default **yes**, with the personal-content drop in step 1.4. This is a business question on the owner's list (see handoff §0); if he says no, restrict `chat_type` to group chats and ClickUp.
+- O4. **Settled 2026-11-18 by the owner: one-to-one and group chats are both included** (moved to L10). Still open: whether the two managers are told first.
 
 **The pipeline, end to end:**
 
@@ -146,7 +149,7 @@ collect (free) -> clean + assemble threads (free) -> gate each thread (ScaleDown
    -> kept: 2-sentence triage summary (ScaleDown summarize, never evidence)
    -> stored as a transcript-kind source, date taken from the records
    -> flat extraction (winner of 2.2) -> relations (winner of 2.3, batched, cached prefix)
-   -> failed validations retried once on the reference seat -> rest of the normal pipeline
+   -> failed validations retried once on the next-cheapest passing candidate (never a frontier model, L9) -> rest of the normal pipeline
 ```
 
 Cost levers in order of size: fewer, fuller passages (packing short messages, step 1.6); drop before paying (cleaning, the existing 0.8 skip, and the thread gate if it earns its keep); fewer calls per passage (step 2.3 variants); cheapest passing model per passage; batch price; escalate only failures. Not a lever: the date call (transcript sources never make one).
@@ -211,7 +214,7 @@ Cost levers in order of size: fewer, fuller passages (packing short messages, st
 
 **2.1 Gold sample.** `lead-only`.
 - Draw **200** kept threads stratified by origin and length from the pilot window (50 for tuning, 150 for scoring); store them only in the private test store on edge-dev3 (see §12), never in git. Report every bake-off rate with a 95% confidence interval and require the **lower bound** to clear the gate; if 150 threads cannot separate two candidates, enlarge the set rather than pick by noise.
-- Gold must not favour the incumbent: produce candidate relations from the reference seat **and** from the two strongest candidates, pool and shuffle them without model labels, and have the lead judge each against its quote; a second, different model family re-judges a random 20% and the lead settles disagreements. Record counts of corrections by type.
+- Gold must not favour any one model: produce candidate relations from **all four candidates** (L8), pool and shuffle them without model labels, and have the lead judge each against its quote; a second, different candidate family re-judges a random 20% and the lead settles disagreements. Record counts of corrections by type. The current relations seat takes part only if it is not a frontier model (L9).
 - Produce reference output by running the current relations and flat seats; then the lead reviews every reference relation against its quote and corrects the set by hand. Record the count of corrections. This corrected set is the gold.
 - Gate: gold file exists in the private store with a manifest (thread ids, counts, hash) and the manifest hash is on #607.
 
@@ -225,7 +228,7 @@ Cost levers in order of size: fewer, fuller passages (packing short messages, st
 - **Call-shape variants, each measured on the same gold and adopted only if every gate still passes:** (a) skip the relations call when the passage has fewer than two mentions from the flat stage (today only chatter with no mentions is skipped, `relations.py:858`) and count what is lost; (b) one joint flat-plus-relations call for threads under about 400 tokens; (c) wider context (4-6 turns, or 800-1,200 tokens) against today's two-turn window (`transcript.py:317`), judged on recall as well as cost because decisions in chat often span many messages; (d) dropping near-identical recurring threads (automated digests and the like) beyond exact duplicates — whole threads only, and only when the lead confirms the group is machine-generated.
 - **End-to-end check before seating:** build the map from the scoring threads with the winner and with the reference, ask the same 15 questions through `brain/eval`, and require the winner's grade to be no lower.
 - Measure: (a) share of relations whose quote validates (`validate_response`); (b) grader-judged correctness of validated relations; (c) recall against gold; (d) truncation and malformed-JSON rate; (e) measured cost per 1,000 passages at sync and batch prices.
-- **Gates to pass, all four:** correctness ≥ the reference seat's; recall ≥ 95% of the reference seat's; quote validation ≥ 98%; truncation ≤ 1%. Among passers the lowest measured cost wins. If none passes, try the cheapest candidate with failed passages escalated to the reference seat and count the blended cost; if that still loses to the reference alone, keep the reference and say so on #607.
+- **Gates to pass, all four, measured against the lead-judged gold:** correctness at least 95%; recall at least 90% of gold relations; quote validation at least 98%; truncation at most 1% (each by the lower confidence bound, step 2.1). Among passers the lowest measured cost wins. If none passes, try the cheapest candidate with its failed passages retried on the best-scoring other candidate and count the blended cost. If no single candidate or pair passes, **stop and report on #607 with the numbers; do not fall back to a frontier model (L9).**
 - Gate: results table in `docs/verification/`; the winning model is selectable for message sources. `seats.py:22` `STAGES` is a fixed list and an unknown stage raises, so either add a `relations_messages` stage (extend `STAGES`, seed the row in the step 1.1 SQL file style, mind the seat cache) or keep stage `relations` and choose the model by source `origin` — whichever touches less. `tests/test_model_seats.py` extended.
 
 **2.4 Batch and cached-prefix path.** `lead-only`.
@@ -303,14 +306,15 @@ Every test file named in §9 and §9a, plus: `tests/test_prompts.py` must list a
 
 **Risks:**
 - *Privacy.* One-to-one chats may hold personal matters. Mitigations: gate label, secret drop, admin-only listing, O4. Rollback: delete sources where `origin IS NOT NULL` and their staging rows (versions make this clean).
-- *A cheap model that looks fine on 60 threads but drifts.* Mitigation: quote validation on every relation in production and escalation of failures; re-score 20 random threads after the full run.
+- *A cheap model that looks fine on the gold threads but drifts.* Mitigation: quote validation on every relation in production, one retry of failures on the next-cheapest passing candidate (L9), and a re-score of 20 random threads after the full run.
 - *Summarize preview unavailable.* Handled in 1.5.
 - *Batch latency.* Batches can take up to a day. Acceptable for a backfill; the hourly sweep for new messages may stay synchronous if volume is small — decide from pilot numbers.
 - *Graph throttling on large chats.* Bounded backoff; collection is resumable by `(origin, external_id)`.
 
 **Open questions for the owner (business meaning only; also in the handoff §0):**
-1. May The Oracle read these two people's mailboxes? If yes, the mailbox permission is the blocker in 5.1.
-2. Should one-to-one chats be included, and should the two managers be told first? Default in this plan: included, not announced by the system.
+1. ~~Mailboxes~~ — answered 2026-11-18: yes, both mailboxes. Step 5.1 now waits only on the mailbox permission.
+2. ~~One-to-one chats~~ — answered 2026-11-18: private and group chats are both read.
+3. Still open: should the two managers be told before their messages are read? Default: not announced by the system.
 
 ---
 
