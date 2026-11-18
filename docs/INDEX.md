@@ -88,6 +88,10 @@ Read the summary; open a document only when it matches your task.
 | [docs/verification/company-map/teams-two-way-comms.md](verification/company-map/teams-two-way-comms.md) | done | What it took on 2026-11-02 to make Teams messaging work in both directions: three stacked problems, fixes and live proof. | debugging Teams bot inbound or outbound delivery |
 | [docs/verification/phase-3-task-gates-pilot.md](verification/phase-3-task-gates-pilot.md) | done | Phase 3 task-gate pilot record of 2026-09-09: scope, routing measurement and before/after sizes. | reviewing how the task-gate declaration was introduced here |
 | [docs/verification/repair/B1.md](verification/repair/B1.md) | done | B1 test evidence: owner-approved eval question set — schema 019, admin actions, approved-only bar, 30 drafts loaded. | checking B1 gate evidence, the eval question column shapes, or how the 30 drafts load |
+| [docs/verification/repair/B3.md](verification/repair/B3.md) | done | B3 live proof: brain-quality gate runs 43163303981 and 43165847107 — mechanism proven, red only while the owner-approved set is empty. | checking B3 gate evidence, the first quality-gate run ids, or why the gate is red pre-approval |
+| [docs/verification/repair/C2.md](verification/repair/C2.md) | done | C2 live proof: function_assign done — 0 sources without a function, counts per function recorded. | checking C2 live evidence or the per-function source/entity counts |
+| [docs/verification/repair/D1.md](verification/repair/D1.md) | done | D1 live proof: backfill stamped 58/58 sources — zero NULL dates, origins recorded. | checking D1 live evidence, date_origin distribution, or how the backfill ran |
+| [docs/verification/repair/E1.md](verification/repair/E1.md) | done | E1 live proof: windowed extraction lifts relation yield 289→402 on the book-report transcript (11.1→15.5 per chunk); drop counts recorded. | checking E1 live evidence, the before/after relation yield, or the drop_reasons key |
 
 ## archive
 
