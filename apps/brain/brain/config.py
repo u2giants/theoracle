@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     brain_interview_weekly_cap: int = 2
     brain_web_base_url: str | None = None
     brain_import_dir: str = "/data/import"
+    # Project-manager message intake (plan_pm_message_intake.md). Intake
+    # refuses to start without a spend cap (step 0.1 gate).
+    brain_intake_enabled: bool = False
+    brain_intake_max_usd: float | None = None
+    clickup_api_token: str | None = None
     # DesignFlow people/roles directory sync (DECISIONS.md
     # D-dflow-directory-source-of-truth). Off until both the flag and the
     # second-database URL are set.
@@ -68,6 +73,16 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the process-wide settings object."""
     return Settings()
+
+
+def intake_spend_cap(settings: Settings) -> float:
+    """BRAIN_INTAKE_MAX_USD; raise if unset or not positive (no intake run without a cap)."""
+    cap = settings.brain_intake_max_usd
+    if cap is None or cap <= 0:
+        raise RuntimeError(
+            "BRAIN_INTAKE_MAX_USD must be set to a positive dollar cap before intake runs"
+        )
+    return cap
 
 
 def chat_model(settings: Settings) -> str | None:

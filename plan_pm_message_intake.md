@@ -24,8 +24,8 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | Step | Title | State | Evidence / blocker | Updated (EST) |
 |---|---|---|---|---|
 | A | Access probes | 🟨 Teams + ClickUp proven; email blocked | #607 opening comment (2026-11-18): ClickUp `GET /api/v2/team` 200, both managers are members; Graph `/users/{id}/chats` and `/chats/{id}/messages` 200 for both; Graph `/users/{id}/messages` 403 `ErrorAccessDenied` (no `Mail.Read` application role) | 2026-11-18 |
-| 0.1 | Sizing script and cost forecast (no paid calls) | ⬜ open | — | — |
-| 1.1 | `cmap.intake_item` / `cmap.intake_thread` staging tables | ⬜ open | — | — |
+| 0.1 | Sizing script and cost forecast (no paid calls) | ✅ done | #607 comment 6993848642: 1,045 passages, \$0.12–\$0.80 forecast | 2026-11-18 |
+| 1.1 | `cmap.intake_item` / `cmap.intake_thread` staging tables | 🟨 in PR | sql/036_message_intake.sql; CI runs schema test | 2026-11-18 |
 | 1.2 | ClickUp collector | ⬜ open | — | — |
 | 1.3 | Teams chat collector | ⬜ open | — | — |
 | 1.4 | Free cleaning and thread assembly (drop-only) | ⬜ open | — | — |
