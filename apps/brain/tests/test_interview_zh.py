@@ -24,7 +24,7 @@ CONVERSATION_REF = {
 @pytest.fixture(autouse=True)
 def _clean_interviews(db: Any) -> None:
     db.execute(
-        "TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags, "
+        "TRUNCATE cmap.open_question, cmap.interview_conversation, cmap.interview_turn, cmap.teams_conversation, cmap.employee_flags, "
         "cmap.interview_send, cmap.teams_intake, cmap.translation"
     )
     db.execute("UPDATE cmap.interview_setting SET enabled = true")
@@ -103,6 +103,7 @@ def test_question_translated_once_and_cached(
 
     db.execute("UPDATE cmap.open_question SET state = 'open', asked_at = NULL WHERE id = %s", (qid,))
     db.execute("DELETE FROM cmap.interview_send")
+    db.execute("DELETE FROM cmap.interview_conversation")
     db.commit()
     sent.clear()
     assert run_interview_tick()["asked"] == 1

@@ -34,6 +34,7 @@ import psycopg
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.extract.normalize import normalize_name
+from brain.interview import conversation as conv_mod
 from brain.interview.inbound import QUESTION_WINDOW_DAYS
 from brain.interview.strings import reply_language, strings
 from brain.llm import post_chat_with_rescue
@@ -49,13 +50,9 @@ MODEL_TIMEOUT_SECONDS = 8.0
 
 TICK_INTERVAL_SECONDS = 3600
 
-# Human pacing (owner 2026-11-10): one question in flight per person, and at
-# most DAILY_CAP asked per person per New York day. "In flight" lasts exactly
-# QUESTION_WINDOW_DAYS — the same window inbound matches replies against (F4)
-# — so a person is never sent a new question while a reply could still land on
-# the previous one. The send record is a separate pacing rule and keeps its
-# own 7-day lookback in ``reachable_employees``.
-DAILY_CAP = 3
+# Human pacing (owner 2026-11-10, #604): one conversation open per person and
+# one sitting per person per New York working day; a sitting holds at most
+# ``interview_setting.max_exchanges_per_sitting`` exchanges.
 
 # Build-out phase 3: never message people 8 PM–8 AM New York time or on weekends.
 EASTERN = ZoneInfo("America/New_York")
@@ -69,6 +66,7 @@ def in_quiet_hours(now: datetime | None = None) -> bool:
     if local.weekday() >= 5:
         return True
     return local.hour >= QUIET_START_HOUR or local.hour < QUIET_END_HOUR
+
 
 # Summed edge weight between each Person entity and the question's entities.
 # Edge weight is the number of distinct sources asserting the relation, the
@@ -399,7 +397,9 @@ def _department_target(
     for picked in _suggested_targets(question, reachable, skipped):
         pool[picked.employee_id] = picked
     by_id = {target.employee_id: target for target in reachable.values()}
-    for (employee_id,) in conn.execute(_DEPARTMENT_MEMBERS_SQL, {"dept": department}).fetchall():
+    for (employee_id,) in conn.execute(
+        _DEPARTMENT_MEMBERS_SQL, {"dept": department}
+    ).fetchall():
         target = by_id.get(str(employee_id))
         if target is not None and target.employee_id not in skipped:
             pool[target.employee_id] = target
@@ -434,8 +434,14 @@ def _department_target(
 
 
 def _busy_employees(conn: psycopg.Connection) -> set[str]:
-    """People with a question still waiting, or already at today's cap."""
-    busy = {
+    """People who may not be sent a new question now (issue #604).
+
+    Serial rule: anyone with a conversation that is not closed, or who
+    already had their one sitting today (New York day). Legacy questions
+    asked before conversations existed still count while matchable.
+    """
+    busy = conv_mod.sat_today(conn)
+    busy |= {
         str(row[0])
         for row in conn.execute(
             "SELECT DISTINCT target_employee_id FROM cmap.open_question "
@@ -444,28 +450,83 @@ def _busy_employees(conn: psycopg.Connection) -> set[str]:
             (QUESTION_WINDOW_DAYS,),
         ).fetchall()
     }
-    busy |= {
-        str(row[0])
-        for row in conn.execute(
-            "SELECT employee_id FROM cmap.interview_send "
-            "WHERE (sent_at AT TIME ZONE 'America/New_York')::date = "
-            "(now() AT TIME ZONE 'America/New_York')::date "
-            "GROUP BY employee_id HAVING count(*) >= %s",
-            (DAILY_CAP,),
-        ).fetchall()
-    }
     return busy
 
 
-def _post_proactive(employee_id: str, text: str, settings: Settings) -> None:
-    """POST ``{employee_id, text}`` to the Next.js proactive Teams route."""
+def mark_asked(conn: psycopg.Connection, employee_id: str, question_id: str) -> None:
+    """Record that a question went out to this employee."""
+    conn.execute(
+        "UPDATE cmap.open_question SET state = 'asked', asked_at = now(), "
+        "target_employee_id = %s WHERE id = %s",
+        (employee_id, question_id),
+    )
+    conn.execute(
+        "INSERT INTO cmap.interview_send (employee_id, question_id) VALUES (%s, %s)",
+        (employee_id, question_id),
+    )
+    conn.commit()
+
+
+def queued_for(
+    conn: psycopg.Connection,
+    employee_id: str,
+    limit: int = 3,
+    settings: Settings | None = None,
+) -> list[tuple[str, str]]:
+    """Up to ``limit`` open questions routing would send to this employee next."""
+    cfg = settings if settings is not None else get_settings()
+    reachable = {
+        key: value
+        for key, value in reachable_employees(
+            conn, cfg.brain_interview_weekly_cap + 50
+        ).items()
+        if value.employee_id == employee_id
+    }
+    if not reachable:
+        return []
+    picked: list[tuple[str, str]] = []
+    for qid, text, entity_ids, manual, skipped, person, department in conn.execute(
+        "SELECT id::text, question, entity_ids, target_employee_id::text, skipped_by, "
+        "suggested_person, department FROM cmap.open_question WHERE state = 'open' "
+        "AND (priority IS NOT NULL OR target_employee_id IS NOT NULL) "
+        "ORDER BY priority DESC NULLS LAST, created_at, id"
+    ).fetchall():
+        target = select_target(
+            conn,
+            {
+                "question": text,
+                "entity_ids": entity_ids,
+                "target_employee_id": manual,
+                "skipped_by": skipped,
+                "suggested_person": person,
+                "department": department,
+            },
+            reachable,
+        )
+        if target is not None and target.employee_id == employee_id:
+            picked.append((str(qid), str(text)))
+            if len(picked) >= limit:
+                break
+    return picked
+
+
+def _post_proactive(
+    employee_id: str, text: str, settings: Settings, typing: bool = False
+) -> str | None:
+    """POST to the Next.js proactive Teams route; return the sent message's id."""
     base = settings.brain_web_base_url
     token = settings.brain_shared_token
     if not base or not token:
-        raise InterviewSendError("BRAIN_WEB_BASE_URL and BRAIN_SHARED_TOKEN must be set")
+        raise InterviewSendError(
+            "BRAIN_WEB_BASE_URL and BRAIN_SHARED_TOKEN must be set"
+        )
     response = httpx.post(
         f"{base.rstrip('/')}/api/teams/bot/proactive",
-        json={"employee_id": employee_id, "text": text},
+        json={
+            "employee_id": employee_id,
+            "text": text,
+            **({"typing": True} if typing else {}),
+        },
         headers={"x-brain-token": token},
         timeout=30.0,
     )
@@ -477,6 +538,11 @@ def _post_proactive(employee_id: str, text: str, settings: Settings) -> None:
         raise InterviewSendError(
             f"proactive send failed ({response.status_code}): {response.text[:300]}"
         )
+    try:
+        activity_id = (response.json() or {}).get("activity_id")
+    except ValueError:
+        activity_id = None
+    return str(activity_id) if activity_id else None
 
 
 def _translate_question(question: str, settings: Settings) -> str:
@@ -492,8 +558,12 @@ def _translate_question(question: str, settings: Settings) -> str:
         "<<<\n" + question + "\n>>>"
     )
     body = post_chat_with_rescue(
-        {"model": model, "messages": [{"role": "user", "content": prompt}],
-         "max_tokens": 300, "temperature": 0.2},
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 300,
+            "temperature": 0.2,
+        },
         settings=settings,
         timeout=MODEL_TIMEOUT_SECONDS,
         error_cls=RuntimeError,
@@ -515,7 +585,9 @@ def _localized_question(
     """The question in ``lang``; zh-CN translations are cached write-once."""
     if lang != "zh-CN":
         return text
-    cached = (translations_for("question", question_id).get("zh-CN") or {}).get("text", "")
+    cached = (translations_for("question", question_id).get("zh-CN") or {}).get(
+        "text", ""
+    )
     if cached.strip():
         return cached.strip()
     translated = _translate_question(text, settings)
@@ -553,7 +625,9 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
                 break
             reachable = {
                 key: value
-                for key, value in reachable_employees(conn, cfg.brain_interview_weekly_cap).items()
+                for key, value in reachable_employees(
+                    conn, cfg.brain_interview_weekly_cap
+                ).items()
                 if value.employee_id not in busy
             }
             if not reachable:
@@ -573,22 +647,26 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
             if target is None:
                 result["unrouted"] += 1
                 continue
+            locale_row = conn.execute(
+                "SELECT locale FROM public.employees WHERE id = %s",
+                (target.employee_id,),
+            ).fetchone()
+            lang = reply_language(
+                str(locale_row[0]) if locale_row and locale_row[0] else None
+            )
+            conversation_id = conv_mod.open_conversation(conn, target.employee_id, lang)
+            if conversation_id is None:
+                busy.add(target.employee_id)
+                continue
             try:
-                locale_row = conn.execute(
-                    "SELECT locale FROM public.employees WHERE id = %s",
-                    (target.employee_id,),
-                ).fetchone()
-                lang = reply_language(
-                    str(locale_row[0]) if locale_row and locale_row[0] else None
-                )
                 localized = _localized_question(conn, qid, text, lang, cfg)
-                _post_proactive(
-                    target.employee_id,
-                    strings(lang).message_template.format(question=localized),
-                    cfg,
-                )
+                sent_text = strings(lang).message_template.format(question=localized)
+                activity_id = _post_proactive(target.employee_id, sent_text, cfg)
             except InterviewUnreachableError as exc:
-                logger.warning("interview target %s unreachable: %s", target.employee_id, exc)
+                logger.warning(
+                    "interview target %s unreachable: %s", target.employee_id, exc
+                )
+                _drop_conversation(conn, conversation_id)
                 conn.execute(
                     "UPDATE cmap.open_question SET skipped_by = array_append(skipped_by, %s::uuid) "
                     "WHERE id = %s",
@@ -598,23 +676,39 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
                 result["failed"] += 1
                 continue
             except (InterviewSendError, httpx.HTTPError) as exc:
-                logger.warning("interview send to %s failed: %s", target.employee_id, exc)
+                logger.warning(
+                    "interview send to %s failed: %s", target.employee_id, exc
+                )
+                _drop_conversation(conn, conversation_id)
                 result["failed"] += 1
                 continue
-            conn.execute(
-                "UPDATE cmap.open_question SET state = 'asked', asked_at = now(), "
-                "target_employee_id = %s WHERE id = %s",
-                (target.employee_id, qid),
+            conv_mod.add_turn(
+                conn,
+                conversation_id,
+                "out",
+                "question",
+                sent_text,
+                teams_activity_id=activity_id,
+                question_id=qid,
             )
             conn.execute(
-                "INSERT INTO cmap.interview_send (employee_id, question_id) VALUES (%s, %s)",
-                (target.employee_id, qid),
+                "UPDATE cmap.interview_conversation SET exchanges = exchanges + 1 "
+                "WHERE id = %s",
+                (conversation_id,),
             )
-            conn.commit()
+            mark_asked(conn, target.employee_id, qid)
             busy.add(target.employee_id)
             result["asked"] += 1
         conn.commit()
     return result
+
+
+def _drop_conversation(conn: psycopg.Connection, conversation_id: str) -> None:
+    """Remove a conversation whose first message never went out."""
+    conn.execute(
+        "DELETE FROM cmap.interview_conversation WHERE id = %s", (conversation_id,)
+    )
+    conn.commit()
 
 
 def handle_interview_tick(job: dict[str, Any]) -> None:

@@ -17,6 +17,7 @@ from brain import versions as versions_mod
 from brain.config import get_settings
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_and_store
+from brain.interview.conversation import source_chain_ended
 from brain.read.chunk import Chunk, window_chunks
 from brain.read.cleanup import drop_orphaned, touched_entities
 from brain.read.dates import resolve_and_store, upload_floor
@@ -56,7 +57,9 @@ def _decode_text(data: bytes) -> str:
         return data.decode("utf-8-sig", errors="replace")
 
 
-def read_chunks(kind: str, data: bytes, usage: dict[str, int] | None = None) -> list[Chunk]:
+def read_chunks(
+    kind: str, data: bytes, usage: dict[str, int] | None = None
+) -> list[Chunk]:
     """Read one stored source into its chunks, whatever the kind."""
     if kind == KIND_PDF:
         return read_pdf(data, usage)
@@ -167,12 +170,15 @@ def handle_read_source(job: dict[str, Any]) -> None:
         _record_read_notes(source_id, notes)
         pairs = _store_chunks(source_id, chunks)
         with pool.connection() as conn:
-            resolve_and_store(conn, row, data=data, settings=get_settings(), usage=usage)
+            resolve_and_store(
+                conn, row, data=data, settings=get_settings(), usage=usage
+            )
             conn.commit()
         if not pairs:
             # Nothing to extract: never show an empty source as read.
             set_read_state(source_id, "failed", NO_CONTENT_ERROR)
             _record_usage(job.get("id"), usage)
+            source_chain_ended(source_id, failed=True)
             return
         embed_and_store(pairs, usage=usage)
         # D2: the first 3 chunks are embedded now, so similarity detection can
@@ -183,7 +189,9 @@ def handle_read_source(job: dict[str, Any]) -> None:
                 versions_mod.detect_similarity(conn, source_id)
                 conn.commit()
         except Exception as exc:  # noqa: BLE001 - marking must never block a read
-            logger.warning("supersession similarity detection failed for %s: %s", source_id, exc)
+            logger.warning(
+                "supersession similarity detection failed for %s: %s", source_id, exc
+            )
         # "read" is set only when extraction has finished (relations job).
         set_read_state(source_id, "extracting", None)
     except Exception as exc:

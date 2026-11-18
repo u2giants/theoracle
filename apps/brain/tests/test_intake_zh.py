@@ -52,7 +52,7 @@ def test_zh_join_request() -> None:
 @pytest.fixture()
 def _clean_bot(db: Any):
     db.execute(
-        "TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags, "
+        "TRUNCATE cmap.open_question, cmap.interview_conversation, cmap.interview_turn, cmap.teams_conversation, cmap.employee_flags, "
         "cmap.interview_send, cmap.teams_intake"
     )
     db.execute("UPDATE cmap.interview_setting SET enabled = true")

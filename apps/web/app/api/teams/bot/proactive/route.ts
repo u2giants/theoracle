@@ -16,6 +16,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import {
+  ActivityTypes,
   TurnContext,
   type ConversationParameters,
   type ConversationReference,
@@ -27,7 +28,7 @@ import { listTenantUsers } from '@/lib/microsoft-graph';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-type Body = { employee_id?: unknown; text?: unknown };
+type Body = { employee_id?: unknown; text?: unknown; typing?: unknown };
 
 type EmployeeLookup = {
   conversation_ref?: Partial<ConversationReference> | null;
@@ -131,7 +132,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = (await req.json().catch(() => null)) as Body | null;
   const employeeId = typeof body?.employee_id === 'string' ? body.employee_id : '';
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
-  if (!employeeId || !text) {
+  const typing = body?.typing === true;
+  if (!employeeId || (!text && !typing)) {
     return NextResponse.json({ error: 'employee_id and text are required' }, { status: 400 });
   }
   // Forwarded so the brain can enforce the #591 gate: an admin user context
@@ -184,13 +186,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  let activityId: string | null = null;
   try {
     await getTeamsBotAdapter().continueConversationAsync(teamsBotAppId(), ref, async (context) => {
-      await context.sendActivity(text);
+      if (typing) {
+        await context.sendActivity({ type: ActivityTypes.Typing });
+        return;
+      }
+      // Plan #604 Step 2: the id lets the brain match a later quote reply.
+      const sent = await context.sendActivity(text);
+      activityId = sent?.id ?? null;
     });
   } catch (err) {
     console.error('[teams/bot/proactive] send failed', err);
     return NextResponse.json({ error: 'send_failed' }, { status: 502 });
   }
-  return NextResponse.json({ sent: true });
+  return NextResponse.json({ sent: true, activity_id: activityId });
 }

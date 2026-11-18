@@ -32,6 +32,15 @@ class Strings:
     profile_thanks: str
     profile_thanks_raw: str
     reply_keep_going: str
+    # Serial conversation (#604).
+    next_question: str
+    restate: str
+    clarify: str
+    who_would_know: str
+    capabilities: str
+    unclear_dropped: str
+    processing_failed: str
+    close: str
 
 
 _EN = Strings(
@@ -75,6 +84,18 @@ _EN = Strings(
         "(who you get it from, what you do, who you pass it to)."
     ),
     reply_keep_going="Got it, keep going any time.",
+    next_question="Thanks. Next question: {question}",
+    restate="The question was: {question}",
+    clarify="Let me put that more concretely: {question}",
+    who_would_know="No problem. Who would know the answer to that?",
+    capabilities=(
+        "I ask one question at a time and wait for your answer; answering is "
+        "optional, so reply 'skip' to pass or 'stop' to pause questions. I can't "
+        "number questions or schedule them for later."
+    ),
+    unclear_dropped="Sorry that wasn't clear. I'll drop that question.",
+    processing_failed="Thanks, I saved your answer.",
+    close="Thanks, that's all for now. What you told me is in the Company Map.",
 )
 
 _ZH = Strings(
@@ -108,6 +129,17 @@ _ZH = Strings(
         "谢谢，已记下。现在告诉我你负责的事情（谁交给你的、你做什么、你再交给谁）。"
     ),
     reply_keep_going="好的，随时继续。",
+    next_question="谢谢。下一个问题：{question}",
+    restate="刚才的问题是：{question}",
+    clarify="我说得更具体一点：{question}",
+    who_would_know="没问题。谁会知道这个问题的答案？",
+    capabilities=(
+        "我一次只问一个问题，然后等你回答；回答是自愿的，回复「跳过」可以略过，"
+        "回复「停止」可以暂停提问。我不能给问题编号，也不能安排以后再问。"
+    ),
+    unclear_dropped="抱歉，这个问题没问清楚，我先不问了。",
+    processing_failed="谢谢，你的回答已保存。",
+    close="谢谢，今天就到这里。你告诉我的内容已加入公司地图。",
 )
 
 

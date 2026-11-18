@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test lib/teams-quote.test.ts"
   },
   "dependencies": {
     "@oracle/auth": "workspace:*",
