@@ -8,9 +8,8 @@ owner: claude/bot-interview-conversation-diagnosis-9c163b
 
 The full build spec is the plan:
 [plan_interview_conversation_rebuild.md](../plan_interview_conversation_rebuild.md)
-(GitHub: https://github.com/u2giants/theoracle/blob/main/plan_interview_conversation_rebuild.md
-once the plan PR merges; until then on branch
-`claude/bot-interview-conversation-diagnosis-9c163b`). **Read its STATUS table first; do
+(GitHub: https://github.com/u2giants/theoracle/blob/main/plan_interview_conversation_rebuild.md,
+on `main`). **Read its STATUS table first; do
 not re-derive or re-plan.** This file only registers the plan and carries what the plan
 does not.
 
@@ -53,9 +52,13 @@ asked whether FalkorDB / the database is designed for that.
   https://github.com/u2giants/theoracle/issues/604 (plan Step 0 done).
 - **No code, schema or production data was changed.** The bot is still ON in its
   current form (71 active, 3 paused; 545 open / 50 asked / 29 answered questions).
-- Committed and pushed on branch `claude/bot-interview-conversation-diagnosis-9c163b`
-  with a PR into `main` containing only the plan, this file and one router line in
-  `AGENTS.md`.
+- Plan, this file and one router line in `AGENTS.md` are merged to `main`
+  (https://github.com/u2giants/theoracle/pull/605,
+  https://github.com/u2giants/theoracle/pull/606,
+  https://github.com/u2giants/theoracle/pull/612).
+- 2026-11-18: a Muse second opinion debated the plan against the code (two rounds,
+  verdict "sound with changes"). Every accepted change is folded into the steps; the
+  record is plan §13a. Do not re-run that debate.
 
 ## 4. What did NOT work / dead ends
 
@@ -105,7 +108,11 @@ https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-11-11T1229Z-edge-
 ## 9. Open questions and risks
 
 - Exact shape of a Teams quote reply (plan Step 2 captures one before coding).
-- Whether two workers can extract side by side safely (plan Step 4 test decides).
+- Two workers side by side: decided in plan Step 4 (one advisory lock around
+  orphan cleanup and resolve's write phase); its tests must pass before deploy.
+- Teams behaviour nobody could verify from the repository (plan Step 2 captures it
+  first): the id shape of sent and quoted messages, and how long a typing indicator
+  shows.
 - Out of scope but real, owned by #520: `communities` failed 13 of 48 runs and
   `process_pass` 14 of 16 in the 14 days to 2026-11-18; two confirmed mis-filed
   answers (plan §6.3) need re-filing. These are technical items for the repair plan,
