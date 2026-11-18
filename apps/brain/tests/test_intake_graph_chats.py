@@ -104,7 +104,7 @@ def test_graph_pages_detects_paging_loop():
         list(graph_pages(client, f"{GRAPH}/synthetic/loop"))
 
 
-def test_graph_pages_stops_on_duplicate_item():
+def test_graph_pages_skips_repeated_item():
     client = make_client(
         {
             "/v1.0/synthetic/dup": [
@@ -113,8 +113,7 @@ def test_graph_pages_stops_on_duplicate_item():
             ]
         }
     )
-    with pytest.raises(GraphPagingError, match="duplicate"):
-        list(graph_pages(client, f"{GRAPH}/synthetic/dup"))
+    assert [i["id"] for i in graph_pages(client, f"{GRAPH}/synthetic/dup")] == ["a"]
 
 
 def test_429_with_retry_after_is_honoured(monkeypatch: pytest.MonkeyPatch):

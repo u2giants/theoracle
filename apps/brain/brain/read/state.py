@@ -26,7 +26,6 @@ CHUNK_ATTEMPTS = 3
 BACKOFF_SECONDS = 1.0
 
 
-
 def with_retries[T](
     call: Callable[[], T],
     label: str,

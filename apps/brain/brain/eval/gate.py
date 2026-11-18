@@ -56,9 +56,7 @@ class GateDecision:
 def _question_errors(run: Mapping[str, Any]) -> list[str]:
     """Error texts recorded on a run's questions (B2 ``results`` shape)."""
     return [
-        str(item.get("error"))
-        for item in run.get("results") or []
-        if item.get("error")
+        str(item.get("error")) for item in run.get("results") or [] if item.get("error")
     ]
 
 
@@ -70,9 +68,7 @@ def decide(
     errors = _question_errors(latest)
     run_id = str(latest.get("id") or "") or None
     previous_mean = (
-        None
-        if last_accepted is None
-        else float(last_accepted.get("mean_score") or 0.0)
+        None if last_accepted is None else float(last_accepted.get("mean_score") or 0.0)
     )
     drop = None if previous_mean is None else round(previous_mean - mean, 4)
     if errors:
@@ -133,7 +129,12 @@ def run_gate() -> GateDecision:
                 (row[0],),
             )
         conn.commit()
-    logger.info("gate %s run=%s: %s", "PASS" if decision.passed else "FAIL", row[0], decision.reason)
+    logger.info(
+        "gate %s run=%s: %s",
+        "PASS" if decision.passed else "FAIL",
+        row[0],
+        decision.reason,
+    )
     return decision
 
 
@@ -167,7 +168,9 @@ def live_gate(
     """Queue one eval on the deployed brain, wait for its run, gate it."""
     headers = {"x-brain-token": token}
     try:
-        before = {str(run.get("id")) for run in _run_payload(base, headers).get("runs") or []}
+        before = {
+            str(run.get("id")) for run in _run_payload(base, headers).get("runs") or []
+        }
         response = httpx.post(
             f"{base}/eval/run", headers=headers, timeout=HTTP_TIMEOUT_SECONDS
         )

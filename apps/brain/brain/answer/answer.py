@@ -188,7 +188,9 @@ _HISTORY_MARKERS = (
     "what changed",
     "how did it work",
 )
-_HISTORY_PREFIX = "[SUPERSEDED VERSION — shown because this question is about the past]\n"
+_HISTORY_PREFIX = (
+    "[SUPERSEDED VERSION — shown because this question is about the past]\n"
+)
 
 
 def is_history_question(question: str) -> bool:
@@ -377,9 +379,7 @@ def _flat_json_field(content: str, field: str) -> str | None:
     return None
 
 
-def _flat_ask(
-    prompt: str, settings: Settings, field: str
-) -> tuple[str | None, int]:
+def _flat_ask(prompt: str, settings: Settings, field: str) -> tuple[str | None, int]:
     """One flat-seat JSON reply after retries; ``(value, tokens)``, value None on failure."""
     total = 0
     for _attempt in range(SUPPORT_ATTEMPTS):
@@ -409,10 +409,8 @@ def _flat_ask(
 
 def _render_support(template: str, sentence: str, quotes: list[str]) -> str:
     """Fill a support prompt's sentence and evidence slots."""
-    return (
-        template.replace("{{sentence}}", sentence).replace(
-            "{{evidence}}", "\n\n".join(quote for quote in quotes if quote)
-        )
+    return template.replace("{{sentence}}", sentence).replace(
+        "{{evidence}}", "\n\n".join(quote for quote in quotes if quote)
     )
 
 
@@ -474,9 +472,7 @@ def supported_share_of(answer_md: str, citations: list[dict[str, Any]]) -> float
     for sentence in sentences:
         if any(tag in sentence for tag in SUPPORT_TAGS):
             continue
-        if any(
-            1 <= int(value) <= kept for value in _MARKER.findall(sentence)
-        ):
+        if any(1 <= int(value) <= kept for value in _MARKER.findall(sentence)):
             supported += 1
     return round(supported / len(sentences), 4)
 
@@ -576,9 +572,7 @@ def _verify_support(
     if failed:
         rewrites: dict[int, str | None] = {}
         rewrite_tokens = 0
-        with ThreadPoolExecutor(
-            max_workers=min(SUPPORT_PARALLEL, len(failed))
-        ) as pool:
+        with ThreadPoolExecutor(max_workers=min(SUPPORT_PARALLEL, len(failed))) as pool:
             futures = {
                 pool.submit(
                     _rewrite_sentence,
@@ -599,9 +593,7 @@ def _verify_support(
             original = sentence_by_index[index]
             if rewritten is None:
                 continue
-            if sorted(_MARKER.findall(rewritten)) != sorted(
-                _MARKER.findall(original)
-            ):
+            if sorted(_MARKER.findall(rewritten)) != sorted(_MARKER.findall(original)):
                 continue
             rechecks.append((index, rewritten, quotes_by_index[index]))
         if rechecks:
@@ -804,9 +796,7 @@ def _finalize_citations(
                     "source_id": source_id,
                     "title": str(row[0]),
                     "chunk_id": None,
-                    "quote": _supporting_text(
-                        paragraph, texts_by_source[source_id]
-                    ),
+                    "quote": _supporting_text(paragraph, texts_by_source[source_id]),
                     "locator": None,
                 }
             )
@@ -1137,7 +1127,15 @@ def _graph_context(
         {"ids": node_ids},
     ).result_set
     edges: list[dict[str, Any]] = []
-    for from_id, to_id, rel_type, weight, descriptions, stances, source_refs in edge_rows:
+    for (
+        from_id,
+        to_id,
+        rel_type,
+        weight,
+        descriptions,
+        stances,
+        source_refs,
+    ) in edge_rows:
         refs = source_refs
         if isinstance(refs, str):
             try:
@@ -1217,7 +1215,12 @@ def _select_chunks(
                     + " ORDER BY c.embedding <=> %s::vector LIMIT %s",
                     [source_ids]
                     + function_params
-                    + [vector_literal(vector), SIMILARITY_FLOOR, vector_literal(vector), CHUNKS_RESTRICTED],
+                    + [
+                        vector_literal(vector),
+                        SIMILARITY_FLOOR,
+                        vector_literal(vector),
+                        CHUNKS_RESTRICTED,
+                    ],
                 )
             )
         queries.append(
@@ -1231,7 +1234,12 @@ def _select_chunks(
                 + floor_sql
                 + " ORDER BY c.embedding <=> %s::vector LIMIT %s",
                 function_params
-                + [vector_literal(vector), SIMILARITY_FLOOR, vector_literal(vector), CHUNKS_UNRESTRICTED],
+                + [
+                    vector_literal(vector),
+                    SIMILARITY_FLOOR,
+                    vector_literal(vector),
+                    CHUNKS_UNRESTRICTED,
+                ],
             )
         )
         for sql, params in queries:
@@ -1349,10 +1357,7 @@ def _flow_items(function_ids: list[str] | None) -> list[str]:
                 (flow_id,),
             ).fetchall()
             for ordinal, step_input, step_output, decision in steps:
-                line = (
-                    f"  {ordinal}. in: {step_input or '?'} "
-                    f"out: {step_output or '?'}"
-                )
+                line = f"  {ordinal}. in: {step_input or '?'} out: {step_output or '?'}"
                 if decision:
                     line += f" decision: {decision}"
                 items.append(line)
@@ -1448,7 +1453,9 @@ def _render_history(history: list[dict[str, str]]) -> str:
         return "CONVERSATION SO FAR: (none)"
     lines = ["CONVERSATION SO FAR:"]
     for turn in turns:
-        lines.append(f"{str(turn.get('role') or 'user')}: {str(turn.get('content') or '')}")
+        lines.append(
+            f"{str(turn.get('role') or 'user')}: {str(turn.get('content') or '')}"
+        )
     return "\n".join(lines)
 
 
@@ -1520,9 +1527,7 @@ def _local_answer(
     vector = embed_texts([question], settings, usage)[0]
     with get_pool().connection() as conn:
         universe_ids = (
-            None
-            if function_ids is None
-            else _function_entity_ids(conn, function_ids)
+            None if function_ids is None else _function_entity_ids(conn, function_ids)
         )
     entities = _select_entities(question, vector, include_history, universe_ids)
     nodes, edges = _graph_context(entities, settings, vector, universe_ids)
@@ -1578,7 +1583,13 @@ def _local_answer(
         passages_text = _compress_passages(
             rendered["passages"].split("\n\n"), question, settings, usage
         )
-    if not nodes and not chunks and not report_lines and not flow_lines and not company_lines:
+    if (
+        not nodes
+        and not chunks
+        and not report_lines
+        and not flow_lines
+        and not company_lines
+    ):
         return _dont_know(
             question,
             functions_consulted or [],
@@ -1600,9 +1611,7 @@ def _local_answer(
     raw_citations = [
         item for item in (raw.get("citations") or []) if isinstance(item, dict)
     ]
-    unknowns = [
-        str(item) for item in (raw.get("unknowns") or []) if str(item).strip()
-    ]
+    unknowns = [str(item) for item in (raw.get("unknowns") or []) if str(item).strip()]
     report_kept = set(kept[0])
     company_kept = set(kept[1])
     evidence = [
@@ -1791,9 +1800,8 @@ def _map_points(
     points: list[dict[str, Any]] = []
     for start in range(0, len(reports), MAP_BATCH):
         batch = reports[start : start + MAP_BATCH]
-        prompt = (
-            template.replace("{{question}}", question)
-            .replace("{{reports}}", _reports_context(batch))
+        prompt = template.replace("{{question}}", question).replace(
+            "{{reports}}", _reports_context(batch)
         )
         raw = _ask(prompt, settings, usage)
         for item in raw.get("points") or []:
@@ -1926,9 +1934,7 @@ def _global_answer(
     raw_citations = [
         item for item in (raw.get("citations") or []) if isinstance(item, dict)
     ]
-    unknowns = [
-        str(item) for item in (raw.get("unknowns") or []) if str(item).strip()
-    ]
+    unknowns = [str(item) for item in (raw.get("unknowns") or []) if str(item).strip()]
     final_md, citations = _finalize_global(answer_md, raw_citations, evidence)
     return {
         "answer_md": final_md,
@@ -1974,11 +1980,15 @@ def answer_question(
     if mode not in {"auto", "local", "global"}:
         raise AnswerError("mode must be auto, local or global")
     if mode == "global":
-        return _verify_support(_global_answer(text, turns, cfg, counters), cfg, counters)
+        return _verify_support(
+            _global_answer(text, turns, cfg, counters), cfg, counters
+        )
     routed = _route_functions(text, turns, cfg, counters)
     routed_ids = [item["id"] for item in routed]
     if mode == "auto" and not routed:
-        return _verify_support(_global_answer(text, turns, cfg, counters), cfg, counters)
+        return _verify_support(
+            _global_answer(text, turns, cfg, counters), cfg, counters
+        )
     if mode == "auto" and routed[0]["weight"] < ROUTE_MIN_WEIGHT:
         # Low routing confidence: the top function's scope plus the company
         # report in ONE prompt — never two answers concatenated (C4 step 5).

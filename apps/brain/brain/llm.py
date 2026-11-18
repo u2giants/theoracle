@@ -93,7 +93,7 @@ def resolve_provider(model: str | None, settings: Settings) -> tuple[str, str | 
 def strip_provider_prefix(model: str) -> str:
     """Strip the ``meta-model-api/`` prefix so the API sees its own model name."""
     if model.startswith(_META_PROVIDER_PREFIX):
-        return model[len(_META_PROVIDER_PREFIX):]
+        return model[len(_META_PROVIDER_PREFIX) :]
     return model
 
 

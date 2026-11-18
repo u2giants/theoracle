@@ -43,10 +43,12 @@ def post_answer(
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
     if body.mode not in {"auto", "local", "global"}:
-        raise HTTPException(status_code=400, detail="mode must be auto, local or global")
-    history = [
-        {"role": turn.role, "content": turn.content} for turn in body.history
-    ][-HISTORY_TURNS:]
+        raise HTTPException(
+            status_code=400, detail="mode must be auto, local or global"
+        )
+    history = [{"role": turn.role, "content": turn.content} for turn in body.history][
+        -HISTORY_TURNS:
+    ]
     try:
         return answer_question(question, body.mode, history)
     except AnswerError as exc:

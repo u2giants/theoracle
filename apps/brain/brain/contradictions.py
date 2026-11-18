@@ -118,9 +118,7 @@ def build_prompt(rel_a: dict[str, Any], rel_b: dict[str, Any]) -> str:
     )
 
 
-def _post_chat(
-    messages: list[dict[str, Any]], settings: Settings
-) -> dict[str, Any]:
+def _post_chat(messages: list[dict[str, Any]], settings: Settings) -> dict[str, Any]:
     """POST one contradiction-classifier chat request on the frontier seat.
 
     The reply must be JSON: a first reply that is not parses triggers one
@@ -377,7 +375,9 @@ def _cycle_record(
         names.get(entity_id, entity_id[:8]) for entity_id in entities + [entities[0]]
     )
     summary = f"PRECEDES cycle: {label} (relation ids: {', '.join(sorted(edge_ids))})"
-    names_label = " -> ".join(names.get(entity_id, entity_id[:8]) for entity_id in entities)
+    names_label = " -> ".join(
+        names.get(entity_id, entity_id[:8]) for entity_id in entities
+    )
     return rel_a, rel_b, summary, names_label
 
 
@@ -655,7 +655,11 @@ def run_contradictions(
                 if entity_id not in entity_ids:
                     entity_ids.append(entity_id)
             source_ids = sorted(
-                {rel_by_id[edge]["source_id"] for edge in cycle["edges"] if edge in rel_by_id}
+                {
+                    rel_by_id[edge]["source_id"]
+                    for edge in cycle["edges"]
+                    if edge in rel_by_id
+                }
             )
             _write_gap(
                 conn,
@@ -717,16 +721,22 @@ def after_source_relations(source_id: str) -> None:
     try:
         queued = queue_interview_scan(source_id)
     except Exception as exc:  # noqa: BLE001 - never break the relations stage
-        logger.warning("interview contradiction scan not queued for %s: %s", source_id, exc)
+        logger.warning(
+            "interview contradiction scan not queued for %s: %s", source_id, exc
+        )
         return
     if queued:
-        logger.info("queued immediate contradiction scan for interview source %s", source_id)
+        logger.info(
+            "queued immediate contradiction scan for interview source %s", source_id
+        )
 
 
 # ------------------------------------------------------------------ surfacing
 
 
-def _disagreement_rows(conn: Any, entity_ids: Any | None = None) -> list[dict[str, Any]]:
+def _disagreement_rows(
+    conn: Any, entity_ids: Any | None = None
+) -> list[dict[str, Any]]:
     """Open conflict rows with both quoted statements and their source titles."""
     rows = conn.execute(
         "SELECT ct.id::text, ct.kind, ct.summary, "
@@ -820,7 +830,11 @@ def list_rows(conn: Any) -> list[dict[str, Any]]:
                     continue
                 seen_entities.add(str(member[0]))
                 entities.append(
-                    {"id": str(member[0]), "name": str(member[1]), "type": str(member[2])}
+                    {
+                        "id": str(member[0]),
+                        "name": str(member[1]),
+                        "type": str(member[2]),
+                    }
                 )
         items.append(
             {
@@ -838,7 +852,9 @@ def list_rows(conn: Any) -> list[dict[str, Any]]:
                     "stance": str(row[10]),
                     "source_id": row[11],
                     "source_title": str(row[12]),
-                    "effective_date": row[13].isoformat() if row[13] is not None else None,
+                    "effective_date": row[13].isoformat()
+                    if row[13] is not None
+                    else None,
                 },
                 "relation_b": {
                     "id": row[14],
@@ -848,7 +864,9 @@ def list_rows(conn: Any) -> list[dict[str, Any]]:
                     "stance": str(row[18]),
                     "source_id": row[19],
                     "source_title": str(row[20]),
-                    "effective_date": row[21].isoformat() if row[21] is not None else None,
+                    "effective_date": row[21].isoformat()
+                    if row[21] is not None
+                    else None,
                 },
                 "entity_ids": [entity["id"] for entity in entities],
                 "entities": entities,

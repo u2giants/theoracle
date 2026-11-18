@@ -42,7 +42,9 @@ def _cited(explanations: list[dict[str, Any]]) -> set[str]:
 
 
 @router.get("/recommendations")
-def list_recommendations(user: Annotated[User, Depends(current_user)]) -> dict[str, Any]:
+def list_recommendations(
+    user: Annotated[User, Depends(current_user)],
+) -> dict[str, Any]:
     """Every non-rejected recommendation, most distinct sources first."""
     with get_pool().connection() as conn:
         rows = conn.execute(
@@ -61,7 +63,9 @@ def list_recommendations(user: Annotated[User, Depends(current_user)]) -> dict[s
         titles = _source_titles(conn, all_ids)
     cards: list[dict[str, Any]] = []
     for row, explanations, options, experiment in parsed:
-        sources = sorted(source_id for source_id in _cited(explanations) if source_id in titles)
+        sources = sorted(
+            source_id for source_id in _cited(explanations) if source_id in titles
+        )
         for item in explanations:
             for key in ("support", "against"):
                 item[key] = [
@@ -81,7 +85,10 @@ def list_recommendations(user: Annotated[User, Depends(current_user)]) -> dict[s
                 "status": row[7],
                 "created_at": row[8].isoformat() if row[8] else None,
                 "source_count": len(sources),
-                "sources": [{"id": source_id, "title": titles[source_id]} for source_id in sources],
+                "sources": [
+                    {"id": source_id, "title": titles[source_id]}
+                    for source_id in sources
+                ],
             }
         )
     cards.sort(key=lambda card: (-card["source_count"], card["created_at"] or ""))
@@ -99,7 +106,9 @@ def set_status(
     try:
         rec_id = str(UUID(recommendation_id))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="invalid recommendation id") from exc
+        raise HTTPException(
+            status_code=400, detail="invalid recommendation id"
+        ) from exc
     with get_pool().connection() as conn:
         row = conn.execute(
             "UPDATE cmap.recommendation SET status = %s WHERE id = %s RETURNING id",

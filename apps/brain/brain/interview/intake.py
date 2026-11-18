@@ -45,18 +45,55 @@ REPLY_DONE = _EN.reply_done
 REPLY_NOTHING_OPEN = _EN.reply_nothing_open
 
 _GREETINGS = {
-    "hi", "hello", "hey", "hiya", "yo", "hi there", "hello there", "hey there",
-    "good morning", "good afternoon", "good evening", "morning", "howdy",
-    "hi oracle", "hello oracle", "hey oracle", "hi the oracle", "hello the oracle",
-    "你好", "您好", "在吗", "你在吗", "你好呀", "嗨", "哈喽",
-    "你好 oracle", "oracle 你好",
+    "hi",
+    "hello",
+    "hey",
+    "hiya",
+    "yo",
+    "hi there",
+    "hello there",
+    "hey there",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "morning",
+    "howdy",
+    "hi oracle",
+    "hello oracle",
+    "hey oracle",
+    "hi the oracle",
+    "hello the oracle",
+    "你好",
+    "您好",
+    "在吗",
+    "你在吗",
+    "你好呀",
+    "嗨",
+    "哈喽",
+    "你好 oracle",
+    "oracle 你好",
 }
 _DONE = {
-    "done", "that s all", "thats all", "that is all", "finished", "end",
-    "i m done", "im done",
-    "完成", "完成了", "好了", "说完了", "结束", "就这些", "做完了", "就这样",
+    "done",
+    "that s all",
+    "thats all",
+    "that is all",
+    "finished",
+    "end",
+    "i m done",
+    "im done",
+    "完成",
+    "完成了",
+    "好了",
+    "说完了",
+    "结束",
+    "就这些",
+    "做完了",
+    "就这样",
 }
-_JOIN = re.compile(r"^(?:join\b|listen\b|start\b|bring oracle in\b|加入|拉我进|开始)", re.IGNORECASE)
+_JOIN = re.compile(
+    r"^(?:join\b|listen\b|start\b|bring oracle in\b|加入|拉我进|开始)", re.IGNORECASE
+)
 _TEAMS_URL = re.compile(r"https://teams\.microsoft\.com/", re.IGNORECASE)
 
 
@@ -88,7 +125,11 @@ def is_personal(conversation_ref: dict[str, Any] | None) -> bool:
 
 
 def _turn(speaker: str, text: str) -> dict[str, str]:
-    return {"speaker": speaker, "text": " ".join(text.split()), "at": datetime.now().astimezone().isoformat()}
+    return {
+        "speaker": speaker,
+        "text": " ".join(text.split()),
+        "at": datetime.now().astimezone().isoformat(),
+    }
 
 
 def open_thread(conn: Any, employee_id: str) -> tuple[str, bool] | None:
@@ -132,14 +173,19 @@ def append_turn(conn: Any, thread_id: str, speaker: str, text: str) -> None:
 
 
 def thread_turns(conn: Any, thread_id: str) -> list[dict[str, Any]]:
-    row = conn.execute("SELECT turns FROM cmap.teams_intake WHERE id = %s", (thread_id,)).fetchone()
+    row = conn.execute(
+        "SELECT turns FROM cmap.teams_intake WHERE id = %s", (thread_id,)
+    ).fetchone()
     return list(row[0] or []) if row else []
 
 
 def _transcript(turns: list[dict[str, Any]]) -> str:
     lines = []
     for turn in turns:
-        speaker = " ".join(str(turn.get("speaker", "")).replace(":", " ").split()) or "Employee"
+        speaker = (
+            " ".join(str(turn.get("speaker", "")).replace(":", " ").split())
+            or "Employee"
+        )
         text = " ".join(str(turn.get("text", "")).split())
         if text:
             lines.append(f"{speaker}: {text}")
@@ -186,7 +232,8 @@ def close_thread(thread_id: str) -> str | None:
             title=f"Teams contribution — {name} — {day_date.isoformat()}",
             original_filename=f"teams-contribution-{thread_id}.txt",
             data=(
-                profile.transcript_header(employee_id, name) + _transcript(list(turns or []))
+                profile.transcript_header(employee_id, name)
+                + _transcript(list(turns or []))
             ).encode("utf-8"),
             department_hint=profile.department_hint(employee_id),
             effective_date=day_date,
@@ -198,8 +245,11 @@ def close_thread(thread_id: str) -> str | None:
         delay = min(2 ** (attempts - 1), 8) if retrying else 0
         logger.warning(
             "teams intake %s ingest failed on attempt %s/%s (%s): %s",
-            thread_id, attempts, MAX_ATTEMPTS,
-            "will retry" if retrying else "giving up", exc,
+            thread_id,
+            attempts,
+            MAX_ATTEMPTS,
+            "will retry" if retrying else "giving up",
+            exc,
         )
         with pool.connection() as conn:
             conn.execute(
@@ -218,7 +268,9 @@ def close_thread(thread_id: str) -> str | None:
             (source["id"], thread_id),
         )
         conn.commit()
-    logger.info("teams intake %s for %s became source %s", thread_id, employee_id, source["id"])
+    logger.info(
+        "teams intake %s for %s became source %s", thread_id, employee_id, source["id"]
+    )
     return str(source["id"])
 
 

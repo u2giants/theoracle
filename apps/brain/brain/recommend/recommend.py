@@ -159,7 +159,9 @@ def _experiment(raw: Any, numbers_in_data: bool) -> dict[str, Any]:
     if not numbers_in_data:
         baseline_needed = True
         if MEASURE_FIRST not in metric.lower():
-            metric = f"{metric} ({MEASURE_FIRST})" if metric else MEASURE_FIRST.capitalize()
+            metric = (
+                f"{metric} ({MEASURE_FIRST})" if metric else MEASURE_FIRST.capitalize()
+            )
     return {
         "change": str(experiment.get("change") or "").strip(),
         "metric": metric,
@@ -239,7 +241,9 @@ def _candidates(conn: psycopg.Connection) -> list[dict[str, Any]]:
     return out
 
 
-def _quotes(conn: psycopg.Connection, candidate: dict[str, Any]) -> list[dict[str, str]]:
+def _quotes(
+    conn: psycopg.Connection, candidate: dict[str, Any]
+) -> list[dict[str, str]]:
     """Quotes behind one finding: its sources' mentions of the area's entities."""
     rows = conn.execute(
         "SELECT DISTINCT ON (m.quote) m.quote, ch.source_id::text, s.title "
@@ -255,7 +259,9 @@ def _quotes(conn: psycopg.Connection, candidate: dict[str, Any]) -> list[dict[st
     for quote, source_id, title in rows:
         if source_id not in seen:
             seen.add(source_id)
-            picked.append({"quote": str(quote), "source_id": source_id, "title": str(title)})
+            picked.append(
+                {"quote": str(quote), "source_id": source_id, "title": str(title)}
+            )
     for quote, source_id, title in rows:
         if len(picked) >= MAX_QUOTES:
             break
@@ -355,21 +361,22 @@ def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
         stats["candidates"] = len(candidates)
         existing_problems = [
             str(row[0])
-            for row in conn.execute("SELECT problem FROM cmap.recommendation").fetchall()
+            for row in conn.execute(
+                "SELECT problem FROM cmap.recommendation"
+            ).fetchall()
         ]
-        existing_vectors = embed_texts(existing_problems, cfg) if existing_problems else []
+        existing_vectors = (
+            embed_texts(existing_problems, cfg) if existing_problems else []
+        )
         for candidate in candidates:
             titles = _titles(conn, candidate["source_ids"])
             quotes = _quotes(conn, candidate)
             evidence = [str(candidate["finding"].get("text") or "")]
             evidence.extend(item["quote"] for item in quotes)
             try:
-                prompt = (
-                    template.replace(
-                        "{{context}}", _context(candidate, quotes, titles, frontier)
-                    )
-                    .replace("{{existing_problems}}", _existing_block(existing_problems))
-                )
+                prompt = template.replace(
+                    "{{context}}", _context(candidate, quotes, titles, frontier)
+                ).replace("{{existing_problems}}", _existing_block(existing_problems))
                 result = frontier.ask(prompt)
             except FrontierCapReached:
                 stats["capped"] = True
@@ -386,7 +393,9 @@ def run_recommend(settings: Settings | None = None) -> dict[str, Any]:
                 stats["failed"] += 1
                 continue
             vector = embed_texts([rec["problem"]], cfg)[0]
-            if any(_cosine(vector, other) >= DEDUPE_COSINE for other in existing_vectors):
+            if any(
+                _cosine(vector, other) >= DEDUPE_COSINE for other in existing_vectors
+            ):
                 stats["duplicates"] += 1
                 continue
             _store(conn, candidate["community_id"], rec)

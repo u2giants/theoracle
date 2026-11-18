@@ -59,14 +59,19 @@ def get_retry(client: httpx.Client, url: str, **kw: Any) -> httpx.Response:
     return r
 
 
+PAGING_DUPLICATES = [0]
+
+
 def graph_pages(
     client: httpx.Client, url: str, params: dict | None = None
 ) -> Iterator[dict[str, Any]]:
     """Yield every ``value`` item across pages, following ``@odata.nextLink``.
 
-    Raises GraphPagingError if a link repeats (a loop) or if an item id
-    appears twice (paging returned a duplicate). Lazy: stop iterating to stop
-    requesting pages.
+    Raises GraphPagingError if a link repeats (a loop). An item id seen on an
+    earlier page is skipped and counted in ``PAGING_DUPLICATES``: live Graph
+    chat paging returns some messages again on a later page (seen on #607);
+    the repeat has the same id, so it is the same message, not a second one. Lazy: stop iterating to
+    stop requesting pages.
     """
     seen_links: set[str] = set()
     seen_ids: set[str] = set()
@@ -80,7 +85,8 @@ def graph_pages(
             item_id = item.get("id") if isinstance(item, dict) else None
             if item_id is not None:
                 if item_id in seen_ids:
-                    raise GraphPagingError("Graph paging returned a duplicate item")
+                    PAGING_DUPLICATES[0] += 1
+                    continue
                 seen_ids.add(item_id)
             yield item
         url = body.get("@odata.nextLink")

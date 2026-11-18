@@ -73,21 +73,21 @@ NS = {
     "v": "urn:schemas-microsoft-com:vml",
 }
 
-_W_P = f'{{{NS["w"]}}}p'
-_W_T = f'{{{NS["w"]}}}t'
-_W_TAB = f'{{{NS["w"]}}}tab'
-_W_BR = f'{{{NS["w"]}}}br'
-_W_TBL = f'{{{NS["w"]}}}tbl'
-_W_VAL = f'{{{NS["w"]}}}val'
-_A_BLIP = f'{{{NS["a"]}}}blip'
-_V_IMAGEDATA = f'{{{NS["v"]}}}imagedata'
-_MC_FALLBACK = f'{{{NS["mc"]}}}Fallback'
-_R_EMBED = f'{{{NS["r"]}}}embed'
-_R_LINK = f'{{{NS["r"]}}}link'
-_R_ID = f'{{{NS["r"]}}}id'
-_S_ROW = f'{{{NS["s"]}}}row'
-_S_T = f'{{{NS["s"]}}}t'
-_S_SHEET_DATA = f'{{{NS["s"]}}}sheetData'
+_W_P = f"{{{NS['w']}}}p"
+_W_T = f"{{{NS['w']}}}t"
+_W_TAB = f"{{{NS['w']}}}tab"
+_W_BR = f"{{{NS['w']}}}br"
+_W_TBL = f"{{{NS['w']}}}tbl"
+_W_VAL = f"{{{NS['w']}}}val"
+_A_BLIP = f"{{{NS['a']}}}blip"
+_V_IMAGEDATA = f"{{{NS['v']}}}imagedata"
+_MC_FALLBACK = f"{{{NS['mc']}}}Fallback"
+_R_EMBED = f"{{{NS['r']}}}embed"
+_R_LINK = f"{{{NS['r']}}}link"
+_R_ID = f"{{{NS['r']}}}id"
+_S_ROW = f"{{{NS['s']}}}row"
+_S_T = f"{{{NS['s']}}}t"
+_S_SHEET_DATA = f"{{{NS['s']}}}sheetData"
 
 
 class OfficeReadError(ValueError):
@@ -147,7 +147,13 @@ class _Package:
             raise OfficeReadError("required package part missing")
         try:
             return self.zip.read(name)
-        except (zipfile.BadZipFile, RuntimeError, KeyError, NotImplementedError, OSError) as exc:
+        except (
+            zipfile.BadZipFile,
+            RuntimeError,
+            KeyError,
+            NotImplementedError,
+            OSError,
+        ) as exc:
             raise OfficeReadError("corrupt or unsupported package part") from exc
 
     def events(self, name: str, limit: int) -> Iterator[tuple[str, ET.Element]]:
@@ -185,7 +191,13 @@ class _Package:
             yield from parser.read_events()
         except ET.ParseError as exc:
             raise OfficeReadError("malformed package XML") from exc
-        except (zipfile.BadZipFile, RuntimeError, KeyError, NotImplementedError, OSError) as exc:
+        except (
+            zipfile.BadZipFile,
+            RuntimeError,
+            KeyError,
+            NotImplementedError,
+            OSError,
+        ) as exc:
             raise OfficeReadError("corrupt or unsupported package part") from exc
 
     def xml(self, name: str) -> ET.Element:
@@ -220,11 +232,19 @@ class _Package:
             if target.startswith("/"):
                 resolved = posixpath.normpath(target[1:])
             else:
-                resolved = posixpath.normpath(posixpath.join(posixpath.dirname(part), target))
-            if resolved == ".." or resolved.startswith("../") or resolved.startswith("/"):
+                resolved = posixpath.normpath(
+                    posixpath.join(posixpath.dirname(part), target)
+                )
+            if (
+                resolved == ".."
+                or resolved.startswith("../")
+                or resolved.startswith("/")
+            ):
                 raise OfficeReadError("relationship outside package")
             if resolved in self.names:
-                found.append((relation.get("Id", ""), relation.get("Type", ""), resolved))
+                found.append(
+                    (relation.get("Id", ""), relation.get("Type", ""), resolved)
+                )
         return found
 
     def target(self, part: str, identifier: str) -> str:
@@ -246,13 +266,13 @@ def _paragraph_text(node: ET.Element) -> str:
     pending = list(reversed(list(node)))
     while pending:
         child = pending.pop()
-        if child.tag in {f'{{{NS["w"]}}}p', f'{{{NS["a"]}}}p'}:
+        if child.tag in {f"{{{NS['w']}}}p", f"{{{NS['a']}}}p"}:
             continue
-        if child.tag in {f'{{{NS["w"]}}}t', f'{{{NS["a"]}}}t'}:
+        if child.tag in {f"{{{NS['w']}}}t", f"{{{NS['a']}}}t"}:
             result.append(child.text or "")
-        elif child.tag == f'{{{NS["w"]}}}tab':
+        elif child.tag == f"{{{NS['w']}}}tab":
             result.append("\t")
-        elif child.tag in {f'{{{NS["w"]}}}br', f'{{{NS["a"]}}}br'}:
+        elif child.tag in {f"{{{NS['w']}}}br", f"{{{NS['a']}}}br"}:
             result.append("\n")
         else:
             pending.extend(reversed(list(child)))
@@ -674,7 +694,11 @@ def _cell_value(
         return {"1": "TRUE", "0": "FALSE"}.get(value, value)
     if kind == "n" and value:
         style = cell.get("s", "")
-        if style.isdigit() and int(style) < len(date_styles) and date_styles[int(style)]:
+        if (
+            style.isdigit()
+            and int(style) < len(date_styles)
+            and date_styles[int(style)]
+        ):
             return _serial_to_iso(value, date1904) or value
     return value
 
@@ -726,7 +750,9 @@ def _sheet_rows(
         if cells:
             declared = node.get("r")
             rows.append(cells)
-            row_numbers.append(int(declared) if declared and declared.isdigit() else position)
+            row_numbers.append(
+                int(declared) if declared and declared.isdigit() else position
+            )
         stack[-1].remove(node)
     return rows, row_numbers
 
@@ -747,7 +773,10 @@ def read_xlsx(data: bytes, usage: dict[str, int] | None = None) -> list[Chunk]:
         )
         workbook = package.xml("xl/workbook.xml")
         properties = workbook.find("s:workbookPr", NS)
-        date1904 = properties is not None and properties.get("date1904", "0") in ("1", "true")
+        date1904 = properties is not None and properties.get("date1904", "0") in (
+            "1",
+            "true",
+        )
         shared = _shared_strings(package)
         date_styles = _date_styles(package)
         seen: set[str] = set()
@@ -758,7 +787,9 @@ def read_xlsx(data: bytes, usage: dict[str, int] | None = None) -> list[Chunk]:
             if part in seen:
                 raise OfficeReadError("duplicate worksheet target")
             seen.add(part)
-            rows, row_numbers = _sheet_rows(package, part, shared, date_styles, date1904)
+            rows, row_numbers = _sheet_rows(
+                package, part, shared, date_styles, date1904
+            )
             columns = sorted({column for row in rows for column in row})
             if len(rows) * len(columns) > MAX_TABLE_CELLS:
                 raise OfficeReadError("table is too large or too sparse to read")
@@ -796,7 +827,9 @@ def read_delimited(text: str, kind: str) -> list[Chunk]:
     rows: list[list[str]] = []
     numbers: list[int] = []
     try:
-        reader = csv.reader(io.StringIO(text, newline=""), delimiter=_delimiter(text, kind))
+        reader = csv.reader(
+            io.StringIO(text, newline=""), delimiter=_delimiter(text, kind)
+        )
         for number, record in enumerate(reader, start=1):
             if any(cell.strip() for cell in record):
                 rows.append(record)
@@ -839,18 +872,20 @@ def read_pptx(data: bytes, usage: dict[str, int] | None = None) -> list[Chunk]:
         )
         presentation = package.xml("ppt/presentation.xml")
         seen: set[str] = set()
-        for index, slide in enumerate(presentation.findall("p:sldIdLst/p:sldId", NS), 1):
+        for index, slide in enumerate(
+            presentation.findall("p:sldIdLst/p:sldId", NS), 1
+        ):
             part = package.target("ppt/presentation.xml", slide.get(_R_ID, ""))
             if part in seen:
                 raise OfficeReadError("duplicate slide target")
             seen.add(part)
             lines = [
                 _paragraph_text(node)
-                for node in package.xml(part).iter(f'{{{NS["a"]}}}p')
+                for node in package.xml(part).iter(f"{{{NS['a']}}}p")
             ]
             for _identifier, kind, notes in package.relations(part):
                 if kind.endswith("/notesSlide"):
-                    for node in package.xml(notes).iter(f'{{{NS["a"]}}}p'):
+                    for node in package.xml(notes).iter(f"{{{NS['a']}}}p"):
                         lines.append(_paragraph_text(node))
             locator: dict[str, Any] = {"slide": index}
             for picture in _slide_pictures(package, part):

@@ -48,13 +48,19 @@ def simplified_fold(text: str) -> str:
     return text.translate(table)
 
 
-def _advance_state(text: str, i: int, depth: int, straight: str | None) -> tuple[int, str | None]:
+def _advance_state(
+    text: str, i: int, depth: int, straight: str | None
+) -> tuple[int, str | None]:
     """Update bracket depth / straight-quote state for text[i]."""
     ch = text[i]
     if straight is not None:
         return depth, (None if ch == straight else straight)
     if ch in ('"', "'") and not (
-        ch == "'" and i > 0 and i + 1 < len(text) and text[i - 1].isalnum() and text[i + 1].isalnum()
+        ch == "'"
+        and i > 0
+        and i + 1 < len(text)
+        and text[i - 1].isalnum()
+        and text[i + 1].isalnum()
     ):
         return depth, ch
     if ch in _OPEN_TO_CLOSE:

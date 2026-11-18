@@ -109,7 +109,9 @@ def model_manifest(settings: Settings) -> dict[str, Any]:
     return {
         "answer": stage_model(settings, "answer"),
         "grade": stage_model(settings, "grade"),
-        "stages": {stage: seat["model"] for stage, seat in seat_report(settings).items()},
+        "stages": {
+            stage: seat["model"] for stage, seat in seat_report(settings).items()
+        },
         "chat": settings.brain_chat_model,
         "eval": settings.brain_eval_model,
         "frontier": settings.brain_frontier_model,
@@ -152,9 +154,7 @@ def sources_share(expected_titles: list[str], cited_hits: list[str]) -> float:
     return round(len(cited_hits) / len(expected_titles), 4)
 
 
-def supported_sentence_share(
-    answer_md: str, citations: list[dict[str, Any]]
-) -> float:
+def supported_sentence_share(answer_md: str, citations: list[dict[str, Any]]) -> float:
     """Share of answer sentences H1 reports as supported (H1's seam).
 
     H1's per-sentence check marks every sentence it cannot vouch for —
@@ -250,9 +250,8 @@ def grade_answer(
 def render_decline_prompt(question: str, answer_md: str) -> str:
     """Fill ``prompts/decline_check.md`` for one answer."""
     template = DECLINE_PROMPT_PATH.read_text(encoding="utf-8")
-    return (
-        template.replace("{{question}}", question)
-        .replace("{{answer}}", answer_md.strip() or "(empty answer)")
+    return template.replace("{{question}}", question).replace(
+        "{{answer}}", answer_md.strip() or "(empty answer)"
     )
 
 
@@ -421,9 +420,7 @@ def evaluate_question(
     else:
         result["score"] = composite_score(
             result["score_legacy"],
-            sources_share(
-                result["expected_sources"], result["expected_sources_cited"]
-            ),
+            sources_share(result["expected_sources"], result["expected_sources_cited"]),
             result["supported_share"],
         )
     return result
@@ -451,9 +448,7 @@ def run_eval(settings: Settings | None = None) -> dict[str, Any]:
     )
     # The legacy mean keeps the old formula's arithmetic exactly: every
     # question counts, a failure being its forced 0 (three runs of continuity).
-    mean_legacy = round(
-        sum(item["score_legacy"] for item in results) / len(results), 4
-    )
+    mean_legacy = round(sum(item["score_legacy"] for item in results) / len(results), 4)
     version = _graph_version()
     models = model_manifest(cfg)
     models["extraction_models"] = _extraction_models()
@@ -480,7 +475,9 @@ def run_eval(settings: Settings | None = None) -> dict[str, Any]:
     # The quality gate (B3) marks this run accepted when it passes; a failing
     # run stays unaccepted and the live workflow opens the regression issue.
     decision = run_gate()
-    logger.info("eval gate %s: %s", "PASS" if decision.passed else "FAIL", decision.reason)
+    logger.info(
+        "eval gate %s: %s", "PASS" if decision.passed else "FAIL", decision.reason
+    )
     return {
         "id": row[0],
         "created_at": row[1].isoformat(),

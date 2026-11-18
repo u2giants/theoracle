@@ -100,7 +100,9 @@ def load_function_assign_prompt() -> str:
 
 def function_assign_prompt_hash() -> str:
     """Hash of the prompt file, recorded on every extraction row."""
-    prompt_sha = hashlib.sha256(load_function_assign_prompt().encode("utf-8")).hexdigest()
+    prompt_sha = hashlib.sha256(
+        load_function_assign_prompt().encode("utf-8")
+    ).hexdigest()
     return hashlib.sha256(f"function_assign:{prompt_sha}".encode()).hexdigest()
 
 
@@ -130,7 +132,9 @@ def _post_chat(
     """POST one flat-seat chat-completions request in JSON mode."""
     model = stage_model(settings, "flat")
     if model is None:
-        raise FunctionAssignError("no model on the flat seat (BRAIN_FLAT_MODEL / BRAIN_FRONTIER_MODEL)")
+        raise FunctionAssignError(
+            "no model on the flat seat (BRAIN_FLAT_MODEL / BRAIN_FRONTIER_MODEL)"
+        )
     return post_chat_with_rescue(
         {
             "model": model,
@@ -420,14 +424,18 @@ def run_function_assign(settings: Settings | None = None) -> dict[str, int]:
 
     model = stage_model(cfg, "flat")
     if model is None:
-        raise FunctionAssignError("no model on the flat seat (BRAIN_FLAT_MODEL / BRAIN_FRONTIER_MODEL)")
+        raise FunctionAssignError(
+            "no model on the flat seat (BRAIN_FLAT_MODEL / BRAIN_FRONTIER_MODEL)"
+        )
     classified = 0
     with get_pool().connection() as conn:
         for item in pending:
             priors = _hint_prior(conn, item["department_hint"])
             priors.update(_speaker_priors(conn, item["speaker"]))
             weights = classify_chunk(item["text"], functions, priors, cfg)
-            payload = {"functions": [{"key": key, "weight": w} for key, w in weights.items()]}
+            payload = {
+                "functions": [{"key": key, "weight": w} for key, w in weights.items()]
+            }
             _write_chunk_functions(
                 conn, item["chunk_id"], weights, known, prompt_hash, model, payload
             )

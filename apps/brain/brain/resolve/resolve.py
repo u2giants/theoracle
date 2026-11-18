@@ -582,9 +582,7 @@ def _entity_by_key(conn: psycopg.Connection, key: str) -> str | None:
     return None
 
 
-def _blocker(
-    conn: psycopg.Connection, corrections: Corrections, name_key: str
-) -> Any:
+def _blocker(conn: psycopg.Connection, corrections: Corrections, name_key: str) -> Any:
     """``blocked(entity_id)`` honours never-merge / split pairs (G1)."""
     cache: dict[str, bool] = {}
 
@@ -722,7 +720,11 @@ def resolve_mention(
         chosen = _judge(
             conn,
             mention,
-            [item for item in _nearest(conn, mention, frontier, name_part) if not blocked(item.id)],
+            [
+                item
+                for item in _nearest(conn, mention, frontier, name_part)
+                if not blocked(item.id)
+            ],
             frontier,
         )
         if chosen is not None:
@@ -742,7 +744,11 @@ def resolve_mention(
     # DesignFlow); the name-cosine band fills the remaining seats.
     lexical = _lexical_candidates(conn, mention)
     band = sorted(
-        [item for item in _nearest(conn, mention, frontier, lexical) if not blocked(item.id)]
+        [
+            item
+            for item in _nearest(conn, mention, frontier, lexical)
+            if not blocked(item.id)
+        ]
         if lexical
         else [],
         key=lambda item: -item.cosine,
@@ -844,9 +850,13 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             (vector_literal(vector), entity_id),
         )
         conn.commit()
-        upsert_translation("entity", entity_id, "description", "en", canonical_description)
+        upsert_translation(
+            "entity", entity_id, "description", "en", canonical_description
+        )
         if description_zh:
-            upsert_translation("entity", entity_id, "description", "zh-CN", description_zh)
+            upsert_translation(
+                "entity", entity_id, "description", "zh-CN", description_zh
+            )
         elif detect_language(description) == "zh":
             upsert_translation("entity", entity_id, "description", "zh-CN", description)
         written += 1

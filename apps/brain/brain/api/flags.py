@@ -29,9 +29,7 @@ router = APIRouter()
 
 ITEM_TYPES = frozenset({"entity", "relation", "community"})
 
-_FLAG_COLUMNS = (
-    "id, item_type, item_id, note, created_by, created_at, resolved_at, resolved_by, action"
-)
+_FLAG_COLUMNS = "id, item_type, item_id, note, created_by, created_at, resolved_at, resolved_by, action"
 
 
 class FlagBody(BaseModel):

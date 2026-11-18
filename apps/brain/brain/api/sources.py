@@ -269,7 +269,9 @@ def ingest_bytes(
         return {"id": existing, "duplicate": True}
     source_id = str(uuid4())
     key = f"cmap/{source_id}/{_safe_name(original_filename)}"
-    content_type = mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+    content_type = (
+        mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+    )
     store = storage_mod.get_storage()
     store.upload(key, data, content_type)
     try:
@@ -383,7 +385,9 @@ async def create_source(
     form = await request.form()
     upload = form.get("file")
     if not isinstance(upload, UploadFile):
-        raise HTTPException(status_code=400, detail="multipart field 'file' is required")
+        raise HTTPException(
+            status_code=400, detail="multipart field 'file' is required"
+        )
     if _upload_size(request, upload) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
@@ -504,7 +508,9 @@ def import_folder(
     try:
         target = Path(body.path).expanduser().resolve()
     except OSError as exc:
-        raise HTTPException(status_code=400, detail="path could not be resolved") from exc
+        raise HTTPException(
+            status_code=400, detail="path could not be resolved"
+        ) from exc
     if target != root and root not in target.parents:
         raise HTTPException(
             status_code=400,
@@ -619,7 +625,9 @@ def reread_all_sources(
     with get_pool().connection() as conn:
         ids = [
             str(row[0])
-            for row in conn.execute("SELECT id FROM cmap.source ORDER BY created_at").fetchall()
+            for row in conn.execute(
+                "SELECT id FROM cmap.source ORDER BY created_at"
+            ).fetchall()
         ]
         queued = _queue_reread(conn, ids)
         conn.commit()
@@ -731,7 +739,9 @@ def retry_failed_jobs(
 
 _SOURCE_STATES = ("queued", "reading", "extracting", "read", "partial", "failed")
 _HEALTH_LIST_CAP = 200
-_NY_DAY_START_SQL = "((now() AT TIME ZONE 'America/New_York')::date) AT TIME ZONE 'America/New_York'"
+_NY_DAY_START_SQL = (
+    "((now() AT TIME ZONE 'America/New_York')::date) AT TIME ZONE 'America/New_York'"
+)
 
 
 def _job_row(row: tuple) -> dict[str, Any]:

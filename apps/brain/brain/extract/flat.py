@@ -178,8 +178,12 @@ def load_flat_prompt() -> str:
     Both classify paths (ScaleDown and the frontier model) therefore use the
     same rubric text, and changing a rubric changes ``frontier_prompt_hash``.
     """
-    labels = "\n".join(f"- {label['name']}: {label['rubric']}" for label in CLASSIFY_LABELS)
-    return PROMPT_PATH.read_text(encoding="utf-8").replace("{{classify_labels}}", labels)
+    labels = "\n".join(
+        f"- {label['name']}: {label['rubric']}" for label in CLASSIFY_LABELS
+    )
+    return PROMPT_PATH.read_text(encoding="utf-8").replace(
+        "{{classify_labels}}", labels
+    )
 
 
 def _spec_hash(prefix: str, spec: Any) -> str:
@@ -206,7 +210,11 @@ def frontier_prompt_hash() -> str:
     prompt_sha = hashlib.sha256(load_flat_prompt().encode("utf-8")).hexdigest()
     return _spec_hash(
         "flat-frontier:",
-        {"labels": CLASSIFY_LABELS, "entities": ENTITY_TYPES, "prompt_sha256": prompt_sha},
+        {
+            "labels": CLASSIFY_LABELS,
+            "entities": ENTITY_TYPES,
+            "prompt_sha256": prompt_sha,
+        },
     )
 
 
@@ -224,7 +232,9 @@ def extract_body(text: str) -> dict[str, Any]:
     return {"text": text, "entities": entities}
 
 
-def _post_scaledown(path: str, body: dict[str, Any], settings: Settings) -> dict[str, Any]:
+def _post_scaledown(
+    path: str, body: dict[str, Any], settings: Settings
+) -> dict[str, Any]:
     """POST one ScaleDown call and return its JSON body."""
     if settings.scaledown_api_key is None:
         raise FlatError("SCALEDOWN_API_KEY is not set")
@@ -434,7 +444,9 @@ def _call_scaledown(
         try:
             return _post_scaledown(path, body, counters.settings)
         except FlatError as exc:
-            logger.warning("scaledown %s failed (%s); falling back after retries", path, exc)
+            logger.warning(
+                "scaledown %s failed (%s); falling back after retries", path, exc
+            )
     return None
 
 
@@ -521,7 +533,9 @@ def _process_chunk(
         entities = _extract_half(response)
     else:
         fallback = frontier()
-        if not any(record.prompt_hash == frontier_prompt_hash() for record in outcome.records):
+        if not any(
+            record.prompt_hash == frontier_prompt_hash() for record in outcome.records
+        ):
             outcome.records.append(
                 ModelRecord(
                     model=stage_model(counters.settings, "flat") or "frontier",
@@ -590,7 +604,10 @@ def _replace_previous(conn: Any, outcome: ChunkOutcome) -> None:
     conn.execute(
         "DELETE FROM cmap.extraction WHERE chunk_id = %s AND "
         "(stage = 'relations' OR (stage = 'flat' AND prompt_hash <> ALL(%s)))",
-        (outcome.chunk_id, [classify_prompt_hash(), *(r.prompt_hash for r in outcome.records)]),
+        (
+            outcome.chunk_id,
+            [classify_prompt_hash(), *(r.prompt_hash for r in outcome.records)],
+        ),
     )
     drop_orphaned(conn, touched)
 
@@ -631,7 +648,9 @@ def _write_outcome(outcome: ChunkOutcome) -> None:
                     mention.surface_name,
                     mention.normalized_name,
                     mention.quote,
-                    vector_literal(mention.vector) if mention.vector is not None else None,
+                    vector_literal(mention.vector)
+                    if mention.vector is not None
+                    else None,
                 ),
             )
         conn.commit()
@@ -677,7 +696,9 @@ def handle_classify_extract(job: dict[str, Any]) -> None:
     failed = 0
     cap_error: FlatCapReached | None = None
 
-    def _one(chunk_id: str, text: str, classify_done: dict[str, Any] | None) -> ChunkOutcome:
+    def _one(
+        chunk_id: str, text: str, classify_done: dict[str, Any] | None
+    ) -> ChunkOutcome:
         """Extract, embed and store one chunk; its result is safe at once."""
         outcome = with_retries(
             lambda: _process_chunk(chunk_id, text, counters, classify_done),
@@ -702,7 +723,9 @@ def handle_classify_extract(job: dict[str, Any]) -> None:
             except Exception as exc:
                 # One bad chunk never costs the source its other chunks.
                 failed += 1
-                logger.warning("flat chunk %s failed for good: %s", futures[future], exc)
+                logger.warning(
+                    "flat chunk %s failed for good: %s", futures[future], exc
+                )
                 record_chunk_failure(futures[future], "flat", str(exc))
 
     _record_usage(job.get("id"), counters.usage)

@@ -116,7 +116,9 @@ def graph_payload(
     kept_nodes = ranked[:max_nodes]
     kept_ids = {node["id"] for node in kept_nodes}
     inside = [
-        edge for edge in edges if edge["source"] in kept_ids and edge["target"] in kept_ids
+        edge
+        for edge in edges
+        if edge["source"] in kept_ids and edge["target"] in kept_ids
     ]
     inside.sort(key=lambda edge: edge["weight"], reverse=True)
     kept_edges = inside[:max_edges]
@@ -364,7 +366,9 @@ def _function_entities(
 
 
 @router.get("/map/functions/{ref}")
-def get_function_detail(ref: str, user: Annotated[User, Depends(current_user)]) -> dict[str, Any]:
+def get_function_detail(
+    ref: str, user: Annotated[User, Depends(current_user)]
+) -> dict[str, Any]:
     """The function page (repair C5): its report (the C3 level-1 community),
     its processes (linked to their sources until E5's flow pages land), its
     sub-topics, its people, its open gaps and the open conflicts touching it."""
@@ -491,7 +495,9 @@ def list_communities(
                 "translations": translations_for("community", str(row[0])),
             }
         )
-    cards.sort(key=lambda card: (-card["finding_count"], -card["entity_count"], card["title"]))
+    cards.sort(
+        key=lambda card: (-card["finding_count"], -card["entity_count"], card["title"])
+    )
     return {"communities": cards, "graph_version": version}
 
 
@@ -529,7 +535,9 @@ def get_community(
         "findings": findings,
         "graph": graph,
         "graph_version": int(row[7]),
-        "children": [{"id": str(item[0]), "title": str(item[1] or "")} for item in children],
+        "children": [
+            {"id": str(item[0]), "title": str(item[1] or "")} for item in children
+        ],
         "translations": translations_for("community", key),
     }
 
@@ -610,7 +618,17 @@ def get_entity(
         functions = item_assignments(conn, "entity_function", "entity_id", key)
         contradictions = entity_contradictions(conn, key)
     grouped: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
-    for rel_type, from_id, to_id, quote, chunk_id, source_id, title, stance, desc in relations:
+    for (
+        rel_type,
+        from_id,
+        to_id,
+        quote,
+        chunk_id,
+        source_id,
+        title,
+        stance,
+        desc,
+    ) in relations:
         outgoing = str(from_id) == key
         other = str(to_id) if outgoing else str(from_id)
         info = others.get(other, {"name": other, "type": ""})
@@ -758,12 +776,20 @@ def search(
         ).fetchall()
     return {
         "entities": [
-            {"id": str(r[0]), "type": str(r[1]), "name": str(r[2]), "source_count": int(r[3])}
+            {
+                "id": str(r[0]),
+                "type": str(r[1]),
+                "name": str(r[2]),
+                "source_count": int(r[3]),
+            }
             for r in entities
         ],
-        "sources": [{"id": str(r[0]), "kind": str(r[1]), "title": str(r[2])} for r in sources],
+        "sources": [
+            {"id": str(r[0]), "kind": str(r[1]), "title": str(r[2])} for r in sources
+        ],
         "communities": [
-            {"id": str(r[0]), "level": int(r[1]), "title": str(r[2] or "")} for r in communities
+            {"id": str(r[0]), "level": int(r[1]), "title": str(r[2] or "")}
+            for r in communities
         ],
     }
 

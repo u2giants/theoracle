@@ -206,7 +206,9 @@ def _quote_position(text: str, quote: str) -> int:
     return at if at >= 0 else len(text)
 
 
-def _load_chunks(conn: Any, source_id: str) -> list[tuple[str, int, str, str | None, dict[str, Any]]]:
+def _load_chunks(
+    conn: Any, source_id: str
+) -> list[tuple[str, int, str, str | None, dict[str, Any]]]:
     rows = conn.execute(
         "SELECT id::text, ordinal, text, passage_kind, locator "
         "FROM cmap.chunk WHERE source_id = %s ORDER BY ordinal",
@@ -215,7 +217,9 @@ def _load_chunks(conn: Any, source_id: str) -> list[tuple[str, int, str, str | N
     return [(str(r[0]), int(r[1]), str(r[2]), r[3], r[4] or {}) for r in rows]
 
 
-def _build_outline(chunks: list[tuple[str, int, str, str | None, dict[str, Any]]]) -> tuple[str, bool]:
+def _build_outline(
+    chunks: list[tuple[str, int, str, str | None, dict[str, Any]]],
+) -> tuple[str, bool]:
     """One outline line per passage; a diagram chunk carries its edge list.
 
     The outline is structure, not raw prose: a heading line per passage. A
@@ -266,7 +270,12 @@ def _load_context(conn: Any, source_id: str) -> SourceContext:
     first_seen: dict[str, tuple[int, int, str, str]] = {}
     for _mention_id, entity_type, surface, quote, entity_id, chunk_id in mentions:
         position = _quote_position(text_by_chunk.get(str(chunk_id), ""), str(quote))
-        key_at = (ordinal_by_chunk.get(str(chunk_id), 0), position, str(entity_type), str(surface))
+        key_at = (
+            ordinal_by_chunk.get(str(chunk_id), 0),
+            position,
+            str(entity_type),
+            str(surface),
+        )
         current = first_seen.get(str(entity_id))
         if current is None or key_at < current:
             first_seen[str(entity_id)] = key_at
@@ -294,7 +303,15 @@ def _load_context(conn: Any, source_id: str) -> SourceContext:
         (source_id,),
     ).fetchall()
     relation_items = []
-    for rel_id, rel_type, description, quote, from_name, to_name, chunk_id in relation_rows:
+    for (
+        rel_id,
+        rel_type,
+        description,
+        quote,
+        from_name,
+        to_name,
+        chunk_id,
+    ) in relation_rows:
         relation_items.append(
             (
                 ordinal_by_chunk.get(str(chunk_id), 0),
@@ -434,7 +451,9 @@ def validate_steps(
                 performer_entity_id=_resolve_entity(
                     raw, "performer_key", entity_by_key, drops
                 ),
-                system_entity_id=_resolve_entity(raw, "system_key", entity_by_key, drops),
+                system_entity_id=_resolve_entity(
+                    raw, "system_key", entity_by_key, drops
+                ),
                 input=_text(raw.get("input")),
                 output=_text(raw.get("output")),
                 decision=_text(raw.get("decision")),
@@ -522,7 +541,9 @@ def _attribute_process(
         )
         for candidate in names:
             normalized = normalize_name(str(candidate), PROCESS_TYPE)
-            if normalized and (title == normalized or title in normalized or normalized in title):
+            if normalized and (
+                title == normalized or title in normalized or normalized in title
+            ):
                 return entity_id
     return None
 
@@ -641,9 +662,13 @@ def _merge_steps(
         FlowStepDraft(
             ordinal=index + 1,
             model_ordinal=int(row["ordinal"]),
-            step_entity_id=str(row["step_entity_id"]) if row.get("step_entity_id") else None,
+            step_entity_id=str(row["step_entity_id"])
+            if row.get("step_entity_id")
+            else None,
             performer_entity_id=(
-                str(row["performer_entity_id"]) if row.get("performer_entity_id") else None
+                str(row["performer_entity_id"])
+                if row.get("performer_entity_id")
+                else None
             ),
             system_entity_id=(
                 str(row["system_entity_id"]) if row.get("system_entity_id") else None
@@ -653,14 +678,23 @@ def _merge_steps(
             decision=str(row.get("decision") or ""),
             branch_of=int(row["branch_of"]) if row.get("branch_of") else None,
             typical_duration=str(row.get("typical_duration") or ""),
-            evidence_ids=[str(value) for value in row.get("evidence_relation_ids") or []],
+            evidence_ids=[
+                str(value) for value in row.get("evidence_relation_ids") or []
+            ],
         )
-        for index, row in enumerate(sorted(existing, key=lambda item: int(item["ordinal"])))
+        for index, row in enumerate(
+            sorted(existing, key=lambda item: int(item["ordinal"]))
+        )
     ]
     for _row, draft in matched.values():
-        target = next((item for item in merged if item.step_entity_id == draft.step_entity_id), None)
+        target = next(
+            (item for item in merged if item.step_entity_id == draft.step_entity_id),
+            None,
+        )
         if target is not None:
-            target.evidence_ids = list(dict.fromkeys([*target.evidence_ids, *draft.evidence_ids]))
+            target.evidence_ids = list(
+                dict.fromkeys([*target.evidence_ids, *draft.evidence_ids])
+            )
     for draft in new:
         if draft.step_entity_id is not None and draft.step_entity_id in matched:
             continue
@@ -775,7 +809,9 @@ def _write_flow(
         "FROM cmap.process_flow WHERE process_entity_id = %s",
         (process_entity_id,),
     ).fetchone()
-    title = _text(payload.get("title")) or _text(payload.get("title_en")) or "Process flow"
+    title = (
+        _text(payload.get("title")) or _text(payload.get("title_en")) or "Process flow"
+    )
     trigger = _text(payload.get("trigger"))
     outcome = _text(payload.get("outcome"))
     if row is None:
@@ -832,7 +868,9 @@ def _write_flow(
             (flow_id,),
         ).fetchall()
     ]
-    merged, conflicts = _merge_steps(existing, steps, _entity_names(conn, existing, steps))
+    merged, conflicts = _merge_steps(
+        existing, steps, _entity_names(conn, existing, steps)
+    )
     written_conflicts = _record_conflicts(conn, conflicts)
     conn.execute("DELETE FROM cmap.flow_step WHERE flow_id = %s", (flow_id,))
     for step in merged:
@@ -909,7 +947,9 @@ def _record_usage(job_id: Any, usage: dict[str, int]) -> None:
 # --------------------------------------------------------------------- runs
 
 
-def _pending_source_ids(conn: Any, prompt_hash: str, source_id: str | None) -> list[str]:
+def _pending_source_ids(
+    conn: Any, prompt_hash: str, source_id: str | None
+) -> list[str]:
     """Flow-bearing sources whose marker is missing or from another prompt."""
     filter_sql = "AND s.id = %s" if source_id else ""
     params: tuple[Any, ...] = (prompt_hash, source_id) if source_id else (prompt_hash,)
@@ -975,7 +1015,9 @@ def run_process_pass(
                     drops,
                 )
                 continue
-            flows, conflicts = _write_flow(conn, process_entity_id, target, payload, steps)
+            flows, conflicts = _write_flow(
+                conn, process_entity_id, target, payload, steps
+            )
             _record_process_notes(
                 conn,
                 target,

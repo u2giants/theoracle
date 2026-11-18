@@ -42,16 +42,96 @@ SYSTEM_PROMPT = (
 
 # Words that start with a capital letter but are not names.
 _COMMON = {
-    "i", "i'm", "i've", "i'd", "a", "an", "the", "who", "what", "which", "when",
-    "where", "why", "how", "do", "does", "did", "is", "are", "was", "were", "can",
-    "could", "would", "should", "will", "and", "or", "but", "if", "so", "thanks",
-    "thank", "got", "it", "that", "this", "those", "these", "you", "your", "they",
-    "their", "them", "he", "she", "we", "our", "after", "before", "once", "then",
-    "also", "anyone", "someone", "monday", "tuesday", "wednesday", "thursday",
-    "friday", "saturday", "sunday", "oracle", "teams", "map", "company", "ok", "okay",
-    "great", "for", "in", "on", "at", "to", "from", "with", "by", "about",
-    "roughly", "usually", "typically", "any", "has", "have", "there", "anything",
-    "else", "between", "one", "next",
+    "i",
+    "i'm",
+    "i've",
+    "i'd",
+    "a",
+    "an",
+    "the",
+    "who",
+    "what",
+    "which",
+    "when",
+    "where",
+    "why",
+    "how",
+    "do",
+    "does",
+    "did",
+    "is",
+    "are",
+    "was",
+    "were",
+    "can",
+    "could",
+    "would",
+    "should",
+    "will",
+    "and",
+    "or",
+    "but",
+    "if",
+    "so",
+    "thanks",
+    "thank",
+    "got",
+    "it",
+    "that",
+    "this",
+    "those",
+    "these",
+    "you",
+    "your",
+    "they",
+    "their",
+    "them",
+    "he",
+    "she",
+    "we",
+    "our",
+    "after",
+    "before",
+    "once",
+    "then",
+    "also",
+    "anyone",
+    "someone",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "oracle",
+    "teams",
+    "map",
+    "company",
+    "ok",
+    "okay",
+    "great",
+    "for",
+    "in",
+    "on",
+    "at",
+    "to",
+    "from",
+    "with",
+    "by",
+    "about",
+    "roughly",
+    "usually",
+    "typically",
+    "any",
+    "has",
+    "have",
+    "there",
+    "anything",
+    "else",
+    "between",
+    "one",
+    "next",
 }
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z'&.-]*")
 _CJK_RUN = re.compile(r"[一-鿿]+")
@@ -148,10 +228,14 @@ def next_followup(
     if asked >= MAX_FOLLOWUPS:
         return None
     employee_text = " ".join(
-        str(turn.get("text", "")) for turn in turns if turn.get("speaker") != ORACLE_SPEAKER
+        str(turn.get("text", ""))
+        for turn in turns
+        if turn.get("speaker") != ORACLE_SPEAKER
     )
     context = map_context(conn, employee_text)
-    transcript = "\n".join(f"{turn.get('speaker')}: {turn.get('text')}" for turn in turns)
+    transcript = "\n".join(
+        f"{turn.get('speaker')}: {turn.get('text')}" for turn in turns
+    )
     user = (
         (f"The employee is {who}.\n\n" if who else "")
         + "Map context (what the Company Map already records):\n"
@@ -161,7 +245,10 @@ def next_followup(
     )
     try:
         raw = _call_model(
-            [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
+            [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user},
+            ]
         )
     except Exception as exc:  # noqa: BLE001 - a follow-up is optional; ack instead
         logger.warning("teams follow-up model call failed: %s", exc)
