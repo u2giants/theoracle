@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     brain_community_prune_enabled: bool = True
     brain_interview_enabled: bool = False
     brain_interview_weekly_cap: int = 2
+    # Rollback switch for the interview fast lane (#604 plan Step 4). Off sends
+    # every job to the main lane and starts only the main worker.
+    brain_interview_lane_enabled: bool = True
+    # Database pool size (#604 plan Step 4): two worker lanes each fan out to
+    # several threads, and the API shares the pool.
+    brain_db_pool_size: int = 12
     brain_web_base_url: str | None = None
     brain_import_dir: str = "/data/import"
     # Project-manager message intake (plan_pm_message_intake.md). Intake

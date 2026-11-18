@@ -22,7 +22,10 @@ def get_pool(settings: Settings | None = None) -> ConnectionPool:
         if cfg.database_url is None:
             raise RuntimeError("DATABASE_URL is not set")
         pool = ConnectionPool(
-            conninfo=cfg.database_url, min_size=1, max_size=10, open=True
+            conninfo=cfg.database_url,
+            min_size=1,
+            max_size=cfg.brain_db_pool_size,
+            open=True,
         )
         _pool = pool
     return _pool
@@ -66,8 +69,42 @@ current_lane: ContextVar[str] = ContextVar("current_lane", default=MAIN_LANE)
 
 def lane_for(kind: str, lane: str | None = None) -> str:
     """The lane a job of ``kind`` goes to: explicit, else inherited, else main."""
-    chosen = lane or current_lane.get()
-    return chosen if kind in LANE_KINDS else MAIN_LANE
+    if kind not in LANE_KINDS or not get_settings().brain_interview_lane_enabled:
+        return MAIN_LANE
+    return lane or current_lane.get()
+
+
+# One named advisory lock for the writes that delete or merge shared entity
+# rows (#604 plan Step 4, O3): ``drop_orphaned`` and resolve's write phase.
+ENTITY_WRITE_LOCK = 604_0001
+
+
+def lock_entity_writes(conn: psycopg.Connection) -> None:
+    """Hold the entity-write lock until this transaction ends."""
+    conn.execute("SELECT pg_advisory_xact_lock(%s)", (ENTITY_WRITE_LOCK,))
+
+
+def try_entity_write_lock(conn: psycopg.Connection, wait_seconds: float) -> bool:
+    """Take the session-level entity-write lock, waiting at most ``wait_seconds``."""
+    import time  # noqa: PLC0415
+
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        (got,) = conn.execute(
+            "SELECT pg_try_advisory_lock(%s)", (ENTITY_WRITE_LOCK,)
+        ).fetchone()
+        conn.commit()
+        if got:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.5)
+
+
+def release_entity_write_lock(conn: psycopg.Connection) -> None:
+    conn.rollback()
+    conn.execute("SELECT pg_advisory_unlock(%s)", (ENTITY_WRITE_LOCK,))
+    conn.commit()
 
 
 def enqueue_job(

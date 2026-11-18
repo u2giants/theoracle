@@ -45,7 +45,7 @@ from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import ENTITY_TYPES
 from brain.extract.normalize import normalize_name
-from brain.interview.conversation import source_chain_ended
+from brain.interview.conversation import awaits_reply, source_chain_ended
 from brain.llm import post_chat_with_rescue
 from brain.read import pdf as pdf_read
 from brain.read import state as read_state
@@ -944,7 +944,9 @@ def handle_relations(job: dict[str, Any]) -> None:
     )
     # An interview answer is now processed: compose the reply (#604) first,
     # so the employee never waits on the global steps below.
-    source_chain_ended(source_id, failed=False)
+    source_chain_ended(
+        source_id, failed=False, resolve=_resolve_interview_answer(source_id)
+    )
     _enqueue_resolve()
     after_source_relations(source_id)
 
@@ -972,3 +974,23 @@ def _enqueue_resolve() -> None:
                 (DEBOUNCE_SECONDS,),
             )
         conn.commit()
+
+
+def _resolve_interview_answer(source_id: str) -> str | None:
+    """Resolve an interview answer's mentions before the reply (#604 L4).
+
+    ``None`` for sources that are not an answer awaiting a reply; otherwise
+    ``"done"``, ``"skipped"`` (lock busy past the wait) or ``"failed"``. The
+    reply goes out either way.
+    """
+    if not awaits_reply(source_id):
+        return None
+    from brain.resolve.resolve import resolve_source
+
+    try:
+        stats = resolve_source(source_id)
+    except Exception:
+        logger.exception("resolve before reply failed for source %s", source_id)
+        return "failed"
+    logger.info("resolve before reply source=%s stats=%s", source_id, stats)
+    return "skipped" if stats is None else "done"

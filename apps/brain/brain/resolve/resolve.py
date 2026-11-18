@@ -55,7 +55,7 @@ from brain.corrections import (
     load_corrections,
     mention_key,
 )
-from brain.db import get_pool
+from brain.db import get_pool, release_entity_write_lock, try_entity_write_lock
 from brain.embed import embed_texts, vector_literal
 from brain.extract.relations import DEFAULT_MAX_FRONTIER_CALLS, _complete_items
 from brain.lang import detect_language
@@ -306,15 +306,18 @@ def name_part_matches(surface: str, normalized: str, canonical: str) -> bool:
 # --------------------------------------------------------------------- database
 
 
-def _load_unresolved(conn: psycopg.Connection) -> list[Mention]:
+def _load_unresolved(
+    conn: psycopg.Connection, source_id: str | None = None
+) -> list[Mention]:
     """Unresolved mentions, longest names first so full names seed entities."""
     rows = conn.execute(
         "SELECT m.id, m.entity_type, m.surface_name, m.normalized_name, m.description, "
         "m.quote, s.title, m.embedding IS NOT NULL "
         "FROM cmap.mention m JOIN cmap.chunk c ON c.id = m.chunk_id "
         "JOIN cmap.source s ON s.id = c.source_id "
-        "WHERE m.entity_id IS NULL "
-        "ORDER BY m.entity_type, length(m.normalized_name) DESC, s.created_at, c.ordinal, m.id"
+        "WHERE m.entity_id IS NULL AND (%s::uuid IS NULL OR c.source_id = %s::uuid) "
+        "ORDER BY m.entity_type, length(m.normalized_name) DESC, s.created_at, c.ordinal, m.id",
+        (source_id, source_id),
     ).fetchall()
     return [
         Mention(
@@ -582,9 +585,7 @@ def _entity_by_key(conn: psycopg.Connection, key: str) -> str | None:
     return None
 
 
-def _blocker(
-    conn: psycopg.Connection, corrections: Corrections, name_key: str
-) -> Any:
+def _blocker(conn: psycopg.Connection, corrections: Corrections, name_key: str) -> Any:
     """``blocked(entity_id)`` honours never-merge / split pairs (G1)."""
     cache: dict[str, bool] = {}
 
@@ -722,7 +723,11 @@ def resolve_mention(
         chosen = _judge(
             conn,
             mention,
-            [item for item in _nearest(conn, mention, frontier, name_part) if not blocked(item.id)],
+            [
+                item
+                for item in _nearest(conn, mention, frontier, name_part)
+                if not blocked(item.id)
+            ],
             frontier,
         )
         if chosen is not None:
@@ -742,7 +747,11 @@ def resolve_mention(
     # DesignFlow); the name-cosine band fills the remaining seats.
     lexical = _lexical_candidates(conn, mention)
     band = sorted(
-        [item for item in _nearest(conn, mention, frontier, lexical) if not blocked(item.id)]
+        [
+            item
+            for item in _nearest(conn, mention, frontier, lexical)
+            if not blocked(item.id)
+        ]
         if lexical
         else [],
         key=lambda item: -item.cosine,
@@ -844,13 +853,39 @@ def _describe(conn: psycopg.Connection, frontier: _Frontier) -> int:
             (vector_literal(vector), entity_id),
         )
         conn.commit()
-        upsert_translation("entity", entity_id, "description", "en", canonical_description)
+        upsert_translation(
+            "entity", entity_id, "description", "en", canonical_description
+        )
         if description_zh:
-            upsert_translation("entity", entity_id, "description", "zh-CN", description_zh)
+            upsert_translation(
+                "entity", entity_id, "description", "zh-CN", description_zh
+            )
         elif detect_language(description) == "zh":
             upsert_translation("entity", entity_id, "description", "zh-CN", description)
         written += 1
     return written
+
+
+def _resolve_loop(
+    conn: psycopg.Connection,
+    frontier: _Frontier,
+    stats: dict[str, int],
+    corrections: Any,
+    source_id: str | None = None,
+) -> None:
+    touched: set[str] = set()
+    try:
+        for mention in _load_unresolved(conn, source_id):
+            rule, entity_id = resolve_mention(conn, mention, frontier, corrections)
+            _assign(conn, mention, entity_id, touched)
+            conn.commit()
+            stats[rule] = stats.get(rule, 0) + 1
+    finally:
+        # Counts stay right for whatever was assigned, even if the cap hit.
+        conn.rollback()
+        if touched:
+            _refresh_counts(conn, touched)
+            conn.commit()
 
 
 def run_resolve(settings: Settings | None = None) -> dict[str, int]:
@@ -858,28 +893,47 @@ def run_resolve(settings: Settings | None = None) -> dict[str, int]:
     cfg = settings if settings is not None else get_settings()
     frontier = _Frontier(cfg)
     stats: dict[str, int] = {}
-    touched: set[str] = set()
     with get_pool().connection() as conn:
-        corrections = load_corrections(conn)
+        # The write phase never interleaves with drop_orphaned (#604 Step 4).
+        try_entity_write_lock(conn, wait_seconds=float("inf"))
         try:
-            for mention in _load_unresolved(conn):
-                rule, entity_id = resolve_mention(conn, mention, frontier, corrections)
-                _assign(conn, mention, entity_id, touched)
-                conn.commit()
-                stats[rule] = stats.get(rule, 0) + 1
+            corrections = load_corrections(conn)
+            _resolve_loop(conn, frontier, stats, corrections)
+            stats["described"] = _describe(conn, frontier)
+            # G1: a rename correction wins over the describer's rewrite and over
+            # whatever names extraction produced (human corrections always win).
+            stats["renamed"] = apply_renames(conn, corrections)
+            # G2: entity-level edits (type change, alias add/remove) win the same way.
+            stats["entity_edited"] = apply_entity_edits(conn, corrections)
+            conn.commit()
         finally:
-            # Counts stay right for whatever was assigned, even if the cap hit.
-            conn.rollback()
-            if touched:
-                _refresh_counts(conn, touched)
-                conn.commit()
-        stats["described"] = _describe(conn, frontier)
-        # G1: a rename correction wins over the describer's rewrite and over
-        # whatever names extraction produced (human corrections always win).
-        stats["renamed"] = apply_renames(conn, corrections)
-        # G2: entity-level edits (type change, alias add/remove) win the same way.
-        stats["entity_edited"] = apply_entity_edits(conn, corrections)
-        conn.commit()
+            release_entity_write_lock(conn)
+    stats.update(frontier.usage)
+    return stats
+
+
+SOURCE_RESOLVE_LOCK_WAIT_SECONDS = 30.0
+
+
+def resolve_source(
+    source_id: str, settings: Settings | None = None
+) -> dict[str, int] | None:
+    """Resolve one source's mentions before its interview reply (#604 L4).
+
+    No describing, renames or entity edits: the normal ``resolve`` job does
+    those later. ``None`` when the lock stayed busy; the reply then proceeds
+    at mention level rather than keeping the employee waiting.
+    """
+    cfg = settings if settings is not None else get_settings()
+    frontier = _Frontier(cfg)
+    stats: dict[str, int] = {}
+    with get_pool().connection() as conn:
+        if not try_entity_write_lock(conn, SOURCE_RESOLVE_LOCK_WAIT_SECONDS):
+            return None
+        try:
+            _resolve_loop(conn, frontier, stats, load_corrections(conn), source_id)
+        finally:
+            release_entity_write_lock(conn)
     stats.update(frontier.usage)
     return stats
 

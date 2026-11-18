@@ -15,7 +15,7 @@ from psycopg.types.json import Json
 from brain import storage as storage_mod
 from brain import versions as versions_mod
 from brain.config import get_settings
-from brain.db import enqueue_job, get_pool
+from brain.db import enqueue_job, get_pool, lock_entity_writes
 from brain.embed import embed_and_store
 from brain.interview.conversation import source_chain_ended
 from brain.read.chunk import Chunk, window_chunks
@@ -88,6 +88,8 @@ def _store_chunks(source_id: str, chunks: list[Chunk]) -> list[tuple[str, str]]:
         # A re-read replaces the old passages; whatever only they supported
         # (entities with no mention left, aliases) goes with them (repair A7).
         touched = touched_entities(conn, source_id)
+        if touched:
+            lock_entity_writes(conn)  # before the deletes: no deadlock with resolve
         conn.execute("DELETE FROM cmap.chunk WHERE source_id = %s", (source_id,))
         drop_orphaned(conn, touched)
         for ordinal, chunk in enumerate(chunks):
