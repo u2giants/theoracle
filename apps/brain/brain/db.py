@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from pathlib import Path
 
 import psycopg
@@ -20,7 +21,9 @@ def get_pool(settings: Settings | None = None) -> ConnectionPool:
         cfg = settings if settings is not None else get_settings()
         if cfg.database_url is None:
             raise RuntimeError("DATABASE_URL is not set")
-        pool = ConnectionPool(conninfo=cfg.database_url, min_size=1, max_size=5, open=True)
+        pool = ConnectionPool(
+            conninfo=cfg.database_url, min_size=1, max_size=10, open=True
+        )
         _pool = pool
     return _pool
 
@@ -49,14 +52,37 @@ def run_sql(path: str | Path, settings: Settings | None = None) -> None:
         conn.commit()
 
 
-def enqueue_job(kind: str, payload: dict, settings: Settings | None = None) -> str:
+# Interview fast lane (issue #604). A job inherits the lane of the code that
+# queues it, but only the kinds that process one interview answer may enter
+# the interview lane; global rebuilds (resolve, project, communities, ...)
+# always go to the main lane.
+MAIN_LANE = "main"
+INTERVIEW_LANE = "interview"
+LANE_KINDS = frozenset(
+    {"read_source", "classify_extract", "relations", "interview_reply"}
+)
+current_lane: ContextVar[str] = ContextVar("current_lane", default=MAIN_LANE)
+
+
+def lane_for(kind: str, lane: str | None = None) -> str:
+    """The lane a job of ``kind`` goes to: explicit, else inherited, else main."""
+    chosen = lane or current_lane.get()
+    return chosen if kind in LANE_KINDS else MAIN_LANE
+
+
+def enqueue_job(
+    kind: str,
+    payload: dict,
+    settings: Settings | None = None,
+    lane: str | None = None,
+) -> str:
     """Insert one queued job and return its id."""
     pool = get_pool(settings)
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO cmap.job (kind, payload) VALUES (%s, %s) RETURNING id",
-                (kind, Json(payload)),
+                "INSERT INTO cmap.job (kind, payload, lane) VALUES (%s, %s, %s) RETURNING id",
+                (kind, Json(payload), lane_for(kind, lane)),
             )
             row = cur.fetchone()
         conn.commit()

@@ -23,7 +23,8 @@ from brain.answer.answer import parse_model_json
 from brain.api.sources import ingest_bytes
 from brain.config import get_settings
 from brain.db import get_pool
-from brain.interview import followup, intake, profile
+from brain.interview import conversation as conv_mod
+from brain.interview import converse, followup, intake, profile
 from brain.interview.strings import reply_language, strings
 from brain.llm import message_content, post_chat_with_rescue
 from brain.read.dates import ORIGIN_INTERVIEW
@@ -57,9 +58,12 @@ _SKIP_COMMANDS = {"skip", "跳过"}
 
 
 REPLY_CHECK_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "reply_check.md"
-INTENT_CHECK_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "intent_check.md"
+INTENT_CHECK_PROMPT = (
+    Path(__file__).resolve().parents[1] / "prompts" / "intent_check.md"
+)
 REPLY_MATCH_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "reply_match.md"
 REPLY_CHECK_TIMEOUT_SECONDS = 8.0
+REPLY_KINDS = frozenset({"answer", "dont_know", "unclear", "request", "other"})
 
 
 def classify_reply(question: str, reply: str) -> str:
@@ -83,7 +87,7 @@ def classify_reply(question: str, reply: str) -> str:
             {
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 60,
+                "max_tokens": 200,
                 "temperature": 0,
             },
             settings=settings,
@@ -95,7 +99,7 @@ def classify_reply(question: str, reply: str) -> str:
     except Exception:  # noqa: BLE001 - a failed check must hold, not answer
         logger.warning("reply check failed; holding the reply instead of answering")
         return "other"
-    return kind if kind in {"answer", "dont_know", "other"} else "other"
+    return kind if kind in REPLY_KINDS else "other"
 
 
 def _command(text: str) -> str:
@@ -124,8 +128,8 @@ def _judge_intent(text: str) -> str:
     model = stage_model(settings, "grade")
     if not model or not settings.openrouter_api_key:
         return "other"
-    prompt = (
-        INTENT_CHECK_PROMPT.read_text(encoding="utf-8").replace("{{message}}", text)
+    prompt = INTENT_CHECK_PROMPT.read_text(encoding="utf-8").replace(
+        "{{message}}", text
     )
     try:
         body = post_chat_with_rescue(
@@ -175,7 +179,8 @@ def match_reply(questions: list[str], reply: str) -> int | None:
     if not model or not settings.openrouter_api_key:
         return None
     listing = "\n".join(
-        f"QUESTION {i}:\n<<<\n{question}\n>>>" for i, question in enumerate(questions, 1)
+        f"QUESTION {i}:\n<<<\n{question}\n>>>"
+        for i, question in enumerate(questions, 1)
     )
     prompt = (
         REPLY_MATCH_PROMPT.read_text(encoding="utf-8")
@@ -313,15 +318,17 @@ def _volunteer(
             reply = f"{s.reply_intro_short} {s.profile_question}"
         return {"handled": True, "reply": reply, "employee_id": employee_id}
     if intake.is_done(command):
-        return {"handled": True, "reply": s.reply_nothing_open, "employee_id": employee_id}
+        return {
+            "handled": True,
+            "reply": s.reply_nothing_open,
+            "employee_id": employee_id,
+        }
     if intake.word_count(text) < intake.MIN_CONTRIBUTION_WORDS:
         return unhandled
     # Thread pin: a Chinese opening message keeps the thread Chinese even
     # when the employee's locale is English (plan step 2.1, O1 fallback).
     pinned = lang if lang == "zh-CN" and (locale or "").strip() != "zh-CN" else None
-    thread_id = intake.start_thread(
-        conn, employee_id, employee_name, text, lang=pinned
-    )
+    thread_id = intake.start_thread(conn, employee_id, employee_name, text, lang=pinned)
     if not profile.get_profile(conn, employee_id).asked:
         profile.mark_asked(conn, employee_id)
         reply = f"{s.reply_keep_going} {s.profile_question}"
@@ -335,14 +342,128 @@ def _volunteer(
     }
 
 
+MIN_CONTRIBUTION_WORDS = 4
+
+
+def _target_turn(
+    conn: Any,
+    conv: dict[str, Any],
+    employee_id: str,
+    reply_to_id: str | None,
+    quoted_ids: list[str],
+) -> dict[str, Any] | None:
+    """The Oracle message this reply is about: quoted, replied-to, else the latest."""
+    for activity in [*quoted_ids, *([reply_to_id] if reply_to_id else [])]:
+        turn = conv_mod.out_turn_by_activity(conn, activity, employee_id)
+        if turn is not None and turn["conversation_id"] == conv["id"]:
+            return turn
+    return conv_mod.last_out_turn(conn, conv["id"])
+
+
+def _conversation_message(
+    conn: Any,
+    conv: dict[str, Any],
+    employee_id: str,
+    employee_name: str,
+    text: str,
+    command: str,
+    lang: str,
+    *,
+    activity_id: str | None,
+    reply_to_id: str | None,
+    quoted_ids: list[str],
+) -> dict[str, Any]:
+    """One employee message inside an open serial conversation (issue #604).
+
+    Nothing is answered here: the answer is stored and processed, and the
+    interview lane writes the next message once processing has finished.
+    """
+    lang = conv["lang"] or lang
+    s = strings(lang)
+    base = {
+        "handled": True,
+        "reply": None,
+        "employee_id": employee_id,
+        "conversation_id": conv["id"],
+    }
+    target = _target_turn(conn, conv, employee_id, reply_to_id, quoted_ids)
+    quoted = quoted_ids[0] if quoted_ids else None
+    in_reply_to = target["id"] if target else None
+    question_id = target["question_id"] if target else None
+
+    def store(kind: str, meta: dict[str, Any] | None = None) -> str | None:
+        return conv_mod.add_turn(
+            conn,
+            conv["id"],
+            "in",
+            kind,
+            text.strip(),
+            teams_activity_id=activity_id,
+            quoted_activity_id=quoted,
+            question_id=question_id,
+            in_reply_to=in_reply_to,
+            meta=meta,
+        )
+
+    if conv["state"] == "processing":
+        store(converse.HELD_KIND, {"done": intake.is_done(command)})
+        return base
+    if intake.is_done(command):
+        if store("other", {"done": True}) is None:
+            return base
+        conv_mod.close_conversation(conn, conv["id"], "done")
+        return {**base, "reply": s.close}
+    question = conv_mod.question_text(conn, question_id) or (
+        target["text"] if target else ""
+    )
+    if command in _SKIP_COMMANDS:
+        kind = "dont_know"
+    else:
+        kind = classify_reply(question, text)
+        if kind == "other" and intake.word_count(text) >= MIN_CONTRIBUTION_WORDS:
+            kind = "answer"
+    if kind == "other":
+        if store("other") is None:
+            return base
+        conv_mod.set_state(conn, conv["id"], "awaiting_answer")
+        loc = question
+        return {**base, "reply": s.restate.format(question=loc) if loc else s.reply_ack}
+    turn_id = store(kind)
+    if turn_id is None:
+        return base
+    if kind == "answer":
+        answered_qid = (
+            question_id if target is not None and target["kind"] == "question" else None
+        )
+        source_id = converse.ingest_answer(
+            conv["id"],
+            employee_id,
+            employee_name,
+            question,
+            text.strip(),
+            [turn_id],
+            answered_qid,
+        )
+        return {**base, "source_id": source_id, "question_id": question_id}
+    conv_mod.set_state(conn, conv["id"], "processing")
+    conv_mod._queue_reply(conn, conv["id"], {"conversation_id": conv["id"]})
+    return {**base, "question_id": question_id}
+
+
 def handle_inbound(
     *,
     email: str | None,
     conversation_ref: dict[str, Any] | None,
     text: str,
     name: str | None = None,
+    activity_id: str | None = None,
+    reply_to_id: str | None = None,
+    quoted_ids: list[str] | None = None,
+    text_plain: str | None = None,
 ) -> dict[str, Any]:
     """Process one incoming Teams message; return ``{handled, reply, ...}``."""
+    if text_plain and text_plain.strip():
+        text = text_plain
     pool = get_pool()
     with pool.connection() as conn:
         employee = _find_employee(conn, email)
@@ -365,6 +486,9 @@ def handle_inbound(
                 (employee_id,),
             )
             conn.commit()
+            open_conv = conv_mod.current_conversation(conn, employee_id)
+            if open_conv is not None:
+                conv_mod.close_conversation(conn, open_conv["id"], "stopped")
             return {
                 "handled": True,
                 "reply": strings(lang).reply_stopped,
@@ -383,6 +507,23 @@ def handle_inbound(
                 "reply": strings(lang).reply_resumed,
                 "employee_id": employee_id,
             }
+        if personal:
+            if conv_mod.in_activity_seen(conn, activity_id):
+                return {"handled": True, "reply": None, "employee_id": employee_id}
+            conv = conv_mod.current_conversation(conn, employee_id)
+            if conv is not None and not intake.is_join_request(text):
+                return _conversation_message(
+                    conn,
+                    conv,
+                    employee_id,
+                    employee_name,
+                    text,
+                    command,
+                    lang,
+                    activity_id=activity_id,
+                    reply_to_id=reply_to_id,
+                    quoted_ids=quoted_ids or [],
+                )
         candidates = _pending_questions(conn, employee_id)
         if (
             personal
@@ -411,12 +552,20 @@ def handle_inbound(
         # A reply to a pending question is matched before any open volunteered
         # thread: the thread must never swallow an answer or a skip (F4).
         matched: tuple[str, str] | None = None
-        if candidates and not intake.is_join_request(text) and not intake.is_done(command):
+        if (
+            candidates
+            and not intake.is_join_request(text)
+            and not intake.is_done(command)
+        ):
             if command in _SKIP_COMMANDS:
                 index, kind = 0, "dont_know"
             else:
                 index = match_reply([q for _, q in candidates], text)
-                kind = "other" if index is None else classify_reply(candidates[index][1], text)
+                kind = (
+                    "other"
+                    if index is None
+                    else classify_reply(candidates[index][1], text)
+                )
             if kind == "dont_know":
                 question_id = candidates[index][0]
                 conn.execute(
@@ -467,8 +616,10 @@ def handle_inbound(
         kind="transcript",
         title=f"Interview answer — {employee_name} — {day_date.isoformat()}",
         original_filename=f"interview-answer-{question_id}.txt",
-        data=(profile.transcript_header(employee_id, employee_name)
-              + _transcript_text(question, employee_name, answer)).encode("utf-8"),
+        data=(
+            profile.transcript_header(employee_id, employee_name)
+            + _transcript_text(question, employee_name, answer)
+        ).encode("utf-8"),
         department_hint=profile.department_hint(employee_id),
         effective_date=day_date,
         date_origin=ORIGIN_INTERVIEW,

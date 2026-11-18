@@ -17,7 +17,9 @@ from conftest import fake_embeddings
 from brain.config import get_settings
 from brain.interview import intake
 from brain.interview import tick as tick_mod
+from brain.interview.converse import run_interview_reply
 from brain.interview.inbound import REPLY_ANSWERED, REPLY_STOPPED, handle_inbound
+from brain.interview.strings import strings
 from brain.interview.tick import (
     MESSAGE_TEMPLATE,
     maybe_queue_interview_tick,
@@ -39,7 +41,7 @@ CONVERSATION_REF = {
 @pytest.fixture(autouse=True)
 def _clean_interviews(db: Any) -> None:
     db.execute(
-        "TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags, "
+        "TRUNCATE cmap.open_question, cmap.interview_conversation, cmap.interview_turn, cmap.teams_conversation, cmap.employee_flags, "
         "cmap.interview_send, cmap.teams_intake"
     )
     db.execute("UPDATE cmap.interview_setting SET enabled = true")
@@ -190,6 +192,12 @@ def _connect(email: str = EMPLOYEE_EMAIL) -> dict[str, Any]:
     return handle_inbound(email=email, conversation_ref=CONVERSATION_REF, text="hello")
 
 
+def _new_day(db: Any) -> None:
+    """Forget today's sittings, as if the next New York day had started."""
+    db.execute("DELETE FROM cmap.interview_conversation")
+    db.commit()
+
+
 def _states(db: Any) -> dict[str, str]:
     return {
         str(qid): str(state)
@@ -213,12 +221,12 @@ def test_one_question_in_flight_per_person(
     assert len(sent) == 1
 
     db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE id = %s", (ids[0],))
-    db.commit()
+    _new_day(db)
     assert run_interview_tick()["asked"] == 1
     assert sent[1][1] == MESSAGE_TEMPLATE.format(question="Who signs off step 1?")
 
 
-def test_daily_cap(
+def test_one_sitting_per_day(
     db: Any, enabled: None, sent: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     person = _person(db, EMPLOYEE_NAME)
@@ -229,8 +237,10 @@ def test_daily_cap(
     for _ in range(5):
         run_interview_tick()
         db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE state = 'asked'")
+        db.execute("UPDATE cmap.interview_conversation SET state = 'closed'")
         db.commit()
-    assert len(sent) == tick_mod.DAILY_CAP
+    # Further questions in the same day come from the conversation, not the tick.
+    assert len(sent) == 1
 
 
 def test_loosely_connected_person_is_not_asked(
@@ -546,7 +556,7 @@ def test_weekly_cap(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None
     for _ in range(4):
         run_interview_tick()
         db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE state = 'asked'")
-        db.commit()
+        _new_day(db)
     assert len(sent) == 2
 
 
@@ -603,15 +613,18 @@ def test_unrelated_reply_is_not_saved_as_the_answer(
     _connect()
     run_interview_tick()
     monkeypatch.setattr(inbound_mod, "classify_reply", lambda question, reply: "other")
-    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="thanks")
+    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="thanks")
     assert _states(db)[qid] == "asked"
+    assert "Who approves samples?" in first["reply"]  # restated, nothing saved
 
     monkeypatch.setattr(inbound_mod, "classify_reply", lambda question, reply: "dont_know")
     reply = handle_inbound(
         email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="No idea, not my area."
     )
-    assert reply["reply"] == inbound_mod.REPLY_SKIPPED
+    assert reply["reply"] is None  # the interview lane writes the next message
+    run_interview_reply(reply["conversation_id"])
     assert _states(db)[qid] == "open"
+    assert sent[-1][1] == strings("en").who_would_know
 
 
 def test_late_reply_matched_to_right_question(
@@ -724,7 +737,7 @@ def test_answer_becomes_source(
     answer = "Jessica signs it, but only after Ilona checks the artwork."
     reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=answer)
     assert reply["handled"] is True
-    assert reply["reply"] == REPLY_ANSWERED
+    assert reply["reply"] is None  # the next message waits for processing
     source_id = reply["source_id"]
 
     row = db.execute(
@@ -770,9 +783,12 @@ def test_skip_reopens_for_someone_else(
     run_interview_tick()
     reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip")
     assert reply["handled"] is True
+    run_interview_reply(reply["conversation_id"])
     assert _states(db)[qid] == "open"
+    assert len(sent) == 2  # the question, then "who would know?"
+    _new_day(db)
     run_interview_tick()
-    assert len(sent) == 1
+    assert len(sent) == 2
 
 
 def test_disabled_sends_nothing(
@@ -897,6 +913,8 @@ def test_skipped_questions_still_count_toward_cap(
     for _ in range(5):
         run_interview_tick()
         handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip")
+        db.execute("UPDATE cmap.open_question SET state = 'open' WHERE state = 'asked'")
+        _new_day(db)
     assert len(sent) == 2
 
 

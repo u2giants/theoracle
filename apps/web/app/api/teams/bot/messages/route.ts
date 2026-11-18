@@ -21,6 +21,7 @@ import { ActivityTypes, TeamsInfo, TurnContext, type Activity } from 'botbuilder
 import { createRecallLiveBot, type RecallSttProvider } from '@/lib/recall';
 import { brainService } from '@/lib/brain-service';
 import { getTeamsBotAdapter } from '@/lib/teams-bot-adapter';
+import { parseQuote } from '@/lib/teams-quote';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -103,6 +104,9 @@ async function offerToInterviews(context: TurnContext, text: string): Promise<bo
           conversationType,
         },
       };
+  // Plan #604 Step 2: forward Teams message ids so the brain files a quote
+  // reply on the exact question quoted and ignores redelivered messages.
+  const quote = parseQuote(context.activity.text, context.activity.attachments);
   try {
     const result = await brainService<InboundResult>('interview/teams/inbound', {
       method: 'POST',
@@ -111,10 +115,19 @@ async function offerToInterviews(context: TurnContext, text: string): Promise<bo
         name: sender.name,
         conversation_ref: conversationRef,
         text,
+        text_plain: quote.plainText,
+        activity_id: context.activity.id ?? null,
+        reply_to_id: context.activity.replyToId ?? null,
+        quoted_ids: quote.quotedIds,
       },
     });
     if (result.status !== 200 || !result.body?.handled) return false;
-    if (result.body.reply) await context.sendActivity(result.body.reply);
+    if (result.body.reply) {
+      await context.sendActivity(result.body.reply);
+    } else {
+      // The real reply is sent proactively once the answer is processed.
+      await context.sendActivity({ type: ActivityTypes.Typing });
+    }
     return true;
   } catch (err) {
     console.warn('[teams/bot] interview hand-off failed', err);

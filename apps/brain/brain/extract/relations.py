@@ -45,6 +45,7 @@ from brain.db import get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.extract.flat import ENTITY_TYPES
 from brain.extract.normalize import normalize_name
+from brain.interview.conversation import source_chain_ended
 from brain.llm import post_chat_with_rescue
 from brain.read import pdf as pdf_read
 from brain.read import state as read_state
@@ -210,7 +211,10 @@ def build_prompt(
 ) -> str:
     """Fill ``prompts/relations.md`` for one window's anchor passage."""
     mentions_json = json.dumps(
-        [{"key": item.key, "type": item.entity_type, "name": item.name} for item in known],
+        [
+            {"key": item.key, "type": item.entity_type, "name": item.name}
+            for item in known
+        ],
         ensure_ascii=False,
     )
     return (
@@ -256,9 +260,7 @@ def _normalize_quote(text: str) -> str:
     return re.sub(r"\s+", " ", text.translate(_QUOTE_FOLD)).strip()
 
 
-def find_quote(
-    window: list[tuple[str, str]], quote: str
-) -> str | None:
+def find_quote(window: list[tuple[str, str]], quote: str) -> str | None:
     """Return the id of the chunk holding ``quote``, or None if it is absent.
 
     An exact substring match is tried first; whitespace/quote-mark-normalised
@@ -443,7 +445,9 @@ def _call_model(prompt: str, counters: _Counters) -> dict[str, Any]:
     try:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise RelationsError("frontier relations response has no message content") from exc
+        raise RelationsError(
+            "frontier relations response has no message content"
+        ) from exc
     if isinstance(content, list):
         # Some providers return content as a list of text blocks.
         content = "".join(
@@ -468,7 +472,10 @@ def _bump_usage(body: dict[str, Any], counters: _Counters) -> None:
     for name in ("prompt_tokens", "completion_tokens", "total_tokens"):
         value = reported.get(name)
         if isinstance(value, int):
-            counters.bump(f"frontier_{name}" if name != "total_tokens" else "frontier_tokens", value)
+            counters.bump(
+                f"frontier_{name}" if name != "total_tokens" else "frontier_tokens",
+                value,
+            )
 
 
 def parse_relations_json(content: str) -> dict[str, Any]:
@@ -539,7 +546,13 @@ def known_mentions(window: list[WindowEntry]) -> list[KnownMention]:
                 continue
             at = folded.find(surface.casefold())
             positioned.append(
-                (at if at >= 0 else len(text), entity_type, surface, normalized, mention_id)
+                (
+                    at if at >= 0 else len(text),
+                    entity_type,
+                    surface,
+                    normalized,
+                    mention_id,
+                )
             )
         positioned.sort()
         for _at, entity_type, surface, normalized, mention_id in positioned:
@@ -703,7 +716,9 @@ def _write_result(
                         mention.surface_name,
                         mention.normalized_name,
                         mention.quote,
-                        vector_literal(mention.vector) if mention.vector is not None else None,
+                        vector_literal(mention.vector)
+                        if mention.vector is not None
+                        else None,
                     ),
                 ).fetchone()
                 ids[mention.key] = str(row[0])
@@ -819,7 +834,9 @@ def _process_window(
         except (RelationsError, httpx.HTTPError) as exc:
             if attempt == CALL_ATTEMPTS:
                 raise
-            logger.warning("relations call failed (%s); retrying chunk %s", exc, chunk_id)
+            logger.warning(
+                "relations call failed (%s); retrying chunk %s", exc, chunk_id
+            )
             time.sleep(read_state.BACKOFF_SECONDS * 2 ** (attempt - 1))
     by_key = {item.key: item for item in known}
     relations, new_mentions, drops = validate_response(
@@ -897,7 +914,9 @@ def handle_relations(job: dict[str, Any]) -> None:
                 # Keep every finished chunk; note this one and carry on, so a
                 # single bad call never stops the chain (repair plan A2).
                 failed += 1
-                logger.warning("relations chunk %s failed for good: %s", futures[future], exc)
+                logger.warning(
+                    "relations chunk %s failed for good: %s", futures[future], exc
+                )
                 record_chunk_failure(futures[future], "relations", str(exc))
                 continue
             written += 1
@@ -917,7 +936,15 @@ def handle_relations(job: dict[str, Any]) -> None:
     if cap_error is not None:
         raise cap_error
     state = finish_source(source_id)
-    logger.info("relations source=%s finished as %s (failed chunks=%d)", source_id, state, failed)
+    logger.info(
+        "relations source=%s finished as %s (failed chunks=%d)",
+        source_id,
+        state,
+        failed,
+    )
+    # An interview answer is now processed: compose the reply (#604) first,
+    # so the employee never waits on the global steps below.
+    source_chain_ended(source_id, failed=False)
     _enqueue_resolve()
     after_source_relations(source_id)
 

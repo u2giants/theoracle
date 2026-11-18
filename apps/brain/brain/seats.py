@@ -31,6 +31,7 @@ STAGES = (
     "recommend",
     "grade",
     "contradictions",
+    "converse",
 )
 
 # Seats change rarely; a short cache keeps one lookup per call off the hot path
@@ -82,7 +83,8 @@ def env_model(settings: Settings, stage: str) -> str | None:
         return settings.brain_vision_model
     if stage == "embed":
         return settings.brain_embed_model
-    if stage == "answer":
+    if stage in {"answer", "converse"}:
+        # The interview composer (#604) defaults to the seat follow-ups used.
         return settings.brain_chat_model or settings.brain_frontier_model
     if stage == "grade":
         return settings.brain_eval_model or settings.brain_frontier_model

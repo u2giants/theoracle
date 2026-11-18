@@ -42,6 +42,8 @@ EXPECTED_TABLES = {
     "process_flow",  # added by repair step E2 (sql/033_process_flows.sql)
     "flow_step",  # added by repair step E2 (sql/033_process_flows.sql)
     "contradiction",  # added by repair step D3 (sql/032_contradictions.sql)
+    "interview_conversation",  # added by #604 (sql/034_interview_conversation.sql)
+    "interview_turn",  # added by #604 (sql/034_interview_conversation.sql)
 }
 
 

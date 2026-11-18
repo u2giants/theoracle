@@ -7,6 +7,7 @@ import threading
 
 import uvicorn
 
+from brain.db import INTERVIEW_LANE, MAIN_LANE
 from brain.main import app
 from brain.migrate import migrate
 from brain.worker import run_worker
@@ -28,18 +29,25 @@ def main() -> None:
     migrate()
     logging.getLogger(__name__).info("cmap schema applied")
     stop = threading.Event()
-    worker = threading.Thread(
-        target=run_worker,
-        args=(stop,),
-        name="brain-worker",
-        daemon=True,
-    )
-    worker.start()
+    # Two workers: the main lane, and the interview fast lane that processes
+    # one employee answer at a time without waiting behind rebuilds (#604).
+    workers = [
+        threading.Thread(
+            target=run_worker,
+            args=(stop, lane),
+            name=f"brain-worker-{lane}",
+            daemon=True,
+        )
+        for lane in (MAIN_LANE, INTERVIEW_LANE)
+    ]
+    for worker in workers:
+        worker.start()
     try:
         uvicorn.run(app, host=HOST, port=PORT)
     finally:
         stop.set()
-        worker.join(timeout=5)
+        for worker in workers:
+            worker.join(timeout=5)
 
 
 if __name__ == "__main__":

@@ -8,11 +8,12 @@ asked/answered history, the per-employee pause switch and the global switch.
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from brain.api.deps import (
     User,
@@ -28,13 +29,33 @@ from brain.interview.tick import reachable_employees, select_target
 router = APIRouter()
 
 
+_TEAMS_ID = re.compile(r"[0-9]{1,32}")
+
+
 class InboundBody(BaseModel):
     """One Teams message forwarded by the bot route."""
 
     email: str | None = None
     name: str | None = None
     conversation_ref: dict[str, Any] | None = None
-    text: str = ""
+    text: str = Field(default="", max_length=8000)
+    text_plain: str | None = Field(default=None, max_length=8000)
+    activity_id: str | None = None
+    reply_to_id: str | None = None
+    quoted_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("activity_id", "reply_to_id", mode="before")
+    @classmethod
+    def _one_id(cls, value: Any) -> str | None:
+        """Teams message ids are untrusted: keep only digit ids, drop the rest."""
+        text = str(value) if value is not None else ""
+        return text if _TEAMS_ID.fullmatch(text) else None
+
+    @field_validator("quoted_ids", mode="before")
+    @classmethod
+    def _ids(cls, value: Any) -> list[str]:
+        ids = [str(v) for v in (value or []) if _TEAMS_ID.fullmatch(str(v))]
+        return list(dict.fromkeys(ids))[:5]
 
 
 class SwitchBody(BaseModel):
@@ -77,6 +98,10 @@ def teams_inbound(body: InboundBody) -> dict[str, Any]:
         conversation_ref=body.conversation_ref,
         text=body.text,
         name=body.name,
+        activity_id=body.activity_id,
+        reply_to_id=body.reply_to_id,
+        quoted_ids=body.quoted_ids,
+        text_plain=body.text_plain,
     )
 
 
@@ -149,7 +174,9 @@ def store_teams_conversation(body: ConversationRefBody) -> dict[str, Any]:
     employee_id = _uuid(body.employee_id, "employee_id")
     conversation = body.conversation_ref.get("conversation") or {}
     if not conversation.get("id"):
-        raise HTTPException(status_code=400, detail="conversation_ref needs conversation.id")
+        raise HTTPException(
+            status_code=400, detail="conversation_ref needs conversation.id"
+        )
     pool = get_pool()
     with pool.connection() as conn:
         row = conn.execute(
@@ -172,7 +199,9 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
     settings = get_settings()
     pool = get_pool()
     with pool.connection() as conn:
-        switch = conn.execute("SELECT enabled FROM cmap.interview_setting WHERE id").fetchone()
+        switch = conn.execute(
+            "SELECT enabled FROM cmap.interview_setting WHERE id"
+        ).fetchone()
         reachable = reachable_employees(conn, settings.brain_interview_weekly_cap)
         names = {
             str(eid): str(name)
@@ -188,8 +217,20 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
             "CASE state WHEN 'open' THEN 0 WHEN 'asked' THEN 1 ELSE 2 END, "
             "COALESCE(answered_at, asked_at, created_at) DESC LIMIT 500"
         ).fetchall():
-            (qid, question, why, entity_ids, target, state, asked_at, answer,
-             answered_at, source_id, skipped, created_at) = row
+            (
+                qid,
+                question,
+                why,
+                entity_ids,
+                target,
+                state,
+                asked_at,
+                answer,
+                answered_at,
+                source_id,
+                skipped,
+                created_at,
+            ) = row
             next_target = None
             if state == "open":
                 picked = select_target(
@@ -203,21 +244,26 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
                     reachable,
                 )
                 if picked is not None:
-                    next_target = {"employee_id": picked.employee_id, "name": picked.name}
-            questions.append({
-                "id": qid,
-                "question": question,
-                "why": why,
-                "state": state,
-                "target_employee_id": target,
-                "target_name": names.get(target) if target else None,
-                "next_target": next_target,
-                "asked_at": _iso(asked_at),
-                "answer": answer,
-                "answered_at": _iso(answered_at),
-                "answer_source_id": source_id,
-                "created_at": _iso(created_at),
-            })
+                    next_target = {
+                        "employee_id": picked.employee_id,
+                        "name": picked.name,
+                    }
+            questions.append(
+                {
+                    "id": qid,
+                    "question": question,
+                    "why": why,
+                    "state": state,
+                    "target_employee_id": target,
+                    "target_name": names.get(target) if target else None,
+                    "next_target": next_target,
+                    "asked_at": _iso(asked_at),
+                    "answer": answer,
+                    "answered_at": _iso(answered_at),
+                    "answer_source_id": source_id,
+                    "created_at": _iso(created_at),
+                }
+            )
         employees = [
             {
                 "employee_id": eid,
@@ -270,7 +316,9 @@ def overview(user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
 
 
 @router.post("/interview/settings")
-def set_switch(body: SwitchBody, user: Annotated[User, Depends(require_admin)]) -> dict[str, Any]:
+def set_switch(
+    body: SwitchBody, user: Annotated[User, Depends(require_admin)]
+) -> dict[str, Any]:
     """Global on/off switch on the admin page."""
     del user
     pool = get_pool()
@@ -343,7 +391,9 @@ def dismiss_question(
         ).fetchone()
         conn.commit()
     if row is None:
-        raise HTTPException(status_code=404, detail="no open or asked question with that id")
+        raise HTTPException(
+            status_code=404, detail="no open or asked question with that id"
+        )
     return {"id": question_id, "state": "dismissed"}
 
 

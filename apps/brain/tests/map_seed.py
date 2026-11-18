@@ -372,7 +372,7 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
     """Step 12 questions page: one unrouted open question, one answered one,
     and the browser-test admin as an employee who has messaged the bot."""
-    db.execute("TRUNCATE cmap.open_question, cmap.teams_conversation, cmap.employee_flags, "
+    db.execute("TRUNCATE cmap.open_question, cmap.interview_conversation, cmap.interview_turn, cmap.teams_conversation, cmap.employee_flags, "
         "cmap.interview_send")
     db.execute(
         "INSERT INTO cmap.teams_conversation (employee_id, conversation_ref) "

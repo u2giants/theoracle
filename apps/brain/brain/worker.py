@@ -10,7 +10,7 @@ from typing import Any
 
 from brain.chain import handle_ensure_chain, maybe_queue_ensure_chain
 from brain.contradictions import handle_contradictions
-from brain.db import get_pool
+from brain.db import MAIN_LANE, current_lane, get_pool
 from brain.directory_sync import handle_directory_sync, maybe_queue_directory_sync
 from brain.eval.run import handle_evaluate
 from brain.extract.flat import handle_classify_extract
@@ -18,6 +18,8 @@ from brain.extract.relations import handle_relations
 from brain.function_assign import handle_function_assign
 from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
+from brain.interview import conversation as conversation_mod
+from brain.interview.converse import handle_interview_reply
 from brain.interview.intake import close_stale_threads
 from brain.interview.tick import handle_interview_tick, maybe_queue_interview_tick
 from brain.process_pass import handle_process_pass
@@ -51,20 +53,25 @@ HANDLERS: dict[str, Handler] = {
     "reembed": handle_reembed,
     "directory_sync": handle_directory_sync,
     "ensure_chain": handle_ensure_chain,
+    "interview_reply": handle_interview_reply,
 }
 
+# Kinds whose permanent failure must still get the employee a reply (#604).
+CHAIN_KINDS = frozenset({"read_source", "classify_extract", "relations"})
 
-def claim_next_job() -> dict[str, Any] | None:
-    """Take the oldest queued job, or None when the queue is empty."""
+
+def claim_next_job(lane: str = MAIN_LANE) -> dict[str, Any] | None:
+    """Take the oldest queued job of ``lane``, or None when it is empty."""
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, kind, payload, attempts FROM cmap.job "
-                "WHERE state = 'queued' AND run_after <= now() "
+                "WHERE state = 'queued' AND run_after <= now() AND lane = %s "
                 "ORDER BY created_at "
                 "FOR UPDATE SKIP LOCKED "
-                "LIMIT 1"
+                "LIMIT 1",
+                (lane,),
             )
             row = cur.fetchone()
             if row is None:
@@ -126,7 +133,15 @@ def finish_job(job_id: Any, error: str | None) -> str:
             "started_at = CASE WHEN attempts < %s THEN NULL ELSE started_at END, "
             "finished_at = CASE WHEN attempts < %s THEN NULL ELSE now() END, "
             "error = %s WHERE id = %s RETURNING state",
-            (MAX_ATTEMPTS, MAX_ATTEMPTS, RETRY_BASE_SECONDS, MAX_ATTEMPTS, MAX_ATTEMPTS, error, job_id),
+            (
+                MAX_ATTEMPTS,
+                MAX_ATTEMPTS,
+                RETRY_BASE_SECONDS,
+                MAX_ATTEMPTS,
+                MAX_ATTEMPTS,
+                error,
+                job_id,
+            ),
         ).fetchone()
         conn.commit()
     return str(row[0]) if row else "failed"
@@ -135,7 +150,7 @@ def finish_job(job_id: Any, error: str | None) -> str:
 FINISH_ATTEMPTS = 3
 
 
-def record_result(job_id: Any, error: str | None) -> None:
+def record_result(job_id: Any, error: str | None) -> str | None:
     """Write the job's result, retrying a failed write (repair plan A7).
 
     If every try fails the job stays ``running`` and the orphan sweep puts it
@@ -143,13 +158,28 @@ def record_result(job_id: Any, error: str | None) -> None:
     """
     for attempt in range(1, FINISH_ATTEMPTS + 1):
         try:
-            finish_job(job_id, error)
-            return
+            return finish_job(job_id, error)
         except Exception as exc:
             logger.warning(
                 "could not record job %s result (try %d): %s", job_id, attempt, exc
             )
             time.sleep(min(2.0 * attempt, 5.0))
+    return None
+
+
+def after_job_failed(job: dict[str, Any], state: str | None) -> None:
+    """A chain job that failed for good still gets the employee a reply."""
+    if state != "failed" or job["kind"] not in CHAIN_KINDS:
+        return
+    source_id = str((job.get("payload") or {}).get("source_id") or "")
+    if not source_id:
+        return
+    try:
+        conversation_mod.source_chain_ended(source_id, failed=True)
+    except Exception as exc:
+        logger.warning(
+            "interview reply after failed %s not queued: %s", job["kind"], exc
+        )
 
 
 # A restart (every deploy) kills the job in flight and leaves it 'running'
@@ -178,22 +208,25 @@ def requeue_orphans(started_before: Any) -> int:
     return len(rows)
 
 
-def run_worker(stop: threading.Event) -> None:
+def run_worker(stop: threading.Event, lane: str = MAIN_LANE) -> None:
     """Claim, run and record jobs until ``stop`` is set; sleep 2 s when idle.
 
     A job that raises is retried with backoff before it is marked failed.
     About once a minute it also queues the hourly ``ensure_chain`` (heals work
     left behind), queues the hourly ``interview_tick`` (a no-op
     while ``BRAIN_INTERVIEW_ENABLED`` is false), queues ``directory_sync`` when
-    configured, and closes Teams intake threads quiet for 20 minutes.
+    configured, closes Teams intake threads quiet for 20 minutes and heals
+    interview conversations (#604). Only the main lane schedules; the
+    interview lane (``lane='interview'``) only claims its own jobs.
     """
+    main = lane == MAIN_LANE
     last_schedule_check = 0.0
     started = time.monotonic()
     booted_at: Any = None
     orphans_swept = False
     while not stop.is_set():
         now = time.monotonic()
-        if not orphans_swept:
+        if main and not orphans_swept:
             try:
                 if booted_at is None:
                     booted_at = boot_time()
@@ -202,7 +235,7 @@ def run_worker(stop: threading.Event) -> None:
                     orphans_swept = True
             except Exception as exc:
                 logger.warning("orphaned job sweep failed: %s", exc)
-        if now - last_schedule_check >= SCHEDULE_CHECK_SECONDS:
+        if main and now - last_schedule_check >= SCHEDULE_CHECK_SECONDS:
             last_schedule_check = now
             try:
                 maybe_queue_interview_tick()
@@ -220,8 +253,12 @@ def run_worker(stop: threading.Event) -> None:
                 close_stale_threads()
             except Exception as exc:
                 logger.warning("teams intake sweep failed: %s", exc)
+            try:
+                conversation_mod.sweep_conversations()
+            except Exception as exc:
+                logger.warning("interview conversation sweep failed: %s", exc)
         try:
-            job = claim_next_job()
+            job = claim_next_job(lane)
         except Exception as exc:
             logger.warning("job claim failed: %s", exc)
             stop.wait(POLL_SECONDS)
@@ -230,9 +267,14 @@ def run_worker(stop: threading.Event) -> None:
             stop.wait(POLL_SECONDS)
             continue
         error: str | None = None
+        token = current_lane.set(lane)
         try:
             run_handler(job)
         except Exception as exc:
             logger.exception("job %s failed", job["id"])
             error = str(exc)
-        record_result(job["id"], error)
+        finally:
+            current_lane.reset(token)
+        state = record_result(job["id"], error)
+        if error is not None:
+            after_job_failed(job, state)
