@@ -44,6 +44,8 @@ EXPECTED_TABLES = {
     "contradiction",  # added by repair step D3 (sql/032_contradictions.sql)
     "interview_conversation",  # added by #604 (sql/034_interview_conversation.sql)
     "interview_turn",  # added by #604 (sql/034_interview_conversation.sql)
+    "intake_item",  # added by #607 (sql/036_message_intake.sql)
+    "intake_thread",  # added by #607 (sql/036_message_intake.sql)
 }
 
 

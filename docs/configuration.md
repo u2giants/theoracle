@@ -168,6 +168,8 @@ Read by `apps/brain/brain/config.py`, passed through `apps/brain/deploy/compose.
 |---|---|---|
 | `BRAIN_COMMUNITY_PRUNE_ENABLED` | `true` | Step A1. After each successful summary build, delete stored summaries older than the newest two map versions unless a recommendation or review flag points at them. `false` keeps every old summary (answers still read only the current version). |
 | `BRAIN_ANSWER_CONTEXT_TOKENS` | `12000` | Step C4. Hard token ceiling for one answer's assembled context (function report → ordered flow → relations → quotes → passages). The answer never exceeds it; ScaleDown compression is an optimisation, never a correctness dependency. |
+| `BRAIN_INTAKE_MAX_USD` | unset | Message intake (plan_pm_message_intake.md step 0.1). Hard spend cap in US dollars for one intake run. Unset means intake refuses to start. |
+| `CLICKUP_API_TOKEN` | unset | Message intake. ClickUp API key (1Password `clickup.com API credentials`, field **api token**). Also read by `python -m brain.intake.sizing`. |
 
 Admin actions added by Phase A (brain API, reached through the web proxy and the sources page):
 `POST /sources/reread-all`, `POST /sources/{id}/reread`, `POST /jobs/retry-failed`.
