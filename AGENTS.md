@@ -24,6 +24,8 @@ Claude Code uses .claudeignore. Other tools follow **What to ignore** in this fi
 
 **Meeting-transcript triage pipeline (2026-11-08):** read [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md) STATUS first; do not re-derive or re-plan. Meeting corpus growth lives here (the document corpus is complete per the owner).
 
+**Project-manager message intake (2026-11-18):** read [plan_pm_message_intake.md](plan_pm_message_intake.md) STATUS first; do not re-derive or re-plan. Teams chat, ClickUp and (blocked) email intake at lowest passing cost; issue #607.
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of
