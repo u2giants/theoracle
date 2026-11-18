@@ -22,7 +22,7 @@ commit, test path or run id — never a bare number.
 | 8 | One question in flight; tick only opens a conversation | ⬜ open | — |
 | 9 | Retire the canned replies and the separate volunteered-thread path | ⬜ open | — |
 | 10 | Clean up live state (stranded asked questions) | ⬜ open | — |
-| 11 | Live proof with Albert's own chat, then two volunteers | ⬜ open | — |
+| 11 | Live proof with Albert's own chat, then Ilona, Jen, Carlos, Jessica | ⬜ open | — |
 
 Natural context cut points: after Step 3 (plumbing done), after Step 6 (conversation
 works locally), after Step 9 (ready to deploy). Re-read the downstream steps before
@@ -267,11 +267,30 @@ path.
 - L8. No hard-coded model names; new model calls get a stage seat. Every new bot string
   exists in English and zh-CN in `interview/strings.py`.
 
+- L9 (owner, 2026-11-18). **No limit on conversation length, and no return to
+  spamming.** Albert's words: "no need to limit the conversation as long as it's
+  flowing and making sense. we just can't go back to the spamming that we got last
+  week." So there is no exchange cap and no per-day cap on a live conversation. The
+  anti-spam guarantees are structural instead, and each has a test:
+  (1) The Oracle sends exactly one message per employee reply and never a second
+  message while waiting — silence from the employee means silence from The Oracle.
+  (2) The Oracle starts (opens) at most one conversation per employee per working
+  day, in working hours, and never while one is open.
+  (3) The conversation ends when the employee says done/stop, stops replying, or it
+  stops "making sense": two employee turns in a row that are not usable answers
+  (`other`, or `unclear` twice), or the composer has nothing worthwhile left to ask.
+  (4) Everything is one switch away from off (`interview_setting.enabled`).
+- L10 (owner, 2026-11-18). First employees, after Albert's own chat: Ilona Kereki
+  (Licensing Manager, Licensing), Jennifer "Jen" Chaffier (Creative Director, Design),
+  Carlos Corral (Administrative Support, Administrative + Operations), Jessica
+  Cortazar (Project Manager, Administrative + Design + Licensing). All four are in
+  `public.employees`, have a Teams chat with the bot and are not paused (checked
+  2026-11-18). Note: a second, empty record named "Jen Chaffier" (created 2026-11-06,
+  no role, no chat) exists beside "Jennifer Chaffier"; use the Jennifer record and
+  report the duplicate on the issue rather than merging it here.
+
 **Open (implementer's judgment, with criteria):**
-- O1. Sitting length. Default: The Oracle continues for at most **5 exchanges per
-  sitting** and at most one sitting per employee per working day, then closes with a
-  short thank-you. Store both numbers in `cmap.interview_setting`, not in code. Albert
-  has been asked whether 5 is right; use 5 until he says otherwise.
+- O1. *Settled 2026-11-18 — see L9.* There is no exchange limit.
 - O2. How long to wait for an answer before the conversation is considered paused:
   default 24 hours; after that the conversation closes and the unanswered question
   returns to `open`.
@@ -313,8 +332,8 @@ New `apps/brain/brain/sql/034_interview_conversation.sql`, hand-written, idempot
   `direction='in'` (idempotency for Teams redelivery); index on `teams_activity_id`.
 - `cmap.job`: `ADD COLUMN IF NOT EXISTS lane text NOT NULL DEFAULT 'main'`; index
   `(lane, state, created_at)`.
-- `cmap.interview_setting`: `max_exchanges_per_sitting int default 5`,
-  `answer_wait_hours int default 24`.
+- `cmap.interview_setting`: `answer_wait_hours int default 24`. (No exchange-limit
+  setting — L9.)
 *Depends on:* nothing. *Gate:* `python -m brain.migrate` twice against local Postgres
 (localhost:5433 `brain_test`) with no error; `test_conversation_schema.py::
 test_one_open_conversation_per_employee` proves the second open insert fails.
@@ -428,7 +447,8 @@ Inputs, in the prompt as clearly separated, labelled blocks:
    `followup.py::map_context()`;
 4. up to 3 next open questions queued for this employee, from the same selection
    `tick.py::select_target` uses;
-5. exchanges used / allowed.
+5. how many exchanges so far, and how many of the last employee turns were not usable
+   answers (for the "stops making sense" rule in L9).
 Output: strict JSON `{"reflect": str, "action": "followup"|"clarify"|"next_question"|
 "close", "text": str, "question_index": int|null}`.
 Rules enforced **in code after the model returns**, not only in the prompt:
@@ -441,7 +461,9 @@ Rules enforced **in code after the model returns**, not only in the prompt:
 - `next_question` must pick from block 4 by index (it may reword the lead-in to connect
   it to what was said, but the question text sent must contain the stored question);
   the picked question moves to `asked` and gets its `question_id` on the `out` turn.
-- `close` when exchanges are used up, block 4 is empty, or the employee said done.
+- `close` when block 4 is empty and no follow-up is warranted, the employee said
+  done, or the last two employee turns were not usable answers (L9). Never because
+  of a count.
 - Stop reason `length`, non-JSON, timeout, or a failed rule → one retry with
   `max_tokens` doubled; then a deterministic fallback: a neutral
   "Thanks — next question:" + top queued question (or the close string). Log which
@@ -455,7 +477,9 @@ conversation.
 prompt contained the answer and extracted facts and the sent text starts with the
 reflect sentence), `::test_truncated_output_retries_then_falls_back`,
 `::test_invented_name_rejected`, `::test_followup_limit`,
-`::test_next_question_must_come_from_queue`, `::test_closes_at_exchange_limit`,
+`::test_next_question_must_come_from_queue`,
+`::test_long_flowing_conversation_is_not_cut_off` (20 good exchanges, still open),
+`::test_closes_after_two_unusable_turns`,
 and `test_converse_zh.py::test_zh_conversation_replies_in_chinese`. Plus a recorded
 transcript check: replay the six real exchanges listed in §6.3–6.5 through
 `compose_next` with the live `converse` seat (script
@@ -489,13 +513,17 @@ and `max_tokens` high enough that the label is never cut off:
 **Step 8 — Tick only opens conversations.** `lead-only`.
 `tick.py`: a target is eligible only if they have **no open conversation** (replace
 `_busy_employees`' current definition with that, keep quiet hours and routing). Sending
-a question = `open_conversation` + first `out` turn. Replace `DAILY_CAP = 3` with "one
-sitting per employee per working day" plus `max_exchanges_per_sitting` from settings.
+a question = `open_conversation` + first `out` turn. Replace `DAILY_CAP = 3` with "at most
+one conversation *opened* per employee per working day" (L9); a conversation already
+open has no cap.
 Add to the tick: close conversations idle longer than `answer_wait_hours`, returning
 the unanswered question to `open` (`close_reason='no_answer'`); re-enqueue
 `interview_reply` for any conversation stuck in `processing` more than 15 minutes with
 no running/queued interview-lane job (self-heal).
 *Gate:* `test_interview_conversation.py::test_tick_skips_employee_with_open_conversation`,
+`::test_no_second_message_while_awaiting_answer` (run the tick and the reply job
+repeatedly with no employee reply; exactly one outbound turn exists),
+`::test_one_conversation_opened_per_working_day`,
 `::test_idle_conversation_closes_and_requeues_question`,
 `::test_stuck_processing_is_healed`.
 
@@ -537,8 +565,9 @@ Accept only if, for every exchange: (a) the out turn is later than the relations
 finish; (b) the reply's first sentence reflects the answer; (c) a quote reply to an
 older message is filed on the quoted question; (d) "that's vague" produces a clarified
 question; (e) median answer-to-reply time is under 3 minutes while a `communities` job
-is running. Then un-pause two volunteers Albert names, one sitting each, same checks,
-then restore everyone. Post the evidence table to the issue.
+is running. Then un-pause the four first employees in L10 (Ilona, Jen, Carlos, Jessica), one
+conversation each, same checks, plus (f) nobody received a message they had not just
+replied to, other than the single opening question. Then restore everyone. Post the evidence table to the issue.
 *Gate:* evidence posted; STATUS rows updated with the commit SHAs and the issue
 comment link.
 
@@ -557,6 +586,7 @@ comment link.
 | A9 | conversation type | same person replies in a group chat | never opens or advances a conversation (existing F4 rule kept) | `test_interview_conversation.py::test_group_chat_never_advances_conversation` |
 | A10 | model output | truncated, non-JSON, names a person nobody mentioned | retry, then deterministic fallback | `test_converse.py::test_truncated_output_retries_then_falls_back`, `::test_invented_name_rejected` |
 | A11 | pipeline | extraction fails for the answer | employee still gets a reply; answer text preserved on the turn | `test_interview_conversation.py::test_processing_failure_still_replies` |
+| A13 | timing | employee goes silent mid-conversation; tick and jobs keep running | no further message, ever, until they reply or a new working day | `test_interview_conversation.py::test_no_second_message_while_awaiting_answer` |
 | A12 | language | Chinese answer to an English question | reply in the employee's stored language; stored text untouched | `test_converse_zh.py::test_zh_conversation_replies_in_chinese` |
 
 ### 10. Tests
@@ -636,7 +666,6 @@ Risks and rollback:
 
 Genuinely uncertain:
 - Exact Teams quote payload shape (Step 2 captures it; stop-and-ask defined).
-- Whether 5 exchanges per sitting suits staff (O1; Albert asked 2026-11-18).
 - Whether `classify_extract`/`relations` are safe side by side (O3; test decides).
 
 ---
