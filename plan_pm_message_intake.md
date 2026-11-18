@@ -35,6 +35,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 2.2 | Flat-extraction bake-off on message-shaped text | ⬜ open | — | — |
 | 2.3 | Relations bake-off across the four candidates | ⬜ open | — | — |
 | 2.4 | Batch + cached-prefix sending path | ⬜ open | — | — |
+| 2.5 | Business-area sorting with ScaleDown classify (test, adopt if it passes) | ⬜ open | — | — |
 | 3.1 | Pilot: two weeks of data end to end, measured cost | ⬜ open | — | — |
 | 4.1 | Full-window run + live proof | ⬜ open | — | — |
 | 5.1 | Email collector | ⛔ blocked | Tenant admin consent for `Mail.Read` (application), restricted to the two mailboxes by an application access policy. No tenant-admin credential is reachable from AI sessions (same family as #593). Do not work around. | 2026-11-18 |
@@ -236,6 +237,16 @@ Cost levers in order of size: fewer, fuller passages (packing short messages, st
 - Prompt caching: the relations template (`relations.py:206` `build_prompt`) already starts with fixed text, and the mention list and context vary per call, so the cacheable share may be small. **Measure the cache-hit share on a 100-passage run first**; restructure the prompt only if the measured saving is worth it, and if you do, re-run the 2.3 scoring set and confirm the gates still pass.
 - A direct provider path needs a provider key and a change to provider resolution in `brain/llm.py`; OpenRouter gives no batch discount.
 - Gate: `tests/test_llm_batch.py` (mocked provider: success, partial failure, expiry, duplicate result ids); a 100-passage live batch on gold costs within 10% of the forecast batch price.
+
+**2.5 Business-area sorting with ScaleDown classify (owner ruling 2026-11-18: "yes").** `lead-only` (changes how every passage is scoped for answers).
+- Today each passage is sorted into up to three of the company's business functions (`cmap.function`, 13 seeded) by one paid chat call on the flat seat (`apps/brain/brain/function_assign.py:127-147`, prompt `prompts/function_assign.md`, at most three picks `:48`). On message volume that is a third paid call per passage.
+- Test replacing that call, for message sources, with ScaleDown `/classify`: labels are the active rows of `cmap.function` (name = key, rubric = description plus aliases, loaded at run time by `load_functions` `:63` so an owner edit on the functions page changes the labels with no code change), `"reasoning": false`. Take every label scoring above a threshold, strongest three, score as weight. Keep `merge_priors` (`:180`) and the company-wide fallback exactly as they are.
+- Where the kind-of-content classify call (`flat.classify_body`) and this one can share a request, send one; otherwise two ScaleDown calls still replace a paid model call.
+- Gold: on the step 2.1 threads the lead marks the correct functions per passage (pooled, unlabelled picks from the current method and ScaleDown, same procedure as 2.1).
+- **Gates, by the lower confidence bound:** at least 90% of passages have their main function right; at least 85% of all gold functions are found; no more than 10% of picks are wrong. Calibrate the threshold on the 50 tuning threads only. Then re-run `tests/test_answer.py::test_scoped_answer_excludes_other_functions` and the 15-question end-to-end check from 2.3 and require no drop.
+- If it passes: add the ScaleDown path in `function_assign.py` behind a setting, used for sources with an `origin`; the existing path stays for documents and as the automatic fallback when ScaleDown fails three times (same rule as `flat.py`). If it fails: keep the current call but on the 2.3 winner rather than any frontier model (L9), and record the numbers on #607.
+- Tests: `tests/test_functions.py::test_scaledown_labels_built_from_function_table`, `::test_scaledown_scores_become_weights_top_three`, `::test_scaledown_failure_falls_back_to_model`, `::test_priors_still_apply_on_scaledown_path`.
+- Gate: results table in `docs/verification/`; the tests above green; measured cost per 1,000 passages before and after on #607.
 
 ### Phase 3 — pilot *(cut point)*
 
