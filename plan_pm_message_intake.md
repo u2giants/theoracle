@@ -139,7 +139,7 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 - O1. Time window. Default **the last 90 days**; the pilot uses the last 14. Widen only if the 90-day map is still thin.
 - O2. Conversation split for Teams chats: default a new thread after a 4-hour silence. Tune in step 1.4 on real data so threads are neither single lines nor whole weeks.
 - O3. Whether ScaleDown extract or the seated flat model wins on message text — decided by step 2.2.
-- O4. **Settled 2026-11-18 by the owner: one-to-one and group chats are both included** (moved to L10). Still open: whether the two managers are told first.
+- O4. **Settled 2026-11-18 by the owner: one-to-one and group chats are both included** (moved to L10). Also settled the same day: the reading is not announced to the two managers.
 
 **The pipeline, end to end:**
 
@@ -314,7 +314,7 @@ Every test file named in §9 and §9a, plus: `tests/test_prompts.py` must list a
 **Open questions for the owner (business meaning only; also in the handoff §0):**
 1. ~~Mailboxes~~ — answered 2026-11-18: yes, both mailboxes. Step 5.1 now waits only on the mailbox permission.
 2. ~~One-to-one chats~~ — answered 2026-11-18: private and group chats are both read.
-3. Still open: should the two managers be told before their messages are read? Default: not announced by the system.
+3. ~~Telling the two managers~~ — answered 2026-11-18 (owner: *"Don't announce"*): the system does not announce the reading.
 
 ---
 
