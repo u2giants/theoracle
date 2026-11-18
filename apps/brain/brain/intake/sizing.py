@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -167,6 +168,36 @@ def clickup_member(members: list[dict], email: str, name: str) -> int | None:
     return None
 
 
+def window_tasks(c: httpx.Client, team_id: str, since: datetime) -> Iterator[dict]:
+    """Every ClickUp task of one team updated after ``since``, all pages, in API order."""
+    page = 0
+    while True:
+        params = {
+            "date_updated_gt": int(since.timestamp() * 1000),
+            "include_closed": "true",
+            "subtasks": "true",
+            "page": page,
+        }
+        tasks = (
+            _get(c, f"{CLICKUP}/team/{team_id}/task", params=params)
+            .json()
+            .get("tasks", [])
+        )
+        yield from tasks
+        if len(tasks) < 100:
+            return
+        page += 1
+
+
+def involves(task: dict, wanted: set[str]) -> bool:
+    """True when a wanted user is assignee, watcher or creator of the task."""
+    people_on = {
+        u.get("id") for u in task.get("assignees", []) + task.get("watchers", [])
+    }
+    people_on.add((task.get("creator") or {}).get("id"))
+    return bool(people_on & wanted)
+
+
 def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> None:
     h = {"Authorization": os.environ["CLICKUP_API_TOKEN"]}
     with httpx.Client(headers=h, timeout=60) as c:
@@ -179,53 +210,32 @@ def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> No
                     f"ClickUp: {uids.count(None)} person(s) not matched to exactly one member"
                 )
             wanted = set(uids)
-            page = 0
-            while True:
-                # Every task updated in the window; kept when either person is
-                # assignee, creator or watcher (comment authorship is seen only
-                # after fetching comments, so it widens the pilot, not this count).
-                params = {
-                    "date_updated_gt": int(since.timestamp() * 1000),
-                    "include_closed": "true",
-                    "subtasks": "true",
-                    "page": page,
-                }
-                tasks = (
-                    _get(c, f"{CLICKUP}/team/{team['id']}/task", params=params)
-                    .json()
-                    .get("tasks", [])
+            # Kept when either person is assignee, creator or watcher (comment
+            # authorship is seen only after fetching comments, so it widens the
+            # pilot, not this count).
+            for task in window_tasks(c, team["id"], since):
+                t.scanned += 1
+                if task["id"] in seen_tasks or not involves(task, wanted):
+                    continue
+                seen_tasks.add(task["id"])
+                header = "\n".join(
+                    str(x or "")
+                    for x in (
+                        task.get("name"),
+                        (task.get("list") or {}).get("name"),
+                        (task.get("status") or {}).get("status"),
+                        task.get("due_date"),
+                    )
                 )
-                t.scanned += len(tasks)
-                for task in tasks:
-                    people_on = {
-                        u.get("id")
-                        for u in task.get("assignees", []) + task.get("watchers", [])
-                    }
-                    people_on.add((task.get("creator") or {}).get("id"))
-                    if task["id"] in seen_tasks or not people_on & wanted:
-                        continue
-                    seen_tasks.add(task["id"])
-                    header = "\n".join(
-                        str(x or "")
-                        for x in (
-                            task.get("name"),
-                            (task.get("list") or {}).get("name"),
-                            (task.get("status") or {}).get("status"),
-                            task.get("due_date"),
-                        )
-                    )
-                    kept = t.message(header) + t.message(task.get("text_content") or "")
-                    comments = (
-                        _get(c, f"{CLICKUP}/task/{task['id']}/comment")
-                        .json()
-                        .get("comments", [])
-                    )
-                    for cm in comments:
-                        kept += t.message(cm.get("comment_text") or "")
-                    t.thread(kept)
-                if len(tasks) < 100:
-                    break
-                page += 1
+                kept = t.message(header) + t.message(task.get("text_content") or "")
+                comments = (
+                    _get(c, f"{CLICKUP}/task/{task['id']}/comment")
+                    .json()
+                    .get("comments", [])
+                )
+                for cm in comments:
+                    kept += t.message(cm.get("comment_text") or "")
+                t.thread(kept)
 
 
 def _graph_token() -> str:
