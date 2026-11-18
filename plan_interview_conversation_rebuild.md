@@ -249,18 +249,17 @@ path.
   answer.
 - L3 (owner, 2026-11-10, #518). One question at a time at human pace; never a flood.
   No dedupe against old question text. Questions go to the relevant department.
-- L4 (planner, 2026-11-18). **"Processed" means:** the answer is stored as a source and
-  `read_source`, `classify_extract` and `relations` have completed successfully for
-  that source, so its facts are in Postgres with provenance. The global steps
-  (`resolve`, `project`, `communities`, …) still run afterwards in the normal lane and
-  are not waited for. **Consequence, stated honestly (Muse debate M4):** at reply time
-  the answer's facts exist as *mentions and relations of that source*, not yet merged
-  into canonical map entities (`mention.entity_id` is still NULL). The composer
-  therefore grounds on the source's mentions/relations plus whatever the map already
-  held under those names; it must not assume the new facts are resolved. A
-  source-scoped `resolve` was considered and rejected: `resolve` is a whole-corpus,
-  debounced job (`extract/relations.py:925–947`) with model calls, and running it per
-  answer would reintroduce the queueing this plan removes.
+- L4 (planner, 2026-11-18; revised the same day after the Muse debate, M4).
+  **"Processed" means:** the answer is stored as a source; `read_source`,
+  `classify_extract` and `relations` have completed for that source; **and that
+  source's mentions have been assigned to map entities** by a source-scoped resolve
+  (Step 5), so its facts are in Postgres with provenance *and* attached to the map.
+  Why the last part: without it `mention.entity_id` is NULL, the relation half of
+  `followup.py::map_context` (:113–123) and the evidence query behind question
+  selection (`tick.py:119–121, 139–145`) ignore the fresh answer, and the next
+  question is chosen as if the answer never happened. The whole-corpus steps
+  (`resolve`'s describe/rename phase, `project`, `communities`, …) still run
+  afterwards in the normal lane and are not waited for.
 - L5 (planner, 2026-11-18). Postgres is the conversation's only store. FalkorDB is not
   read or written on the conversation path.
 - L6 (planner, 2026-11-18). A quoted Teams message id, when present and belonging to
@@ -492,7 +491,17 @@ re-extraction of a source sharing entity names, 20 consecutive runs, no dangling
 - If the employee sends more messages while `state='processing'`, append each as an
   `in` turn and to the same pending answer; the reply job handles them together
   (below).
-- At the end of the `relations` handler: if payload has `interview_turn_id`, enqueue
+- **Source-scoped resolve (L4).** Add `resolve/resolve.py::resolve_source(source_id)`:
+  the same loop as `run_resolve` (:856–882) — `resolve_mention` → `_assign` → commit
+  per mention, then `_refresh_counts` — over `_load_unresolved` restricted to
+  `c.source_id = %s` (:309–317 is whole-corpus only by its WHERE clause). It does
+  **not** run `_describe`, `apply_renames` or `apply_entity_edits`; the normal
+  `resolve` job does those later. It takes the Step 4 advisory lock with a 30-second
+  wait; if the lock is not obtained (a main-lane resolve is mid-write) it skips,
+  records `meta.resolve='skipped'` on the turn, and the reply proceeds at mention
+  level rather than keeping the employee waiting.
+- At the end of the `relations` handler: if payload has `interview_turn_id`, run
+  `resolve_source` for that source, then enqueue
   `interview_reply {conversation_id}` (lane `interview`). If `read_source`,
   `classify_extract` or `relations` fails permanently for that source, the worker's
   failure path enqueues the same job with `{"processing_failed": true}` — the
@@ -505,7 +514,8 @@ re-extraction of a source sharing entity names, 20 consecutive runs, no dangling
   the inserter sends via `_post_proactive`; then mark `sent` with the returned
   activity id and set `state='awaiting_answer'` or `closed`. A retry (`finish_job`
   retries 3×, `worker.py:102–133`) or the self-heal that finds the key already present
-  does not send again; a turn left `sending` for more than 5 minutes is marked
+  does not send again — this includes a proactive call that timed out after Teams
+accepted it; a turn left `sending` for more than 5 minutes is marked
   `failed` and logged for a human — never auto-resent, because a duplicate message is
   worse than a late one. A proactive 404/403 (expired chat reference) closes the
   conversation with `close_reason='unreachable'` and returns the question to `open`.
@@ -515,6 +525,9 @@ re-extraction of a source sharing entity names, 20 consecutive runs, no dangling
 (asserts no proactive call until the `relations` job for that source is `done`),
 `::test_messages_during_processing_are_combined`,
 `::test_processing_failure_still_replies`,
+`::test_answer_mentions_resolved_before_reply` (after the reply, no mention of that
+source has NULL `entity_id`; the main-lane `resolve` that follows changes none of
+them), `::test_resolve_lock_busy_still_replies`,
 `::test_retry_after_send_does_not_send_twice` (kill the job after the proactive call,
 rerun: one proactive call total), `::test_unreachable_chat_closes_conversation`.
 
@@ -798,13 +811,18 @@ the planner's check, and the outcome (all folded into the steps above):
 | M1 | Two workers race on global entity tables | Partly. First-time extraction deletes nothing (`flat.py:575–595` only acts on re-extraction, `:622`); the real overlap is `drop_orphaned` vs `resolve` | Advisory lock on exactly those two; new resolve-vs-re-extraction test (Step 4) |
 | M2 | Context-variable lane is lost in thread pools; schedule would run twice; pool of 5 too small; wrong entry file | Lane loss: not as stated — both chain enqueues (`flat.py:720`, `relations.py:921`) run in the handler thread. The other three are correct | Explicit lane anyway (simpler); schedule main-only; pool setting; `__main__.py` (Step 4) |
 | M3 | `converse` seat would raise | Correct (`seats.py:22–34`) | Spelled out in Step 1 with a test |
-| M4 | Without `resolve` the composer reads unresolved data; `map_context` returns nothing | Half right. `map_context` (`followup.py:99–125`) matches *existing* entities by name in the employee's words, so it does return context; but the new facts are indeed mention-level | L4 now says so plainly; source-scoped resolve rejected with reason |
+| M4 | Without `resolve` the composer reads unresolved data; `map_context` returns nothing | Half right. `map_context` (`followup.py:99–125`) matches *existing* entities by name in the employee's words, so it does return context; but the new facts are indeed mention-level | First rejected, then **conceded on rebuttal**: `tick.py:119–121` ignores unresolved mentions, so the next question would be chosen as if the answer never happened, and `resolve.py:309–317` is whole-corpus only by its WHERE clause. L4 now includes a source-scoped resolve (Step 5) |
 | M5 | Quote ids may not be numeric; fallback order can misfile | Correct; shape is unobserved | Capture before coding; no digits rule; old-quote and unmatched-quote rules; reply-to only in 1:1 (Steps 2–3) |
 | M6 | Retries, heal and concurrent ticks can double-send | Correct (`worker.py:102–133`, `tick.py:528–617`) | Send-once key, insert-before-send, heal checks running jobs (Steps 5, 8) |
 | M7 | One typing event will not cover 1–2 minutes | Plausible, unverifiable from the repo | Heartbeat + capture + acceptance (g). "Got it" waiter text **rejected** — it is the generic reply the owner complained about |
 | M8 | Name guard too weak; verbatim question fights Chinese | Correct | Stronger token/number guard, honest limit, lead reads transcripts; code appends the localised stored question (Step 6) |
 | M9 | Heal and raw inserts bypass lanes | Correct for heal; raw inserts defaulting to `main` is the intended behaviour | Lane-aware heal with test (Step 4) |
 | M10 | Weak gates; missing columns; `dont_know` loop; backfill burst | Correct, except the burst is one message per person and is held back by Step 11's pause flags | Gates tightened; columns in Step 1; `skipped_by`; note in Step 10 |
+
+Second round: Muse conceded M1 (no deletes for a new source; main-lane `resolve`
+may assign a fresh mention early, which is harmless) and M2 (no enqueue happens
+inside a pool thread), and found no remaining likely path to an unsolicited or
+duplicate message. Final verdict: sound with changes — all adopted here.
 
 Not adopted: Muse's alternative of a single worker with pre-emption (§7 already
 rejects a priority flag: a 75-minute `communities` job cannot be pre-empted at job
