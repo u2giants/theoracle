@@ -47,7 +47,9 @@ def test_payload_capped_to_2000_nodes_and_5000_edges() -> None:
     assert payload["truncated"] is True
     assert payload["notice"].startswith("showing top 2000 of 3000")
     kept = {node["id"] for node in payload["nodes"]}
-    assert all(edge["source"] in kept and edge["target"] in kept for edge in payload["edges"])
+    assert all(
+        edge["source"] in kept and edge["target"] in kept for edge in payload["edges"]
+    )
     kept_min = min(node["source_count"] for node in payload["nodes"])
     dropped = [node for node in _nodes(3000) if node["id"] not in kept]
     assert all(node["source_count"] <= kept_min for node in dropped)

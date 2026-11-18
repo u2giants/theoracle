@@ -78,20 +78,26 @@ def _set_locale(db: Any, locale: str | None) -> None:
 
 def test_zh_employee_gets_zh_replies(db: Any, storage: Any, _clean_bot: None) -> None:
     _set_locale(db, "zh-CN")
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="你好")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="你好"
+    )
     assert reply["handled"] is True
     assert reply["reply"] == strings("zh-CN").reply_intro
     first = handle_inbound(
         email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED_ZH
     )
     assert first["reply"] == strings("zh-CN").reply_ack
-    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="完成")
+    done = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="完成"
+    )
     assert done["reply"] == strings("zh-CN").reply_done
 
 
 def test_en_employee_unaffected(db: Any, _clean_bot: None) -> None:
     _set_locale(db, None)
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Hi!")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Hi!"
+    )
     assert reply["reply"] == strings("en").reply_intro
     first = handle_inbound(
         email=EMPLOYEE_EMAIL,
@@ -107,7 +113,9 @@ def test_thread_language_pin(db: Any, _clean_bot: None) -> None:
         email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED_ZH
     )
     assert first["handled"] is True
-    assert first["reply"] == strings("zh-CN").reply_ack  # Chinese opening pins the thread
+    assert (
+        first["reply"] == strings("zh-CN").reply_ack
+    )  # Chinese opening pins the thread
     pinned = db.execute(
         "SELECT lang FROM cmap.teams_intake WHERE id = %s", (first["intake_id"],)
     ).fetchone()

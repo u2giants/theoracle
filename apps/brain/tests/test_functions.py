@@ -94,11 +94,14 @@ def test_seed_and_edit_roundtrip(
     )
     assert added.status_code == 200
     assert added.json()["sort"] == 140
-    assert client.post(
-        "/functions",
-        json={"key": "purchasing-quotes", "name": "Dup"},
-        headers=admin_headers,
-    ).status_code == 409
+    assert (
+        client.post(
+            "/functions",
+            json={"key": "purchasing-quotes", "name": "Dup"},
+            headers=admin_headers,
+        ).status_code
+        == 409
+    )
 
     merged = client.post(
         f"/functions/{added.json()['id']}/merge",
@@ -112,9 +115,7 @@ def test_seed_and_edit_roundtrip(
     assert "Purchasing Quotes" in body["into"]["aliases"]
     assert "Purchasing" in body["into"]["aliases"]
 
-    retired = client.post(
-        f"/functions/{sampling['id']}/retire", headers=admin_headers
-    )
+    retired = client.post(f"/functions/{sampling['id']}/retire", headers=admin_headers)
     assert retired.status_code == 200
     assert retired.json()["active"] is False
 
@@ -284,7 +285,9 @@ def _seed_entity(db: Any, name: str = "Sample approval") -> str:
     return str(row[0])
 
 
-def _seed_mention(db: Any, chunk_id: str, entity_id: str, name: str = "Sample approval") -> None:
+def _seed_mention(
+    db: Any, chunk_id: str, entity_id: str, name: str = "Sample approval"
+) -> None:
     db.execute(
         "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, "
         "normalized_name, quote, entity_id) "
@@ -324,9 +327,7 @@ def test_handoff_entity_in_two_functions(
             "licensing team signs off": {
                 "functions": [{"key": "licensing", "weight": 0.9}]
             },
-            "sample room reviews": {
-                "functions": [{"key": "sampling", "weight": 0.8}]
-            },
+            "sample room reviews": {"functions": [{"key": "sampling", "weight": 0.8}]},
         },
     )
     handle_function_assign({})
@@ -423,9 +424,7 @@ def test_hint_is_prior_not_override(
     _fake_classifier(
         monkeypatch,
         {
-            "sample room reviews": {
-                "functions": [{"key": "sampling", "weight": 0.9}]
-            },
+            "sample room reviews": {"functions": [{"key": "sampling", "weight": 0.9}]},
             "hands the file back": {"functions": []},
         },
     )

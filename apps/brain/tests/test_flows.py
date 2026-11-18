@@ -240,7 +240,12 @@ def _seed_flow_source(
     row = db.execute(
         "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes) "
         "VALUES ('text', %s, %s, %s, %s) RETURNING id",
-        (f"flows {tag}", f"test/flows-{tag}.txt", f"flows-{tag}-{len(step_names)}", len(text)),
+        (
+            f"flows {tag}",
+            f"test/flows-{tag}.txt",
+            f"flows-{tag}-{len(step_names)}",
+            len(text),
+        ),
     ).fetchone()
     source_id = str(row[0])
     chunk_id = str(

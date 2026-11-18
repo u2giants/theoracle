@@ -128,7 +128,9 @@ def _seed_approval_map(db: Any) -> dict[str, str]:
     j_m2 = _mention(db, transcript, "Person", "Jessica", jessica)
     s_m1 = _mention(db, procedure, "Step", "approval step", step)
     s_m2 = _mention(db, transcript, "Step", "the approval step", step)
-    i_m1 = _mention(db, transcript, "Issue", "the approval step is the bottleneck", issue)
+    i_m1 = _mention(
+        db, transcript, "Issue", "the approval step is the bottleneck", issue
+    )
     _relation(
         db,
         procedure,
@@ -220,7 +222,9 @@ def test_edge_weight_counts_distinct_sources(db: Any) -> None:
         ).fetchone()[0]
     )
     step = str(
-        db.execute("SELECT id FROM cmap.entity WHERE entity_type = 'Step'").fetchone()[0]
+        db.execute("SELECT id FROM cmap.entity WHERE entity_type = 'Step'").fetchone()[
+            0
+        ]
     )
     m1 = _mention(db, extra, "Person", "Jessica Smith", jessica)
     m2 = _mention(db, extra, "Step", "approval step", step)
@@ -248,7 +252,9 @@ def test_fixture_approval_neighborhood(db: Any) -> None:
     ]
 
 
-def test_projects_transcript_fixture_graph(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
+def test_projects_transcript_fixture_graph(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
     """The full fixture pipeline projected: Jessica keeps her corpus links.
 
     The frozen step-4/5 recordings put the Issue one hop further from Jessica
@@ -280,7 +286,9 @@ def test_projects_transcript_fixture_graph(monkeypatch: pytest.MonkeyPatch, db: 
         "Jessica Smith owns the licensing manager's sign-off.",
         "flowchart",
     )
-    _unresolved_mention(db, flowchart, "Person", "Jessica Smith", _unit("jessica smith"))
+    _unresolved_mention(
+        db, flowchart, "Person", "Jessica Smith", _unit("jessica smith")
+    )
     _unresolved_mention(db, flowchart, "Person", "J.", _unit("j initial"))
     _fake(monkeypatch, names={"Person": "Jessica Smith (Licensing Manager)"})
     handle_resolve({"payload": {}})
@@ -384,24 +392,30 @@ def test_reread_and_delete_remove_orphaned_entities_and_aliases(
     _mention(db, only, "Department", "Sample Room", solo)
     _mention(db, only, "Department", "Licensing Dept", shared)
     _mention(db, other, "Department", "Licensing", shared)
-    for entity_id, name in ((solo, "sample room"), (shared, "licensing dept"), (shared, "licensing")):
+    for entity_id, name in (
+        (solo, "sample room"),
+        (shared, "licensing dept"),
+        (shared, "licensing"),
+    ):
         db.execute(
             "INSERT INTO cmap.entity_alias (entity_id, entity_type, normalized_name, lang, source) "
             "VALUES (%s, 'Department', %s, 'en', 'resolve')",
             (entity_id, name),
         )
-    db.execute(
-        "UPDATE cmap.mention SET normalized_name = lower(surface_name)"
-    )
+    db.execute("UPDATE cmap.mention SET normalized_name = lower(surface_name)")
     db.commit()
 
     _store_chunks(only, [])  # what a re-read does first: replace the passages
     db.commit()
-    assert db.execute("SELECT 1 FROM cmap.entity WHERE id = %s", (solo,)).fetchone() is None
+    assert (
+        db.execute("SELECT 1 FROM cmap.entity WHERE id = %s", (solo,)).fetchone()
+        is None
+    )
     aliases = {
         row[0]
         for row in db.execute(
-            "SELECT normalized_name FROM cmap.entity_alias WHERE entity_id = %s", (shared,)
+            "SELECT normalized_name FROM cmap.entity_alias WHERE entity_id = %s",
+            (shared,),
         ).fetchall()
     }
     assert aliases == {"licensing"}

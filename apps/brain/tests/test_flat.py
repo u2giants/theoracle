@@ -59,7 +59,9 @@ def _seed_fixture(db: Any, filename: str, kind: str) -> str:
     # teams-approval-2026-03-14 meeting; the document fixtures carry a
     # document-text date. Real origins are proven in tests/test_dates.py.
     fixture_date, fixture_origin = (
-        ("2026-03-14", "meeting_start") if kind == "transcript" else ("2025-12-01", "document_text")
+        ("2026-03-14", "meeting_start")
+        if kind == "transcript"
+        else ("2025-12-01", "document_text")
     )
     row = db.execute(
         "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes, "
@@ -137,11 +139,19 @@ def test_sentence_containing_and_span_repair() -> None:
     """Quotes are the containing sentence; bad spans are repaired by search."""
     text = "Marco: First sentence. Second sentence holds a name."
     start = text.find("Second")
-    assert sentence_containing(text, start, start + 6) == "Second sentence holds a name."
+    assert (
+        sentence_containing(text, start, start + 6) == "Second sentence holds a name."
+    )
     mentions = mentions_from_entities(
         text,
         [
-            {"text": "a name", "type": "Artifact", "confidence": 0.9, "start": 0, "end": 2},
+            {
+                "text": "a name",
+                "type": "Artifact",
+                "confidence": 0.9,
+                "start": 0,
+                "end": 2,
+            },
             {"text": "a name", "type": "Artifact", "confidence": 0.4},
             {"text": "not in the text", "type": "Artifact", "confidence": 0.9},
         ],
@@ -165,7 +175,9 @@ def test_transcript_finds_jessica_role_process_and_stall_issue(
     assert ("person", "jessica") in surfaces
     assert ("role", "licensing manager") in surfaces
     assert any(kind == "process" and "licens" in surface for kind, surface in surfaces)
-    assert any(kind == "issue" and "bottleneck" in surface for kind, surface in surfaces)
+    assert any(
+        kind == "issue" and "bottleneck" in surface for kind, surface in surfaces
+    )
     for _, surface, normalized, quote in mentions:
         assert surface.lower() in quote.lower()
         assert normalized
@@ -203,15 +215,12 @@ def test_pdf_yields_a_step_for_each_procedure_step(
     handle_classify_extract({"payload": {"source_id": source_id}})
     mentions = _mentions(db, source_id)
     step_surfaces = {
-        surface.lower()
-        for kind, surface, _, _ in mentions
-        if kind == "Step"
+        surface.lower() for kind, surface, _, _ in mentions if kind == "Step"
     }
     for expected in PROCEDURE_STEP_SURFACES:
         assert expected.lower() in step_surfaces
     procedure_kind = db.execute(
-        "SELECT passage_kind FROM cmap.chunk "
-        "WHERE source_id = %s AND text LIKE %s",
+        "SELECT passage_kind FROM cmap.chunk WHERE source_id = %s AND text LIKE %s",
         (source_id, "%4.1 Design submits%"),
     ).fetchone()[0]
     assert procedure_kind == "process"
@@ -228,8 +237,7 @@ def test_chatter_chunks_skip_extraction(
     source_id = _seed_fixture(db, TRANSCRIPT_FIXTURE, "transcript")
     handle_classify_extract({"payload": {"source_id": source_id}})
     row = db.execute(
-        "SELECT id, passage_kind FROM cmap.chunk "
-        "WHERE source_id = %s AND text LIKE %s",
+        "SELECT id, passage_kind FROM cmap.chunk WHERE source_id = %s AND text LIKE %s",
         (source_id, "Ilona: Morning Marco%"),
     ).fetchone()
     chunk_id, passage_kind = str(row[0]), row[1]
@@ -437,10 +445,7 @@ def test_prompt_change_replaces_not_duplicates(
 
     def _run() -> None:
         handle_classify_extract({"payload": {"source_id": source_id}})
-        mentions = [
-            name
-            for _type, name, _norm, _quote in _mentions(db, source_id)
-        ]
+        mentions = [name for _type, name, _norm, _quote in _mentions(db, source_id)]
         first, second = sorted(set(mentions))[:2]
         rel.override = {
             "relations": [
@@ -471,7 +476,9 @@ def test_prompt_change_replaces_not_duplicates(
     assert _counts() == first
 
     # The relations prompt changes: its relations are replaced.
-    monkeypatch.setattr(relations_mod, "relations_prompt_hash", lambda: "new-relations-prompt")
+    monkeypatch.setattr(
+        relations_mod, "relations_prompt_hash", lambda: "new-relations-prompt"
+    )
     _run()
     assert _counts() == first
     get_settings.cache_clear()

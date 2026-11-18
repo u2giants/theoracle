@@ -56,7 +56,9 @@ def _clean_interviews(db: Any) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _office_hours(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+def _office_hours(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Tick tests run as if during office hours whatever the wall clock says."""
     if request.node.name == "test_quiet_hours_window":
         return
@@ -201,7 +203,9 @@ def _new_day(db: Any) -> None:
 def _states(db: Any) -> dict[str, str]:
     return {
         str(qid): str(state)
-        for qid, state in db.execute("SELECT id::text, state FROM cmap.open_question").fetchall()
+        for qid, state in db.execute(
+            "SELECT id::text, state FROM cmap.open_question"
+        ).fetchall()
     }
 
 
@@ -215,12 +219,16 @@ def test_one_question_in_flight_per_person(
 
     first = run_interview_tick()
     assert first["asked"] == 1
-    assert sent == [(EMPLOYEE_ID, MESSAGE_TEMPLATE.format(question="Who signs off step 0?"))]
+    assert sent == [
+        (EMPLOYEE_ID, MESSAGE_TEMPLATE.format(question="Who signs off step 0?"))
+    ]
 
     assert run_interview_tick()["asked"] == 0
     assert len(sent) == 1
 
-    db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE id = %s", (ids[0],))
+    db.execute(
+        "UPDATE cmap.open_question SET state = 'answered' WHERE id = %s", (ids[0],)
+    )
     _new_day(db)
     assert run_interview_tick()["asked"] == 1
     assert sent[1][1] == MESSAGE_TEMPLATE.format(question="Who signs off step 1?")
@@ -236,7 +244,9 @@ def test_one_sitting_per_day(
     monkeypatch.setattr(get_settings(), "brain_interview_weekly_cap", 10)
     for _ in range(5):
         run_interview_tick()
-        db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE state = 'asked'")
+        db.execute(
+            "UPDATE cmap.open_question SET state = 'answered' WHERE state = 'asked'"
+        )
         db.execute("UPDATE cmap.interview_conversation SET state = 'closed'")
         db.commit()
     # Further questions in the same day come from the conversation, not the tick.
@@ -253,7 +263,9 @@ def test_loosely_connected_person_is_not_asked(
     _relate(db, admin, licensing, sources=3)
     _question(db, "Why does licensing approval stall?", [licensing])
     _connect()
-    handle_inbound(email="admin@test.invalid", conversation_ref=CONVERSATION_REF, text="hi")
+    handle_inbound(
+        email="admin@test.invalid", conversation_ref=CONVERSATION_REF, text="hi"
+    )
 
     result = run_interview_tick()
     assert sent == []
@@ -306,7 +318,9 @@ def test_vetted_question_without_a_pick_falls_back_to_the_contributor(
     topic = _thing(db, "Licensing approval")
     _relate(db, bystander, topic, sources=5)
     _evidence(db, EMPLOYEE_ID, EMPLOYEE_NAME, {topic: "Licensing approval"})
-    _question(db, "Who signs licensing approvals?", [bystander, topic], department="Design")
+    _question(
+        db, "Who signs licensing approvals?", [bystander, topic], department="Design"
+    )
 
     result = run_interview_tick()
     assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
@@ -327,9 +341,13 @@ def test_department_question_defers_when_the_only_member_is_at_weekly_cap(
         (EMPLOYEE_ID,),
     )
     for _ in range(2):
-        db.execute("INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,))
+        db.execute(
+            "INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,)
+        )
     db.commit()
-    _question(db, "Who signs licensing approvals?", [bystander, topic], department="Licensing")
+    _question(
+        db, "Who signs licensing approvals?", [bystander, topic], department="Licensing"
+    )
 
     result = run_interview_tick()
     assert sent == []
@@ -350,9 +368,13 @@ def test_famous_bystander_is_never_chosen_when_the_department_pool_is_exhausted(
         (EMPLOYEE_ID,),
     )
     for _ in range(2):
-        db.execute("INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,))
+        db.execute(
+            "INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,)
+        )
     db.commit()
-    _question(db, "Who signs licensing approvals?", [bystander, topic], department="Licensing")
+    _question(
+        db, "Who signs licensing approvals?", [bystander, topic], department="Licensing"
+    )
 
     result = run_interview_tick()
     assert sent == []
@@ -391,12 +413,16 @@ def test_department_member_with_own_evidence_beats_the_less_involved_member(
             "ON CONFLICT (employee_id) DO UPDATE SET department = 'Licensing'",
             (employee_id,),
         )
-    db.execute("INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,))
+    db.execute(
+        "INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (EMPLOYEE_ID,)
+    )
     db.commit()
     owner = _person(db, EMPLOYEE_NAME)
     topic = _thing(db, "Licensing approval")
     _evidence(db, EMPLOYEE_ID, EMPLOYEE_NAME, {topic: "Licensing approval"})
-    _question(db, "Who signs licensing approvals?", [owner, topic], department="Licensing")
+    _question(
+        db, "Who signs licensing approvals?", [owner, topic], department="Licensing"
+    )
 
     result = run_interview_tick()
     assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
@@ -489,13 +515,17 @@ def test_famous_bystander_is_never_chosen_when_the_multi_department_pool_is_exha
         (other_id, f"{uuid4().hex[:12]}@test.invalid"),
     )
     for _ in range(2):
-        db.execute("INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (other_id,))
+        db.execute(
+            "INSERT INTO cmap.interview_send (employee_id) VALUES (%s)", (other_id,)
+        )
     db.commit()
     bystander = _person(db, "Test Admin")
     topic = _thing(db, "Licensing approval")
     _relate(db, bystander, topic, sources=5)
     _evidence(db, ADMIN_ID, "Test Admin", {topic: "Licensing approval"})
-    _question(db, "Who signs licensing approvals?", [bystander, topic], department="Licensing")
+    _question(
+        db, "Who signs licensing approvals?", [bystander, topic], department="Licensing"
+    )
 
     result = run_interview_tick()
     db.execute("DELETE FROM public.employees WHERE id = %s", (other_id,))
@@ -518,17 +548,27 @@ def test_manual_target_reaches_the_exact_duplicate_name_employee(
             (employee_id, f"{uuid4().hex[:12]}@test.invalid"),
         )
     db.commit()
-    _question(db, "Who signs licensing approvals?", [], department="Licensing", target=first_id)
+    _question(
+        db,
+        "Who signs licensing approvals?",
+        [],
+        department="Licensing",
+        target=first_id,
+    )
     _question(db, "Nobody fits this one?", [], department="Licensing", target=second_id)
 
     result = run_interview_tick()
-    db.execute("DELETE FROM public.employees WHERE id IN (%s, %s)", (first_id, second_id))
+    db.execute(
+        "DELETE FROM public.employees WHERE id IN (%s, %s)", (first_id, second_id)
+    )
     db.commit()
     assert sorted(employee for employee, _ in sent) == sorted([first_id, second_id])
     assert result["asked"] == 2
 
 
-def test_bot_entity_is_never_routed(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None:
+def test_bot_entity_is_never_routed(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
     """The bot's own Person entity is never a target, however the question names it."""
     bot_id = str(uuid4())
     db.execute(
@@ -555,7 +595,9 @@ def test_weekly_cap(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None
     _connect()
     for _ in range(4):
         run_interview_tick()
-        db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE state = 'asked'")
+        db.execute(
+            "UPDATE cmap.open_question SET state = 'answered' WHERE state = 'asked'"
+        )
         _new_day(db)
     assert len(sent) == 2
 
@@ -584,7 +626,9 @@ def test_vetted_question_goes_to_its_department_not_a_bystander(
     _question(db, "Who signs licensing approvals?", [bystander], department="licensing")
     _question(db, "Nobody fits this one?", [bystander], department="")
     _connect()
-    handle_inbound(email="admin@test.invalid", conversation_ref=CONVERSATION_REF, text="hi")
+    handle_inbound(
+        email="admin@test.invalid", conversation_ref=CONVERSATION_REF, text="hi"
+    )
 
     result = run_interview_tick()
     assert [employee for employee, _ in sent] == [EMPLOYEE_ID]
@@ -613,13 +657,19 @@ def test_unrelated_reply_is_not_saved_as_the_answer(
     _connect()
     run_interview_tick()
     monkeypatch.setattr(inbound_mod, "classify_reply", lambda question, reply: "other")
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="thanks")
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="thanks"
+    )
     assert _states(db)[qid] == "asked"
     assert "Who approves samples?" in first["reply"]  # restated, nothing saved
 
-    monkeypatch.setattr(inbound_mod, "classify_reply", lambda question, reply: "dont_know")
+    monkeypatch.setattr(
+        inbound_mod, "classify_reply", lambda question, reply: "dont_know"
+    )
     reply = handle_inbound(
-        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="No idea, not my area."
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="No idea, not my area.",
     )
     assert reply["reply"] is None  # the interview lane writes the next message
     run_interview_reply(reply["conversation_id"])
@@ -657,7 +707,9 @@ def test_late_reply_matched_to_right_question(
     db.commit()
 
     def _match(questions: list[str], reply: str) -> int | None:
-        key = "licensor" if "Jessica" in reply else "sample" if "Marcus" in reply else ""
+        key = (
+            "licensor" if "Jessica" in reply else "sample" if "Marcus" in reply else ""
+        )
         if not key:
             return None
         for i, question in enumerate(questions):
@@ -667,10 +719,14 @@ def test_late_reply_matched_to_right_question(
 
     monkeypatch.setattr(inbound_mod, "match_reply", _match)
     monkeypatch.setattr(
-        inbound_mod, "classify_reply", lambda question, reply: "answer" if "Jessica" in reply else "other"
+        inbound_mod,
+        "classify_reply",
+        lambda question, reply: "answer" if "Jessica" in reply else "other",
     )
     # An open volunteered thread is waiting; it must not swallow the reply.
-    opened = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    opened = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     assert "intake_id" in opened
 
     reply = handle_inbound(
@@ -703,8 +759,14 @@ def test_late_reply_matched_to_right_question(
 def test_stop_pauses(db: Any, enabled: None, sent: list[tuple[str, str]]) -> None:
     person = _person(db, EMPLOYEE_NAME)
     _question(db, "Who approves samples?", [person])
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Stop.")
-    assert reply == {"handled": True, "reply": REPLY_STOPPED, "employee_id": EMPLOYEE_ID}
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Stop."
+    )
+    assert reply == {
+        "handled": True,
+        "reply": REPLY_STOPPED,
+        "employee_id": EMPLOYEE_ID,
+    }
     paused = db.execute(
         "SELECT interviews_paused FROM cmap.employee_flags WHERE employee_id = %s",
         (EMPLOYEE_ID,),
@@ -735,7 +797,9 @@ def test_answer_becomes_source(
     assert run_interview_tick()["asked"] == 1
 
     answer = "Jessica signs it, but only after Ilona checks the artwork."
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=answer)
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=answer
+    )
     assert reply["handled"] is True
     assert reply["reply"] is None  # the next message waits for processing
     source_id = reply["source_id"]
@@ -763,14 +827,19 @@ def test_answer_becomes_source(
         (source_id,),
     ).fetchall()
     assert [speaker for speaker, _ in chunks] == [
-        "The Oracle", EMPLOYEE_NAME, "The Oracle", EMPLOYEE_NAME
+        "The Oracle",
+        EMPLOYEE_NAME,
+        "The Oracle",
+        EMPLOYEE_NAME,
     ]
     assert "job title" in chunks[0][1]
     assert "Designer in Design" in chunks[1][1]
     assert "licensor approval form" in chunks[2][1]
     assert answer in chunks[3][1]
 
-    later = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="join")
+    later = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="join"
+    )
     assert later["handled"] is False
 
 
@@ -781,7 +850,9 @@ def test_skip_reopens_for_someone_else(
     qid = _question(db, "Who approves samples?", [person])
     _connect()
     run_interview_tick()
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip"
+    )
     assert reply["handled"] is True
     run_interview_reply(reply["conversation_id"])
     assert _states(db)[qid] == "open"
@@ -851,7 +922,9 @@ def test_unreachable_target_moves_the_question_on(
     _relate(db, person, admin, sources=2)
     qid = _question(db, "Why does approval stall between these two?", [person, admin])
     _connect()
-    handle_inbound(email="admin@test.invalid", conversation_ref=CONVERSATION_REF, text="hi")
+    handle_inbound(
+        email="admin@test.invalid", conversation_ref=CONVERSATION_REF, text="hi"
+    )
 
     first = run_interview_tick()
     skipped = db.execute(
@@ -869,7 +942,9 @@ def test_service_routes_need_token(client: Any) -> None:
 
     body = {"email": EMPLOYEE_EMAIL, "text": "hello"}
     assert client.post("/interview/teams/inbound", json=body).status_code == 401
-    ok = client.post("/interview/teams/inbound", json=body, headers={"x-brain-token": TEST_TOKEN})
+    ok = client.post(
+        "/interview/teams/inbound", json=body, headers={"x-brain-token": TEST_TOKEN}
+    )
     assert ok.status_code == 200
     assert client.get(f"/interview/teams/conversation/{EMPLOYEE_ID}").status_code == 401
 
@@ -883,11 +958,16 @@ def test_admin_overview_pause_and_route(
     assert client.get("/interview/overview", headers=user_headers).status_code == 403
     body = client.get("/interview/overview", headers=admin_headers).json()
     question = next(item for item in body["questions"] if item["id"] == qid)
-    assert question["next_target"] == {"employee_id": EMPLOYEE_ID, "name": EMPLOYEE_NAME}
+    assert question["next_target"] == {
+        "employee_id": EMPLOYEE_ID,
+        "name": EMPLOYEE_NAME,
+    }
     assert body["env_enabled"] is False
 
     paused = client.post(
-        f"/interview/employees/{EMPLOYEE_ID}/pause", json={"paused": True}, headers=admin_headers
+        f"/interview/employees/{EMPLOYEE_ID}/pause",
+        json={"paused": True},
+        headers=admin_headers,
     )
     assert paused.status_code == 200
     body = client.get("/interview/overview", headers=admin_headers).json()
@@ -895,7 +975,9 @@ def test_admin_overview_pause_and_route(
     assert question["next_target"] is None
 
     routed = client.post(
-        f"/interview/questions/{qid}/route", json={"employee_id": ADMIN_ID}, headers=admin_headers
+        f"/interview/questions/{qid}/route",
+        json={"employee_id": ADMIN_ID},
+        headers=admin_headers,
     )
     assert routed.status_code == 200
     assert client.post(
@@ -912,7 +994,9 @@ def test_skipped_questions_still_count_toward_cap(
     _connect()
     for _ in range(5):
         run_interview_tick()
-        handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip")
+        handle_inbound(
+            email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="skip"
+        )
         db.execute("UPDATE cmap.open_question SET state = 'open' WHERE state = 'asked'")
         _new_day(db)
     assert len(sent) == 2
@@ -947,6 +1031,7 @@ def test_work_email_matches_identity_row(db: Any) -> None:
     assert result["employee_id"] == employee_id
     stored = db.execute("SELECT count(*) FROM cmap.teams_conversation").fetchone()[0]
     assert stored == 1
+
 
 def test_tenant_sender_auto_registers(db: Any) -> None:
     """A first Teams message from an unknown @popcre.com sender registers them.
@@ -1025,7 +1110,9 @@ def test_proactive_gate_rejects_non_admin_caller(
 ) -> None:
     """A logged-in non-admin cannot unlock the proactive channel (#591)."""
     _connect()
-    lookup = client.get(f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=user_headers)
+    lookup = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=user_headers
+    )
     assert lookup.status_code == 403
     assert lookup.json()["detail"] == "admin required"
     stored = client.post(
@@ -1073,7 +1160,9 @@ def test_proactive_gate_allows_admin_with_interviews_on(
 ) -> None:
     """Admin + interviews on: the sanctioned nudge/invite still sends (#591)."""
     _connect()
-    lookup = client.get(f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=admin_headers)
+    lookup = client.get(
+        f"/interview/teams/conversation/{EMPLOYEE_ID}", headers=admin_headers
+    )
     assert lookup.status_code == 200
     assert lookup.json()["conversation_ref"] == CONVERSATION_REF
 
@@ -1139,7 +1228,10 @@ def test_lookup_carries_identity_without_a_conversation(
         == 401
     )
     assert (
-        client.get("/interview/teams/conversation/00000000-0000-4000-8000-0000000000ff", headers=headers).status_code
+        client.get(
+            "/interview/teams/conversation/00000000-0000-4000-8000-0000000000ff",
+            headers=headers,
+        ).status_code
         == 404
     )
 
@@ -1152,39 +1244,60 @@ VOLUNTEERED = (
 
 def test_greeting_gets_intro(db: Any) -> None:
     """A bare greeting gets a one-line intro that invites a contribution."""
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Hi!")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Hi!"
+    )
     assert reply["handled"] is True
     assert reply["reply"] == intake.REPLY_INTRO
     assert db.execute("SELECT count(*) FROM cmap.teams_intake").fetchone()[0] == 0
 
 
 def test_short_non_greeting_falls_through(db: Any) -> None:
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="what can you do")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="what can you do"
+    )
     assert reply["handled"] is False
 
 
 def test_join_still_reaches_meeting_helper(db: Any) -> None:
     """Join requests fall through to the meeting helper, even mid-thread."""
     join = "join https://teams.microsoft.com/l/meetup-join/abc please and thank you very much indeed friend"
-    assert handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=join)[
-        "handled"
-    ] is False
-    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
-    assert handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="join")[
-        "handled"
-    ] is False
+    assert (
+        handle_inbound(
+            email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=join
+        )["handled"]
+        is False
+    )
+    handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
+    assert (
+        handle_inbound(
+            email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="join"
+        )["handled"]
+        is False
+    )
 
 
 def test_group_chat_is_not_intake(db: Any) -> None:
-    ref = {**CONVERSATION_REF, "conversation": {"id": "19:x", "conversationType": "groupChat"}}
+    ref = {
+        **CONVERSATION_REF,
+        "conversation": {"id": "19:x", "conversationType": "groupChat"},
+    }
     reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=ref, text=VOLUNTEERED)
     assert reply["handled"] is False
 
 
 def test_group_chat_reference_never_stored(db: Any) -> None:
     """F4: only a personal chat may become the bot's write-back target."""
-    group = {**CONVERSATION_REF, "conversation": {"id": "19:x", "conversationType": "groupChat"}}
-    meeting = {**CONVERSATION_REF, "conversation": {"id": "19:y", "conversationType": "channel"}}
+    group = {
+        **CONVERSATION_REF,
+        "conversation": {"id": "19:x", "conversationType": "groupChat"},
+    }
+    meeting = {
+        **CONVERSATION_REF,
+        "conversation": {"id": "19:y", "conversationType": "channel"},
+    }
     handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=group, text="hi")
     assert db.execute("SELECT count(*) FROM cmap.teams_conversation").fetchone()[0] == 0
 
@@ -1207,18 +1320,26 @@ def test_group_chat_reference_never_stored(db: Any) -> None:
     assert row == ("a:test-conversation",)
 
 
-def test_volunteer_becomes_source(db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_volunteer_becomes_source(
+    db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Volunteered messages buffer into one thread; "done" ingests one transcript."""
     fake_embeddings(monkeypatch)
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     assert first["handled"] is True
     assert first["reply"] == intake.REPLY_ACK
     second = handle_inbound(
-        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Dana usually turns it in two days."
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="Dana usually turns it in two days.",
     )
     assert second["handled"] is True
     assert second["intake_id"] == first["intake_id"]
-    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Done.")
+    done = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Done."
+    )
     assert done["reply"] == intake.REPLY_DONE
     source_id = done["source_id"]
     title, kind = db.execute(
@@ -1227,7 +1348,8 @@ def test_volunteer_becomes_source(db: Any, storage: Any, monkeypatch: pytest.Mon
     assert kind == "transcript"
     assert title.startswith(f"Teams contribution — {EMPLOYEE_NAME} — ")
     state = db.execute(
-        "SELECT state, source_id::text FROM cmap.teams_intake WHERE id = %s", (first["intake_id"],)
+        "SELECT state, source_id::text FROM cmap.teams_intake WHERE id = %s",
+        (first["intake_id"],),
     ).fetchone()
     assert state == ("closed", source_id)
     job = db.execute(
@@ -1242,7 +1364,9 @@ def test_volunteer_becomes_source(db: Any, storage: Any, monkeypatch: pytest.Mon
         (source_id,),
     ).fetchall()
     assert {speaker for speaker, _ in chunks} == {EMPLOYEE_NAME, "The Oracle"}
-    hint = db.execute("SELECT department_hint FROM cmap.source WHERE id = %s", (source_id,)).fetchone()
+    hint = db.execute(
+        "SELECT department_hint FROM cmap.source WHERE id = %s", (source_id,)
+    ).fetchone()
     assert hint == ("Design",)
     joined = " ".join(text for _, text in chunks)
     assert "licensor sends back artwork" in joined
@@ -1251,7 +1375,9 @@ def test_volunteer_becomes_source(db: Any, storage: Any, monkeypatch: pytest.Mon
 
 def test_silent_thread_closes(db: Any, storage: Any) -> None:
     """After 20 quiet minutes the worker sweep ingests the thread."""
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     assert intake.close_stale_threads() == []
     db.execute(
         "UPDATE cmap.teams_intake SET last_at = now() - interval '21 minutes' WHERE id = %s",
@@ -1278,7 +1404,9 @@ def test_failed_ingest_retries_then_succeeds(
         return real_ingest(**kwargs)
 
     monkeypatch.setattr(intake, "ingest_bytes", flaky)
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     db.execute(
         "UPDATE cmap.teams_intake SET last_at = now() - interval '21 minutes' WHERE id = %s",
         (first["intake_id"],),
@@ -1294,7 +1422,10 @@ def test_failed_ingest_retries_then_succeeds(
     assert "timed out" in error
     assert next_retry_at is not None
     assert intake.close_stale_threads() == []
-    db.execute("UPDATE cmap.teams_intake SET next_retry_at = now() WHERE id = %s", (first["intake_id"],))
+    db.execute(
+        "UPDATE cmap.teams_intake SET next_retry_at = now() WHERE id = %s",
+        (first["intake_id"],),
+    )
     db.commit()
     closed = intake.close_stale_threads()
     assert len(closed) == 1
@@ -1318,7 +1449,9 @@ def test_permanent_ingest_failure_is_not_retried(
         raise ValueError("bad contribution payload")
 
     monkeypatch.setattr(intake, "ingest_bytes", boom)
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     db.execute(
         "UPDATE cmap.teams_intake SET last_at = now() - interval '21 minutes' WHERE id = %s",
         (first["intake_id"],),
@@ -1345,7 +1478,9 @@ def test_retry_budget_ends_failed_with_last_error(
         raise httpx.ReadTimeout("The read operation timed out")
 
     monkeypatch.setattr(intake, "ingest_bytes", boom)
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     for _ in range(intake.MAX_ATTEMPTS):
         db.execute(
             "UPDATE cmap.teams_intake SET last_at = now() - interval '21 minutes', "
@@ -1370,7 +1505,10 @@ def stub_model(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Replace the conversation model; tests set ``reply`` and read ``prompts``."""
     from brain.interview import followup
 
-    state: dict[str, Any] = {"reply": "Who do you hand the revised file to?", "prompts": []}
+    state: dict[str, Any] = {
+        "reply": "Who do you hand the revised file to?",
+        "prompts": [],
+    }
 
     def _fake(messages: list[dict[str, str]]) -> str:
         state["prompts"].append(messages[-1]["content"])
@@ -1380,25 +1518,40 @@ def stub_model(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return state
 
 
-def test_followups_capped_at_two(db: Any, storage: Any, stub_model: dict[str, Any]) -> None:
+def test_followups_capped_at_two(
+    db: Any, storage: Any, stub_model: dict[str, Any]
+) -> None:
     """At most two follow-ups per thread; they are kept in the transcript."""
     from brain.interview import followup
 
     replies = [
-        handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=text)["reply"]
-        for text in (VOLUNTEERED, "Production gets it next.", "It takes two days usually.")
+        handle_inbound(
+            email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=text
+        )["reply"]
+        for text in (
+            VOLUNTEERED,
+            "Production gets it next.",
+            "It takes two days usually.",
+        )
     ]
     assert "Who do you hand the revised file to?" in replies[0]
     assert "Who do you hand the revised file to?" in replies[1]
     assert replies[2] == intake.REPLY_ACK
     assert len(stub_model["prompts"]) == 2
-    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done")
+    done = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done"
+    )
     turns = db.execute(
         "SELECT turns FROM cmap.teams_intake WHERE source_id = %s", (done["source_id"],)
     ).fetchone()[0]
     speakers = [turn["speaker"] for turn in turns]
-    assert speakers == [EMPLOYEE_NAME, followup.ORACLE_SPEAKER, EMPLOYEE_NAME,
-                        followup.ORACLE_SPEAKER, EMPLOYEE_NAME]
+    assert speakers == [
+        EMPLOYEE_NAME,
+        followup.ORACLE_SPEAKER,
+        EMPLOYEE_NAME,
+        followup.ORACLE_SPEAKER,
+        EMPLOYEE_NAME,
+    ]
 
 
 def test_followup_cites_no_invented_names(db: Any, stub_model: dict[str, Any]) -> None:
@@ -1410,17 +1563,25 @@ def test_followup_cites_no_invented_names(db: Any, stub_model: dict[str, Any]) -
     _relate(db, dana, tracker, 1)
 
     stub_model["reply"] = "Does Dana hand it to Marcus afterwards?"
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     assert first["reply"] == intake.REPLY_ACK
     assert "Dana (Person)" in stub_model["prompts"][0]
     assert "Dana OWNS Artwork Tracker" in stub_model["prompts"][0]
 
     stub_model["reply"] = "Does Dana record the revision in the Artwork Tracker?"
     second = handle_inbound(
-        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Dana then starts the revision."
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="Dana then starts the revision.",
     )
     assert "Artwork Tracker" in second["reply"]
-    allowed = VOLUNTEERED + " Dana then starts the revision. " + "\n".join(stub_model["prompts"])
+    allowed = (
+        VOLUNTEERED
+        + " Dana then starts the revision. "
+        + "\n".join(stub_model["prompts"])
+    )
     assert followup.invented_names(second["reply"], allowed) == set()
 
 
@@ -1433,8 +1594,12 @@ def test_followup_model_failure_still_acknowledges(
         raise RuntimeError("model down")
 
     monkeypatch.setattr(followup, "_call_model", _boom)
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     assert reply["reply"] == intake.REPLY_ACK
+
+
 def test_overview_lists_contributions(
     db: Any, client: Any, storage: Any, admin_headers: dict[str, str]
 ) -> None:
@@ -1443,8 +1608,12 @@ def test_overview_lists_contributions(
         "When a licensor sends back artwork comments I log them in the tracker "
         "and pass the file to production for the revision."
     )
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=text)
-    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done")
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=text
+    )
+    done = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done"
+    )
     body = client.get("/interview/overview", headers=admin_headers).json()
     [item] = body["contributions"]
     assert item["id"] == first["intake_id"]
@@ -1453,6 +1622,8 @@ def test_overview_lists_contributions(
     assert item["turns"] == 1
     assert item["source_id"] == done["source_id"]
     assert item["preview"].startswith("When a licensor")
+
+
 def test_quiet_hours_window() -> None:
     """Phase 3: nights 8 PM–8 AM New York time and weekends are quiet."""
     from datetime import datetime
@@ -1460,7 +1631,9 @@ def test_quiet_hours_window() -> None:
     from brain.interview.tick import EASTERN, in_quiet_hours
 
     def at(day: int, hour: int) -> datetime:
-        return datetime(2026, 11, day, hour, 30, tzinfo=EASTERN)  # 2 Nov 2026 is a Monday
+        return datetime(
+            2026, 11, day, hour, 30, tzinfo=EASTERN
+        )  # 2 Nov 2026 is a Monday
 
     assert in_quiet_hours(at(3, 7)) is True
     assert in_quiet_hours(at(3, 8)) is False
@@ -1482,7 +1655,6 @@ def test_tick_sends_nothing_in_quiet_hours(
     assert sent == []
 
 
-
 def _forget_profile(db: Any) -> None:
     db.execute("DELETE FROM cmap.employee_flags WHERE employee_id = %s", (EMPLOYEE_ID,))
     db.commit()
@@ -1496,8 +1668,12 @@ def test_first_greeting_asks_department_and_title(
 
     _forget_profile(db)
     monkeypatch.setattr(profile, "is_profile_answer", lambda text: True)
-    monkeypatch.setattr(profile, "_split", lambda text: ("Licensing", "Licensing Coordinator"))
-    hello = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi")
+    monkeypatch.setattr(
+        profile, "_split", lambda text: ("Licensing", "Licensing Coordinator")
+    )
+    hello = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi"
+    )
     assert profile.PROFILE_QUESTION in hello["reply"]
     answer = handle_inbound(
         email=EMPLOYEE_EMAIL,
@@ -1510,19 +1686,33 @@ def test_first_greeting_asks_department_and_title(
         "SELECT department, job_title, profile_answer FROM cmap.employee_flags WHERE employee_id = %s",
         (EMPLOYEE_ID,),
     ).fetchone()
-    assert row == ("Licensing", "Licensing Coordinator", "I'm a licensing coordinator in the licensing team")
-    again = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi")
+    assert row == (
+        "Licensing",
+        "Licensing Coordinator",
+        "I'm a licensing coordinator in the licensing team",
+    )
+    again = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi"
+    )
     assert again["reply"] == intake.REPLY_INTRO
 
 
-def test_profile_kept_raw_when_model_unavailable(db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_profile_kept_raw_when_model_unavailable(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from brain.interview import profile
 
     _forget_profile(db)
     monkeypatch.setattr(profile, "is_profile_answer", lambda text: True)
     monkeypatch.setattr(profile, "_split", lambda text: (None, None))
-    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hello")
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Sales, account manager")
+    handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hello"
+    )
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="Sales, account manager",
+    )
     assert reply["reply"] == profile.REPLY_PROFILE_THANKS_RAW
     assert profile.department_hint(EMPLOYEE_ID) == "Sales, account manager"
 
@@ -1534,12 +1724,22 @@ def test_first_contribution_asks_profile_and_keeps_content(
     from brain.interview import profile
 
     _forget_profile(db)
-    monkeypatch.setattr(profile, "is_profile_answer", lambda text: "planner" in text.casefold())
+    monkeypatch.setattr(
+        profile, "is_profile_answer", lambda text: "planner" in text.casefold()
+    )
     monkeypatch.setattr(profile, "_split", lambda text: ("Production", "Planner"))
-    first = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED)
+    first = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text=VOLUNTEERED
+    )
     assert profile.PROFILE_QUESTION in first["reply"]
-    handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="Production planner")
-    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done")
+    handle_inbound(
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="Production planner",
+    )
+    done = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="done"
+    )
     hint = db.execute(
         "SELECT department_hint FROM cmap.source WHERE id = %s", (done["source_id"],)
     ).fetchone()
@@ -1557,11 +1757,15 @@ def test_thanks_is_not_a_profile(db: Any, monkeypatch: pytest.MonkeyPatch) -> No
         "is_profile_answer",
         lambda text: "coordinator" in text.casefold() or "manager" in text.casefold(),
     )
-    monkeypatch.setattr(profile, "_split", lambda text: ("Licensing", "Licensing Coordinator"))
+    monkeypatch.setattr(
+        profile, "_split", lambda text: ("Licensing", "Licensing Coordinator")
+    )
     handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="hi")
 
     reply = handle_inbound(
-        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="thanks, that helps!"
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="thanks, that helps!",
     )
     assert reply.get("profile") is not True
     assert reply["reply"] != profile.REPLY_PROFILE_THANKS
@@ -1583,7 +1787,9 @@ def test_thanks_is_not_a_profile(db: Any, monkeypatch: pytest.MonkeyPatch) -> No
     # A real job line is accepted.
     monkeypatch.setattr(profile, "is_profile_answer", lambda text: True)
     reply = handle_inbound(
-        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="licensing coordinator"
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="licensing coordinator",
     )
     assert reply["profile"] is True
     assert db.execute(

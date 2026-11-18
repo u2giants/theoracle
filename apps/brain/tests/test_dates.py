@@ -193,9 +193,7 @@ def test_meeting_start_from_transcript_metadata(
         ' "transcript": [{"speaker": "A", "text": "Hi."}]}'
     )
     assert meeting_start_date(nested).isoformat() == "2026-04-02"
-    turn_t0 = (
-        '[{"speaker": "A", "t0": "2026-05-09T11:00:00", "text": "Hello."}]'
-    )
+    turn_t0 = '[{"speaker": "A", "t0": "2026-05-09T11:00:00", "text": "Hello."}]'
     assert meeting_start_date(turn_t0).isoformat() == "2026-05-09"
     assert meeting_start_date("Ilona: no metadata here.") is None
 
@@ -317,7 +315,12 @@ def test_upload_time_floor_never_null(
     fake_vision(monkeypatch, "vision_flowchart.json")
 
     pdf = (FIXTURES_DIR / "licensing-approval-procedure.pdf").read_bytes()
-    assert _upload(client, admin_headers, "licensing-approval-procedure.pdf", pdf).status_code == 200
+    assert (
+        _upload(
+            client, admin_headers, "licensing-approval-procedure.pdf", pdf
+        ).status_code
+        == 200
+    )
     assert (
         client.post(
             "/sources/transcript",
@@ -327,12 +330,16 @@ def test_upload_time_floor_never_null(
         == 200
     )
     storage.objects["old/orphan-notes.txt"] = b"orphan notes with no dates"
-    assert client.post("/sources/import-bucket", headers=admin_headers).status_code == 200
+    assert (
+        client.post("/sources/import-bucket", headers=admin_headers).status_code == 200
+    )
 
     department = tmp_path / "Licensing"
     department.mkdir()
     (department / "notes.txt").write_bytes(b"plain notes")
-    monkeypatch.setattr(get_settings(), "brain_import_dir", str(tmp_path), raising=False)
+    monkeypatch.setattr(
+        get_settings(), "brain_import_dir", str(tmp_path), raising=False
+    )
     assert (
         client.post(
             "/sources/import-folder",

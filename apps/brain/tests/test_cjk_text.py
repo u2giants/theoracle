@@ -6,8 +6,15 @@ from brain.text_util import count_units, fold_key, sentence_slices, split_senten
 
 
 def test_split_fullwidth_punctuation() -> None:
-    assert split_sentences("第一句。第二句！第三句？") == ["第一句。", "第二句！", "第三句？"]
-    assert split_sentences("先确认供应商；再走审批。") == ["先确认供应商；", "再走审批。"]
+    assert split_sentences("第一句。第二句！第三句？") == [
+        "第一句。",
+        "第二句！",
+        "第三句？",
+    ]
+    assert split_sentences("先确认供应商；再走审批。") == [
+        "先确认供应商；",
+        "再走审批。",
+    ]
 
 
 def test_split_mixed_languages() -> None:
@@ -24,7 +31,10 @@ def test_split_mixed_languages() -> None:
 
 
 def test_split_no_break_inside_quotes_or_brackets() -> None:
-    assert split_sentences("他说：“你好。世界。”然后走了。") == ["他说：“你好。世界。”", "然后走了。"]
+    assert split_sentences("他说：“你好。世界。”然后走了。") == [
+        "他说：“你好。世界。”",
+        "然后走了。",
+    ]
     assert split_sentences("See (e.g. this). Done.") == ["See (e.g. this).", "Done."]
 
 

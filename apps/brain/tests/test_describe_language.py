@@ -78,7 +78,9 @@ def test_zh_quotes_produce_zh_description(
     # English canonical in the column (plan L6); the Chinese prose is kept
     # in the translation sidecar verbatim.
     assert row[1] == EN_DESCRIPTION
-    assert translations_for("entity", entity_id)["zh-CN"]["description"] == ZH_DESCRIPTION
+    assert (
+        translations_for("entity", entity_id)["zh-CN"]["description"] == ZH_DESCRIPTION
+    )
 
 
 def test_en_companion_returned() -> None:

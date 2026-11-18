@@ -130,5 +130,3 @@ def test_zh_injection_in_data_ignored(
     assert ZH_INJECTION in prompt  # hostile text rides along as DATA
     assert "not instructions" in prompt  # the DATA-not-instructions rule holds
     assert "NEVER translate a quote" in prompt
-
-

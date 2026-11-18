@@ -165,7 +165,9 @@ def load_recorded(name: str) -> dict[str, Any]:
     return json.loads((RECORDED_DIR / name).read_text(encoding="utf-8"))
 
 
-def fake_vision(monkeypatch: pytest.MonkeyPatch, name: str) -> list[list[dict[str, Any]]]:
+def fake_vision(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> list[list[dict[str, Any]]]:
     """Replay a recorded vision response; return the message log of the calls."""
     from brain.read import vision
 
@@ -237,7 +239,9 @@ class FakeScaleDown:
                 return dict(entry["response"])
         return dict(self.defaults[stage])
 
-    def __call__(self, path: str, body: dict[str, Any], settings: Any) -> dict[str, Any]:
+    def __call__(
+        self, path: str, body: dict[str, Any], settings: Any
+    ) -> dict[str, Any]:
         del settings
         text = str(body.get("text") or "")
         if path == "/classify":
@@ -256,7 +260,9 @@ def fake_scaledown(monkeypatch: pytest.MonkeyPatch, *names: str) -> FakeScaleDow
     return fake
 
 
-def fake_frontier(monkeypatch: pytest.MonkeyPatch, name: str) -> list[list[dict[str, Any]]]:
+def fake_frontier(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> list[list[dict[str, Any]]]:
     """Replay one recorded frontier flat response; return the message log."""
     from brain.extract import flat
 
@@ -308,11 +314,17 @@ class FakeRelations:
                     break
         return {
             "choices": [{"message": {"content": json.dumps(response)}}],
-            "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "total_tokens": 120,
+            },
         }
 
 
-def fake_relations(monkeypatch: pytest.MonkeyPatch, name: str = "relations.json") -> FakeRelations:
+def fake_relations(
+    monkeypatch: pytest.MonkeyPatch, name: str = "relations.json"
+) -> FakeRelations:
     """Replay recorded frontier responses through the relations HTTP seam."""
     from brain.extract import relations
 

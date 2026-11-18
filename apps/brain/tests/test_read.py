@@ -86,9 +86,7 @@ PRESENTATION_RELS = """<?xml version="1.0"?>
 
 
 def _slide_xml(paragraphs: list[str]) -> str:
-    runs = "".join(
-        f"<a:p><a:r><a:t>{text}</a:t></a:r></a:p>" for text in paragraphs
-    )
+    runs = "".join(f"<a:p><a:r><a:t>{text}</a:t></a:r></a:p>" for text in paragraphs)
     return (
         '<?xml version="1.0"?>'
         '<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
@@ -98,7 +96,9 @@ def _slide_xml(paragraphs: list[str]) -> str:
     )
 
 
-def build_pptx(slide_paragraphs: list[list[str]], picture: bytes | None = None) -> bytes:
+def build_pptx(
+    slide_paragraphs: list[list[str]], picture: bytes | None = None
+) -> bytes:
     """Return a minimal two-slide .pptx; slide 2 carries ``picture`` if given."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -197,7 +197,9 @@ def build_text_and_drawing_pdf(lines: list[str]) -> bytes:
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
         b"/Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>",
-        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n"
+        b"<< /Length "
+        + str(len(stream)).encode()
+        + b" >>\nstream\n"
         + stream
         + b"\nendstream",
     ]
@@ -395,8 +397,8 @@ def test_svg_image_reads_its_text() -> None:
     """An SVG has no rasteriser here, so its visible text is read instead."""
     svg = (
         b'<svg xmlns="http://www.w3.org/2000/svg">'
-        b"<text x=\"10\" y=\"20\">Licensor approval</text>"
-        b"<text x=\"10\" y=\"40\">Record sign-off</text>"
+        b'<text x="10" y="20">Licensor approval</text>'
+        b'<text x="10" y="40">Record sign-off</text>'
         b"</svg>"
     )
     chunks = read_image(svg)

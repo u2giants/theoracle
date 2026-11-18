@@ -161,7 +161,9 @@ def test_update_renames_when_directory_has_a_name(db: Any) -> None:
 
 
 def test_active_status_clears_disabled_at(db: Any) -> None:
-    employee_id = _employee(db, "active@example.invalid", disabled_at="2026-01-01T00:00:00")
+    employee_id = _employee(
+        db, "active@example.invalid", disabled_at="2026-01-01T00:00:00"
+    )
     apply_directory(db, [_row("active@example.invalid", status="  ACTIVE ")])
     db.commit()
     disabled = db.execute(
@@ -197,7 +199,9 @@ def test_new_employee_with_inactive_status_starts_disabled(db: Any) -> None:
 
 
 def test_empty_status_leaves_disabled_at_alone(db: Any) -> None:
-    employee_id = _employee(db, "quiet@example.invalid", disabled_at="2026-01-01T00:00:00")
+    employee_id = _employee(
+        db, "quiet@example.invalid", disabled_at="2026-01-01T00:00:00"
+    )
     apply_directory(db, [_row("quiet@example.invalid", status=None)])
     db.commit()
     disabled = db.execute(
@@ -257,7 +261,13 @@ def test_never_touches_oracle_only_fields(db: Any) -> None:
     db.commit()
     apply_directory(
         db,
-        [_row("untouched@example.invalid", status="Former", roles=["Designer", "Admin"])],
+        [
+            _row(
+                "untouched@example.invalid",
+                status="Former",
+                roles=["Designer", "Admin"],
+            )
+        ],
     )
     db.commit()
     row = db.execute(

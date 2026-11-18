@@ -76,9 +76,7 @@ class MapReports:
             body = prompt.split("<<<", 1)[-1].rsplit(">>>", 1)[0]
             summary = " ".join(body.split())[:400] or "empty batch"
             return {
-                "choices": [
-                    {"message": {"content": json.dumps({"summary": summary})}}
-                ],
+                "choices": [{"message": {"content": json.dumps({"summary": summary})}}],
                 "usage": {"total_tokens": 5},
             }
         sources = list(dict.fromkeys(UUID_RE.findall(prompt)))
@@ -218,9 +216,27 @@ ZH_COMMUNITY_SUMMARY = "设计部与授权部门之间的审批交接流程。"
 def seed_translations(db: Any, ids: dict[str, Any]) -> dict[str, Any]:
     """zh-CN sidecar rows for the 3.1 browser test (plan step 3.1)."""
     rows = [
-        ("entity", ids.get("jessica_id"), "description", "zh-CN", ZH_ENTITY_DESCRIPTION),
-        ("community", ids.get("licensing_community_id"), "title", "zh-CN", ZH_COMMUNITY_TITLE),
-        ("community", ids.get("licensing_community_id"), "summary", "zh-CN", ZH_COMMUNITY_SUMMARY),
+        (
+            "entity",
+            ids.get("jessica_id"),
+            "description",
+            "zh-CN",
+            ZH_ENTITY_DESCRIPTION,
+        ),
+        (
+            "community",
+            ids.get("licensing_community_id"),
+            "title",
+            "zh-CN",
+            ZH_COMMUNITY_TITLE,
+        ),
+        (
+            "community",
+            ids.get("licensing_community_id"),
+            "summary",
+            "zh-CN",
+            ZH_COMMUNITY_SUMMARY,
+        ),
     ]
     for kind, ref_id, field, lang, text in rows:
         if ref_id:
@@ -372,12 +388,14 @@ def seed_eval(db: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
     """Step 12 questions page: one unrouted open question, one answered one,
     and the browser-test admin as an employee who has messaged the bot."""
-    db.execute("TRUNCATE cmap.open_question, cmap.interview_conversation, cmap.interview_turn, cmap.teams_conversation, cmap.employee_flags, "
-        "cmap.interview_send")
+    db.execute(
+        "TRUNCATE cmap.open_question, cmap.interview_conversation, cmap.interview_turn, cmap.teams_conversation, cmap.employee_flags, "
+        "cmap.interview_send"
+    )
     db.execute(
         "INSERT INTO cmap.teams_conversation (employee_id, conversation_ref) "
         "VALUES ('00000000-0000-4000-8000-0000000000e1', "
-        "'{\"conversation\": {\"id\": \"a:map-e2e\"}}'::jsonb)"
+        '\'{"conversation": {"id": "a:map-e2e"}}\'::jsonb)'
     )
     db.execute(
         "INSERT INTO cmap.open_question (question, why, entity_ids, department) "
@@ -402,38 +420,68 @@ def seed_interviews(db: Any, jessica_id: str) -> dict[str, Any]:
 def seed_recommendations(db: Any) -> dict[str, Any]:
     """Step 13 page: two cards, the licensing one backed by more sources."""
     db.execute("TRUNCATE cmap.recommendation")
-    sources = [str(row[0]) for row in db.execute(
-        "SELECT id FROM cmap.source ORDER BY title").fetchall()]
+    sources = [
+        str(row[0])
+        for row in db.execute("SELECT id FROM cmap.source ORDER BY title").fetchall()
+    ]
     for problem, cited in ((REC_SMALL, sources[:1]), (REC_LICENSING, sources)):
         explanations = [
-            {"hypothesis": "Only one person can record sign-off.", "support": cited,
-             "against": []},
-            {"hypothesis": "The data is incomplete: no timings were recorded.",
-             "support": [], "against": []},
+            {
+                "hypothesis": "Only one person can record sign-off.",
+                "support": cited,
+                "against": [],
+            },
+            {
+                "hypothesis": "The data is incomplete: no timings were recorded.",
+                "support": [],
+                "against": [],
+            },
         ]
         options = [
-            {"option": "Name a backup approver", "effort": "low", "risk": "Training.",
-             "includes_no_change": False},
-            {"option": "Batch submissions weekly", "effort": "med", "risk": "Delay.",
-             "includes_no_change": False},
-            {"option": "No change: keep the current process.", "effort": "low", "risk": "",
-             "includes_no_change": True},
+            {
+                "option": "Name a backup approver",
+                "effort": "low",
+                "risk": "Training.",
+                "includes_no_change": False,
+            },
+            {
+                "option": "Batch submissions weekly",
+                "effort": "med",
+                "risk": "Delay.",
+                "includes_no_change": False,
+            },
+            {
+                "option": "No change: keep the current process.",
+                "effort": "low",
+                "risk": "",
+                "includes_no_change": True,
+            },
         ]
-        experiment = {"change": "Backup approver for four weeks.",
-                      "metric": "Days to sign-off (the metric must be measured first)",
-                      "baseline_needed": True, "review_after_days": 28,
-                      "owner_role": "Licensing Manager"}
+        experiment = {
+            "change": "Backup approver for four weeks.",
+            "metric": "Days to sign-off (the metric must be measured first)",
+            "baseline_needed": True,
+            "review_after_days": 28,
+            "owner_role": "Licensing Manager",
+        }
         db.execute(
             "INSERT INTO cmap.recommendation (problem, explanations, options, experiment) "
             "VALUES (%s, %s, %s, %s)",
-            (problem, json.dumps(explanations), json.dumps(options), json.dumps(experiment)),
+            (
+                problem,
+                json.dumps(explanations),
+                json.dumps(options),
+                json.dumps(experiment),
+            ),
         )
     db.commit()
     return {"rec_licensing": REC_LICENSING, "rec_small": REC_SMALL}
 
 
 CONTRADICTION_SUMMARY = "Jordan Lee and Ilona both claim the sample sign-off."
-TIMELINE_SUMMARY = "The sample sign-off owner changed between the January and March memos."
+TIMELINE_SUMMARY = (
+    "The sample sign-off owner changed between the January and March memos."
+)
 
 
 def _contradiction_relation(
@@ -521,12 +569,20 @@ def seed_contradictions(db: Any) -> dict[str, Any]:
     memo = _contradiction_source(db, "Ownership memo", "2026-01-10")
     notes = _contradiction_source(db, "Team standup notes", "2026-01-10")
     rel_a = _contradiction_relation(
-        db, memo, person, process,
-        "Jordan Lee owns the sample sign-off.", 0,
+        db,
+        memo,
+        person,
+        process,
+        "Jordan Lee owns the sample sign-off.",
+        0,
     )
     rel_b = _contradiction_relation(
-        db, notes, person, process,
-        "Ilona owns the sample sign-off, not Jordan.", 1,
+        db,
+        notes,
+        person,
+        process,
+        "Ilona owns the sample sign-off, not Jordan.",
+        1,
     )
     db.execute(
         "INSERT INTO cmap.contradiction (relation_a, relation_b, kind, summary, status) "
@@ -536,12 +592,20 @@ def seed_contradictions(db: Any) -> dict[str, Any]:
     jan = _contradiction_source(db, "January ownership policy", "2026-01-05")
     mar = _contradiction_source(db, "March ownership policy", "2026-03-05")
     rel_c = _contradiction_relation(
-        db, jan, person, process,
-        "Jordan Lee owned the sample sign-off in January.", 0,
+        db,
+        jan,
+        person,
+        process,
+        "Jordan Lee owned the sample sign-off in January.",
+        0,
     )
     rel_d = _contradiction_relation(
-        db, mar, person, process,
-        "Ilona owns the sample sign-off from March.", 1,
+        db,
+        mar,
+        person,
+        process,
+        "Ilona owns the sample sign-off from March.",
+        1,
     )
     db.execute(
         "INSERT INTO cmap.contradiction (relation_a, relation_b, kind, summary, "
@@ -571,7 +635,9 @@ EVAL_DRAFT_POINTS = [
     "The review is recorded before the purchase order is created",
     "A rejection sends the package back for rework",
 ]
-EVAL_DRAFT_ABSTENTION = "How many artwork reviews did the licensing team complete last quarter?"
+EVAL_DRAFT_ABSTENTION = (
+    "How many artwork reviews did the licensing team complete last quarter?"
+)
 EVAL_DRAFT_ABSTENTION_POINTS = [
     "The answer states the documents do not say",
     "The answer does not guess a number",

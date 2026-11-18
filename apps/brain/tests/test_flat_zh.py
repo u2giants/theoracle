@@ -70,7 +70,9 @@ def test_zh_names_and_quotes_verbatim(
     assert kind_row[0] == "process"
 
 
-def test_frontier_fallback_catches_zh_names(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
+def test_frontier_fallback_catches_zh_names(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
     text = _zh_text()
     fake_embeddings(monkeypatch)
     monkeypatch.setenv("BRAIN_SCALEDOWN_ENABLED", "false")

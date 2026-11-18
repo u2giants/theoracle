@@ -89,7 +89,11 @@ class FakeRecommend:
             ],
             "options": [
                 {"option": self.option_text, "effort": "low", "risk": "Training time."},
-                {"option": "Batch submissions weekly", "effort": "med", "risk": "Delays."},
+                {
+                    "option": "Batch submissions weekly",
+                    "effort": "med",
+                    "risk": "Delays.",
+                },
             ],
             "experiment": {
                 "change": "Name a backup approver for four weeks.",
@@ -142,10 +146,14 @@ def test_fixture_licensing_stall_recommendation(
     assert stall, [row["problem"] for row in rows]
     for row in stall:
         assert len(row["explanations"]) >= 2
-        assert any("incomplete" in item["hypothesis"].lower() for item in row["explanations"])
+        assert any(
+            "incomplete" in item["hypothesis"].lower() for item in row["explanations"]
+        )
         assert any(item["includes_no_change"] for item in row["options"])
         assert 3 <= len(row["options"]) <= 5
-        cited = {s for item in row["explanations"] for s in item["support"] + item["against"]}
+        cited = {
+            s for item in row["explanations"] for s in item["support"] + item["against"]
+        }
         assert cited, "explanations cite no source"
     # Only level-1 and company findings with >= 2 distinct sources were asked about.
     assert all("SOURCES (cite these ids)" in prompt for prompt in fake.prompts)
@@ -165,7 +173,9 @@ def _seed_without_numbers(db: Any, monkeypatch: pytest.MonkeyPatch) -> list[str]
     """A small approval map whose sources and findings carry no numbers at all."""
     fake_embeddings(monkeypatch)
     _seed_approval_map(db)
-    sources = [str(row[0]) for row in db.execute("SELECT id FROM cmap.source").fetchall()]
+    sources = [
+        str(row[0]) for row in db.execute("SELECT id FROM cmap.source").fetchall()
+    ]
     run_project()
     _fake_report(
         monkeypatch,
@@ -195,9 +205,10 @@ def test_no_numbers_without_metric_source(
     assert stats["recommendations"] >= 1, stats
     for prompt in fake.prompts:
         data = UUID_RE.sub("", prompt.split("DATA:\n<<<\n", 1)[1].split("\n>>>", 1)[0])
-        evidence = data.split("SOURCES", 1)[0] + data.split("QUOTES:", 1)[1].split(
-            "AREA REPORT", 1
-        )[0]
+        evidence = (
+            data.split("SOURCES", 1)[0]
+            + data.split("QUOTES:", 1)[1].split("AREA REPORT", 1)[0]
+        )
         assert not re.search(r"\d", evidence), evidence
     rows = _rows(db)
     assert rows
@@ -213,14 +224,18 @@ def test_fixture_numbers_are_detected() -> None:
     """The fixture procedure's "within 2 business days" is a measurement; "4.2" is not."""
     assert rec_mod._has_numbers(["review within 2 business days"])
     assert rec_mod._has_numbers(["below 5,000 units"])
-    assert not rec_mod._has_numbers(['4.2 The Licensing Manager reviews', 'n1 -> n2 "Create PO"'])
+    assert not rec_mod._has_numbers(
+        ["4.2 The Licensing Manager reviews", 'n1 -> n2 "Create PO"']
+    )
 
 
 def test_numbers_in_data_are_kept() -> None:
     """When the evidence has numbers, the model's figures are left alone."""
     raw = {
         "problem": "Sign-off takes 12 days",
-        "explanations": [{"hypothesis": "One approver", "support": ["a"], "against": []}],
+        "explanations": [
+            {"hypothesis": "One approver", "support": ["a"], "against": []}
+        ],
         "options": [
             {"option": "Cut it by 50%", "effort": "low"},
             {"option": "Add a second approver", "effort": "med"},
@@ -235,7 +250,9 @@ def test_numbers_in_data_are_kept() -> None:
     assert rec["explanations"][-1]["hypothesis"].startswith("The data is incomplete")
     assert rec["options"][-1]["includes_no_change"] is True
     assert len(rec["options"]) == 3
-    assert rec_mod._normalise({**raw, "options": raw["options"][:1]}, {"a"}, True) is None
+    assert (
+        rec_mod._normalise({**raw, "options": raw["options"][:1]}, {"a"}, True) is None
+    )
 
 
 def test_dedupe(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
@@ -266,7 +283,9 @@ def test_dedupe(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
     assert third["recommendations"] == 1
 
 
-def test_model_marked_duplicate_skipped(monkeypatch: pytest.MonkeyPatch, db: Any) -> None:
+def test_model_marked_duplicate_skipped(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
     """A model-flagged duplicate is dropped even when its cosine would keep it.
 
     Step 13's live run stored five paraphrases of one licensing stall because
@@ -309,7 +328,11 @@ def test_duplicate_index_accepts_only_valid_numbers() -> None:
 
 
 def test_api_sorted_hides_rejected_and_admin_status(
-    monkeypatch: pytest.MonkeyPatch, db: Any, client: Any, admin_headers: Any, user_headers: Any
+    monkeypatch: pytest.MonkeyPatch,
+    db: Any,
+    client: Any,
+    admin_headers: Any,
+    user_headers: Any,
 ) -> None:
     """Cards sort by distinct sources; Rejected hides; only admins change status."""
     _seed(db, monkeypatch)
@@ -323,22 +346,32 @@ def test_api_sorted_hides_rejected_and_admin_status(
     assert counts == sorted(counts, reverse=True)
     target = cards[0]["id"]
     denied = client.post(
-        f"/recommendations/{target}/status", json={"status": "accepted"}, headers=user_headers
+        f"/recommendations/{target}/status",
+        json={"status": "accepted"},
+        headers=user_headers,
     )
     assert denied.status_code == 403
     for status in ("accepted", "running", "measured"):
         ok = client.post(
-            f"/recommendations/{target}/status", json={"status": status}, headers=admin_headers
+            f"/recommendations/{target}/status",
+            json={"status": status},
+            headers=admin_headers,
         )
         assert ok.status_code == 200
     bad = client.post(
-        f"/recommendations/{target}/status", json={"status": "done"}, headers=admin_headers
+        f"/recommendations/{target}/status",
+        json={"status": "done"},
+        headers=admin_headers,
     )
     assert bad.status_code == 422
     client.post(
-        f"/recommendations/{target}/status", json={"status": "rejected"}, headers=admin_headers
+        f"/recommendations/{target}/status",
+        json={"status": "rejected"},
+        headers=admin_headers,
     )
-    after = client.get("/recommendations", headers=user_headers).json()["recommendations"]
+    after = client.get("/recommendations", headers=user_headers).json()[
+        "recommendations"
+    ]
     assert target not in {card["id"] for card in after}
 
 

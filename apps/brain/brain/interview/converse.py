@@ -192,6 +192,9 @@ def _transcript(tlist: list[dict[str, Any]], employee_name: str) -> str:
 # ---------------------------------------------------------------- composer
 
 
+UNUSABLE_KINDS = frozenset({"other", "unclear"})
+
+
 def compose_next(
     conn: Any,
     conv: dict[str, Any],
@@ -209,7 +212,6 @@ def compose_next(
     s = strings(lang)
     employee_name, _ = _employee(conn, conv["employee_id"])
     employee_name = employee_name or "Employee"
-    exchanges_allowed, _ = conv_mod.sitting_settings(conn)
     exchanges_used = int(conv["exchanges"] or 0)
     followups_used = sum(
         1
@@ -226,13 +228,15 @@ def compose_next(
             default=0,
         )
     )
-    must_close = exchanges_used + 1 >= exchanges_allowed
-    if must_close:
+    # Owner ruling L9: no count-based close. Close only when the last two
+    # employee turns were not usable answers.
+    last_two = [t["kind"] for t in tlist if t["direction"] == "in"][-2:]
+    if len(last_two) == 2 and all(k in UNUSABLE_KINDS for k in last_two):
         return {
             "action": "close",
             "text": s.close,
             "question_id": None,
-            "path": "limit",
+            "path": "unusable",
         }
     employee_text = " ".join(str(t["text"]) for t in tlist if t["direction"] == "in")
     source_ids = sorted({t["source_id"] for t in tlist if t["source_id"]})
@@ -243,7 +247,6 @@ def compose_next(
         .replace("{{language}}", _lang_name(lang))
         .replace("{{employee}}", employee_name)
         .replace("{{exchanges_used}}", str(exchanges_used))
-        .replace("{{exchanges_allowed}}", str(exchanges_allowed))
         .replace("{{followups_used}}", str(followups_used))
         .replace("{{followups_allowed}}", str(MAX_FOLLOWUPS))
         .replace("{{conversation}}", _transcript(tlist, employee_name))
@@ -530,10 +533,7 @@ def run_interview_reply(
             return {"sent": True, "action": "request"}
         if processing_failed or (last_in and last_in["meta"].get("processing_failed")):
             nxt = _queue(conn, conv["employee_id"], lang, cfg)
-            if (
-                nxt
-                and int(conv["exchanges"] or 0) + 1 < conv_mod.sitting_settings(conn)[0]
-            ):
+            if nxt:
                 qid, _, loc = nxt[0]
                 text = f"{s.processing_failed} {s.next_question.format(question=loc)}"
                 _send(
@@ -552,7 +552,7 @@ def run_interview_reply(
                     "close",
                     f"{s.processing_failed} {s.close}",
                     cfg,
-                    close_reason="exchanges",
+                    close_reason="nothing_left",
                     meta={"path": "processing_failed"},
                 )
             return {"sent": True, "action": "processing_failed"}
@@ -577,7 +577,7 @@ def run_interview_reply(
                 "close",
                 nxt["text"],
                 cfg,
-                close_reason="exchanges",
+                close_reason="nothing_left",
                 meta=meta,
             )
         elif nxt["action"] == "next_question":
@@ -637,8 +637,7 @@ def _move_on(
 ) -> dict[str, Any]:
     s = strings(conv["lang"] or "en")
     queue = _queue(conn, conv["employee_id"], conv["lang"] or "en", settings)
-    limit = int(conv["exchanges"] or 0) + 1 >= conv_mod.sitting_settings(conn)[0]
-    if queue and not limit:
+    if queue:
         qid, _, loc = queue[0]
         text = f"{prefix} {s.next_question.format(question=loc)}".strip()
         _send(
@@ -651,7 +650,7 @@ def _move_on(
         "close",
         f"{prefix} {s.close}".strip(),
         settings,
-        close_reason="exchanges",
+        close_reason="nothing_left",
         meta={"path": path},
     )
     return {"sent": True, "action": "close", "path": path}

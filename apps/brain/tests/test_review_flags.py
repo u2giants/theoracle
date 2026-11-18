@@ -218,6 +218,8 @@ def test_bad_item_type_or_id_is_rejected(
         response = client.post("/flags", headers=admin_headers, json=payload)
         assert response.status_code == 400, payload
     assert (
-        client.get("/flags", headers=admin_headers, params={"item_type": "source"}).status_code
+        client.get(
+            "/flags", headers=admin_headers, params={"item_type": "source"}
+        ).status_code
         == 400
     )

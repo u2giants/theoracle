@@ -25,7 +25,9 @@ def _counters() -> Any:
 def test_first_call_budget_is_above_old_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[int] = []
 
-    def fake(messages: Any, settings: Any, max_tokens: int = relations.MAX_TOKENS) -> Any:
+    def fake(
+        messages: Any, settings: Any, max_tokens: int = relations.MAX_TOKENS
+    ) -> Any:
         seen.append(max_tokens)
         return _body(json.dumps({"relations": [], "new_mentions": []}), "stop")
 
@@ -43,7 +45,9 @@ def test_truncated_reply_is_retried_with_larger_budget(
     full = {"relations": [{"from": "m1", "to": "m2"}] * 3, "new_mentions": []}
     seen: list[int] = []
 
-    def fake(messages: Any, settings: Any, max_tokens: int = relations.MAX_TOKENS) -> Any:
+    def fake(
+        messages: Any, settings: Any, max_tokens: int = relations.MAX_TOKENS
+    ) -> Any:
         seen.append(max_tokens)
         if len(seen) == 1:
             return _body('{"relations": [{"from": "m1", "to": "m2"}, {"fr', "length")

@@ -54,7 +54,11 @@ class ChainFake:
         prompt = str(messages[-1]["content"])
         self.prompts.append(prompt)
         if "CANDIDATES:" in prompt:
-            answer: dict[str, Any] = {"same_as": None, "confidence": 0.9, "reason": "test"}
+            answer: dict[str, Any] = {
+                "same_as": None,
+                "confidence": 0.9,
+                "reason": "test",
+            }
         elif "TYPE: " in prompt:
             answer = {"canonical_name": "", "description": "Described."}
         else:

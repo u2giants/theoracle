@@ -376,8 +376,7 @@ def test_score_components(
         del question, args, kwargs
         return {
             "answer_md": (
-                "Jessica signs the package [1]. "
-                "The other sentence carries no citation."
+                "Jessica signs the package [1]. The other sentence carries no citation."
             ),
             "citations": [{"title": "doc.pdf", "chunk_id": "c1", "quote": "q"}],
             "mode_used": "local",
@@ -694,8 +693,14 @@ def test_eval_service_calls_queue_and_read_runs(
         == 404
     )
     accepted = client.post(f"/eval/runs/{run_id}/accept", headers=service).json()
-    assert accepted == {"id": run_id, "mean_score": pytest.approx(0.5), "accepted": True}
-    assert client.get("/eval/runs", headers=service).json()["runs"][0]["accepted"] is True
+    assert accepted == {
+        "id": run_id,
+        "mean_score": pytest.approx(0.5),
+        "accepted": True,
+    }
+    assert (
+        client.get("/eval/runs", headers=service).json()["runs"][0]["accepted"] is True
+    )
 
 
 class _FakeResponse:
@@ -773,7 +778,9 @@ def test_live_gate_marks_accepted_and_catches_drop(
     from brain.eval import gate
 
     brain = _FakeBrain(
-        _fake_run("run-good", 0.90), _fake_run("run-bad", 0.80), _fake_run("run-back", 0.88)
+        _fake_run("run-good", 0.90),
+        _fake_run("run-bad", 0.80),
+        _fake_run("run-back", 0.88),
     )
     monkeypatch.setattr(httpx, "get", brain.get)
     monkeypatch.setattr(httpx, "post", brain.post)
