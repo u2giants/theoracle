@@ -21,18 +21,16 @@ import html
 import os
 import re
 import sys
-import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import httpx
 
+from brain.graph_ms import GRAPH, get_retry, graph_pages, graph_token
 from brain.read.chunk import count_tokens
 
 CLICKUP = "https://api.clickup.com/api/v2"
-GRAPH = "https://graph.microsoft.com/v1.0"
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 
 PASSAGE_TOKENS = 400  # packed passage size (plan 1.6)
@@ -106,25 +104,6 @@ class Tally:
         self.passages += -(-kept // PASSAGE_TOKENS)
 
 
-def _get(client: httpx.Client, url: str, **kw: Any) -> httpx.Response:
-    for attempt in range(8):
-        r = client.get(url, **kw)
-        if r.status_code != 429 and r.status_code < 500:
-            r.raise_for_status()
-            return r
-        wait = r.headers.get("Retry-After")
-        reset = r.headers.get("X-RateLimit-Reset")
-        if wait:
-            delay = min(max(float(wait), 1.0), 60.0)
-        elif reset:
-            delay = min(max(float(reset) - time.time(), 1.0), 60.0)
-        else:
-            delay = min(2**attempt, 60)
-        time.sleep(delay)
-    r.raise_for_status()
-    return r
-
-
 def resolve_people(firsts: list[str]) -> list[tuple[str, str]]:
     """(email, name) of each first name holding a project-manager title; exactly one each."""
     import psycopg
@@ -170,7 +149,7 @@ def clickup_member(members: list[dict], email: str, name: str) -> int | None:
 def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> None:
     h = {"Authorization": os.environ["CLICKUP_API_TOKEN"]}
     with httpx.Client(headers=h, timeout=60) as c:
-        teams = _get(c, f"{CLICKUP}/team").json()["teams"]
+        teams = get_retry(c, f"{CLICKUP}/team").json()["teams"]
         seen_tasks: set[str] = set()
         for team in teams:
             uids = [clickup_member(team.get("members", []), e, n) for e, n in people]
@@ -191,7 +170,7 @@ def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> No
                     "page": page,
                 }
                 tasks = (
-                    _get(c, f"{CLICKUP}/team/{team['id']}/task", params=params)
+                    get_retry(c, f"{CLICKUP}/team/{team['id']}/task", params=params)
                     .json()
                     .get("tasks", [])
                 )
@@ -216,7 +195,7 @@ def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> No
                     )
                     kept = t.message(header) + t.message(task.get("text_content") or "")
                     comments = (
-                        _get(c, f"{CLICKUP}/task/{task['id']}/comment")
+                        get_retry(c, f"{CLICKUP}/task/{task['id']}/comment")
                         .json()
                         .get("comments", [])
                     )
@@ -228,39 +207,12 @@ def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> No
                 page += 1
 
 
-def _graph_token() -> str:
-    r = httpx.post(
-        f"https://login.microsoftonline.com/{os.environ['AZURE_TENANT_ID']}/oauth2/v2.0/token",
-        data={
-            "grant_type": "client_credentials",
-            "client_id": os.environ["AZURE_GRAPH_CLIENT_ID"],
-            "client_secret": os.environ["AZURE_GRAPH_CLIENT_SECRET"],
-            "scope": "https://graph.microsoft.com/.default",
-        },
-        timeout=30,
-    )
-    r.raise_for_status()
-    return r.json()["access_token"]
-
-
-def _pages(c: httpx.Client, url: str, params: dict | None = None):
-    seen: set[str] = set()
-    while url:
-        if url in seen:
-            raise RuntimeError("Graph paging loop")
-        seen.add(url)
-        body = _get(c, url, params=params).json()
-        params = None
-        yield from body.get("value", [])
-        url = body.get("@odata.nextLink")
-
-
 def _chat_messages(
     c: httpx.Client, chat_id: str, since: datetime
 ) -> list[tuple[datetime, str]]:
     """Human messages of one chat inside the window, oldest first."""
     msgs = []
-    for m in _pages(c, f"{GRAPH}/chats/{chat_id}/messages", {"$top": 50}):
+    for m in graph_pages(c, f"{GRAPH}/chats/{chat_id}/messages", {"$top": 50}):
         sent = datetime.fromisoformat(m["createdDateTime"].replace("Z", "+00:00"))
         if sent < since:
             break
@@ -273,11 +225,11 @@ def _chat_messages(
 
 
 def size_teams(people: list[tuple[str, str]], since: datetime, t: Tally) -> None:
-    h = {"Authorization": f"Bearer {_graph_token()}"}
+    h = {"Authorization": f"Bearer {graph_token()}"}
     done_chats: set[str] = set()
     with httpx.Client(headers=h, timeout=60) as c:
         for email, _ in people:
-            for chat in _pages(c, f"{GRAPH}/users/{email}/chats", {"$top": 50}):
+            for chat in graph_pages(c, f"{GRAPH}/users/{email}/chats", {"$top": 50}):
                 if chat["id"] in done_chats:
                     continue  # a chat both managers are in is counted once
                 done_chats.add(chat["id"])
