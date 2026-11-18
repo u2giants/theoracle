@@ -192,3 +192,31 @@ def test_answer_is_resolved_before_the_reply(
         "SELECT meta FROM cmap.interview_turn WHERE source_id = %s", (source_id,)
     ).fetchone()
     assert meta["resolve"] == "skipped"
+
+
+# ------------------------------------------------------------------ clarify
+
+
+def test_clarify_retries_once_when_a_name_is_flagged_and_sees_the_reply(
+    db: Any, enabled: None, sent: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _open(db, sent)
+    cid = _conv(db)[0]
+    (qid,) = db.execute(
+        "SELECT question_id::text FROM cmap.interview_turn WHERE conversation_id = %s "
+        "AND kind = 'question'", (cid,),
+    ).fetchone()
+    prompts: list[str] = []
+    outputs = [
+        {"text": "Zorblax wants to know who signs."},
+        {"text": "Which person signs off this step? For example: the team lead signs."},
+    ]
+
+    def _call(prompt: str, settings: Any, max_tokens: int, label: str) -> dict[str, Any]:
+        prompts.append(prompt)
+        return outputs.pop(0)
+
+    monkeypatch.setattr(converse, "_call", _call)
+    text = converse._clarified(db, qid, "en", get_settings(), "that's vague")
+    assert text.startswith("Which person signs off")
+    assert len(prompts) == 2 and "that's vague" in prompts[0]

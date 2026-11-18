@@ -328,8 +328,11 @@ def _check(
     }
 
 
+CLARIFY_TRIES = 2
+
+
 def _clarified(
-    conn: Any, question_id: str | None, lang: str, settings: Settings
+    conn: Any, question_id: str | None, lang: str, settings: Settings, reply: str = ""
 ) -> str:
     question = conv_mod.question_text(conn, question_id)
     if not question:
@@ -344,23 +347,26 @@ def _clarified(
         .replace("{{question}}", question)
         .replace("{{why}}", why)
         .replace("{{evidence}}", why)
+        .replace("{{reply}}", reply)
     )
-    try:
-        text = " ".join(
-            str(
-                _call(prompt, settings, 300, "interview clarify").get("text") or ""
-            ).split()
-        )
-    except Exception as exc:  # noqa: BLE001 - restate instead
-        logger.warning("interview clarify failed: %s", exc)
-        text = ""
-    if (
-        not text
-        or len(text) > 500
-        or followup.invented_names(text, f"{question} {why}")
-    ):
-        return ""
-    return text
+    # Two tries: a sentence-initial word can trip the invented-name guard.
+    for _ in range(CLARIFY_TRIES):
+        try:
+            text = " ".join(
+                str(
+                    _call(prompt, settings, 300, "interview clarify").get("text") or ""
+                ).split()
+            )
+        except Exception as exc:  # noqa: BLE001 - restate instead
+            logger.warning("interview clarify failed: %s", exc)
+            return ""
+        if (
+            text
+            and len(text) <= 700
+            and not followup.invented_names(text, f"{question} {why}")
+        ):
+            return text
+    return ""
 
 
 # ---------------------------------------------------------------- the job
@@ -504,7 +510,9 @@ def run_interview_reply(
                 return _move_on(
                     conn, conv, tlist, cfg, s.unclear_dropped, "unclear_dropped"
                 )
-            text = _clarified(conn, question_id, lang, cfg)
+            text = _clarified(
+                conn, question_id, lang, cfg, str(last_in["text"]) if last_in else ""
+            )
             body = (
                 s.clarify.format(question=text)
                 if text
