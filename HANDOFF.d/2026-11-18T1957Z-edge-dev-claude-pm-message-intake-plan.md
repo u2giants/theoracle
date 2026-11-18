@@ -23,7 +23,7 @@ Put all of these to Albert in **one** message before starting work.
 
 **Not part of this work and nobody is on it:** none found.
 
-**Update 2026-11-18 (owner answered):** questions 1 and 2 are settled — mailboxes yes, one-to-one and group chats yes, ClickUp yes, and no frontier model anywhere in the pipeline (plan L9, L10). The only part of question 2 still open is whether the two managers are told first. Step 5.1 is now blocked only on the mailbox permission (technical, `Blocked —` on #607).
+**Update 2026-11-18 (owner answered):** questions 1 and 2 are settled — mailboxes yes, one-to-one and group chats yes, ClickUp yes, and no frontier model anywhere in the pipeline (plan L9, L10). The managers are not told first (owner, same day: "Don't announce"). No owner question remains open. Step 5.1 is now blocked only on the mailbox permission (technical, `Blocked —` on #607).
 
 **Already settled — do NOT re-ask:**
 - 2026-11-18: who — the two project managers; what — email, Teams messages, ClickUp; method — ScaleDown first, then the cheapest of his four named models that passes (plan STATUS quotes him verbatim).
