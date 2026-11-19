@@ -72,6 +72,7 @@ This file explains how the run actually went and what a future re-run should do 
 
 - Re-run stage 7 on the **final** 20 questions once Albert and Ilona have edited them. Use Haiku, GLM, and DeepSeek if budget allows.
 - Test **global/auto mode** once community reports exist (stage 6 output) on a cloned DB.
+- If GLM-5.3-flash is ever considered for the seat, first confirm its first-call empty-content rate in production logs. Consider whether it should run with the low-reasoning setting from the start rather than only on retry.
 
 ## November 19, 2026 DSPy follow-up
 
@@ -106,4 +107,3 @@ charges. Qwen ran on local hardware without per-call charges. These are single
 runs on a small sample. Retrieval, live routing and the live support-checking
 stage were outside the test, so the results describe drafting from fixed
 evidence only.
-- If GLM-5.3-flash is ever considered for the seat, first confirm its first-call empty-content rate in production logs. Consider whether it should run with the low-reasoning setting from the start rather than only on retry.
