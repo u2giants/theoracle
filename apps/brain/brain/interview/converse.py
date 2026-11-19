@@ -749,10 +749,21 @@ def _refer(
     person = nxt["referred_to"]
     referrer, _ = _employee(conn, conv["employee_id"])
     conv_mod.release_question(conn, question_id, conv["employee_id"], skipped=True)
+    # A partial answer ("the salesman... not sure, ask Adam") may already have
+    # marked the question answered; the pointer still sends it on, so reopen it.
     conn.execute(
-        "UPDATE cmap.open_question SET target_employee_id = %s, "
-        "why = COALESCE(why, '') || %s WHERE id = %s AND state = 'open'",
-        (person["employee_id"], f" {REFERRED_MARK}{referrer or 'a colleague'}]", question_id),
+        "UPDATE cmap.open_question SET state = 'open', asked_at = NULL, "
+        "target_employee_id = %s, why = COALESCE(why, '') || %s, "
+        "skipped_by = CASE WHEN %s::uuid = ANY(skipped_by) THEN skipped_by "
+        "  ELSE array_append(skipped_by, %s::uuid) END "
+        "WHERE id = %s AND state IN ('open', 'answered')",
+        (
+            person["employee_id"],
+            f" {REFERRED_MARK}{referrer or 'a colleague'}]",
+            conv["employee_id"],
+            conv["employee_id"],
+            question_id,
+        ),
     )
     conn.commit()
     meta = {

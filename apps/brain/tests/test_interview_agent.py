@@ -90,6 +90,33 @@ def test_agent_looks_up_then_refers(
     assert "Who signs off step 1?" in sent[-1]["text"]
 
 
+def test_refer_reopens_a_question_already_marked_answered(
+    db: Any, enabled: None, jens: None, sent: list[dict[str, Any]],
+    model: list[dict[str, Any]], no_ingest: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Live case (#604): "not sure, ask Adam or Jack" after a partial answer;
+    # the answer step had already marked the question answered.
+    ids = _open(db, sent)
+    _kind(monkeypatch, "answer")
+    _say("The salesman. Not sure where it's recorded, ask Jennifer.")
+    db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE id = %s", (ids[0],))
+    db.commit()
+    model.extend([
+        {"tool": "find_person", "query": "Jennifer"},
+        {"reflect": "", "action": "refer", "employee_id": JEN_A,
+         "text": "Thanks, I'll ask Jennifer Chaffier."},
+    ])
+    _finish_chain(db)
+    db.execute("UPDATE cmap.open_question SET state = 'answered' WHERE id = %s", (ids[0],))
+    db.commit()
+    result = run_interview_reply(_conv(db)[0])
+    assert result["action"] == "refer"
+    target, skipped, why = _target(db, ids[0])
+    assert target == JEN_A and skipped.count(EMPLOYEE_ID) == 1 and "[referred by" in why
+    assert _states(db)[ids[0]] == "open"
+
+
 def test_refer_to_unlooked_up_id_is_rejected(
     db: Any, enabled: None, jens: None, sent: list[dict[str, Any]],
     model: list[dict[str, Any]], no_ingest: list[dict[str, Any]],
