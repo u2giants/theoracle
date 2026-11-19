@@ -93,3 +93,8 @@ model write questions to colleagues (they only get the stored question). See pla
   Coolify deployment `qwgxudkeesuufyjzerzz8hrh` finished, worker processed a job at 12:58 AM EST). Causes: the
   question was already `answered`, so the referral update matched nothing; with two names the model sometimes
   moved on. Rollback tag `b6d7e03855384bab6a5003100e28029bd7a40a9d`. Live proof of a referral is still owed (step 1).
+- 2026-11-19 11:45 AM EST (cutover to a fresh session): Ilona Kereki's sitting opened at 8:02 AM EST
+  (question sent, no reply yet). Albert's chat unchanged since 7:43 PM EST Nov 18. Production runs `293f33e2`.
+  Still to do, unchanged order: §4 steps 1–4 (live referral proof, sittings Ilona → Jennifer → Carlos →
+  Jessica one at a time, restore test-mode settings incl. `BRAIN_INTERVIEW_WEEKLY_CAP=2` (now 3), plans +
+  #604 evidence + close). Bot is silent 8 PM–8 AM and weekends; do not wait on it then.
