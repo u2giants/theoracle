@@ -1,6 +1,6 @@
 """Kept thread becomes a source (plan_pm_message_intake.md step 1.6, issue #607).
 
-Run: ``python -m brain.intake.ingest [--origin email] [--limit N]`` or the
+Run: ``python -m brain.intake.ingest [--origin email] [--limit N] [--thread-prefix PREFIX]`` or the
 ``intake_ingest`` job. Each cleaned, pending thread is rendered as the JSON
 turn list the transcript reader accepts (``speaker``, ``text``, ``timestamp``)
 and stored as a ``transcript`` source with ``origin`` and ``external_ref``
@@ -87,15 +87,18 @@ def estimate_passages(text_tokens: int) -> int:
     return max(1, -(-text_tokens // WINDOW_TOKENS))
 
 
-def _threads(conn: Any, origin: str | None, limit: int | None) -> list[tuple]:
+def _threads(
+    conn: Any, origin: str | None, limit: int | None, prefix: str | None = None
+) -> list[tuple]:
     sql = (
         "SELECT origin, thread_key, title, source_id FROM cmap.intake_thread "
         "WHERE verdict IN ('pending', 'kept') "
         + ("AND origin = %(o)s " if origin else "")
+        + ("AND starts_with(thread_key, %(prefix)s) " if prefix is not None else "")
         + "ORDER BY started_at NULLS LAST, thread_key"
         + (" LIMIT %(n)s" if limit else "")
     )
-    return conn.execute(sql, {"o": origin, "n": limit}).fetchall()
+    return conn.execute(sql, {"o": origin, "n": limit, "prefix": prefix}).fetchall()
 
 
 def _items(conn: Any, origin: str, key: str) -> list[dict[str, Any]]:
@@ -171,16 +174,22 @@ def ingest_thread(
 
 
 def run(
-    settings: Settings, origin: str | None = None, limit: int | None = None
+    settings: Settings,
+    origin: str | None = None,
+    limit: int | None = None,
+    *,
+    thread_prefix: str | None = None,
 ) -> dict[str, Any]:
     """Ingest pending threads until done or the spend cap is reached."""
+    if thread_prefix is not None and not thread_prefix.strip():
+        raise ValueError("the thread prefix must not be empty")
     cap = intake_spend_cap(settings)
     now = datetime.now(UTC)
     counts: dict[str, Any] = {"estimated_usd": 0.0}
     queued: list[str] = []
     pool = get_pool(settings)
     with pool.connection() as conn:
-        for th_origin, key, title, old in _threads(conn, origin, limit):
+        for th_origin, key, title, old in _threads(conn, origin, limit, thread_prefix):
             outcome, passages = ingest_thread(conn, th_origin, key, title, old, now)
             cost = passages * EST_USD_PER_PASSAGE
             if outcome in ("created", "versioned"):
@@ -230,8 +239,12 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--origin", choices=["clickup", "teams_chat", "email"])
     ap.add_argument("--limit", type=int)
+    ap.add_argument(
+        "--thread-prefix", help="Only import threads with this literal key prefix"
+    )
     a = ap.parse_args(argv)
-    print(f"intake_ingest: {run(get_settings(), a.origin, a.limit)}")
+    result = run(get_settings(), a.origin, a.limit, thread_prefix=a.thread_prefix)
+    print(f"intake_ingest: {result}")
 
 
 if __name__ == "__main__":
