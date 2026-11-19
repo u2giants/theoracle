@@ -100,7 +100,7 @@ def test_health_reports_states_failed_extractions_build_and_spend(
     )
     db.execute(
         "INSERT INTO cmap.job (kind, payload, state, attempts) VALUES "
-        "('project', '{\"usage\": {\"frontier_tokens\": 100, \"frontier_calls\": 2, "
+        '(\'project\', \'{"usage": {"frontier_tokens": 100, "frontier_calls": 2, '
         "\"nodes\": 4}}'::jsonb, 'done', 1)"
     )
     db.commit()
@@ -110,9 +110,9 @@ def test_health_reports_states_failed_extractions_build_and_spend(
     assert body["sources_by_state"]["read"] == 0
 
     extractions = body["failed_extractions"]
-    assert [(item["source_title"], item["ordinal"], item["error"]) for item in extractions] == [
-        ("Health fixture", 1, "provider returned 502")
-    ]
+    assert [
+        (item["source_title"], item["ordinal"], item["error"]) for item in extractions
+    ] == [("Health fixture", 1, "provider returned 502")]
     assert extractions[0]["chunk_id"] == "33333333-3333-4333-8333-333333333333"
     assert extractions[0]["stage"] == "flat"
 

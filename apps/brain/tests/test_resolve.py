@@ -394,9 +394,7 @@ def test_cap_hit_then_rerun_describes_remaining(
     monkeypatch: pytest.MonkeyPatch, db: Any, frontier_env
 ) -> None:
     """A describe pass cut off by the frontier cap resumes on the next run."""
-    fake = _fake(
-        monkeypatch, names={"System": "Artwork Log", "Process": "Sample Room"}
-    )
+    fake = _fake(monkeypatch, names={"System": "Artwork Log", "Process": "Sample Room"})
     fake_embeddings(monkeypatch)
     source = _seed_text(db, "artwork log and sample room", "cap-resume")
     for index in range(3):
@@ -426,7 +424,9 @@ def test_frontier_tolerates_trailing_comma_and_fence(
 ) -> None:
     """Live smoke finding: describe answers may fence the JSON and add commas."""
 
-    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
+    def _post_chat(
+        messages: list, settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del messages, settings
         return {
             "choices": [
@@ -453,7 +453,9 @@ def test_frontier_salvages_truncated_describe_fields(
 ) -> None:
     """Live smoke finding: describe answers can be cut off at max_tokens."""
 
-    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
+    def _post_chat(
+        messages: list, settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del messages, settings
         return {
             "choices": [
@@ -477,7 +479,9 @@ def test_frontier_accepts_content_block_lists(
 ) -> None:
     """Step-8 smoke finding: some providers answer with content blocks."""
 
-    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
+    def _post_chat(
+        messages: list, settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del messages, settings
         return {
             "choices": [
@@ -507,7 +511,9 @@ def test_frontier_retries_transient_failures(
     """Step-8 smoke finding: one empty provider answer must not fail the job."""
     calls = {"count": 0}
 
-    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
+    def _post_chat(
+        messages: list, settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del messages, settings
         calls["count"] += 1
         if calls["count"] == 1:
@@ -528,7 +534,9 @@ def test_frontier_salvages_truncated_report_fields(
 ) -> None:
     """Step-8 smoke finding: community reports can also be cut off."""
 
-    def _post_chat(messages: list, settings: Any, max_tokens: int = 4000) -> dict[str, Any]:
+    def _post_chat(
+        messages: list, settings: Any, max_tokens: int = 4000
+    ) -> dict[str, Any]:
         del messages, settings
         content = (
             '```json\n{\n  "title": "Licensing Approval Workflow",\n'
@@ -951,9 +959,9 @@ def test_entity_admin_actions_write_corrections_and_require_admin(
         (f"/entities/{entity_id}/type", {"entity_type": "Role"}),
         (f"/entities/{entity_id}/alias", {"alias": "JS", "mode": "add"}),
     ):
-        assert (
-            client.post(path, headers=user_headers, json=body).status_code == 403
-        ), path
+        assert client.post(path, headers=user_headers, json=body).status_code == 403, (
+            path
+        )
 
     renamed = client.post(
         f"/entities/{entity_id}/rename",

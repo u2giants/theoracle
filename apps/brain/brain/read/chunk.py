@@ -150,7 +150,9 @@ def window_spans(text: str) -> list[tuple[int, int]]:
         # that begins at ``end`` fits a window on its own but not after the
         # overlap, shrink the overlap until it does.
         line_end = _first_between(line_starts, end + 1, len(text) + 1) or len(text)
-        while next_start < end and not fits(next_start, line_end) and fits(end, line_end):
+        while (
+            next_start < end and not fits(next_start, line_end) and fits(end, line_end)
+        ):
             moved = _first_between(line_starts, next_start + 1, end + 1)
             next_start = end if moved is None else moved
         start = max(next_start, start + 1)
@@ -206,7 +208,9 @@ def pack_units(
             cursor += 1
         text = "\n".join(units[index:cursor]).strip()
         if text:
-            chunks.append(Chunk(locator_for(index, cursor - 1), text, count_tokens(text)))
+            chunks.append(
+                Chunk(locator_for(index, cursor - 1), text, count_tokens(text))
+            )
         if cursor >= total:
             break
         back = 0

@@ -106,7 +106,11 @@ def test_admin_approve_edit_retire_actions(
     del eval_env, db
     body = {
         "question": "Who signs the artwork log?",
-        "expected_points": ["The licensing manager", "The artwork log", "Before the PO"],
+        "expected_points": [
+            "The licensing manager",
+            "The artwork log",
+            "Before the PO",
+        ],
         "expected_source_titles": ["licensing-approval-procedure.pdf"],
         "recommendation": "Approve as written.",
     }

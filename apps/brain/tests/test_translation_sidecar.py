@@ -42,4 +42,6 @@ def test_map_payload_includes_translations(
     )
     body = client.get(f"/entities/{entity_id}", headers=user_headers).json()
     assert body["description"] == "The purchasing approval process."
-    assert body["translations"]["zh-CN"]["description"] == "采购审批流程是内部审批流程。"
+    assert (
+        body["translations"]["zh-CN"]["description"] == "采购审批流程是内部审批流程。"
+    )

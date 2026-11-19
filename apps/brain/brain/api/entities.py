@@ -266,7 +266,9 @@ def merge_entity(
     key = _uuid(entity_id, "entity")
     into = _uuid(body.into, "merge target")
     if key == into:
-        raise HTTPException(status_code=400, detail="cannot merge an entity into itself")
+        raise HTTPException(
+            status_code=400, detail="cannot merge an entity into itself"
+        )
     reason = (body.reason or "").strip() or None
     with get_pool().connection() as conn:
         src_name, src_type = _entity_row(conn, key)
@@ -475,7 +477,10 @@ def rename_entity(
         apply_renames(conn, load_corrections(conn))
         conn.commit()
     _enqueue_project()
-    return {"correction": correction, "entity": {"id": key, "name": new_name, "type": etype}}
+    return {
+        "correction": correction,
+        "entity": {"id": key, "name": new_name, "type": etype},
+    }
 
 
 @router.post("/entities/{entity_id}/type")

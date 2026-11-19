@@ -152,7 +152,9 @@ def _set_assignments(
     seen: set[str] = set()
     for entry in body.functions:
         if not 0.0 <= entry.weight <= 1.0:
-            raise HTTPException(status_code=400, detail="weight must be between 0 and 1")
+            raise HTTPException(
+                status_code=400, detail="weight must be between 0 and 1"
+            )
         function = _resolve(conn, entry.key)
         if function["id"] in seen:
             continue
@@ -276,7 +278,9 @@ def merge_function(
             raise HTTPException(status_code=404, detail="no such function")
         target = _resolve(conn, body.into.strip())
         if target["id"] == source["id"]:
-            raise HTTPException(status_code=400, detail="cannot merge a function into itself")
+            raise HTTPException(
+                status_code=400, detail="cannot merge a function into itself"
+            )
         if not target["active"]:
             raise HTTPException(status_code=400, detail="target function is retired")
         conn.execute(
@@ -334,7 +338,10 @@ def set_source_functions(
     del user
     key = _function_key(source_id)
     with get_pool().connection() as conn:
-        if conn.execute("SELECT 1 FROM cmap.source WHERE id = %s", (key,)).fetchone() is None:
+        if (
+            conn.execute("SELECT 1 FROM cmap.source WHERE id = %s", (key,)).fetchone()
+            is None
+        ):
             raise HTTPException(status_code=404, detail="source not found")
         functions = _set_assignments(conn, "source_function", "source_id", key, body)
         conn.commit()
@@ -351,7 +358,10 @@ def set_entity_functions(
     del user
     key = _function_key(entity_id)
     with get_pool().connection() as conn:
-        if conn.execute("SELECT 1 FROM cmap.entity WHERE id = %s", (key,)).fetchone() is None:
+        if (
+            conn.execute("SELECT 1 FROM cmap.entity WHERE id = %s", (key,)).fetchone()
+            is None
+        ):
             raise HTTPException(status_code=404, detail="entity not found")
         functions = _set_assignments(conn, "entity_function", "entity_id", key, body)
         conn.commit()

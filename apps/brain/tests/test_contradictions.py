@@ -31,7 +31,9 @@ def frontier_env(monkeypatch: pytest.MonkeyPatch) -> Any:
 class FakeClassifier:
     """Replay the contradiction classifier; records every prompt."""
 
-    def __init__(self, classification: str, summary: str = "sources make opposing claims") -> None:
+    def __init__(
+        self, classification: str, summary: str = "sources make opposing claims"
+    ) -> None:
         self.classification = classification
         self.summary = summary
         self.prompts: list[str] = []
@@ -46,7 +48,9 @@ class FakeClassifier:
         }
 
 
-def _fake_classifier(monkeypatch: pytest.MonkeyPatch, classification: str) -> FakeClassifier:
+def _fake_classifier(
+    monkeypatch: pytest.MonkeyPatch, classification: str
+) -> FakeClassifier:
     fake = FakeClassifier(classification)
     monkeypatch.setattr(cx, "_post_chat", fake)
     return fake
@@ -154,12 +158,24 @@ def test_two_owners_flagged(
     first = _seed_source(db, "Ownership policy", "2026-03-01")
     second = _seed_source(db, "Team notes", "2026-03-01")
     rel_a = _seed_relation(
-        db, first, person, project, "Jessica owns the licensing approval.",
-        "Jessica owns sign-off.", rel_type="OWNS", stance="practice",
+        db,
+        first,
+        person,
+        project,
+        "Jessica owns the licensing approval.",
+        "Jessica owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     rel_b = _seed_relation(
-        db, second, person, project, "Ilona owns the licensing approval, not Jessica.",
-        "Ilona owns sign-off, not Jessica.", rel_type="OWNS", stance="practice",
+        db,
+        second,
+        person,
+        project,
+        "Ilona owns the licensing approval, not Jessica.",
+        "Ilona owns sign-off, not Jessica.",
+        rel_type="OWNS",
+        stance="practice",
     )
     fake = _fake_classifier(monkeypatch, "true contradiction")
     stats = cx.run_contradictions()
@@ -189,12 +205,24 @@ def test_date_change_is_not_contradiction(
     old = _seed_source(db, "Ownership policy", "2026-01-01")
     new = _seed_source(db, "Ownership policy v2", "2026-03-01")
     _seed_relation(
-        db, old, person, project, "Jessica owns the licensing approval.",
-        "Jessica owns sign-off.", rel_type="OWNS", stance="practice",
+        db,
+        old,
+        person,
+        project,
+        "Jessica owns the licensing approval.",
+        "Jessica owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     _seed_relation(
-        db, new, person, project, "Ilona owns the licensing approval.",
-        "Ilona owns sign-off.", rel_type="OWNS", stance="practice",
+        db,
+        new,
+        person,
+        project,
+        "Ilona owns the licensing approval.",
+        "Ilona owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     # The date rule wins in code: a model call would be a wasted frontier call.
     fake = FakeClassifier("true contradiction")
@@ -219,14 +247,24 @@ def test_policy_vs_practice_recorded(
     policy_doc = _seed_source(db, "Approval procedure", "2026-01-01")
     meeting = _seed_source(db, "March standup", "2026-03-14")
     _seed_relation(
-        db, policy_doc, person, project,
+        db,
+        policy_doc,
+        person,
+        project,
         "The policy says the VP approves every licensing package.",
-        "The VP approves every licensing package.", rel_type="APPROVES", stance="policy",
+        "The VP approves every licensing package.",
+        rel_type="APPROVES",
+        stance="policy",
     )
     _seed_relation(
-        db, meeting, person, project,
+        db,
+        meeting,
+        person,
+        project,
         "In practice Jessica signs off on licensing packages herself.",
-        "We sign off ourselves.", rel_type="APPROVES", stance="practice",
+        "We sign off ourselves.",
+        rel_type="APPROVES",
+        stance="practice",
     )
     fake = _fake_classifier(monkeypatch, "policy-vs-practice gap")
     stats = cx.run_contradictions()
@@ -247,22 +285,41 @@ def test_interview_answer_contradicting_doc_creates_gap(
     project = _seed_entity(db, "Licensing approval")
     doc = _seed_source(db, "Approval procedure", "2026-01-01")
     _seed_relation(
-        db, doc, person, project, "Jessica owns the licensing approval.",
-        "Jessica owns sign-off.", rel_type="OWNS", stance="policy",
+        db,
+        doc,
+        person,
+        project,
+        "Jessica owns the licensing approval.",
+        "Jessica owns sign-off.",
+        rel_type="OWNS",
+        stance="policy",
     )
     answer_source = _seed_source(
-        db, "Interview answer — Test Employee — 2026-03-14",
-        "2026-03-14", kind="transcript",
+        db,
+        "Interview answer — Test Employee — 2026-03-14",
+        "2026-03-14",
+        kind="transcript",
     )
     _seed_relation(
-        db, answer_source, person, project, "Ilona owns the licensing approval.",
-        "Ilona owns sign-off.", rel_type="OWNS", stance="practice",
+        db,
+        answer_source,
+        person,
+        project,
+        "Ilona owns the licensing approval.",
+        "Ilona owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     db.execute(
         "INSERT INTO cmap.open_question (question, why, entity_ids, state, "
         "answer, answer_source_id) VALUES (%s, %s, %s, 'answered', %s, %s::uuid)",
-        ("Who owns sign-off?", "answered question", [person], "Ilona does.",
-         answer_source),
+        (
+            "Who owns sign-off?",
+            "answered question",
+            [person],
+            "Ilona does.",
+            answer_source,
+        ),
     )
     db.commit()
     # The relations hook queues an immediate scoped scan for an interview
@@ -277,9 +334,13 @@ def test_interview_answer_contradicting_doc_creates_gap(
         "SELECT id, payload FROM cmap.job WHERE kind = 'contradictions'"
     ).fetchone()
     fake = _fake_classifier(monkeypatch, "true contradiction")
-    cx.handle_contradictions({"id": job[0], "kind": "contradictions", "payload": job[1]})
+    cx.handle_contradictions(
+        {"id": job[0], "kind": "contradictions", "payload": job[1]}
+    )
     assert len(fake.prompts) == 1
-    assert _contradictions(db) == [("true_contradiction", "open", "sources make opposing claims")]
+    assert _contradictions(db) == [
+        ("true_contradiction", "open", "sources make opposing claims")
+    ]
     gaps = _gap_rows(db)
     assert len(gaps) == 1
     assert str(gaps[0][1]) == "Sources disagree: sources make opposing claims"
@@ -294,16 +355,34 @@ def test_precedes_cycle_flagged(
     step_c = _seed_entity(db, "Record approval", "Step")
     source = _seed_source(db, "Process notes", "2026-03-01")
     _seed_relation(
-        db, source, step_a, step_b, "Drafting precedes sending.",
-        "Draft first.", rel_type="PRECEDES", stance="practice",
+        db,
+        source,
+        step_a,
+        step_b,
+        "Drafting precedes sending.",
+        "Draft first.",
+        rel_type="PRECEDES",
+        stance="practice",
     )
     _seed_relation(
-        db, source, step_b, step_c, "Sending precedes recording.",
-        "Send before recording.", rel_type="PRECEDES", stance="practice",
+        db,
+        source,
+        step_b,
+        step_c,
+        "Sending precedes recording.",
+        "Send before recording.",
+        rel_type="PRECEDES",
+        stance="practice",
     )
     _seed_relation(
-        db, source, step_c, step_a, "Recording precedes drafting the next one.",
-        "Recording comes before the next draft.", rel_type="PRECEDES", stance="practice",
+        db,
+        source,
+        step_c,
+        step_a,
+        "Recording precedes drafting the next one.",
+        "Recording comes before the next draft.",
+        rel_type="PRECEDES",
+        stance="practice",
     )
     fake = FakeClassifier("true contradiction")
     monkeypatch.setattr(cx, "_post_chat", fake)
@@ -330,12 +409,24 @@ def test_gap_addresses_the_function_most_relevant_role(
     first = _seed_source(db, "Ownership policy", "2026-03-01")
     second = _seed_source(db, "Team notes", "2026-03-01")
     _seed_relation(
-        db, first, person, project, "Jessica owns sign-off.", "Jessica owns sign-off.",
-        rel_type="OWNS", stance="practice",
+        db,
+        first,
+        person,
+        project,
+        "Jessica owns sign-off.",
+        "Jessica owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     _seed_relation(
-        db, second, person, project, "Ilona owns sign-off.", "Ilona owns sign-off.",
-        rel_type="OWNS", stance="practice",
+        db,
+        second,
+        person,
+        project,
+        "Ilona owns sign-off.",
+        "Ilona owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     function_id = str(
         db.execute(
@@ -374,12 +465,24 @@ def test_same_pair_recorded_once_and_never_reclassified(
     first = _seed_source(db, "Ownership policy", "2026-03-01")
     second = _seed_source(db, "Team notes", "2026-03-01")
     _seed_relation(
-        db, first, person, project, "Jessica owns sign-off.", "Jessica owns sign-off.",
-        rel_type="OWNS", stance="practice",
+        db,
+        first,
+        person,
+        project,
+        "Jessica owns sign-off.",
+        "Jessica owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     _seed_relation(
-        db, second, person, project, "Jessica owns the licensing sign-off.",
-        "Jessica owns the licensing sign-off.", rel_type="OWNS", stance="practice",
+        db,
+        second,
+        person,
+        project,
+        "Jessica owns the licensing sign-off.",
+        "Jessica owns the licensing sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     fake = _fake_classifier(monkeypatch, "same")
     cx.run_contradictions()
@@ -392,8 +495,11 @@ def test_same_pair_recorded_once_and_never_reclassified(
 
 
 def test_entity_and_answers_surface_the_conflict(
-    db: Any, frontier_env: None, monkeypatch: pytest.MonkeyPatch,
-    client: Any, user_headers: dict[str, str],
+    db: Any,
+    frontier_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+    client: Any,
+    user_headers: dict[str, str],
 ) -> None:
     """The entity payload and the answer context both carry the labelled conflict."""
     person = _seed_entity(db, "Jessica")
@@ -401,12 +507,24 @@ def test_entity_and_answers_surface_the_conflict(
     first = _seed_source(db, "Ownership policy", "2026-03-01")
     second = _seed_source(db, "Team notes", "2026-03-01")
     _seed_relation(
-        db, first, person, project, "Jessica owns sign-off.", "Jessica owns sign-off.",
-        rel_type="OWNS", stance="practice",
+        db,
+        first,
+        person,
+        project,
+        "Jessica owns sign-off.",
+        "Jessica owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     _seed_relation(
-        db, second, person, project, "Ilona owns sign-off.", "Ilona owns sign-off.",
-        rel_type="OWNS", stance="practice",
+        db,
+        second,
+        person,
+        project,
+        "Ilona owns sign-off.",
+        "Ilona owns sign-off.",
+        rel_type="OWNS",
+        stance="practice",
     )
     _fake_classifier(monkeypatch, "true contradiction")
     cx.run_contradictions()
@@ -419,7 +537,9 @@ def test_entity_and_answers_surface_the_conflict(
     assert item["resolution"] is None
     assert item["source_a_title"] == "Ownership policy"
     assert item["source_b_title"] == "Team notes"
-    listed = client.get("/contradictions", headers=user_headers).json()["contradictions"]
+    listed = client.get("/contradictions", headers=user_headers).json()[
+        "contradictions"
+    ]
     assert len(listed) == 1
     assert listed[0]["relation_a"]["quote"] == "Jessica owns sign-off."
     assert {e["id"] for e in listed[0]["entities"]} == {person, project}
@@ -449,7 +569,9 @@ def test_contradictions_repairs_non_json_reply_and_succeeds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """#592: a prose reply from the contradictions seat re-asks once, then parses."""
-    monkeypatch.setattr(cx, "stage_model", lambda settings, stage: "test/frontier-model")
+    monkeypatch.setattr(
+        cx, "stage_model", lambda settings, stage: "test/frontier-model"
+    )
     seen: list[dict[str, Any]] = []
 
     def fake_post(url: str, **kw: Any) -> _Reply:
@@ -460,10 +582,11 @@ def test_contradictions_repairs_non_json_reply_and_succeeds(
 
     monkeypatch.setattr(llm.httpx, "post", fake_post)
     settings = get_settings().model_copy(update={"openrouter_api_key": "k"})
-    body = cx._post_chat(
-        [{"role": "user", "content": "classify the pair"}], settings
-    )
-    assert cx._parse_response(body) == {"classification": "same", "summary": "one claim"}
+    body = cx._post_chat([{"role": "user", "content": "classify the pair"}], settings)
+    assert cx._parse_response(body) == {
+        "classification": "same",
+        "summary": "one claim",
+    }
     assert len(seen) == 2, "exactly one repair re-ask"
     assert seen[1]["messages"][-1]["role"] == "user"
     assert "ONLY the JSON object" in seen[1]["messages"][-1]["content"]
@@ -474,7 +597,9 @@ def test_contradictions_persistent_non_json_fails_naming_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """#592: a persistently non-JSON reply fails with a provider-bearing error."""
-    monkeypatch.setattr(cx, "stage_model", lambda settings, stage: "test/frontier-model")
+    monkeypatch.setattr(
+        cx, "stage_model", lambda settings, stage: "test/frontier-model"
+    )
     calls: list[int] = []
 
     def fake_post(url: str, **kw: Any) -> _Reply:

@@ -60,7 +60,9 @@ def build_pdf(pages: list[list[str]]) -> bytes:
         operations.append("ET")
         stream = "\n".join(operations).encode("latin-1")
         bodies[content_num] = (
-            b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n"
+            b"<< /Length "
+            + str(len(stream)).encode()
+            + b" >>\nstream\n"
             + stream
             + b"\nendstream"
         )
@@ -70,9 +72,7 @@ def build_pdf(pages: list[list[str]]) -> bytes:
             + f"/Contents {content_num} 0 R >>".encode()
         )
     kids = " ".join(f"{4 + 2 * i} 0 R" for i in range(page_count))
-    bodies[2] = (
-        f"<< /Type /Pages /Kids [{kids}] /Count {page_count} >>".encode()
-    )
+    bodies[2] = f"<< /Type /Pages /Kids [{kids}] /Count {page_count} >>".encode()
     bodies[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
 
     object_count = 4 + 2 * page_count
@@ -126,7 +126,7 @@ PDF_PAGES: list[list[str]] = [
         "4.3 The Licensing Manager submits the package to the licensor for",
         "    sign-off through the Licensing Portal.",
         "4.4 On licensor approval the Licensing Manager records the sign-off",
-        "    in the Artwork Log (column \"Licensor sign-off date\").",
+        '    in the Artwork Log (column "Licensor sign-off date").',
         "4.5 Design releases the artwork to QA and to the buyer.",
         "4.6 The Buyer may create the purchase order only after the",
         "    Artwork Log shows the sign-off date.",
@@ -179,18 +179,12 @@ RELS_ROOT_DOCX = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 def _docx_document(paragraphs: list[str]) -> str:
     body = []
     for text in paragraphs:
-        safe = (
-            text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        )
-        body.append(
-            f'<w:p><w:r><w:t xml:space="preserve">{safe}</w:t></w:r></w:p>'
-        )
+        safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        body.append(f'<w:p><w:r><w:t xml:space="preserve">{safe}</w:t></w:r></w:p>')
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        "<w:body>"
-        + "".join(body)
-        + "</w:body></w:document>"
+        "<w:body>" + "".join(body) + "</w:body></w:document>"
     )
 
 
@@ -243,9 +237,7 @@ def _xlsx_sheet(rows: list[list[str]]) -> str:
             if column_index >= len(letters):
                 break
             ref = f"{letters[column_index]}{row_index}"
-            safe = (
-                value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            )
+            safe = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             cells.append(
                 f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{safe}</t></is></c>'
             )
@@ -253,9 +245,7 @@ def _xlsx_sheet(rows: list[list[str]]) -> str:
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        "<sheetData>"
-        + "".join(xml_rows)
-        + "</sheetData></worksheet>"
+        "<sheetData>" + "".join(xml_rows) + "</sheetData></worksheet>"
     )
 
 
@@ -626,13 +616,24 @@ def build_png() -> bytes:
 
     _arrow(
         draw,
-        [((submit[0] + submit[2]) // 2, submit[3]), ((review[0] + review[2]) // 2, review[1])],
+        [
+            ((submit[0] + submit[2]) // 2, submit[3]),
+            ((review[0] + review[2]) // 2, review[1]),
+        ],
         ink,
     )
     _arrow(draw, [(review[2], (review[1] + review[3]) // 2), (cx - dw, cy)], ink)
     _arrow(draw, [(cx + dw, cy), (record[0], (record[1] + record[3]) // 2)], accent)
-    _arrow(draw, [(cx, cy + dh), (cx, cy + dh + 60), (650, cy + dh + 60), (650, fix[3])], ink)
-    _arrow(draw, [(fix[0], (fix[1] + fix[3]) // 2), (submit[2], (submit[1] + submit[3]) // 2)], ink)
+    _arrow(
+        draw,
+        [(cx, cy + dh), (cx, cy + dh + 60), (650, cy + dh + 60), (650, fix[3])],
+        ink,
+    )
+    _arrow(
+        draw,
+        [(fix[0], (fix[1] + fix[3]) // 2), (submit[2], (submit[1] + submit[3]) // 2)],
+        ink,
+    )
     _arrow(
         draw,
         [((record[0] + record[2]) // 2, record[3]), ((po[0] + po[2]) // 2, po[1])],
@@ -640,7 +641,9 @@ def build_png() -> bytes:
     )
 
     draw.text((cx + dw + 16, cy - 40), "yes", font=small_font, fill=accent)
-    draw.text((cx + dw + 16, cy + 12), "Licensor sign-off", font=small_font, fill=accent)
+    draw.text(
+        (cx + dw + 16, cy + 12), "Licensor sign-off", font=small_font, fill=accent
+    )
     draw.text((cx + 8, cy + dh + 10), "no", font=small_font, fill=ink)
     draw.text((1100, 562), "Artwork Log entry", font=small_font, fill=accent)
 

@@ -27,7 +27,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 0.1 | Sizing script and cost forecast (no paid calls) | ✅ done | #607 comment 6993848642: 1,045 passages, $0.12–$0.80 forecast | 2026-11-18 |
 | 1.1 | `cmap.intake_item` / `cmap.intake_thread` staging tables | 🟨 in PR | sql/036_message_intake.sql; CI runs schema test | 2026-11-18 |
 | 1.2 | ClickUp collector | ⬜ open | — | — |
-| 1.3 | Teams chat collector | ⬜ open | — | — |
+| 1.3 | Teams chat collector | 🟨 in PR | `apps/brain/brain/intake/graph_chats.py`; `apps/brain/tests/test_intake_graph_chats.py` (7 synthetic pure tests pass; DB upsert test runs in CI); shared client `apps/brain/brain/graph_ms.py`; PR branch `claude/intake-teams-collector`; dry-run counts on live data not yet taken | 2026-11-18 |
 | 1.4 | Free cleaning and thread assembly (drop-only) | ⬜ open | — | — |
 | 1.5 | Thread relevance gate + triage summary (ScaleDown) | ⬜ open | — | — |
 | 1.6 | Kept thread becomes a `cmap.source` (record date, no date call) | ⬜ open | — | — |

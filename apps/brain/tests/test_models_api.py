@@ -35,9 +35,7 @@ def fresh_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 def test_models_requires_the_token(client: TestClient) -> None:
     assert client.get("/models").status_code == 401
-    assert (
-        client.get("/models", headers={"x-brain-token": "wrong"}).status_code == 401
-    )
+    assert client.get("/models", headers={"x-brain-token": "wrong"}).status_code == 401
 
 
 def test_models_reports_env_seats(

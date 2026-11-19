@@ -26,7 +26,10 @@ class _Boom(Exception):
 
 
 def _body(content: Any) -> dict[str, Any]:
-    return {"choices": [{"message": {"content": content}}], "usage": {"total_tokens": 5}}
+    return {
+        "choices": [{"message": {"content": content}}],
+        "usage": {"total_tokens": 5},
+    }
 
 
 def _settings() -> Settings:
@@ -58,7 +61,9 @@ def test_resolve_provider_routes_openrouter_by_default() -> None:
 
 
 def test_strip_provider_prefix() -> None:
-    assert llm.strip_provider_prefix("meta-model-api/muse-spark-1.3") == "muse-spark-1.3"
+    assert (
+        llm.strip_provider_prefix("meta-model-api/muse-spark-1.3") == "muse-spark-1.3"
+    )
     assert llm.strip_provider_prefix("z-ai/glm-5.3") == "z-ai/glm-5.3"
 
 
@@ -175,7 +180,11 @@ def test_no_api_key_raises_for_meta_model(
     s = Settings(openrouter_api_key="k")  # no meta key
     with pytest.raises(_Boom, match="no API key"):
         llm.post_chat_with_rescue(
-            {"model": "meta-model-api/muse-spark-1.3", "messages": [], "max_tokens": 4000},
+            {
+                "model": "meta-model-api/muse-spark-1.3",
+                "messages": [],
+                "max_tokens": 4000,
+            },
             settings=s,
             timeout=5.0,
             error_cls=_Boom,
@@ -288,7 +297,11 @@ def test_api_error_names_provider_and_http_status(
     monkeypatch.setattr(llm.httpx, "post", fake_post)
     with pytest.raises(_Boom, match=r"provider meta returned HTTP 400"):
         llm.post_chat_with_rescue(
-            {"model": "meta-model-api/muse-spark-1.3", "messages": [], "max_tokens": 10},
+            {
+                "model": "meta-model-api/muse-spark-1.3",
+                "messages": [],
+                "max_tokens": 10,
+            },
             settings=_settings(),
             timeout=5.0,
             error_cls=_Boom,
@@ -409,7 +422,11 @@ def test_stage_json_repair_fires_on_prose_wrapped_reply(
 
     monkeypatch.setattr(llm.httpx, "post", fake_post)
     out = llm.post_chat_json_body(
-        {"model": "m", "messages": [{"role": "user", "content": "classify"}], "max_tokens": 500},
+        {
+            "model": "m",
+            "messages": [{"role": "user", "content": "classify"}],
+            "max_tokens": 500,
+        },
         settings=_settings(),
         timeout=5.0,
         error_cls=_StageError,

@@ -37,21 +37,32 @@ def test_reread_actions_queue_once(
         "sources": 2,
         "queued": 2,
     }
-    assert client.post("/sources/reread-all", headers=admin_headers).json()["queued"] == 0
+    assert (
+        client.post("/sources/reread-all", headers=admin_headers).json()["queued"] == 0
+    )
     assert client.post(f"/sources/{first}/reread", headers=admin_headers).json() == {
         "id": first,
         "queued": False,
     }
-    assert client.post(f"/sources/{uuid4()}/reread", headers=admin_headers).status_code == 404
+    assert (
+        client.post(f"/sources/{uuid4()}/reread", headers=admin_headers).status_code
+        == 404
+    )
     db.commit()
-    assert db.execute(
-        "SELECT count(*) FROM cmap.source WHERE read_state = 'queued' AND read_error IS NULL"
-    ).fetchone()[0] == 2
+    assert (
+        db.execute(
+            "SELECT count(*) FROM cmap.source WHERE read_state = 'queued' AND read_error IS NULL"
+        ).fetchone()[0]
+        == 2
+    )
     db.execute("UPDATE cmap.job SET state = 'failed', attempts = 3, error = 'boom'")
     db.commit()
     body = client.post("/jobs/retry-failed", headers=admin_headers).json()
     assert body == {"requeued": 2, "by_kind": {"read_source": 2}}
     db.commit()
-    assert db.execute(
-        "SELECT count(*) FROM cmap.job WHERE state = 'queued' AND attempts = 0"
-    ).fetchone()[0] == 2
+    assert (
+        db.execute(
+            "SELECT count(*) FROM cmap.job WHERE state = 'queued' AND attempts = 0"
+        ).fetchone()[0]
+        == 2
+    )

@@ -179,9 +179,9 @@ def test_correction_survives_full_reread(db: Any) -> None:
     # back: same names, every row id new.
     _store_chunks(first["source"], [])
     db.commit()
-    assert (
-        db.execute("SELECT count(*) FROM cmap.entity").fetchone()[0] == 0
-    ), "re-read must have re-created entities, not kept the old rows"
+    assert db.execute("SELECT count(*) FROM cmap.entity").fetchone()[0] == 0, (
+        "re-read must have re-created entities, not kept the old rows"
+    )
     second = _seed_map(db, "g1reread2")
     assert first["entities"].isdisjoint(second["entities"])
 
@@ -216,9 +216,7 @@ def test_edit_replaces_fact_in_answers(
         payload={"descriptions": ["Jessica approves the package"]},
         reason="She approves, she does not review",
     )
-    result = answer_question(
-        "Who reviews the licensing package?", mode="local"
-    )
+    result = answer_question("Who reviews the licensing package?", mode="local")
     assert result["mode_used"] == "local"
     prompt = fake.prompts[0]
     assert "Jessica approves the package" in prompt

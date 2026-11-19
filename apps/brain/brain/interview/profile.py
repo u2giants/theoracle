@@ -49,7 +49,9 @@ _SPLIT_PROMPT = (
     "else the original words."
 )
 
-PROFILE_CHECK_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "profile_check.md"
+PROFILE_CHECK_PROMPT = (
+    Path(__file__).resolve().parents[1] / "prompts" / "profile_check.md"
+)
 
 
 @dataclass(frozen=True)
@@ -102,8 +104,8 @@ def is_profile_answer(text: str) -> bool:
     model = stage_model(settings, "grade")
     if not model or not settings.openrouter_api_key:
         return False
-    prompt = (
-        PROFILE_CHECK_PROMPT.read_text(encoding="utf-8").replace("{{message}}", text)
+    prompt = PROFILE_CHECK_PROMPT.read_text(encoding="utf-8").replace(
+        "{{message}}", text
     )
     try:
         body = post_chat_with_rescue(

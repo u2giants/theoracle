@@ -101,13 +101,18 @@ def test_question_translated_once_and_cached(
     assert "谁签署授权方审批表？" in sent[0][1]
     assert "跳过" in sent[0][1]  # zh command hints in the template
 
-    db.execute("UPDATE cmap.open_question SET state = 'open', asked_at = NULL WHERE id = %s", (qid,))
+    db.execute(
+        "UPDATE cmap.open_question SET state = 'open', asked_at = NULL WHERE id = %s",
+        (qid,),
+    )
     db.execute("DELETE FROM cmap.interview_send")
     db.execute("DELETE FROM cmap.interview_conversation")
     db.commit()
     sent.clear()
     assert run_interview_tick()["asked"] == 1
-    assert calls == ["Who signs the licensor approval form?"]  # cached, not re-translated
+    assert calls == [
+        "Who signs the licensor approval form?"
+    ]  # cached, not re-translated
     assert "谁签署授权方审批表？" in sent[0][1]
 
 

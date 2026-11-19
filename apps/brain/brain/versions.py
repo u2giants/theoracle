@@ -46,8 +46,24 @@ ORIGIN_ADMIN = "admin"
 
 _TITLE_EXTENSIONS = frozenset(
     {
-        "pdf", "docx", "xlsx", "pptx", "txt", "text", "md", "csv", "tsv",
-        "png", "jpg", "jpeg", "svg", "json", "vtt", "doc", "xls", "ppt",
+        "pdf",
+        "docx",
+        "xlsx",
+        "pptx",
+        "txt",
+        "text",
+        "md",
+        "csv",
+        "tsv",
+        "png",
+        "jpg",
+        "jpeg",
+        "svg",
+        "json",
+        "vtt",
+        "doc",
+        "xls",
+        "ppt",
     }
 )
 _EXT_RE = re.compile(r"\.([A-Za-z0-9]{1,5})$")

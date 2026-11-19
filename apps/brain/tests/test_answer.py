@@ -220,7 +220,9 @@ class FakeAnswer:
         }
         if self.override is not None:
             payload.update(self.override)
-        payload["citations"] = list(payload.get("citations") or []) + self.extra_citations
+        payload["citations"] = (
+            list(payload.get("citations") or []) + self.extra_citations
+        )
         return payload
 
     def _global(self, prompt: str) -> dict[str, Any]:
@@ -246,7 +248,9 @@ class FakeAnswer:
         }
         if self.override is not None:
             payload.update(self.override)
-        payload["citations"] = list(payload.get("citations") or []) + self.extra_citations
+        payload["citations"] = (
+            list(payload.get("citations") or []) + self.extra_citations
+        )
         return payload
 
     def _map(self, prompt: str) -> dict[str, Any]:
@@ -297,7 +301,9 @@ class FakeCompress(FakeScaleDown):
             "scores": {"specific": 0.9, "broad": 0.1},
         }
 
-    def __call__(self, path: str, body: dict[str, Any], settings: Any) -> dict[str, Any]:
+    def __call__(
+        self, path: str, body: dict[str, Any], settings: Any
+    ) -> dict[str, Any]:
         del settings
         self.compress_calls.append({"path": path, "body": body})
         if path == "/compress/raw/":
@@ -431,14 +437,18 @@ def test_local_answer_cites_three_sources_for_stall_question(
     assert "ENTITIES AND EDGES" in prompt
     assert "QUOTES (verbatim, each with its chunk_id)" in prompt
     assert result["answer_md"].strip()
-    assert not result["unknowns"] or all(isinstance(item, str) for item in result["unknowns"])
+    assert not result["unknowns"] or all(
+        isinstance(item, str) for item in result["unknowns"]
+    )
 
 
 def test_global_answer_ranks_licensing_delay_top(
     answer_env: None, monkeypatch: pytest.MonkeyPatch, db: Any
 ) -> None:
     """The company-wide answer puts the most-attested problem first."""
-    fake_embeds(monkeypatch, {"Licensing delay blocks artwork release": _direction(0.0)})
+    fake_embeds(
+        monkeypatch, {"Licensing delay blocks artwork release": _direction(0.0)}
+    )
     proc = _seed_text(db, "The licensor sign-off stalls the release for weeks.", "proc")
     tx = _seed_text(db, "Jessica says the sign-off is the bottleneck.", "tx")
     flow = _seed_text(db, "FLOWCHART n4 Record sign-off (Jessica)", "flow")
@@ -450,7 +460,11 @@ def test_global_answer_ranks_licensing_delay_top(
     second = db.execute(
         "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count) "
         "VALUES (%s, 1, %s, %s, 10) RETURNING id",
-        (proc, json.dumps({"page": 2}), "A second procedure page about sign-off timing."),
+        (
+            proc,
+            json.dumps({"page": 2}),
+            "A second procedure page about sign-off timing.",
+        ),
     ).fetchone()
     second_chunk = str(second[0])
     for chunk_id, theta in ((base_chunk, 0.05), (second_chunk, 1.0)):
@@ -696,7 +710,10 @@ def test_answer_endpoint_round_trip(
     }
     assert body["mode_used"] == "local"
     assert body["citations"][0]["source_id"] == source_id
-    assert body["citations"][0]["quote"] == "The sign-off stalls at the licensor review step."
+    assert (
+        body["citations"][0]["quote"]
+        == "The sign-off stalls at the licensor review step."
+    )
     rejected = client.post(
         "/answer",
         json={"question": "", "mode": "local"},
@@ -709,6 +726,7 @@ def test_answer_endpoint_round_trip(
         headers=user_headers,
     )
     assert bad_mode.status_code == 400
+
 
 def test_global_word_source_id_dropped(answer_env: None, db: Any) -> None:
     """A global citation whose source_id is not a uuid is dropped, not a crash.
@@ -894,8 +912,7 @@ def test_global_cannot_cite_unseen_source(
     fake_compress(monkeypatch)
     fake.override = {
         "answer_md": (
-            "The release stalls at sign-off [1]. "
-            "A side process hides the truth [2]."
+            "The release stalls at sign-off [1]. A side process hides the truth [2]."
         ),
         "citations": [{"source_id": seen}, {"source_id": unseen}],
         "unknowns": [],
@@ -1135,7 +1152,9 @@ def test_short_alias_not_substring_matched(
 ) -> None:
     """Alias seeding matches on word boundaries and never for short aliases."""
     fake_embeds(monkeypatch, {})
-    source_id = _seed_text(db, "The concatenate and wait steps of the lab process.", "alias")
+    source_id = _seed_text(
+        db, "The concatenate and wait steps of the lab process.", "alias"
+    )
     chunk_id = str(
         db.execute(
             "SELECT id FROM cmap.chunk WHERE source_id = %s", (source_id,)

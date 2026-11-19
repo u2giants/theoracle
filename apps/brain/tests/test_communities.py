@@ -80,14 +80,20 @@ class FakeReport:
             summariser = self.summarise or self._default_summarise
             return {
                 "choices": [
-                    {"message": {"content": json.dumps({"summary": summariser(prompt)})}}
+                    {
+                        "message": {
+                            "content": json.dumps({"summary": summariser(prompt)})
+                        }
+                    }
                 ],
                 "usage": {"total_tokens": 5},
             }
         if prompt.startswith("ENGLISH QUESTION REWRITE"):
             body = prompt.split("<<<", 1)[1].rsplit(">>>", 1)[0].strip()
             return {
-                "choices": [{"message": {"content": json.dumps({"question_en": body})}}],
+                "choices": [
+                    {"message": {"content": json.dumps({"question_en": body})}}
+                ],
                 "usage": {"total_tokens": 5},
             }
         if prompt.startswith("QUESTION VETTING"):
@@ -146,7 +152,9 @@ def _seed_second_cluster(db: Any) -> None:
     c_m = _mention(db, source, "Customer", "Big Box", customer)
     f_m = _mention(db, source, "System", "Line 7", factory)
     _relation(db, source, v_m, c_m, "PRODUCES", "the factory ships", confidence=0.9)
-    _relation(db, source, f_m, v_m, "DEPENDS_ON", "the line feeds the vendor", confidence=0.9)
+    _relation(
+        db, source, f_m, v_m, "DEPENDS_ON", "the line feeds the vendor", confidence=0.9
+    )
 
 
 def test_leiden_groups_fixture_approval_nodes_together(
@@ -173,9 +181,7 @@ def test_second_pass_reuses_stored_reports(
     fake = _fake(monkeypatch)
     first = run_communities()
     prompts_after_first = len(fake.prompts)
-    rows_after_first = db.execute(
-        "SELECT count(*) FROM cmap.community"
-    ).fetchone()[0]
+    rows_after_first = db.execute("SELECT count(*) FROM cmap.community").fetchone()[0]
     second = run_communities()
     assert len(fake.prompts) == prompts_after_first
     assert (
@@ -347,12 +353,17 @@ def test_question_the_brain_can_answer_is_not_stored(
 
     fake = _fake(monkeypatch)
     fake.answered = ["Who owns the sign-off?"]
-    report = {"title": "r", "open_questions": ["Who owns the sign-off?", "When is the cutoff?"]}
+    report = {
+        "title": "r",
+        "open_questions": ["Who owns the sign-off?", "When is the cutoff?"],
+    }
     written = comm._store_open_questions(
         db, report, [], _Frontier(get_settings(), "reports"), get_settings(), set()
     )
     db.commit()
-    rows = [r[0] for r in db.execute("SELECT question FROM cmap.open_question").fetchall()]
+    rows = [
+        r[0] for r in db.execute("SELECT question FROM cmap.open_question").fetchall()
+    ]
     assert written == 1
     assert rows == ["When is the cutoff?"]
 
@@ -436,15 +447,15 @@ def test_rerun_retires_answered_and_replaced_questions(
         _Frontier(get_settings(), "reports"),
         get_settings(),
     )
-    states = dict(db.execute("SELECT question, state FROM cmap.open_question").fetchall())
+    states = dict(
+        db.execute("SELECT question, state FROM cmap.open_question").fetchall()
+    )
     assert retired == 2
     assert states == {
         "Rebuilt area question?": "dismissed",
         "Now answered question?": "dismissed",
         "Still unknown question?": "open",
     }
-
-
 
 
 def _stale_report(db: Any, version: int, title: str, level: int = 1) -> str:
@@ -521,7 +532,9 @@ def test_prune_can_be_switched_off(monkeypatch: pytest.MonkeyPatch, db: Any) -> 
         _seed_approval_map(db)
         for _ in range(3):
             run_project()
-        current = db.execute("SELECT MAX(version) FROM cmap.graph_version").fetchone()[0]
+        current = db.execute("SELECT MAX(version) FROM cmap.graph_version").fetchone()[
+            0
+        ]
         ancient = _stale_report(db, current - 2, "ancient")
         _fake(monkeypatch)
         stats = run_communities()
@@ -734,9 +747,12 @@ def test_failed_child_does_not_poison_parent(
     ).fetchone()
     assert str(l1[0]) == function_id
     assert l1[2] is True
-    assert db.execute(
-        "SELECT incomplete FROM cmap.community WHERE level = 2"
-    ).fetchone()[0] is True
+    assert (
+        db.execute("SELECT incomplete FROM cmap.community WHERE level = 2").fetchone()[
+            0
+        ]
+        is True
+    )
 
     # Same graph: the failed child is retried and both parents regenerate —
     # they are never cached without it.
@@ -750,9 +766,12 @@ def test_failed_child_does_not_poison_parent(
     ).fetchone()
     assert str(l1b[0]) == function_id
     assert l1b[1] is False
-    assert db.execute(
-        "SELECT incomplete FROM cmap.community WHERE level = 2"
-    ).fetchone()[0] is False
+    assert (
+        db.execute("SELECT incomplete FROM cmap.community WHERE level = 2").fetchone()[
+            0
+        ]
+        is False
+    )
 
 
 def test_company_input_never_truncated(
@@ -769,10 +788,10 @@ def test_company_input_never_truncated(
         monkeypatch,
         summary=("detail-line " * 60) + "UNIQUEMARK",
         numbered=True,
-        summarise=lambda prompt: " ".join(
-            line for line in prompt.splitlines() if line.startswith("## ")
-        )
-        or "batch-digest",
+        summarise=lambda prompt: (
+            " ".join(line for line in prompt.splitlines() if line.startswith("## "))
+            or "batch-digest"
+        ),
     )
     run_communities()
     summarise_prompts = [
@@ -824,9 +843,7 @@ def test_recommendation_and_flag_references_survive_regeneration(
     run_project()
     _fake(monkeypatch)
     run_communities()
-    assert db.execute(
-        "SELECT 1 FROM cmap.community WHERE id = %s", (l0_id,)
-    ).fetchone()
+    assert db.execute("SELECT 1 FROM cmap.community WHERE id = %s", (l0_id,)).fetchone()
     assert db.execute(
         "SELECT 1 FROM cmap.community WHERE id = %s", (function_id,)
     ).fetchone()
@@ -861,9 +878,7 @@ def _report_prompt(fake: FakeReport, scope: str, needle: str | None = None) -> s
     return matches[-1]
 
 
-def _seed_flow(
-    db: Any, function_id: str, steps: list[tuple[str, str]]
-) -> str:
+def _seed_flow(db: Any, function_id: str, steps: list[tuple[str, str]]) -> str:
     """One E2 process flow over the given (step entity, performer) steps."""
     process = _entity(db, "Process", "package approval process", mentions=1, sources=1)
     flow_id = str(
@@ -1049,9 +1064,7 @@ def test_boundary_relation_regenerates_report(
     third = run_communities()
     assert third["reports_reused"] == third["reports"]
     assert fake.prompts == []
-    assert db.execute(
-        "SELECT 1 FROM cmap.community WHERE id = %s", (l0_id,)
-    ).fetchone()
+    assert db.execute("SELECT 1 FROM cmap.community WHERE id = %s", (l0_id,)).fetchone()
     assert db.execute(
         "SELECT 1 FROM cmap.community WHERE id = %s", (function_id,)
     ).fetchone()
@@ -1236,12 +1249,18 @@ def test_map_reduce_converges_and_marks_incomplete(
 
     # The stored company report row carries incomplete=true, and the model saw
     # the visible cut marker — the cut is never silent.
-    assert any(flag is True for _level, flag in db.execute(
-        "SELECT level, incomplete FROM cmap.community"
-    ).fetchall())
-    assert db.execute(
-        "SELECT incomplete FROM cmap.community WHERE level = 2"
-    ).fetchone()[0] is True
+    assert any(
+        flag is True
+        for _level, flag in db.execute(
+            "SELECT level, incomplete FROM cmap.community"
+        ).fetchall()
+    )
+    assert (
+        db.execute("SELECT incomplete FROM cmap.community WHERE level = 2").fetchone()[
+            0
+        ]
+        is True
+    )
     assert any(comm.CONTEXT_CUT_MARKER in prompt for prompt in fake.prompts)
     assert all("context truncated" not in prompt for prompt in fake.prompts)
 
@@ -1250,9 +1269,7 @@ def test_map_reduce_converges_and_marks_incomplete(
     before = len(fake.prompts)
     second = run_communities()
     assert second["reports_reused"] < second["reports"]
-    assert any(
-        comm.CONTEXT_CUT_MARKER in prompt for prompt in fake.prompts[before:]
-    )
+    assert any(comm.CONTEXT_CUT_MARKER in prompt for prompt in fake.prompts[before:])
 
 
 def test_hard_fallback_fits_at_sentence_boundaries() -> None:

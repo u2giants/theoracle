@@ -22,7 +22,10 @@ from brain.eval.run import (
 
 SEED_PATH = Path(__file__).resolve().parents[1] / "eval" / "questions.seed.json"
 ZH_QUESTION = "样品从工厂提交到样品间走查的流程是怎样的？"
-ZH_POINTS = ["样品要先过内部审批（Samples Internal Approval）", "样品意见记录之后才进样品间排期"]
+ZH_POINTS = [
+    "样品要先过内部审批（Samples Internal Approval）",
+    "样品意见记录之后才进样品间排期",
+]
 ZH_ANSWER = "样品要先过内部审批（Samples Internal Approval） [1]。样品意见记录之后才进样品间排期 [2]。"
 
 
@@ -96,6 +99,8 @@ def test_eval_detects_broken_citations_zh(
     monkeypatch.setattr(answer_mod, "_finalize_local", broken_finalize)
     run = run_eval()
     assert run["mean_score"] < 0.8
-    zh_results = [item for item in run["results"] if ZH_QUESTION in str(item.get("question"))]
+    zh_results = [
+        item for item in run["results"] if ZH_QUESTION in str(item.get("question"))
+    ]
     assert zh_results
     assert any("(uncited)" in str(item["answer_md"]) for item in zh_results)

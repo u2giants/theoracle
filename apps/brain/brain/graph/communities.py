@@ -404,7 +404,7 @@ def _handoff_lines(
     names: dict[str, str],
     function_names: dict[str, list[str]],
 ) -> list[str]:
-    """"Hand-offs in / out" lines for one level-0/level-1 report (repair E4).
+    """ "Hand-offs in / out" lines for one level-0/level-1 report (repair E4).
 
     Every boundary relation crossing the cluster or function boundary is
     listed with its direction (``out`` when the edge leaves the report's own
@@ -554,9 +554,7 @@ def _function_buckets(
         key=lambda bucket: (bucket["function_name"], bucket["function_id"]),
     )
     if unassigned:
-        out.append(
-            {"function_id": None, "function_name": None, "nodes": unassigned}
-        )
+        out.append({"function_id": None, "function_name": None, "nodes": unassigned})
     return out
 
 
@@ -682,9 +680,7 @@ def _level0_membership(
                 membership[vertex] = target
             changed = True
             break
-    sources = [
-        (entity_sources or {}).get(entity_id, set()) for entity_id in entity_ids
-    ]
+    sources = [(entity_sources or {}).get(entity_id, set()) for entity_id in entity_ids]
     vectors = [(entity_vectors or {}).get(entity_id) for entity_id in entity_ids]
     _fold_leftovers(membership, adjacency, sources, vectors)
     return {
@@ -816,9 +812,9 @@ def _fold_leftovers(
                         continue
                     shared = own & entity_sources[vertex]
                     if shared:
-                        source_by[other_community] = (
-                            source_by.get(other_community, 0) + len(shared)
-                        )
+                        source_by[other_community] = source_by.get(
+                            other_community, 0
+                        ) + len(shared)
         centre = _centroid(community) if has_vectors else None
         best: int | None = None
         best_key: tuple[float, float, int, int] | None = None
@@ -934,7 +930,9 @@ def _context_l0(
             f"{member['description'] or '(no description)'}"
         )
     scoped = [
-        edge for edge in edges if edge["from"] in member_ids and edge["to"] in member_ids
+        edge
+        for edge in edges
+        if edge["from"] in member_ids and edge["to"] in member_ids
     ]
     scoped.sort(key=edge_rank, reverse=True)
     lines.append("EDGES:")
@@ -963,7 +961,9 @@ def _context_l0(
         lines.append(f'- [{item["source_id"]}] "{item["quote"]}"')
     disagreements = disagreement_lines(conn, [member["id"] for member in members])
     if disagreements:
-        lines.append("SOURCES DISAGREE (state these as contradictions or gaps in findings):")
+        lines.append(
+            "SOURCES DISAGREE (state these as contradictions or gaps in findings):"
+        )
         for line in disagreements:
             lines.append(f"- {line}")
     return _fit(lines, frontier)
@@ -1132,9 +1132,14 @@ def _store(
     community_id = str(row[0])
     upsert_translation("community", community_id, "title", "en", canonical["title"])
     upsert_translation("community", community_id, "summary", "en", canonical["summary"])
-    if canonical["title"] != report["title"] or detect_language(str(report["title"])) == "zh":
+    if (
+        canonical["title"] != report["title"]
+        or detect_language(str(report["title"])) == "zh"
+    ):
         upsert_translation("community", community_id, "title", "zh-CN", report["title"])
-        upsert_translation("community", community_id, "summary", "zh-CN", report["summary"])
+        upsert_translation(
+            "community", community_id, "summary", "zh-CN", report["summary"]
+        )
     return community_id, dropped
 
 
@@ -1207,10 +1212,14 @@ def vet_questions(
         for number, (question, vector) in enumerate(
             zip(batch, vectors[start : start + CHECK_BATCH], strict=True), start=1
         ):
-            passages = "\n".join(f"  - {text}" for text in _closest_passages(conn, vector))
+            passages = "\n".join(
+                f"  - {text}" for text in _closest_passages(conn, vector)
+            )
             blocks.append(f"{number}. {question}\n{passages or '  (no passages)'}")
         try:
-            result = frontier.ask(template.replace("{{candidates}}", "\n\n".join(blocks)))
+            result = frontier.ask(
+                template.replace("{{candidates}}", "\n\n".join(blocks))
+            )
         except Exception:  # noqa: BLE001 - never fail the run
             logger.warning("question vetting failed for %d questions", len(batch))
             continue
@@ -1230,7 +1239,9 @@ def vet_questions(
             out[batch[number - 1]] = {
                 "answered": bool(item.get("answered")),
                 "importance": max(1, min(5, importance)),
-                "person": people_lower.get(str(item.get("person") or "").strip().lower(), ""),
+                "person": people_lower.get(
+                    str(item.get("person") or "").strip().lower(), ""
+                ),
                 "department": by_lower.get(
                     str(item.get("department") or "").strip().lower(), ""
                 ),
@@ -1275,7 +1286,9 @@ def _store_open_questions(
         rewritten = ensure_english_question(question, frontier.ask)
         if rewritten:
             english.append(rewritten)
-    verdicts = vet_questions(conn, english, _area_people(conn, entity_ids), frontier, settings)
+    verdicts = vet_questions(
+        conn, english, _area_people(conn, entity_ids), frontier, settings
+    )
     written = 0
     for question in _worth_asking(verdicts, MAX_QUESTIONS_PER_AREA):
         verdict = verdicts[question]
@@ -1348,7 +1361,12 @@ def _refresh_open_questions(
             conn.execute(
                 "UPDATE cmap.open_question SET priority = %s, suggested_person = %s, "
                 "department = %s WHERE id = %s",
-                (verdict["importance"], verdict["person"] or None, verdict["department"], qid),
+                (
+                    verdict["importance"],
+                    verdict["person"] or None,
+                    verdict["department"],
+                    qid,
+                ),
             )
         conn.commit()
     if retire:
@@ -1398,8 +1416,7 @@ def _previous_l0_rows(conn: psycopg.Connection) -> list[dict[str, Any]]:
     died.
     """
     rows = conn.execute(
-        f"SELECT {_ROW_COLUMNS}, function_id::text FROM cmap.community "
-        "WHERE level = 0"
+        f"SELECT {_ROW_COLUMNS}, function_id::text FROM cmap.community WHERE level = 0"
     ).fetchall()
     out = []
     for row in rows:
@@ -1523,8 +1540,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             str(row[0]) for row in conn.execute("SELECT id FROM cmap.source").fetchall()
         }
         graph_version = int(
-            conn.execute("SELECT COALESCE(MAX(version), 0) FROM cmap.graph_version")
-            .fetchone()[0]
+            conn.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM cmap.graph_version"
+            ).fetchone()[0]
         )
         entity_ids = [node["id"] for node in nodes]
         cluster_edges = _clustering_edges(edges)
@@ -1703,7 +1721,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 edges, set(member_ids), names, function_names
             )
             available = [
-                cluster["summary"] for cluster in group if cluster["summary"] is not None
+                cluster["summary"]
+                for cluster in group
+                if cluster["summary"] is not None
             ]
             complete = len(available) == len(group)
             existing = _stored_row(conn, function_id)

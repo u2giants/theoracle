@@ -123,7 +123,11 @@ def _heal_graph(conn: Any, stats: dict[str, int]) -> None:
     unresolved = conn.execute(
         "SELECT 1 FROM cmap.mention WHERE entity_id IS NULL LIMIT 1"
     ).fetchone()
-    if unresolved and not _active(conn, "resolve") and not _recently_failed(conn, "resolve"):
+    if (
+        unresolved
+        and not _active(conn, "resolve")
+        and not _recently_failed(conn, "resolve")
+    ):
         _queue(conn, "resolve")
         stats["resolve"] += 1
         conn.commit()

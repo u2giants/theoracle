@@ -26,9 +26,9 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from brain.config import get_settings
+from brain.graph_ms import get_retry
 from brain.intake.sizing import (
     CLICKUP,
-    _get,
     clickup_member,
     involves,
     resolve_people,
@@ -130,7 +130,7 @@ def collect(
 ) -> Iterator[tuple[dict, list[dict]]]:
     """Yield (task, items) for each task in the window where a named person is involved."""
     seen: set[str] = set()
-    for team in _get(c, f"{CLICKUP}/team").json()["teams"]:
+    for team in get_retry(c, f"{CLICKUP}/team").json()["teams"]:
         uids = [clickup_member(team.get("members", []), e, n) for e, n in people]
         if None in uids:
             raise RuntimeError(

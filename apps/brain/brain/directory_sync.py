@@ -137,7 +137,12 @@ def apply_directory(
 def run_directory_sync(settings: Settings | None = None) -> dict[str, Any]:
     """Fetch the DesignFlow directory and mirror it into Oracle; return counts."""
     cfg = settings if settings is not None else get_settings()
-    result: dict[str, Any] = {"enabled": False, "created": 0, "updated": 0, "skipped": 0}
+    result: dict[str, Any] = {
+        "enabled": False,
+        "created": 0,
+        "updated": 0,
+        "skipped": 0,
+    }
     if not cfg.dflow_directory_sync_enabled:
         logger.info("directory_sync skipped: DFLOW_DIRECTORY_SYNC_ENABLED is not on")
         return result

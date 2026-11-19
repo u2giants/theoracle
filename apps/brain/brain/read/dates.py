@@ -92,7 +92,9 @@ def parse_date_value(value: Any) -> date | None:
     pdf_form = _PDF_DATE_RE.match(text)
     if pdf_form:
         try:
-            return date(int(pdf_form.group(1)), int(pdf_form.group(2)), int(pdf_form.group(3)))
+            return date(
+                int(pdf_form.group(1)), int(pdf_form.group(2)), int(pdf_form.group(3))
+            )
         except ValueError:
             return None
     try:
@@ -227,8 +229,10 @@ def document_text_date(
     """
     if not first_page.strip() and not last_page.strip():
         return None
-    prompt = load_date_prompt().replace("{{first_page}}", first_page).replace(
-        "{{last_page}}", last_page
+    prompt = (
+        load_date_prompt()
+        .replace("{{first_page}}", first_page)
+        .replace("{{last_page}}", last_page)
     )
     body = _post_chat([{"role": "user", "content": prompt}], settings)
     if usage is not None:
@@ -327,7 +331,10 @@ def _source_chunks(conn: Any, source_id: str) -> list[tuple[dict[str, Any], str]
         "SELECT locator, text FROM cmap.chunk WHERE source_id = %s ORDER BY ordinal",
         (source_id,),
     ).fetchall()
-    return [(locator if isinstance(locator, dict) else {}, str(text)) for locator, text in rows]
+    return [
+        (locator if isinstance(locator, dict) else {}, str(text))
+        for locator, text in rows
+    ]
 
 
 def resolve_and_store(

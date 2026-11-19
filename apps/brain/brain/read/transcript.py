@@ -54,7 +54,9 @@ def _format_t0(value: Any) -> str | None:
         return None
     long_form = re.match(r"(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?$", text)
     if long_form:
-        return f"{int(long_form.group(1)):02d}:{long_form.group(2)}:{long_form.group(3)}"
+        return (
+            f"{int(long_form.group(1)):02d}:{long_form.group(2)}:{long_form.group(3)}"
+        )
     short_form = re.match(r"(\d{1,2}):(\d{2})(?:\.\d+)?$", text)
     if short_form:
         return f"00:{int(short_form.group(1)):02d}:{short_form.group(2)}"
@@ -92,9 +94,7 @@ def _turn_from_object(item: dict[str, Any]) -> Turn:
     words = item.get("words")
     if isinstance(words, list) and words:
         text = " ".join(
-            str(word.get("text") or "")
-            for word in words
-            if isinstance(word, dict)
+            str(word.get("text") or "") for word in words if isinstance(word, dict)
         ).strip()
         first = words[0]
         if isinstance(first, dict):
@@ -244,7 +244,11 @@ def parse_turns(text: str) -> list[Turn]:
 
 def _split_long_turn(text: str) -> list[str]:
     """Split an over-long turn at sentence boundaries within the window."""
-    slices = [(sentence, sep) for sentence, sep in sentence_slices(text.strip()) if sentence.strip()]
+    slices = [
+        (sentence, sep)
+        for sentence, sep in sentence_slices(text.strip())
+        if sentence.strip()
+    ]
     pieces: list[str] = []
     current: list[tuple[str, str]] = []
     tokens = 0

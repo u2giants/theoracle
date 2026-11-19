@@ -48,8 +48,12 @@ def test_company_and_community_cards(
     assert company["summary"]
     assert 0 < len(company["issues"]) <= 10
     assert all(issue["sources"] for issue in company["issues"])
-    cards = client.get("/communities?level=1", headers=user_headers).json()["communities"]
-    licensing = [card for card in cards if card["id"] == seeded["licensing_community_id"]]
+    cards = client.get("/communities?level=1", headers=user_headers).json()[
+        "communities"
+    ]
+    licensing = [
+        card for card in cards if card["id"] == seeded["licensing_community_id"]
+    ]
     assert licensing and licensing[0]["title"] == LICENSING_TITLE
     assert licensing[0]["finding_count"] >= 1
     assert licensing[0]["summary"]
@@ -64,7 +68,9 @@ def test_community_detail_has_findings_and_graph(
     assert body["title"] == LICENSING_TITLE
     stances = {finding["stance"] for finding in body["findings"]}
     assert stances <= {"policy", "practice", "report", "inference"}
-    chips = {source["id"] for finding in body["findings"] for source in finding["sources"]}
+    chips = {
+        source["id"] for finding in body["findings"] for source in finding["sources"]
+    }
     assert chips
     node_ids = {node["id"] for node in body["graph"]["nodes"]}
     assert seeded["jessica_id"] in node_ids
@@ -102,7 +108,9 @@ def test_entity_neighbours_quote_the_transcript(
 def test_source_chunks_in_order(
     seeded: dict[str, Any], client: TestClient, user_headers: dict[str, str]
 ) -> None:
-    body = client.get(f"/sources/{seeded['pdf_id']}/chunks", headers=user_headers).json()
+    body = client.get(
+        f"/sources/{seeded['pdf_id']}/chunks", headers=user_headers
+    ).json()
     assert body["source"]["kind"] == "pdf"
     ordinals = [chunk["ordinal"] for chunk in body["chunks"]]
     assert ordinals == sorted(ordinals) and ordinals
@@ -117,7 +125,9 @@ def test_search_finds_entity_source_and_community(
     body = client.get("/search?q=teams-approval", headers=user_headers).json()
     assert seeded["transcript_id"] in {item["id"] for item in body["sources"]}
     body = client.get("/search?q=licensing", headers=user_headers).json()
-    assert seeded["licensing_community_id"] in {item["id"] for item in body["communities"]}
+    assert seeded["licensing_community_id"] in {
+        item["id"] for item in body["communities"]
+    }
 
 
 def test_unknown_ids_are_404(client: TestClient, user_headers: dict[str, str]) -> None:
@@ -159,10 +169,14 @@ def test_function_cards_carry_counts_and_top_issues(
     assert card["entity_count"] >= card["process_count"] + card["person_count"]
     assert card["open_contradictions"] == 1
     assert card["open_gaps"] == 1
-    assert any(issue["kind"] == "contradiction" and issue["text"] == CONTRADICTION_SUMMARY
-               for issue in card["top_issues"])
-    assert any(issue["kind"] == "gap" and issue["text"] == INTERVIEW_OPEN
-               for issue in card["top_issues"])
+    assert any(
+        issue["kind"] == "contradiction" and issue["text"] == CONTRADICTION_SUMMARY
+        for issue in card["top_issues"]
+    )
+    assert any(
+        issue["kind"] == "gap" and issue["text"] == INTERVIEW_OPEN
+        for issue in card["top_issues"]
+    )
 
 
 def test_function_detail_composes_the_function_page(
@@ -184,7 +198,9 @@ def test_function_detail_composes_the_function_page(
     assert seeded["transcript_id"] in {source["id"] for source in process["sources"]}
     assert any(item["id"] == seeded["jessica_id"] for item in body["people"])
     assert INTERVIEW_OPEN in {gap["question"] for gap in body["gaps"]}
-    conflicts = [row for row in body["contradictions"] if row["summary"] == CONTRADICTION_SUMMARY]
+    conflicts = [
+        row for row in body["contradictions"] if row["summary"] == CONTRADICTION_SUMMARY
+    ]
     assert conflicts and conflicts[0]["status"] == "open"
     assert {conflicts[0]["source_a_title"], conflicts[0]["source_b_title"]} == {
         "Ownership memo",

@@ -36,7 +36,9 @@ from brain.versions import (
 
 OLD_RULE_SENTENCE = "Widget purchase orders above 500 dollars require Finance approval."
 NEW_RULE_SENTENCE = "Widget purchase orders above 1000 dollars require VP approval."
-LIVE_SENTENCE = "The sign-off stalls when Finance approval for widget purchase orders is missing."
+LIVE_SENTENCE = (
+    "The sign-off stalls when Finance approval for widget purchase orders is missing."
+)
 
 
 def _unit_vector() -> list[float]:
@@ -189,9 +191,7 @@ class FakePrompt:
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
-    def __call__(
-        self, messages: list[dict[str, Any]], settings: Any
-    ) -> dict[str, Any]:
+    def __call__(self, messages: list[dict[str, Any]], settings: Any) -> dict[str, Any]:
         del settings
         self.prompts.append(str(messages[-1]["content"]))
         payload = {

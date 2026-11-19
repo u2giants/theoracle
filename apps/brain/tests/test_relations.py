@@ -35,7 +35,9 @@ def pipeline_env(monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
 
 
-def _flat(monkeypatch: pytest.MonkeyPatch, db: Any, fixture: str, kind: str, rec: str) -> str:
+def _flat(
+    monkeypatch: pytest.MonkeyPatch, db: Any, fixture: str, kind: str, rec: str
+) -> str:
     fake_scaledown(monkeypatch, rec)
     source_id = _seed_fixture(db, fixture, kind)
     handle_classify_extract({"payload": {"source_id": source_id}})
@@ -59,7 +61,9 @@ def test_transcript_issue_blocked_by_approval_step(
     monkeypatch: pytest.MonkeyPatch, db: Any, pipeline_env
 ) -> None:
     """Done-when: BLOCKED_BY or CAUSES from the Issue to the approval step."""
-    source_id = _flat(monkeypatch, db, TRANSCRIPT_FIXTURE, "transcript", "transcript.json")
+    source_id = _flat(
+        monkeypatch, db, TRANSCRIPT_FIXTURE, "transcript", "transcript.json"
+    )
     fake = fake_relations(monkeypatch)
     handle_relations({"payload": {"source_id": source_id}})
     relations = _relations(db, source_id)
@@ -78,10 +82,16 @@ def test_transcript_issue_blocked_by_approval_step(
     for *_, quote in relations:
         assert any(quote in text for text in texts)
     # chatter chunks without mentions never reach the model
-    assert not any("Morning Marco" in prompt.split("PASSAGE:")[-1] for prompt in fake.prompts)
-    prompt = next(p for p in fake.prompts if "only licensing manager" in p.split("PASSAGE:")[-1])
+    assert not any(
+        "Morning Marco" in prompt.split("PASSAGE:")[-1] for prompt in fake.prompts
+    )
+    prompt = next(
+        p for p in fake.prompts if "only licensing manager" in p.split("PASSAGE:")[-1]
+    )
     assert '"key": "m1", "type": "Person", "name": "Jessica"' in prompt
-    assert "CONTEXT" in prompt and "Jessica's approval" not in prompt.split("PASSAGE:")[-1]
+    assert (
+        "CONTEXT" in prompt and "Jessica's approval" not in prompt.split("PASSAGE:")[-1]
+    )
     models = {
         row[0]
         for row in db.execute(
@@ -244,7 +254,9 @@ def test_question_and_answer_across_turns_linked(
     mention lives in its own chunk. The quote sits in the question's chunk, so
     the relation stores the quote's true chunk id — not the window's anchor.
     """
-    source_id = _flat(monkeypatch, db, TRANSCRIPT_FIXTURE, "transcript", "transcript.json")
+    source_id = _flat(
+        monkeypatch, db, TRANSCRIPT_FIXTURE, "transcript", "transcript.json"
+    )
     fake_relations(monkeypatch, "relations_windows.json")
     handle_relations({"payload": {"source_id": source_id}})
     question_chunk = str(
@@ -265,7 +277,9 @@ def test_question_and_answer_across_turns_linked(
     assert rows, "the answer's Jessica links to the question's licensor sign-off"
     _rel_type, _frm, _to, quote, chunk_id = rows[0]
     assert quote == "the licensor sign-off"
-    assert str(chunk_id) == question_chunk, "the quote's true chunk id is the question's turn"
+    assert str(chunk_id) == question_chunk, (
+        "the quote's true chunk id is the question's turn"
+    )
 
 
 def test_relation_across_page_break(
@@ -293,7 +307,9 @@ def test_relation_across_page_break(
     quote_page = db.execute(
         "SELECT locator FROM cmap.chunk WHERE id = %s", (str(chunk_id),)
     ).fetchone()[0]
-    assert quote_page["page"] == to_page["page"], "the quote's true chunk id is its own page"
+    assert quote_page["page"] == to_page["page"], (
+        "the quote's true chunk id is its own page"
+    )
 
 
 def test_no_duplicate_from_overlap(

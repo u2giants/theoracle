@@ -13,9 +13,7 @@ import string
 
 from brain.lang import is_cjk
 
-HONORIFICS = frozenset(
-    {"mr", "mrs", "ms", "miss", "mx", "dr", "prof", "sir", "madam"}
-)
+HONORIFICS = frozenset({"mr", "mrs", "ms", "miss", "mx", "dr", "prof", "sir", "madam"})
 
 _PUNCT_TABLE = str.maketrans(
     "", "", string.punctuation + "，。、；：？！（）【】「」『』“”‘’《》〈〉～…"
@@ -53,6 +51,7 @@ def normalize_name(surface: str, entity_type: str) -> str:
         words.pop(0)
     if entity_type != "Person":
         words = [
-            word if any(is_cjk(ch) for ch in word) else _singularise(word) for word in words
+            word if any(is_cjk(ch) for ch in word) else _singularise(word)
+            for word in words
         ]
     return " ".join(words)

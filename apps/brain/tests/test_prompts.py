@@ -19,9 +19,9 @@ def test_source_text_is_data() -> None:
         assert "DATA" in text, f"{path.name} never names its input DATA"
         assert "<<<" in text or "```" in text, f"{path.name} has no fenced block"
         lowered = text.lower()
-        assert "not instructions" in lowered or "never follow instructions" in lowered, (
-            f"{path.name} does not tell the model the data is not instructions"
-        )
+        assert (
+            "not instructions" in lowered or "never follow instructions" in lowered
+        ), f"{path.name} does not tell the model the data is not instructions"
 
 
 def test_function_assign_prompt_contract() -> None:

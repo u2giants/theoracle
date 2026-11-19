@@ -49,7 +49,9 @@ from brain.extract.normalize import normalize_name
 
 logger = logging.getLogger(__name__)
 
-CORRECTION_KINDS = frozenset({"entity", "relation", "flow_step", "assignment", "source"})
+CORRECTION_KINDS = frozenset(
+    {"entity", "relation", "flow_step", "assignment", "source"}
+)
 CORRECTION_ACTIONS = frozenset(
     {"reject", "edit", "confirm", "merge", "split", "rename", "reassign"}
 )
@@ -75,7 +77,9 @@ def relation_key(
     from_name: str, from_type: str, rel_type: str, to_name: str, to_type: str
 ) -> str:
     """Content key of one relation: source-entity key + type + target-entity key."""
-    return f"{entity_key(from_name, from_type)}|{rel_type}|{entity_key(to_name, to_type)}"
+    return (
+        f"{entity_key(from_name, from_type)}|{rel_type}|{entity_key(to_name, to_type)}"
+    )
 
 
 # ----------------------------------------------------------------- records
@@ -229,7 +233,9 @@ def _put(table: dict[str, Correction], corr: Correction) -> None:
 # --------------------------------------------------------------- key sets
 
 
-def entity_key_sets(conn: Any, entity_ids: list[str] | None = None) -> dict[str, set[str]]:
+def entity_key_sets(
+    conn: Any, entity_ids: list[str] | None = None
+) -> dict[str, set[str]]:
     """Content keys per entity: its canonical key plus one key per alias.
 
     With ``entity_ids`` only those entities are read; with ``None`` the whole
@@ -240,11 +246,14 @@ def entity_key_sets(conn: Any, entity_ids: list[str] | None = None) -> dict[str,
     params: tuple[Any, ...] = (sorted(entity_ids),) if entity_ids is not None else ()
     keys: dict[str, set[str]] = {}
     for entity_id, name, etype in conn.execute(
-        "SELECT e.id::text, e.canonical_name, e.entity_type FROM cmap.entity e " + where,
+        "SELECT e.id::text, e.canonical_name, e.entity_type FROM cmap.entity e "
+        + where,
         params,
     ).fetchall():
         keys.setdefault(str(entity_id), set()).add(entity_key(str(name), str(etype)))
-    alias_where = "WHERE a.entity_id = ANY(%s::uuid[])" if entity_ids is not None else ""
+    alias_where = (
+        "WHERE a.entity_id = ANY(%s::uuid[])" if entity_ids is not None else ""
+    )
     for entity_id, norm, etype in conn.execute(
         "SELECT a.entity_id::text, a.normalized_name, a.entity_type "
         "FROM cmap.entity_alias a " + alias_where,

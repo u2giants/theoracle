@@ -152,9 +152,7 @@ def _load_edges(
     scope = ""
     params: tuple[Any, ...] = ()
     if entity_ids is not None:
-        scope = (
-            " AND fm.entity_id = ANY(%s::uuid[]) AND tm.entity_id = ANY(%s::uuid[])"
-        )
+        scope = " AND fm.entity_id = ANY(%s::uuid[]) AND tm.entity_id = ANY(%s::uuid[])"
         params = (entity_ids, entity_ids)
     rows = conn.execute(
         "SELECT fm.entity_id AS from_id, tm.entity_id AS to_id, r.rel_type, "
@@ -171,7 +169,17 @@ def _load_edges(
         params,
     ).fetchall()
     groups: dict[tuple[str, str, str], dict[str, Any]] = {}
-    for from_id, to_id, rel_type, source_id, description, stance, confidence, quote, chunk_id in rows:
+    for (
+        from_id,
+        to_id,
+        rel_type,
+        source_id,
+        description,
+        stance,
+        confidence,
+        quote,
+        chunk_id,
+    ) in rows:
         if rel_type not in EDGE_TYPES:
             raise ProjectionError(f"unknown relation type {rel_type!r}")
         key = (str(from_id), str(to_id), str(rel_type))
@@ -196,7 +204,10 @@ def _load_edges(
         group["stances"][str(stance)] = group["stances"].get(str(stance), 0) + 1
         group["confidence_max"] = max(group["confidence_max"], float(confidence))
         ref = (str(source_id), str(chunk_id), str(quote))
-        if ref not in group["seen_refs"] and len(group["source_refs"]) < MAX_SOURCE_REFS:
+        if (
+            ref not in group["seen_refs"]
+            and len(group["source_refs"]) < MAX_SOURCE_REFS
+        ):
             group["seen_refs"].add(ref)
             group["source_refs"].append(
                 {"source_id": ref[0], "chunk_id": ref[1], "quote": ref[2]}

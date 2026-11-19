@@ -55,7 +55,15 @@ class _JudgeFake:
         prompt = str(messages[-1]["content"])
         if "CANDIDATES:" not in prompt:
             return {
-                "choices": [{"message": {"content": json.dumps({"canonical_name": "", "description": ""})}}],
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {"canonical_name": "", "description": ""}
+                            )
+                        }
+                    }
+                ],
                 "usage": {"total_tokens": 10},
             }
         mention = json.loads(prompt.split("MENTION:\n<<<\n", 1)[1].split("\n>>>", 1)[0])
@@ -182,17 +190,28 @@ def test_trad_simpl_merge(
     name_vectors["採購流程"] = _unit("flow")
 
     first = _seed_text(db, "采购流程由李四负责。", "simp")
-    _mention(db, first, "Process", "采购流程", _unit("s1"), quote="采购流程由李四负责。")
+    _mention(
+        db, first, "Process", "采购流程", _unit("s1"), quote="采购流程由李四负责。"
+    )
     run_resolve()
     second = _seed_text(db, "採購流程在台灣分支也適用。", "trad")
-    _mention(db, second, "Process", "採購流程", _unit("s2"), quote="採購流程在台灣分支也適用。")
+    _mention(
+        db,
+        second,
+        "Process",
+        "採購流程",
+        _unit("s2"),
+        quote="採購流程在台灣分支也適用。",
+    )
     run_resolve()
 
     assert len(_entity_rows(db)) == 1
     assert not fake.judge_prompts  # folded match auto-aliases before the judge
     aliases = {
         str(row[0])
-        for row in db.execute("SELECT normalized_name FROM cmap.entity_alias").fetchall()
+        for row in db.execute(
+            "SELECT normalized_name FROM cmap.entity_alias"
+        ).fetchall()
     }
     assert {"采购流程", "採購流程"} <= aliases
 
@@ -291,7 +310,9 @@ def test_unknown_name_not_promoted(
     run_resolve()
     # The fabricated name never appears in its own quote.
     zh_source = _seed_text(db, "李四负责采购审批。", "zh")
-    _mention(db, zh_source, "Process", "影子流程", _unit("fake"), quote="李四负责采购审批。")
+    _mention(
+        db, zh_source, "Process", "影子流程", _unit("fake"), quote="李四负责采购审批。"
+    )
     run_resolve()
 
     assert not fake.judge_prompts  # the judge is never asked about un-evidenced names

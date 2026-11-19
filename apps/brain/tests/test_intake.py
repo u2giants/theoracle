@@ -294,9 +294,7 @@ def test_delete_removes_entities_left_without_mentions(
 
     response = client.delete(f"/sources/{source_id}", headers=admin_headers)
     assert response.status_code == 200, response.text
-    kept = {
-        str(r[0]) for r in db.execute("SELECT id FROM cmap.entity").fetchall()
-    }
+    kept = {str(r[0]) for r in db.execute("SELECT id FROM cmap.entity").fetchall()}
     assert entity_id not in kept
     assert orphan_id in kept
 
@@ -352,7 +350,9 @@ def test_requires_shared_token(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_delete_answer_source(db: Any, client: Any, admin_headers: dict[str, str]) -> None:
+def test_delete_answer_source(
+    db: Any, client: Any, admin_headers: dict[str, str]
+) -> None:
     """Repair A7: deleting a source that is an interview answer works; the
     question keeps its answer text and loses only the link."""
     source_id = db.execute(

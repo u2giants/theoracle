@@ -39,7 +39,9 @@ def test_zh_stop_skip_done_commands(
     db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake_embeddings(monkeypatch)
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="停止")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="停止"
+    )
     assert reply == {
         "handled": True,
         "reply": strings("zh-CN").reply_stopped,
@@ -61,7 +63,9 @@ def test_zh_stop_skip_done_commands(
         (EMPLOYEE_ID,),
     )
     db.commit()
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="跳过")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="跳过"
+    )
     assert reply["handled"] is True
     assert reply["reply"] == strings("zh-CN").reply_skipped
 
@@ -72,7 +76,9 @@ def test_zh_stop_skip_done_commands(
     )
     assert first["handled"] is True
     assert "intake_id" in first
-    done = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="完成")
+    done = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="完成"
+    )
     assert done["reply"] == strings("zh-CN").reply_done
     assert "source_id" in done
 
@@ -83,7 +89,10 @@ def test_command_word_inside_sentence_ignored(db: Any) -> None:
         conversation_ref=CONVERSATION_REF,
         text="这个流程需要停止后重启，我来继续跟进后续的入库确认。",
     )
-    assert reply["reply"] not in (strings("zh-CN").reply_stopped, strings("en").reply_stopped)
+    assert reply["reply"] not in (
+        strings("zh-CN").reply_stopped,
+        strings("en").reply_stopped,
+    )
     paused = db.execute(
         "SELECT interviews_paused FROM cmap.employee_flags WHERE employee_id = %s",
         (EMPLOYEE_ID,),
@@ -136,12 +145,16 @@ def test_stop_variants_and_resume(db: Any, monkeypatch: pytest.MonkeyPatch) -> N
     assert _paused() is True
 
     reply = handle_inbound(
-        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="actually, you can resume"
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="actually, you can resume",
     )
     assert reply["reply"] == strings("en").reply_resumed
     assert _paused() is False
 
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="继续吧")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="继续吧"
+    )
     assert reply["reply"] == strings("zh-CN").reply_resumed
     assert _paused() is False
 
@@ -149,11 +162,15 @@ def test_stop_variants_and_resume(db: Any, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(inbound_mod, "_judge_intent", real_judge_intent)
     monkeypatch.setattr(inbound_mod, "stage_model", lambda settings, stage: None)
     reply = handle_inbound(
-        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="please stop sending me anything"
+        email=EMPLOYEE_EMAIL,
+        conversation_ref=CONVERSATION_REF,
+        text="please stop sending me anything",
     )
     assert reply["reply"] != strings("en").reply_stopped
     assert _paused() is False
     # ...while the literal commands still work.
-    reply = handle_inbound(email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="stop")
+    reply = handle_inbound(
+        email=EMPLOYEE_EMAIL, conversation_ref=CONVERSATION_REF, text="stop"
+    )
     assert reply["reply"] == strings("en").reply_stopped
     assert _paused() is True

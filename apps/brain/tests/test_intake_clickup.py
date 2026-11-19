@@ -14,6 +14,7 @@ import httpx
 import psycopg
 import pytest
 
+from brain import graph_ms
 from brain.intake import clickup, sizing
 
 SINCE = datetime(2026, 10, 1, tzinfo=UTC)
@@ -206,7 +207,7 @@ def test_creator_counts_as_involved():
 
 def test_rate_limit_429_backs_off_on_retry_after(monkeypatch: pytest.MonkeyPatch):
     sleeps: list[float] = []
-    monkeypatch.setattr(sizing.time, "sleep", sleeps.append)
+    monkeypatch.setattr(graph_ms.time, "sleep", sleeps.append)
     client, _ = make_client({0: [make_task("t1")]}, throttle=1)
     with client:
         got = [t["id"] for t, _ in clickup.collect(client, PEOPLE, SINCE)]

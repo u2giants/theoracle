@@ -56,7 +56,9 @@ def test_flat_model_extracts_while_scaledown_classifies(
     paths: list[str] = []
     models: list[str] = []
 
-    def fake_scaledown(path: str, body: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    def fake_scaledown(
+        path: str, body: dict[str, Any], settings: Settings
+    ) -> dict[str, Any]:
         paths.append(path)
         return {"top_label": "process", "scores": {"process": 0.9}}
 
@@ -71,23 +73,31 @@ def test_flat_model_extracts_while_scaledown_classifies(
     monkeypatch.setattr(flat, "_post_scaledown", fake_scaledown)
     monkeypatch.setattr(flat, "post_chat_with_rescue", fake_chat)
     s = _settings(
-        brain_flat_model="flat/model", scaledown_api_key="sd", brain_scaledown_enabled=True
+        brain_flat_model="flat/model",
+        scaledown_api_key="sd",
+        brain_scaledown_enabled=True,
     )
     assert flat_model(s) == "flat/model"
-    outcome = flat._process_chunk("c1", "Dana approves the order.", flat._CallCounters(s), None)
+    outcome = flat._process_chunk(
+        "c1", "Dana approves the order.", flat._CallCounters(s), None
+    )
     assert paths == ["/classify"]
     assert models == ["flat/model"]
     assert outcome.passage_kind == "process"
     assert [m.surface_name for m in outcome.mentions] == ["Dana"]
 
 
-def test_flat_model_unset_keeps_scaledown_extract(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_flat_model_unset_keeps_scaledown_extract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from brain.config import flat_model
     from brain.extract import flat
 
     paths: list[str] = []
 
-    def fake_scaledown(path: str, body: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    def fake_scaledown(
+        path: str, body: dict[str, Any], settings: Settings
+    ) -> dict[str, Any]:
         paths.append(path)
         return {"top_label": "process", "scores": {}, "entities": []}
 

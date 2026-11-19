@@ -57,7 +57,9 @@ def zip_package(members: dict[str, bytes | str]) -> bytes:
     return buffer.getvalue()
 
 
-def content_types(overrides: dict[str, str], defaults: dict[str, str] | None = None) -> str:
+def content_types(
+    overrides: dict[str, str], defaults: dict[str, str] | None = None
+) -> str:
     """Return ``[Content_Types].xml`` for the given part overrides."""
     all_defaults = {
         "rels": "application/vnd.openxmlformats-package.relationships+xml",
@@ -93,7 +95,9 @@ def relationships(items: list[tuple[str, str, str, bool]]) -> str:
 # DOCX
 # --------------------------------------------------------------------------
 
-DOCX_MAIN = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+DOCX_MAIN = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+)
 
 
 def docx_paragraph(text: str) -> str:
@@ -139,7 +143,9 @@ def build_docx(
             {"/word/document.xml": DOCX_MAIN},
             {"png": "image/png", "jpeg": "image/jpeg"},
         ),
-        "_rels/.rels": relationships([("rId1", "officeDocument", "word/document.xml", False)]),
+        "_rels/.rels": relationships(
+            [("rId1", "officeDocument", "word/document.xml", False)]
+        ),
         "word/document.xml": document,
     }
     if relations:
@@ -246,7 +252,9 @@ def build_xlsx(
     relations.extend(extra_relations or [])
     members = {
         "[Content_Types].xml": content_types(overrides),
-        "_rels/.rels": relationships([("rId1", "officeDocument", "xl/workbook.xml", False)]),
+        "_rels/.rels": relationships(
+            [("rId1", "officeDocument", "xl/workbook.xml", False)]
+        ),
         "xl/workbook.xml": (
             f'{XML_HEAD}<workbook xmlns="{S_NS}" xmlns:r="{DOC_RELS}"><sheets>'
             f'<sheet name="{escape(sheet_name)}" sheetId="1" r:id="rId1"/>'
@@ -314,7 +322,9 @@ PPTX_CHART = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
 
 
 def pptx_slide(paragraphs: list[str], extra: str = "") -> str:
-    runs = "".join(f"<a:p><a:r><a:t>{escape(text)}</a:t></a:r></a:p>" for text in paragraphs)
+    runs = "".join(
+        f"<a:p><a:r><a:t>{escape(text)}</a:t></a:r></a:p>" for text in paragraphs
+    )
     return (
         f'{XML_HEAD}<p:sld xmlns:a="{A_NS}" xmlns:p="{P_NS}" xmlns:r="{DOC_RELS}" '
         f'xmlns:c="{C_NS}"><p:cSld><p:spTree>{runs}{extra}</p:spTree></p:cSld></p:sld>'
@@ -337,7 +347,9 @@ def build_pptx(
             },
             {"png": "image/png", "xlsx": "application/vnd.ms-excel"},
         ),
-        "_rels/.rels": relationships([("rId1", "officeDocument", "ppt/presentation.xml", False)]),
+        "_rels/.rels": relationships(
+            [("rId1", "officeDocument", "ppt/presentation.xml", False)]
+        ),
         "ppt/presentation.xml": (
             f'{XML_HEAD}<p:presentation xmlns:p="{P_NS}" xmlns:r="{DOC_RELS}">'
             '<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>'
@@ -362,8 +374,8 @@ def build_chart_pptx() -> bytes:
     chart = (
         f'{XML_HEAD}<c:chartSpace xmlns:c="{C_NS}" xmlns:r="{DOC_RELS}">'
         "<c:chart><c:plotArea><c:barChart><c:ser>"
-        "<c:cat><c:strLit><c:pt idx=\"0\"><c:v>Week 10</c:v></c:pt></c:strLit></c:cat>"
-        "<c:val><c:numLit><c:pt idx=\"0\"><c:v>12</c:v></c:pt></c:numLit></c:val>"
+        '<c:cat><c:strLit><c:pt idx="0"><c:v>Week 10</c:v></c:pt></c:strLit></c:cat>'
+        '<c:val><c:numLit><c:pt idx="0"><c:v>12</c:v></c:pt></c:numLit></c:val>'
         '</c:ser></c:barChart></c:plotArea></c:chart><c:externalData r:id="rId1"/>'
         "</c:chartSpace>"
     )
@@ -379,7 +391,14 @@ def build_chart_pptx() -> bytes:
         {
             "ppt/charts/chart1.xml": chart,
             "ppt/charts/_rels/chart1.xml.rels": relationships(
-                [("rId1", "package", "../embeddings/Microsoft_Excel_Sheet1.xlsx", False)]
+                [
+                    (
+                        "rId1",
+                        "package",
+                        "../embeddings/Microsoft_Excel_Sheet1.xlsx",
+                        False,
+                    )
+                ]
             ),
             # Deliberately not a workbook: the reader must never open it.
             "ppt/embeddings/Microsoft_Excel_Sheet1.xlsx": b"embedded workbook, never opened",

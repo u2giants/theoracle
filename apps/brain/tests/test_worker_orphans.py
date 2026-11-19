@@ -113,4 +113,7 @@ def test_result_write_is_retried(db: Any, monkeypatch: Any) -> None:
     worker.record_result(job_id, None)
     db.commit()
     assert calls["n"] == 2
-    assert db.execute("SELECT state FROM cmap.job WHERE id = %s", (job_id,)).fetchone()[0] == "done"
+    assert (
+        db.execute("SELECT state FROM cmap.job WHERE id = %s", (job_id,)).fetchone()[0]
+        == "done"
+    )
