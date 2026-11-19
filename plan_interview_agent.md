@@ -2,13 +2,13 @@
 
 Written 2026-11-18 (EST) by the #604 delivery session (Claude, edge-dev). Issue:
 https://github.com/u2giants/theoracle/issues/604. Registering handoff:
-[HANDOFF.d/2026-11-19T0200Z-edge-dev-claude-interview-agent.md](HANDOFF.d/2026-11-19T0200Z-edge-dev-claude-interview-agent.md).
+[HANDOFF.d/2026-11-19T0545Z-edge-dev-claude-604-finish.md](HANDOFF.d/2026-11-19T0545Z-edge-dev-claude-604-finish.md).
 Parent plan (the serial conversation this builds on, built and live):
 [plan_interview_conversation_rebuild.md](plan_interview_conversation_rebuild.md).
 
 ## STATUS
 
-**A fresh session starts at the first ⬜ row.** Update a row when its step lands, citing a
+**A fresh session starts at row 6 (live proof only; code is deployed).** Then follow [HANDOFF.d/2026-11-19T0545Z-edge-dev-claude-604-finish.md](HANDOFF.d/2026-11-19T0545Z-edge-dev-claude-604-finish.md). Update a row when its step lands, citing a
 commit, test path or run id.
 
 | Step | What | State | Evidence |
@@ -18,7 +18,7 @@ commit, test path or run id.
 | 3 | `refer` decision: hand the question to the named colleague | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_agent_looks_up_then_refers`, `::test_refer_to_unlooked_up_id_is_rejected` |
 | 4 | "I don't know" replies go through the agent too | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_dont_know_naming_a_colleague_refers`, `::test_dont_know_without_a_name_still_asks_who_would_know` |
 | 5 | Referred question opens with who sent it | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_referred_question_opens_with_referrer` |
-| 6 | Tests, PR, merge, deploy, live proof in Albert's chat | ⬜ open | — |
+| 6 | Tests, PR, merge, deploy, live proof in Albert's chat | 🟡 deployed, live proof pending | PR https://github.com/u2giants/theoracle/pull/634 merge `b6d7e038`, Brain image run 44456314883, Coolify deployment `poafeox7bkzwamkj08t8ewxb` finished; read-only live model check referred "ask Jen" to Jennifer Chaffier |
 
 ## 1. The ultimate goal
 

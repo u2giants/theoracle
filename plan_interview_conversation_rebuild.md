@@ -5,24 +5,24 @@ Written 2026-11-18 (EST) by the diagnosing session. Handoff that registers this 
 
 ## STATUS
 
-**A fresh session starts at Step 1.** Nothing in this plan has been built. Issue:
+**A fresh session starts at Step 11.** Steps 1–10 are built and live (deployed merge `cd269a6781aabf2774fa0377ebc6d7a44a0f1cee`, 2026-11-18; superseded live by `b6d7e03855384bab6a5003100e28029bd7a40a9d`). The agent reply step is [plan_interview_agent.md](plan_interview_agent.md). Issue:
 https://github.com/u2giants/theoracle/issues/604. Update a row the moment its step lands, citing a
 commit, test path or run id — never a bare number.
 
 | Step | What | State | Evidence |
 |---|---|---|---|
 | 0 | Open the GitHub issue for this plan | ✅ done (2026-11-18) | https://github.com/u2giants/theoracle/issues/604 |
-| 1 | Conversation and turn tables (migration 034) | ⬜ open | — |
-| 2 | Teams message ids: capture on send, forward on receive | ⬜ open | — |
-| 3 | Reply matching by quoted message id | ⬜ open | — |
-| 4 | Interview fast lane in the job queue | ⬜ open | — |
-| 5 | Answer is processed, then the reply is composed (`interview_reply`) | ⬜ open | — |
-| 6 | The composer: reflect the answer, then follow up / clarify / move on | ⬜ open | — |
-| 7 | Reply kinds: "your question is vague", "I don't know", requests | ⬜ open | — |
-| 8 | One question in flight; tick only opens a conversation | ⬜ open | — |
-| 9 | Retire the canned replies and the separate volunteered-thread path | ⬜ open | — |
-| 10 | Clean up live state (stranded asked questions) | ⬜ open | — |
-| 11 | Live proof with Albert's own chat, then Ilona, Jen, Carlos, Jessica | ⬜ open | — |
+| 1 | Conversation and turn tables (migration 034) | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 2 | Teams message ids: capture on send, forward on receive | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 3 | Reply matching by quoted message id | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 4 | Interview fast lane in the job queue | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 5 | Answer is processed, then the reply is composed (`interview_reply`) | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 6 | The composer: reflect the answer, then follow up / clarify / move on | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 7 | Reply kinds: "your question is vague", "I don't know", requests | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 8 | One question in flight; tick only opens a conversation | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 9 | Retire the canned replies and the separate volunteered-thread path | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 10 | Clean up live state (stranded asked questions) | ✅ live 2026-11-18 | deployed `cd269a67`; tests `apps/brain/tests/test_interview*.py` |
+| 11 | Live proof with Albert's own chat, then Ilona, Jen, Carlos, Jessica | 🟡 partial | Albert's chat `dcb04ba8-f347-4e81-97c6-e0c184527f82` live since 2026-11-18; four staff sittings not run |
 
 Natural context cut points: after Step 3 (plumbing done), after Step 6 (conversation
 works locally), after Step 9 (ready to deploy). Re-read the downstream steps before
