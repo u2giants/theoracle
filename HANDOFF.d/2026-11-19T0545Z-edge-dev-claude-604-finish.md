@@ -89,3 +89,7 @@ model write questions to colleagues (they only get the stored question). See pla
     message anyone 8 PM–8 AM or on weekends. The hourly tick will open her sitting from 8 AM EST Thursday
     2026-11-19. Next session: check her turns after 8 AM, then go on with the order in §4.
   - Write access: the Supabase MCP is read-only; use `op_run` with the DB ref in §5 and `psql` for writes.
+- 2026-11-19 1:00 AM EST: the missed referral is fixed (PR #640, merge `293f33e2776ba7bc6bbac26d22457b9aa2009733`,
+  Coolify deployment `qwgxudkeesuufyjzerzz8hrh` finished, worker processed a job at 12:58 AM EST). Causes: the
+  question was already `answered`, so the referral update matched nothing; with two names the model sometimes
+  moved on. Rollback tag `b6d7e03855384bab6a5003100e28029bd7a40a9d`. Live proof of a referral is still owed (step 1).
