@@ -9,7 +9,7 @@ read-when: working on bulk message intake (Teams chat, ClickUp, email) or on the
 
 Written 2026-11-18, 3:05 PM EST, by Claude Code (edge-dev session `c9d36e3c`) for Albert Hazan.
 Tracking issue: https://github.com/u2giants/theoracle/issues/607 (its checklist is the definition of done). Parent programme: #520.
-Registered handoff: [HANDOFF.d/2026-11-18T1957Z-edge-dev-claude-pm-message-intake-plan.md](HANDOFF.d/2026-11-18T1957Z-edge-dev-claude-pm-message-intake-plan.md).
+Registered handoff: [HANDOFF.d/2026-11-19T0339Z-edge-dev-claude-pm-intake-collectors.md](HANDOFF.d/2026-11-19T0339Z-edge-dev-claude-pm-intake-collectors.md).
 Sibling plan (different source, same staging idea — reuse, do not fold in): [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md).
 Cost analysis this plan is built on: [docs/company-map/scaledown-report-2026-11-18.md](docs/company-map/scaledown-report-2026-11-18.md).
 
@@ -23,7 +23,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 
 | Step | Title | State | Evidence / blocker | Updated (EST) |
 |---|---|---|---|---|
-| A | Access probes | 🟨 Teams + ClickUp proven; email blocked | #607 opening comment (2026-11-18): ClickUp `GET /api/v2/team` 200, both managers are members; Graph `/users/{id}/chats` and `/chats/{id}/messages` 200 for both; Graph `/users/{id}/messages` 403 `ErrorAccessDenied` (no `Mail.Read` application role) | 2026-11-18 |
+| A | Access probes | ✅ done | ClickUp and Teams 200 (#607 opening comment). Email: owner granted `Mail.Read` (application) tenant-wide on 2026-11-18 (owner decision: the system will expand to everyone, so no two-mailbox restriction); mailbox read 200 for both managers (#607 comment 6998806988) | 2026-11-18 |
 | 0.1 | Sizing script and cost forecast (no paid calls) | ✅ done | #607 comment 6993848642: 1,045 passages, $0.12–$0.80 forecast | 2026-11-18 |
 | 1.1 | `cmap.intake_item` / `cmap.intake_thread` staging tables | ✅ done | PR #617 merged; schema test green in CI | 2026-11-18 |
 | 1.2 | ClickUp collector | ✅ done | PR #620 merged; live dry run 160 items vs 160 in step 0.1 | 2026-11-18 |
@@ -38,7 +38,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 2.5 | Business-area sorting with ScaleDown classify (test, adopt if it passes) | ⬜ open | — | — |
 | 3.1 | Pilot: two weeks of data end to end, measured cost | ⬜ open | — | — |
 | 4.1 | Full-window run + live proof | ⬜ open | — | — |
-| 5.1 | Email collector | ⛔ blocked | Tenant admin consent for `Mail.Read` (application), restricted to the two mailboxes by an application access policy. No tenant-admin credential is reachable from AI sessions (same family as #593). Do not work around. | 2026-11-18 |
+| 5.1 | Email collector | ⬜ open (unblocked) | `Mail.Read` granted tenant-wide 2026-11-18 by owner; build like step 1.3, reusing `brain/graph_ms.py` | 2026-11-18 |
 
 **Owner rulings, 2026-11-18 (second message, verbatim):** *"the oracle should read carlos' and jess' mailboxes, teams accounts (private and group chats) and our clickup."* and *"we can't afford frontier models"*. Recorded as L9 and L10; the method (ScaleDown first, then the four named models) is unchanged.
 **Second opinion (2026-11-18, Muse Spark): "sound with changes".** Each point was checked against the code and folded in the same day: thread rendering and passage packing (1.6); the date call is not a saving (§6); the thread gate is conditional and calibrated (1.5); short threads are never merged and signatures are removed only by exact match (1.4); larger, unbiased gold with confidence bounds and a judge that is not a candidate (2.1, 2.3); call-shape variants and an end-to-end check (2.3); seat mechanics (2.3); caching measured before built (2.4). One point not taken as stated: HTML-to-text stays, as format conversion with the original kept (1.4).
