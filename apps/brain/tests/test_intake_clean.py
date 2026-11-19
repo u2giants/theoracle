@@ -187,3 +187,44 @@ def test_apply_writes_drop_reasons_and_blanks_secrets(db: Any) -> None:
         ).fetchall()
     )
     assert verdicts == {"k1": "pending", "k2": "dropped"}
+
+
+def test_email_chain_keeps_each_line_once_where_first_said() -> None:
+    first = "The proofs for the spring line are due at the factory Friday.\nThanks"
+    reply = (
+        "Confirmed, the factory has the spring proofs and starts Monday.\nThanks\n"
+        "The proofs for the spring line are due at the factory Friday."
+    )
+    other = "The proofs for the spring line are due at the factory Friday."
+    items = [
+        {"thread_key": "c1", "body_text": first, "raw": {"subject": "Spring proofs"}},
+        {
+            "thread_key": "c2",
+            "body_text": reply,
+            "raw": {"subject": "RE: Fw: spring proofs"},
+        },
+        {"thread_key": "c3", "body_text": other, "raw": {"subject": "Different"}},
+    ]
+    threads = assemble(items, chain_of=clean.subject_chain)
+    texts = [m.text for t in threads for m in t.messages]
+    assert texts[0] == first  # first occurrence is never touched
+    assert (
+        texts[1]
+        == "Confirmed, the factory has the spring proofs and starts Monday.\nThanks"
+    )
+    assert texts[2] == other  # another chain keeps its own copy
+    for src, out in zip((first, reply, other), texts, strict=True):
+        assert all(ln in src.split("\n") for ln in out.split("\n"))
+
+
+def test_no_chain_no_line_dedupe() -> None:
+    line = "The proofs for the spring line are due at the factory Friday."
+    threads = assemble([item(line + "\nA", "a"), item(line + "\nB", "b")])
+    assert [m.text for t in threads for m in t.messages] == [line + "\nA", line + "\nB"]
+
+
+def test_spanish_reply_headers_cut_history() -> None:
+    text = "Listo, enviado a fábrica.\nDe: Someone <a@example.test>\nEnviado: lunes\nPara: Other\nAsunto: RE: x\nold"
+    assert strip_lines(text)[0] == ["Listo, enviado a fábrica."]
+    text2 = "Ok.\nEl lun, 3 nov 2026 a las 9:00, Someone escribió:\nold"
+    assert strip_lines(text2)[0] == ["Ok."]
