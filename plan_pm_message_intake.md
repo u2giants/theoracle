@@ -40,6 +40,8 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 4.1 | Full-window run + live proof | ⬜ open | — | — |
 | 5.1 | Email collector | ✅ done | PR #633; live dry run 10,454 read, 9,927 kept, 3,146 threads; after cleaning 2,640 threads, ~20,535 passages (#607 comment 6999532003). Email is ~20x the other two: run the 1.5 probe on email too | 2026-11-18 |
 
+**Owner ruling, 2026-11-19 8:18 AM EST (verbatim):** *"ok, keep exact words through the pilot"*. Asked whether to drop the verbatim-quote rule and extract from ScaleDown summaries to save cost; L1 stays through step 3.1, then the owner decides from the pilot's measured cost. Step 3.1 must report cost per kept thread and a projection for all employees.
+
 **Drift, 2026-11-19 (owner idea, measured):** owner suggested keeping only the last email of a same-subject chain. Measured on 100 chains: only 40% of earlier messages sit fully inside the last one, so keeping only the last would lose evidence. Done instead, drop-only: inside a same-subject chain each long line (30+ characters) is kept only where it first appeared (`clean.subject_chain`), plus Spanish reply headers and the two managers' signature blocks (private allowlist, `BRAIN_INTAKE_SIGNATURES_FILE`). Email went from about 7.6M to 2.8M tokens; all three sources are now stored and cleaned in staging (3,373 pending threads).
 
 **Owner rulings, 2026-11-18 (second message, verbatim):** *"the oracle should read carlos' and jess' mailboxes, teams accounts (private and group chats) and our clickup."* and *"we can't afford frontier models"*. Recorded as L9 and L10; the method (ScaleDown first, then the four named models) is unchanged.
