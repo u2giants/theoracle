@@ -77,3 +77,15 @@ model write questions to colleagues (they only get the stored question). See pla
 1. A fresh session can finish without asking: state §2, steps §4, access §5. Yes.
 2. Background carried: findings §3, rejected §7, test-mode residue §2. Yes.
 3. Goal clear enough to steer: §1. Yes.
+
+## Drift log
+- 2026-11-18 11:45 PM EST (Claude, edge-dev, session "finish #604"):
+  - Step 1: no referral happened. Albert replied (seq 10, 7:43 PM EST) "i'm not sure, as Adam Dweck or
+    Jack Safdieh" (likely a typo for "ask") to a follow-up. The bot logged it as an answer and moved on to the
+    next question; no question was re-aimed. Treat it as a bot miss: a "not sure + name" reply to a follow-up
+    should hand the question over. Prove the referral in a staff sitting, and look at this case.
+  - Step 2 started: Ilona Kereki (`0afd45f8-5ee1-4d41-a43c-36bcd59f4102`) unpaused at 11:23 PM EST; tick job
+    `05afee28-51cc-4153-9c6a-b632f2c4a3ec` finished at 11:35 PM EST with no message, because the bot does not
+    message anyone 8 PM–8 AM or on weekends. The hourly tick will open her sitting from 8 AM EST Thursday
+    2026-11-19. Next session: check her turns after 8 AM, then go on with the order in §4.
+  - Write access: the Supabase MCP is read-only; use `op_run` with the DB ref in §5 and `psql` for writes.
