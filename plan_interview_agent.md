@@ -18,7 +18,7 @@ commit, test path or run id.
 | 3 | `refer` decision: hand the question to the named colleague | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_agent_looks_up_then_refers`, `::test_refer_to_unlooked_up_id_is_rejected` |
 | 4 | "I don't know" replies go through the agent too | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_dont_know_naming_a_colleague_refers`, `::test_dont_know_without_a_name_still_asks_who_would_know` |
 | 5 | Referred question opens with who sent it | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_referred_question_opens_with_referrer` |
-| 6 | Tests, PR, merge, deploy, live proof in Albert's chat | 🟡 deployed, live proof pending | PR https://github.com/u2giants/theoracle/pull/634 merge `b6d7e038`, Brain image run 44456314883, Coolify deployment `poafeox7bkzwamkj08t8ewxb` finished; read-only live model check referred "ask Jen" to Jennifer Chaffier |
+| 6 | Tests, PR, merge, deploy, live proof in Albert's chat | 🟡 deployed, live proof pending | Referral fix for partial answers and two names: PR https://github.com/u2giants/theoracle/pull/640 merge `293f33e2` live 2026-11-19 12:58 AM EST. PR https://github.com/u2giants/theoracle/pull/634 merge `b6d7e038`, Brain image run 44456314883, Coolify deployment `poafeox7bkzwamkj08t8ewxb` finished; read-only live model check referred "ask Jen" to Jennifer Chaffier |
 
 ## 1. The ultimate goal
 
