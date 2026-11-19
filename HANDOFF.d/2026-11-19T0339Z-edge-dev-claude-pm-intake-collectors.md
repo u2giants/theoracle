@@ -11,7 +11,7 @@ Tracking issue [u2giants/theoracle#607](https://github.com/u2giants/theoracle/is
 ## 0. Business decisions only the owner can make
 
 None open. Already settled — do NOT re-ask:
-- Read Jessica's and Carlos's mailboxes, Teams chats (private and group) and company ClickUp; 90-day window after a two-week pilot; do not announce it to them; ScaleDown first, then only gpt-6-luna, claude-haiku-5.5, glm-5.3-flash or deepseek-4.1-flash, no frontier model (owner, 2026-11-18).
+- Read the two project managers' mailboxes, Teams chats (private and group) and company ClickUp; 90-day window after a two-week pilot; do not announce it to them; ScaleDown first, then only gpt-6-luna, claude-haiku-5.5, glm-5.3-flash or deepseek-4.1-flash, no frontier model (owner, 2026-11-18).
 - Mail.Read is granted to ALL mailboxes, not just two — the owner did it himself on 2026-11-18 because the system will expand to everyone. Do not add a two-mailbox restriction.
 - The Graph app ("dflow alerts") is shared with DesignFlow alerts; owner said sharing is fine (2026-11-18).
 
@@ -35,7 +35,7 @@ Do plan steps 0.1 (size and cost forecast before any paid call), 1.1 (staging ta
 ## 4. What did NOT work
 
 - Matching ClickUp members by email: ClickUp emails differ from the directory. Fixed: full name, then unique first name.
-- Using the project-manager job title to find people: Carlos's directory title is "Administrative Support". Title only breaks ties now.
+- Using the project-manager job title to find people: one manager's directory title is not a project-manager title. Title only breaks ties now.
 - Only assigned ClickUp tasks: just 10. Now assignee, watcher, creator or commenter.
 - ClickUp comments fetch returned only 25 newest; now paged with start/start_id (`task_comments` in sizing.py).
 - Failing on a Graph 403: one meeting chat refuses; now skipped and counted.
@@ -66,7 +66,7 @@ Do plan steps 0.1 (size and cost forecast before any paid call), 1.1 (staging ta
 
 ## 8. Access
 
-- Secrets in 1Password vault vibe_coding (id pimcaogmxxzoafh7lsluj6uxkq): Supabase item field `oracle_session_pooler` for DATABASE_URL; ClickUp item field "api token"; Graph client secret for "dflow alerts". Build an op:// env file under $TMPDIR and run with `op run --env-file`.
+- Secrets in 1Password vault vibe_coding: Supabase item field `oracle_session_pooler` for DATABASE_URL; ClickUp item field "api token"; Graph client secret for "dflow alerts". Build an op:// env file under $TMPDIR and run with `op run --env-file`.
 - Azure CLI is signed in on edge-dev as a global admin, but the AI does not change tenant security settings itself.
 - gh authenticated as u2giants.
 
