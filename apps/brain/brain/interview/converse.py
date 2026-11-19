@@ -11,6 +11,7 @@ only from the employee's own queue, and a sitting length.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -37,11 +38,16 @@ CLARIFY_PROMPT = (
     Path(__file__).resolve().parents[1] / "prompts" / "interview_clarify.md"
 )
 CONVERSE_TIMEOUT_SECONDS = 45.0
-CONVERSE_MAX_TOKENS = 500
+# Room for the model's private reasoning plus the JSON (500 cut the JSON off
+# mid-id on 2026-11-18).
+CONVERSE_MAX_TOKENS = 1500
 MAX_FOLLOWUPS = followup.MAX_FOLLOWUPS
 MAX_FACTS = 20
 HELD_KIND = "held"
-ACTIONS = ("followup", "next_question", "close")
+ACTIONS = ("followup", "next_question", "close", "refer")
+MAX_TOOL_CALLS = 3
+MAX_PEOPLE = 5
+REFERRED_MARK = "[referred by "
 
 
 # ---------------------------------------------------------------- ingest
@@ -177,6 +183,43 @@ def _call(
     return parse_model_json(message_content(body), ())
 
 
+def find_person(conn: Any, query: str, exclude: str | None = None) -> list[dict[str, Any]]:
+    """Staff directory lookup: active employees whose name matches ``query``.
+
+    Matches the whole query or any single word of it against any word of the
+    name (or the start of it), case-insensitively; people reachable on
+    Teams come first. Names repeat in the directory, so every match is
+    returned with its id and the agent decides (or asks) which person is meant.
+    """
+    words = [w for w in re.findall(r"\w+", query.casefold()) if len(w) >= 2]
+    if not words:
+        return []
+    # A short name is often the start of the directory name (Jen, Jennifer).
+    prefixes = [f"{w}%" for w in words if len(w) >= 3]
+    rows = conn.execute(
+        "SELECT e.id::text, e.name, e.role, e.department, "
+        "EXISTS (SELECT 1 FROM cmap.teams_conversation tc WHERE tc.employee_id = e.id) "
+        "FROM public.employees e "
+        "WHERE e.disabled_at IS NULL AND e.name IS NOT NULL "
+        "AND (%s::uuid IS NULL OR e.id <> %s::uuid) "
+        "AND (lower(e.name) = %s OR EXISTS ("
+        "  SELECT 1 FROM unnest(regexp_split_to_array(lower(e.name), '\\s+')) part "
+        "  WHERE part = ANY(%s) OR part LIKE ANY(%s))) "
+        "ORDER BY 5 DESC, e.name LIMIT %s",
+        (exclude, exclude, " ".join(words), words, prefixes, MAX_PEOPLE),
+    ).fetchall()
+    return [
+        {
+            "employee_id": str(r[0]),
+            "name": str(r[1]),
+            "role": r[2] or "",
+            "department": r[3] or "",
+            "in_teams": bool(r[4]),
+        }
+        for r in rows
+    ]
+
+
 def _lang_name(lang: str) -> str:
     return "Simplified Chinese" if lang == "zh-CN" else "English"
 
@@ -258,16 +301,50 @@ def compose_next(
             or "(none)",
         )
     )
-    allowed_names = f"{employee_text}\n{employee_name}"
+    current_qid = discussed_question(tlist)
+    people: dict[str, dict[str, Any]] = {}
+    tool_log: list[str] = []
     for attempt, max_tokens in enumerate(
         (CONVERSE_MAX_TOKENS, CONVERSE_MAX_TOKENS * 2)
     ):
-        try:
-            out = _call(prompt, settings, max_tokens, "interview converse")
-        except Exception as exc:  # noqa: BLE001 - fall back to a fixed message
-            logger.warning("interview converse call failed: %s", exc)
-            out = {}
-        checked = _check(out, queue, allowed_names, followups_used)
+        out: dict[str, Any] = {}
+        for _ in range(MAX_TOOL_CALLS + 1):
+            results = "\n".join(tool_log) or "(no tools used yet)"
+            step_prompt = prompt.replace("{{tool_results}}", results)
+            if len(tool_log) >= MAX_TOOL_CALLS:
+                step_prompt += "\n\nNo more tool calls: return your decision now."
+            try:
+                out = _call(step_prompt, settings, max_tokens, "interview converse")
+            except Exception as exc:  # noqa: BLE001 - fall back to a fixed message
+                logger.warning("interview converse call failed: %s", exc)
+                out = {}
+            if out.get("tool") != "find_person" or len(tool_log) >= MAX_TOOL_CALLS:
+                break
+            query = " ".join(str(out.get("query") or "").split())[:80]
+            found = find_person(conn, query, exclude=conv["employee_id"])
+            for person in found:
+                people[person["employee_id"]] = person
+            tool_log.append(
+                f"find_person({query!r}) -> "
+                + (
+                    "; ".join(
+                        f"employee_id={p['employee_id']} name={p['name']} "
+                        f"role={p['role'] or '-'} department={p['department'] or '-'} "
+                        f"in_teams={'yes' if p['in_teams'] else 'no'}"
+                        for p in found
+                    )
+                    or "no one in the staff directory matches"
+                )
+            )
+        # The Oracle's own earlier messages were vetted when sent, so their
+        # terms (stored question wording, names) may be repeated.
+        oracle_text = " ".join(str(t["text"]) for t in tlist if t["direction"] == "out")
+        allowed_names = "\n".join(
+            [employee_text, oracle_text, employee_name, *(p["name"] for p in people.values())]
+        )
+        checked = _check(
+            out, queue, allowed_names, followups_used, people, current_qid is not None
+        )
         if checked is not None:
             checked["path"] = "model" if attempt == 0 else "model_retry"
             return checked
@@ -287,12 +364,31 @@ def _check(
     queue: list[tuple[str, str, str]],
     allowed_names: str,
     followups_used: int,
+    people: dict[str, dict[str, Any]] | None = None,
+    has_question: bool = False,
 ) -> dict[str, Any] | None:
     action = str(out.get("action") or "")
     reflect = " ".join(str(out.get("reflect") or "").split())
     text = " ".join(str(out.get("text") or "").split())
     if action not in ACTIONS or not text or len(text) > 600 or len(reflect) > 400:
         return None
+    if action == "refer":
+        # Only someone the directory lookup returned in this run, and only the
+        # question currently in flight; the colleague gets the stored question.
+        person = (people or {}).get(str(out.get("employee_id") or ""))
+        if person is None or not has_question:
+            logger.info("interview converse dropped: refer without a looked-up person")
+            return None
+        if followup.invented_names(f"{reflect} {text}", allowed_names):
+            return None
+        full = f"{reflect} {text}".strip() if reflect else text
+        return {
+            "action": "refer",
+            "text": full,
+            "question_id": None,
+            "reflect": reflect,
+            "referred_to": person,
+        }
     if (
         followup.invented_names(f"{reflect} {text}", allowed_names)
         and action == "followup"
@@ -530,6 +626,13 @@ def run_interview_reply(
             return {"sent": True, "action": "clarify"}
         if kind == "dont_know":
             if question_id:
+                # "Ask Jen" is a don't-know that points somewhere: let the
+                # agent read it and hand the question on if it names someone.
+                queue = _queue(conn, conv["employee_id"], lang, cfg)
+                nxt = compose_next(conn, conv, tlist, queue, cfg)
+                if nxt["action"] == "refer":
+                    return _refer(conn, conv, cfg, nxt, question_id)
+            if question_id:
                 conv_mod.release_question(
                     conn, question_id, conv["employee_id"], skipped=True
                 )
@@ -598,6 +701,9 @@ def run_interview_reply(
         queue = _queue(conn, conv["employee_id"], lang, cfg)
         nxt = compose_next(conn, conv, tlist, queue, cfg)
         meta = {"path": nxt["path"], "reflect": nxt.get("reflect", "")}
+        discussed = discussed_question(tlist)
+        if nxt["action"] == "refer" and discussed:
+            return _refer(conn, conv, cfg, nxt, discussed)
         if nxt["action"] == "close":
             _send(
                 conn,
@@ -629,6 +735,75 @@ def run_interview_reply(
                 meta=meta,
             )
         return {"sent": True, "action": nxt["action"], "path": nxt["path"]}
+
+
+def _refer(
+    conn: Any,
+    conv: dict[str, Any],
+    settings: Settings,
+    nxt: dict[str, Any],
+    question_id: str,
+) -> dict[str, Any]:
+    """Hand the question in flight to the colleague the employee pointed to."""
+    s = strings(conv["lang"] or "en")
+    person = nxt["referred_to"]
+    referrer, _ = _employee(conn, conv["employee_id"])
+    conv_mod.release_question(conn, question_id, conv["employee_id"], skipped=True)
+    conn.execute(
+        "UPDATE cmap.open_question SET target_employee_id = %s, "
+        "why = COALESCE(why, '') || %s WHERE id = %s AND state = 'open'",
+        (person["employee_id"], f" {REFERRED_MARK}{referrer or 'a colleague'}]", question_id),
+    )
+    conn.commit()
+    meta = {
+        "path": nxt["path"],
+        "reflect": nxt.get("reflect", ""),
+        "referred_to": person["employee_id"],
+        "referred_question": question_id,
+    }
+    lang = conv["lang"] or "en"
+    queue = [q for q in _queue(conn, conv["employee_id"], lang, settings) if q[0] != question_id]
+    if queue:
+        qid, _, loc = queue[0]
+        text = f"{nxt['text']} {s.next_question.format(question=loc)}"
+        _send(conn, conv, "question", text, settings, question_id=qid, meta=meta)
+        return {"sent": True, "action": "refer", "path": nxt["path"]}
+    _send(
+        conn,
+        conv,
+        "close",
+        f"{nxt['text']} {s.close}",
+        settings,
+        close_reason="nothing_left",
+        meta=meta,
+    )
+    return {"sent": True, "action": "refer", "path": nxt["path"]}
+
+
+def discussed_question(tlist: list[dict[str, Any]]) -> str | None:
+    """The question the employee is talking about: the last one sent, or the
+    one a "who would know?" was about."""
+    # A follow-up turn may carry no question id; the discussion is still
+    # about the latest question sent before it.
+    for t in reversed(tlist):
+        if t["direction"] != "out":
+            continue
+        if t["question_id"]:
+            return str(t["question_id"])
+        about = (t.get("meta") or {}).get("about_question")
+        if about:
+            return str(about)
+    return None
+
+
+def referrer_of(why: str | None) -> str | None:
+    """The referrer's name recorded on a referred question, if any."""
+    text = why or ""
+    start = text.rfind(REFERRED_MARK)
+    if start < 0:
+        return None
+    name = text[start + len(REFERRED_MARK) :].split("]", 1)[0].strip()
+    return name or None
 
 
 def _question_seq(tlist: list[dict[str, Any]]) -> int:

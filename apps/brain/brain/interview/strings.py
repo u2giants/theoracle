@@ -37,6 +37,7 @@ class Strings:
     restate: str
     clarify: str
     who_would_know: str
+    referred_intro: str
     capabilities: str
     unclear_dropped: str
     processing_failed: str
@@ -88,6 +89,7 @@ _EN = Strings(
     restate="The question was: {question}",
     clarify="Let me put that more concretely: {question}",
     who_would_know="No problem. Who would know the answer to that?",
+    referred_intro="{name} suggested you would know this one.",
     capabilities=(
         "I ask one question at a time and wait for your answer; answering is "
         "optional, so reply 'skip' to pass or 'stop' to pause questions. I can't "
@@ -133,6 +135,7 @@ _ZH = Strings(
     restate="刚才的问题是：{question}",
     clarify="我说得更具体一点：{question}",
     who_would_know="没问题。谁会知道这个问题的答案？",
+    referred_intro="{name}说您可能知道这个问题的答案。",
     capabilities=(
         "我一次只问一个问题，然后等你回答；回答是自愿的，回复「跳过」可以略过，"
         "回复「停止」可以暂停提问。我不能给问题编号，也不能安排以后再问。"

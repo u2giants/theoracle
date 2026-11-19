@@ -661,6 +661,18 @@ def run_interview_tick(settings: Settings | None = None) -> dict[str, Any]:
             try:
                 localized = _localized_question(conn, qid, text, lang, cfg)
                 sent_text = strings(lang).message_template.format(question=localized)
+                why_row = conn.execute(
+                    "SELECT why FROM cmap.open_question WHERE id = %s", (qid,)
+                ).fetchone()
+                from brain.interview.converse import referrer_of  # noqa: PLC0415
+
+                referrer = referrer_of(why_row[0] if why_row else None)
+                if referrer:
+                    sent_text = (
+                        strings(lang).referred_intro.format(name=referrer)
+                        + " "
+                        + sent_text
+                    )
                 # Send once (plan Step 8, M6): the row and its key exist before
                 # the send; this call opened the conversation, so only it sends.
                 turn_id = conv_mod.add_turn(
