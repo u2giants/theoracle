@@ -30,7 +30,8 @@ from psycopg.types.json import Json
 
 from brain.config import get_settings
 from brain.graph_ms import GRAPH, graph_pages, graph_token
-from brain.intake.sizing import THREAD_GAP, html_text, resolve_people
+from brain.intake.clean import html_to_text
+from brain.intake.sizing import THREAD_GAP, resolve_people
 from brain.read.chunk import count_tokens
 
 ORIGIN = "teams_chat"
@@ -111,7 +112,7 @@ def window_messages(
 
 
 def _item(m: dict[str, Any], thread_key: str) -> Item:
-    body = html_text((m.get("body") or {}).get("content", ""))
+    body = html_to_text((m.get("body") or {}).get("content", ""))
     return Item(
         external_id=m["id"],
         thread_key=thread_key,
