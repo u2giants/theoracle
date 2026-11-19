@@ -28,7 +28,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 1.1 | `cmap.intake_item` / `cmap.intake_thread` staging tables | ✅ done | PR #617 merged; schema test green in CI | 2026-11-18 |
 | 1.2 | ClickUp collector | ✅ done | PR #620 merged; live dry run 160 items vs 160 in step 0.1 | 2026-11-18 |
 | 1.3 | Teams chat collector | ✅ done | PR #622 merged; live dry run 12,864 kept vs 12,828 (0.3%), 956 threads vs 954 | 2026-11-18 |
-| 1.4 | Free cleaning and thread assembly (drop-only) | ⬜ open | — | — |
+| 1.4 | Free cleaning and thread assembly (drop-only) | ✅ done | `apps/brain/brain/intake/clean.py`; `tests/test_intake_clean.py` (drop-only property on every fixture, §9a rows for clean). Teams reader now stores the same converted text. Signature allowlist is passed in by the caller (private store) | 2026-11-18 |
 | 1.5 | Thread relevance gate + triage summary (ScaleDown) | ⬜ open | — | — |
 | 1.6 | Kept thread becomes a `cmap.source` (record date, no date call) | ⬜ open | — | — |
 | 2.1 | Gold sample from real threads (private store) | ⬜ open | — | — |
@@ -38,7 +38,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 2.5 | Business-area sorting with ScaleDown classify (test, adopt if it passes) | ⬜ open | — | — |
 | 3.1 | Pilot: two weeks of data end to end, measured cost | ⬜ open | — | — |
 | 4.1 | Full-window run + live proof | ⬜ open | — | — |
-| 5.1 | Email collector | ⬜ open (unblocked) | `Mail.Read` granted tenant-wide 2026-11-18 by owner; build like step 1.3, reusing `brain/graph_ms.py` | 2026-11-18 |
+| 5.1 | Email collector | 🟨 built, live count pending | `apps/brain/brain/intake/graph_mail.py`, `tests/test_intake_graph_mail.py`; plain-text `uniqueBody`, one thread per conversation, a message in both mailboxes stored once. Next: live dry-run counts on #607, then re-run sizing with email | 2026-11-18 |
 
 **Owner rulings, 2026-11-18 (second message, verbatim):** *"the oracle should read carlos' and jess' mailboxes, teams accounts (private and group chats) and our clickup."* and *"we can't afford frontier models"*. Recorded as L9 and L10; the method (ScaleDown first, then the four named models) is unchanged.
 **Second opinion (2026-11-18, Muse Spark): "sound with changes".** Each point was checked against the code and folded in the same day: thread rendering and passage packing (1.6); the date call is not a saving (§6); the thread gate is conditional and calibrated (1.5); short threads are never merged and signatures are removed only by exact match (1.4); larger, unbiased gold with confidence bounds and a judge that is not a candidate (2.1, 2.3); call-shape variants and an end-to-end check (2.3); seat mechanics (2.3); caching measured before built (2.4). One point not taken as stated: HTML-to-text stays, as format conversion with the original kept (1.4).

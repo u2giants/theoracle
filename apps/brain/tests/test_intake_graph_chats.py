@@ -15,7 +15,7 @@ import pytest
 from brain import graph_ms
 from brain.graph_ms import GRAPH, GraphPagingError, graph_pages
 from brain.intake import graph_chats
-from brain.intake.sizing import html_text
+from brain.intake.clean import html_to_text
 from brain.migrate import migrate
 
 
@@ -249,7 +249,7 @@ def test_stored_fields_hold_text_and_original():
     )
     item = shared.items[0]
     original = _routes()["/v1.0/chats/synthetic-chat-shared/messages"][0]["value"][0]
-    assert item.body_text == html_text(original["body"]["content"])
+    assert item.body_text == html_to_text(original["body"]["content"])
     assert "&amp;" not in item.body_text
     assert item.raw == original
     assert len(item.content_hash) == 64
