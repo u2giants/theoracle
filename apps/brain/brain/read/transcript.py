@@ -275,10 +275,14 @@ def _split_long_turn(text: str) -> list[str]:
 def _turn_chunk(turn: Turn, number: int, text: str) -> Chunk:
     """Build one chunk for a turn, prefixed so text steps see who spoke."""
     body = f"{turn.speaker}: {text}"
+    return Chunk(_turn_locator(turn, number), body, count_tokens(body))
+
+
+def _turn_locator(turn: Turn, number: int) -> dict[str, Any]:
     locator: dict[str, Any] = {"turn": number, "speaker": turn.speaker}
     if turn.t0 is not None:
         locator["t0"] = turn.t0
-    return Chunk(locator, body, count_tokens(body))
+    return locator
 
 
 def chunk_turns(turns: Sequence[Turn]) -> list[Chunk]:
@@ -329,12 +333,14 @@ def pack_turns(turns: Sequence[Turn]) -> list[Chunk]:
     def flush() -> None:
         nonlocal lines
         if lines:
-            turn = usable[first]
             body = "\n".join(lines)
-            locator: dict[str, Any] = {"turn": first + 1, "speaker": turn.speaker}
-            if turn.t0 is not None:
-                locator["t0"] = turn.t0
-            chunks.append(Chunk(locator, body, count_tokens(body)))
+            turns = []
+            start = 0
+            for index, line in enumerate(lines, first):
+                end = start + len(line)
+                turns.append({**_turn_locator(usable[index], index + 1), "start": start, "end": end})
+                start = end + 1  # newline between messages
+            chunks.append(Chunk({"turns": turns}, body, count_tokens(body)))
         lines = []
 
     for number, turn in enumerate(usable):

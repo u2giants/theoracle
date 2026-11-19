@@ -23,13 +23,14 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from brain import storage as storage_mod
 from brain.config import Settings, get_settings, intake_spend_cap
 from brain.db import enqueue_job, get_pool
-from brain.read.chunk import WINDOW_TOKENS, count_tokens
+from brain.read.transcript import read_message_thread
 
 logger = logging.getLogger(__name__)
 
@@ -83,15 +84,13 @@ def render_thread(rows: list[dict[str, Any]], origin: str, now: datetime) -> str
     return json.dumps(turns, ensure_ascii=False, indent=0)
 
 
-def estimate_passages(text_tokens: int) -> int:
-    return max(1, -(-text_tokens // WINDOW_TOKENS))
-
-
 def _threads(conn: Any, origin: str | None, limit: int | None) -> list[tuple]:
     sql = (
-        "SELECT origin, thread_key, title, source_id FROM cmap.intake_thread "
+        "SELECT t.origin, t.thread_key, t.title, s.id FROM cmap.intake_thread t "
+        "LEFT JOIN cmap.source s ON s.id = t.source_id "
+        "AND s.origin = t.origin AND s.external_ref = t.thread_key "
         "WHERE verdict IN ('pending', 'kept') "
-        + ("AND origin = %(o)s " if origin else "")
+        + ("AND t.origin = %(o)s " if origin else "")
         + "ORDER BY started_at NULLS LAST, thread_key"
         + (" LIMIT %(n)s" if limit else "")
     )
@@ -111,20 +110,44 @@ def _items(conn: Any, origin: str, key: str) -> list[dict[str, Any]]:
 
 
 def ingest_thread(
-    conn: Any, origin: str, key: str, title: str | None, old_source: Any, now: datetime
+    conn: Any,
+    origin: str,
+    key: str,
+    title: str | None,
+    old_source: Any,
+    now: datetime,
+    *,
+    passages_left: int,
 ) -> tuple[str, int]:
     """Store one thread as a source. Returns (outcome, estimated passages).
 
-    outcome: 'created', 'versioned', 'unchanged' or 'empty'.
+    outcome: 'created', 'versioned', 'unchanged', 'empty' or 'stopped_at_cap'.
     """
-    rows = _items(conn, origin, key)
+    rows = [
+        r
+        for r in _items(conn, origin, key)
+        if r["drop_reason"] == "secret" or (r["body_text"] or "").strip()
+    ]
     if not any(r["drop_reason"] is None for r in rows):
+        conn.execute(
+            "UPDATE cmap.intake_thread SET verdict = 'dropped', updated_at = now() "
+            "WHERE origin = %s AND thread_key = %s",
+            (origin, key),
+        )
         return "empty", 0
     rendered = render_thread(rows, origin, now)
-    data = rendered.encode("utf-8")
+    # Keep the hash tied to the stored bytes while making the bytes unique
+    # to this thread, even when its turns match another thread exactly.
+    data = json.dumps(
+        {"origin": origin, "thread_key": key, "turns": json.loads(rendered)},
+        ensure_ascii=False,
+    ).encode("utf-8")
     sha = hashlib.sha256(data).hexdigest()
+    legacy_sha = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
     existing = conn.execute(
-        "SELECT id::text FROM cmap.source WHERE sha256 = %s", (sha,)
+        "SELECT id::text FROM cmap.source WHERE origin = %s AND external_ref = %s "
+        "AND sha256 IN (%s, %s) ORDER BY (sha256 = %s) DESC LIMIT 1",
+        (origin, key, sha, legacy_sha, sha),
     ).fetchone()
     if existing is not None:
         conn.execute(
@@ -133,6 +156,9 @@ def ingest_thread(
             (existing[0], origin, key),
         )
         return "unchanged", 0
+    passages = len(read_message_thread(rendered))
+    if passages > passages_left:
+        return "stopped_at_cap", 0
     source_id = str(uuid.uuid4())
     storage_path = f"cmap/{source_id}/thread.json"
     storage_mod.get_storage().upload(storage_path, data, "application/json")
@@ -166,8 +192,7 @@ def ingest_thread(
         "WHERE origin = %s AND thread_key = %s",
         (source_id, origin, key),
     )
-    text_tokens = sum(count_tokens(r["body_text"] or "") for r in rows)
-    return outcome, estimate_passages(text_tokens)
+    return outcome, passages
 
 
 def run(
@@ -175,20 +200,28 @@ def run(
 ) -> dict[str, Any]:
     """Ingest pending threads until done or the spend cap is reached."""
     cap = intake_spend_cap(settings)
+    passage_budget = int(Decimal(str(cap)) / Decimal(str(EST_USD_PER_PASSAGE)))
+    spent_passages = 0
     now = datetime.now(UTC)
-    counts: dict[str, Any] = {"estimated_usd": 0.0}
+    counts: dict[str, Any] = {}
     queued: list[str] = []
     pool = get_pool(settings)
     with pool.connection() as conn:
         for th_origin, key, title, old in _threads(conn, origin, limit):
-            outcome, passages = ingest_thread(conn, th_origin, key, title, old, now)
-            cost = passages * EST_USD_PER_PASSAGE
+            outcome, passages = ingest_thread(
+                conn,
+                th_origin,
+                key,
+                title,
+                old,
+                now,
+                passages_left=passage_budget - spent_passages,
+            )
+            if outcome == "stopped_at_cap":
+                counts["stopped_at_cap"] = True
+                break
             if outcome in ("created", "versioned"):
-                if counts["estimated_usd"] + cost > cap:
-                    conn.rollback()
-                    counts["stopped_at_cap"] = True
-                    break
-                counts["estimated_usd"] += cost
+                spent_passages += passages
                 sid = conn.execute(
                     "SELECT source_id::text FROM cmap.intake_thread "
                     "WHERE origin = %s AND thread_key = %s",
@@ -199,7 +232,7 @@ def run(
             counts[outcome] = counts.get(outcome, 0) + 1
     for sid in queued:
         enqueue_job("read_source", {"source_id": sid}, settings)
-    counts["estimated_usd"] = round(counts["estimated_usd"], 4)
+    counts["estimated_usd"] = round(spent_passages * EST_USD_PER_PASSAGE, 4)
     return counts
 
 

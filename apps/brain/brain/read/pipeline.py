@@ -20,7 +20,7 @@ from brain.embed import embed_and_store
 from brain.interview.conversation import source_chain_ended
 from brain.read.chunk import Chunk, window_chunks
 from brain.read.cleanup import drop_orphaned, touched_entities
-from brain.read.dates import resolve_and_store, upload_floor
+from brain.read.dates import ORIGIN_MESSAGE, resolve_and_store, upload_floor
 from brain.read.detect import (
     KIND_CSV,
     KIND_DOCX,
@@ -168,15 +168,12 @@ def handle_read_source(job: dict[str, Any]) -> None:
     notes = start_read_notes()
     try:
         data = storage_mod.get_storage().download(storage_path)
-        with pool.connection() as conn:
-            origin_row = conn.execute(
-                "SELECT origin FROM cmap.source WHERE id = %s", (source_id,)
-            ).fetchone()
-        if origin_row is not None and origin_row[0] and kind == KIND_TRANSCRIPT:
+        reader_kind = read_kind(kind, storage_path)
+        if reader_kind == KIND_TRANSCRIPT and row[5] == ORIGIN_MESSAGE:
             # Message threads are packed into full passages (intake plan 1.6).
             chunks = read_message_thread(_decode_text(data))
         else:
-            chunks = read_chunks(read_kind(kind, storage_path), data, usage)
+            chunks = read_chunks(reader_kind, data, usage)
         _record_read_notes(source_id, notes)
         pairs = _store_chunks(source_id, chunks)
         with pool.connection() as conn:

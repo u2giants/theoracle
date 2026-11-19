@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from brain.config import get_settings
 from brain.intake import ingest
+from brain.read import dates, pipeline
 from brain.read.transcript import parse_turns, read_message_thread
 
 NOW = datetime(2026, 11, 19, 12, tzinfo=UTC)
@@ -62,6 +64,71 @@ def test_short_messages_packed_into_full_passages() -> None:
     body = "\n".join(c.text for c in chunks)
     for i in range(400):
         assert body.count(f"short note number {i} about") == 1
+
+
+def test_packed_locator_identifies_each_message() -> None:
+    rows = [row("First\nline", 0), row("Second", 1, who="Lee: Ops")]
+    [chunk] = read_message_thread(ingest.render_thread(rows, "teams_chat", NOW))
+    locators = chunk.locator["turns"]
+    assert [(loc["turn"], loc["speaker"], loc["t0"]) for loc in locators] == [
+        (1, "Pat Example", rows[0]["sent_at"].isoformat()),
+        (2, "Lee: Ops", rows[1]["sent_at"].isoformat()),
+    ]
+    assert [chunk.text[loc["start"]:loc["end"]] for loc in locators] == [
+        "Pat Example: First\nline", "Lee: Ops: Second",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("date_origin", "expected"), [(dates.ORIGIN_MESSAGE, 1), (dates.ORIGIN_ADMIN, 2)]
+)
+def test_handle_read_source_routes_by_message_date(
+    monkeypatch: pytest.MonkeyPatch, date_origin: str, expected: int
+) -> None:
+    # Both sources have an origin, but only the intake source is packed.
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.side_effect = [
+        ("source", "transcript", "thread.json", "file.json",
+         NOW.date(), date_origin, NOW),
+        ("teams_chat",),
+    ]
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value = conn
+    monkeypatch.setattr(pipeline, "get_pool", lambda: pool)
+    data = ingest.render_thread([row("One", 0), row("Two", 1, who="Lee")], "teams_chat", NOW)
+    storage = MagicMock()
+    storage.download.return_value = data.encode()
+    monkeypatch.setattr(pipeline.storage_mod, "get_storage", lambda: storage)
+    store = MagicMock(return_value=[("chunk", "text")])
+    monkeypatch.setattr(pipeline, "_store_chunks", store)
+    for name in ("set_read_state", "resolve_and_store", "embed_and_store", "enqueue_job"):
+        monkeypatch.setattr(pipeline, name, MagicMock())
+    monkeypatch.setattr(pipeline.versions_mod, "detect_similarity", MagicMock())
+
+    pipeline.handle_read_source({"payload": {"source_id": "source"}})
+
+    assert len(store.call_args.args[1]) == expected
+
+
+def test_message_record_is_an_accepted_date_origin() -> None:
+    assert dates.ORIGIN_MESSAGE in dates.DATE_ORIGINS
+
+
+def test_packing_overhead_counts_before_storage_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = [row("Yes", i % 50) for i in range(180)]
+    monkeypatch.setattr(ingest, "_items", lambda *_: rows)
+    get_storage = MagicMock()
+    monkeypatch.setattr(ingest.storage_mod, "get_storage", get_storage)
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = None
+
+    assert ingest.ingest_thread(
+        conn, "teams_chat", "over-cap", None, None, NOW, passages_left=1
+    ) == ("stopped_at_cap", 0)
+    get_storage.assert_not_called()
+    assert conn.execute.call_count == 1  # Only the duplicate lookup.
 
 
 def test_bad_timestamp_falls_back_to_collected_at_never_future() -> None:
@@ -133,8 +200,6 @@ def capped(monkeypatch: pytest.MonkeyPatch) -> Any:
 def test_thread_becomes_one_dated_source_and_reingest_versions(
     db: Any, storage: Any, capped: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from brain.read import dates
-
     called: list[int] = []
     monkeypatch.setattr(dates, "document_text_date", lambda *a, **k: called.append(1))
     _seed(
@@ -182,6 +247,31 @@ def test_thread_becomes_one_dated_source_and_reingest_versions(
     assert (str(eff2), origin2) == ("2026-11-10", "message_record") and not called
 
 
+def test_identical_threads_keep_separate_sources(db: Any, storage: Any, capped: Any) -> None:
+    for key in ("same-a", "same-b"):
+        _seed(db, key, ["Identical text and timestamp."])
+    assert ingest.run(capped)["created"] == 2
+    rows = db.execute(
+        "SELECT t.thread_key, s.external_ref, s.id FROM cmap.intake_thread t "
+        "JOIN cmap.source s ON s.id = t.source_id ORDER BY t.thread_key"
+    ).fetchall()
+    assert [(key, ref) for key, ref, _ in rows] == [
+        ("same-a", "same-a"), ("same-b", "same-b"),
+    ]
+    assert rows[0][2] != rows[1][2]
+    assert ingest.run(capped)["unchanged"] == 2
+
+
+def test_empty_thread_leaves_the_sweep(db: Any, storage: Any, capped: Any) -> None:
+    _seed(db, "secret-only", [""])
+    db.execute("UPDATE cmap.intake_item SET drop_reason = 'secret'")
+    db.commit()
+    assert ingest.run(capped)["empty"] == 1
+    assert db.execute("SELECT verdict FROM cmap.intake_thread").fetchone()[0] == "dropped"
+    assert not storage.objects
+    assert "empty" not in ingest.run(capped)
+
+
 def test_spend_cap_stops_queueing(
     db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -192,7 +282,9 @@ def test_spend_cap_stops_queueing(
     out = ingest.run(get_settings())
     get_settings.cache_clear()
     assert out["created"] == 1 and out.get("stopped_at_cap")
-    assert db.execute("SELECT count(*) FROM cmap.source").fetchone()[0] == 1
+    [stored] = db.execute("SELECT storage_path FROM cmap.source").fetchall()
+    assert list(storage.objects) == [stored[0]]
+    assert db.execute("SELECT count(*) FROM cmap.job WHERE kind = 'read_source'").fetchone()[0] == 1
 
 
 def test_no_cap_no_run(monkeypatch: pytest.MonkeyPatch) -> None:

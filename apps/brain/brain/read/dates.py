@@ -63,6 +63,7 @@ DATE_ORIGINS = (
     ORIGIN_DOCUMENT,
     ORIGIN_FILE_META,
     ORIGIN_UPLOAD,
+    ORIGIN_MESSAGE,
 )
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "source_date.md"
