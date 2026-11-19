@@ -9,7 +9,7 @@ read-when: working on bulk message intake (Teams chat, ClickUp, email) or on the
 
 Written 2026-11-18, 3:05 PM EST, by Claude Code (edge-dev session `c9d36e3c`) for Albert Hazan.
 Tracking issue: https://github.com/u2giants/theoracle/issues/607 (its checklist is the definition of done). Parent programme: #520.
-Registered handoff: [HANDOFF.d/2026-11-19T0430Z-edge-dev-claude-pm-intake-clean-email.md](HANDOFF.d/2026-11-19T0430Z-edge-dev-claude-pm-intake-clean-email.md).
+Registered handoff: [HANDOFF.d/2026-11-19T1340Z-edge-dev-claude-pm-intake-sources-built.md](HANDOFF.d/2026-11-19T1340Z-edge-dev-claude-pm-intake-sources-built.md).
 Sibling plan (different source, same staging idea — reuse, do not fold in): [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md).
 Cost analysis this plan is built on: [docs/company-map/scaledown-report-2026-11-18.md](docs/company-map/scaledown-report-2026-11-18.md).
 
