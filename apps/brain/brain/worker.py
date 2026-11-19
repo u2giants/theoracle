@@ -18,6 +18,7 @@ from brain.extract.relations import handle_relations
 from brain.function_assign import handle_function_assign
 from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
+from brain.intake.ingest import handle_intake_ingest, maybe_queue_intake
 from brain.interview import conversation as conversation_mod
 from brain.interview.converse import handle_interview_reply
 from brain.interview.intake import close_stale_threads
@@ -54,6 +55,7 @@ HANDLERS: dict[str, Handler] = {
     "directory_sync": handle_directory_sync,
     "ensure_chain": handle_ensure_chain,
     "interview_reply": handle_interview_reply,
+    "intake_ingest": handle_intake_ingest,
 }
 
 # Kinds whose permanent failure must still get the employee a reply (#604).
@@ -245,6 +247,10 @@ def run_worker(stop: threading.Event, lane: str = MAIN_LANE) -> None:
                 maybe_queue_directory_sync()
             except Exception as exc:
                 logger.warning("directory sync scheduling failed: %s", exc)
+            try:
+                maybe_queue_intake()
+            except Exception as exc:
+                logger.warning("message intake scheduling failed: %s", exc)
             try:
                 maybe_queue_ensure_chain()
             except Exception as exc:
