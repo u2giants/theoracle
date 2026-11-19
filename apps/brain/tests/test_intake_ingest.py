@@ -188,7 +188,7 @@ def test_spend_cap_stops_queueing(
     monkeypatch.setenv("BRAIN_INTAKE_MAX_USD", "0.0015")
     get_settings.cache_clear()
     for k in ("cap-a", "cap-b", "cap-c"):
-        _seed(db, k, ["The vendor needs the final artwork approved first."])
+        _seed(db, k, [f"The vendor needs the final artwork approved first ({k})."])
     out = ingest.run(get_settings())
     get_settings.cache_clear()
     assert out["created"] == 1 and out.get("stopped_at_cap")
