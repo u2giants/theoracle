@@ -135,19 +135,26 @@ _COMMON = {
 }
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z'&.-]*")
 _CJK_RUN = re.compile(r"[一-鿿]+")
+_SENTENCE_START = re.compile(r"(?:^|[.!?:][\"')]*\s+|\n\s*)[\"'(]*$")
 
 
 def capitalized_names(text: str) -> set[str]:
-    """Capitalized words that are not common words, plus name-shaped CJK runs.
+    """Mid-sentence capitalized words that are not common words, plus name-shaped CJK runs.
 
     A CJK run is name-shaped at 2-4 characters (Chinese person names); longer
     runs are clauses and never name candidates, so real questions pass.
     """
-    names = {
-        word.casefold()
-        for word in (m.group(0).rstrip(".") for m in _TOKEN.finditer(text))
-        if word[:1].isupper() and word.casefold() not in _COMMON
-    }
+    names = set()
+    for m in _TOKEN.finditer(text):
+        word = m.group(0).rstrip(".")
+        if not word[:1].isupper() or word.casefold() in _COMMON:
+            continue
+        if _SENTENCE_START.search(text[: m.start()]):
+            # An ordinary word capitalized only because it opens a sentence
+            # ("Happy", "Fair") is not a name; a fabricated name that only
+            # ever opens sentences is left to the resolve judge.
+            continue
+        names.add(word.casefold())
     for run in _CJK_RUN.findall(text):
         if 2 <= len(run) <= 4 and run not in _COMMON:
             names.add(run)

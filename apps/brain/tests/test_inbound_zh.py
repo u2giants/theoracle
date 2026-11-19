@@ -174,3 +174,10 @@ def test_stop_variants_and_resume(db: Any, monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert reply["reply"] == strings("en").reply_stopped
     assert _paused() is True
+
+
+def test_sentence_initial_words_are_not_names() -> None:
+    allowed = "Maria signs it."
+    assert invented_names("Happy to help. Fair enough, who signs it?", allowed) == set()
+    assert invented_names('Question: "Great." Sounds good?', allowed) == set()
+    assert invented_names("Maria signs it. Does Jonathan approve?", allowed) == {"jonathan"}
