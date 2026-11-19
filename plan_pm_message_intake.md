@@ -37,6 +37,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 2.4 | Batch + cached-prefix sending path | ⬜ open | — | — |
 | 2.5 | Business-area sorting with ScaleDown classify (test, adopt if it passes) | ⬜ open | — | — |
 | 3.1 | Pilot: two weeks of data end to end, measured cost | ⬜ open | — | — |
+| 3.1a | Ilona’s private question comparison pilot | 🟡 comparison verified; Company Map proof open | [#607 comparison receipt](https://github.com/u2giants/theoracle/issues/607#issuecomment-7019294549). Seven evidence-checked drafts from 14 days of email, 28 days of Teams chats and six calendar months of ClickUp task records and comments. The full ClickUp change history and production import remain open. | 2026-11-19 |
 | 4.1 | Full-window run + live proof | ⬜ open | — | — |
 | 5.1 | Email collector | ✅ done | PR #633; live dry run 10,454 read, 9,927 kept, 3,146 threads; after cleaning 2,640 threads, ~20,535 passages (#607 comment 6999532003). Email is ~20x the other two: run the 1.5 probe on email too | 2026-11-18 |
 
@@ -83,7 +84,7 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 **NOT in this plan:**
 - Email collection until the permission exists (step 5.1 stays blocked; design is included so it is a small step later).
 - Teams **channel** posts (needs a different permission; chats only).
-- Any other employee. Other people appear only as participants in the two managers' threads.
+- Additional employees beyond the two managers and the separate Ilona Kereki comparison authorized on 2026-11-19. Keep the project-manager evaluation sample and rollout unchanged.
 - Turning the interview bot on (#518) or changing interview logic.
 - A review page on the website. Dropped and kept threads are listed by an admin API only (step 1.5).
 - Changing model seats for documents or meetings. New seats apply to message-shaped sources only unless a separate bake-off says otherwise.
@@ -258,6 +259,8 @@ Cost levers in order of size: fewer, fuller passages (packing short messages, st
 - Enable intake on production for the 14-day window with `BRAIN_INTAKE_MAX_USD` set from the forecast. Run to completion through `recommend`.
 - Record: threads collected / dropped by rule / dropped by gate / kept; passages skipped at 0.8; calls and dollars per stage; cost per kept thread; quote-validation rate; 20 randomly sampled **dropped** threads reviewed by the lead for wrongly dropped process content (target: zero; any miss lowers nothing automatically — raise it in STATUS and adjust the rule that caused it).
 - Gate: numbers on #607; the map's project-management function page shows new processes and people with sources; spend ≤ cap.
+
+**3.1a Ilona’s question comparison.** Use the private pilot corpus for the specified windows. ScaleDown removes high-confidence fluff and selects relevant evidence within threads. Keep verbatim evidence and retain uncertain context privately. Compare evidence-backed drafts to the saved question baseline for specificity, unsupported assumptions and what each question would learn. Keep new proactive questions on hold until the comparison is complete. The private comparison is independent of Phase 2 qualification and Phase 3.1 Company Map publication.
 
 ### Phase 4 — full run
 
