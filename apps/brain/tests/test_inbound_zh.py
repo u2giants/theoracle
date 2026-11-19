@@ -159,8 +159,18 @@ def test_stop_variants_and_resume(db: Any, monkeypatch: pytest.MonkeyPatch) -> N
     assert _paused() is True
 
 
-def test_sentence_initial_words_are_not_names() -> None:
+def test_common_sentence_openers_are_not_names() -> None:
     allowed = "Maria signs it."
     assert invented_names("Happy to help. Fair enough, who signs it?", allowed) == set()
     assert invented_names('Question: "Great." Sounds good?', allowed) == set()
     assert invented_names("Maria signs it. Does Jonathan approve?", allowed) == {"jonathan"}
+
+
+def test_invented_names_are_checked_at_sentence_boundaries() -> None:
+    allowed = "The team signs it."
+    assert invented_names("Zorblax signs off?", allowed) == {"zorblax"}
+    assert invented_names("Maria signs it. Jonathan approves?", allowed) == {"maria", "jonathan"}
+    assert invented_names('Who signs? "Zorblax signs."\nMaria approves.', allowed) == {
+        "zorblax", "maria",
+    }
+    assert invented_names("Question: Zorblax signs it?", allowed) == {"zorblax"}

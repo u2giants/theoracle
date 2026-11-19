@@ -51,15 +51,14 @@ _COMMON = {
     "friday", "saturday", "sunday", "oracle", "teams", "map", "company", "ok", "okay",
     "great", "for", "in", "on", "at", "to", "from", "with", "by", "about",
     "roughly", "usually", "typically", "any", "has", "have", "there", "anything",
-    "else", "between", "one", "next",
+    "else", "between", "one", "next", "happy", "fair", "sounds", "question",
 }
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z'&.-]*")
 _CJK_RUN = re.compile(r"[一-鿿]+")
-_SENTENCE_START = re.compile(r"(?:^|[.!?:][\"')]*\s+|\n\s*)[\"'(]*$")
 
 
 def capitalized_names(text: str) -> set[str]:
-    """Mid-sentence capitalized words that are not common words, plus name-shaped CJK runs.
+    """Capitalized words outside the common-word list, plus name-shaped CJK runs.
 
     A CJK run is name-shaped at 2-4 characters (Chinese person names); longer
     runs are clauses and never name candidates, so real questions pass.
@@ -68,11 +67,6 @@ def capitalized_names(text: str) -> set[str]:
     for m in _TOKEN.finditer(text):
         word = m.group(0).rstrip(".")
         if not word[:1].isupper() or word.casefold() in _COMMON:
-            continue
-        if _SENTENCE_START.search(text[: m.start()]):
-            # An ordinary word capitalized only because it opens a sentence
-            # ("Happy", "Fair") is not a name; a fabricated name that only
-            # ever opens sentences is left to the resolve judge.
             continue
         names.add(word.casefold())
     for run in _CJK_RUN.findall(text):
@@ -85,9 +79,7 @@ def invented_names(question: str, allowed_text: str) -> set[str]:
     """Names in ``question`` that appear nowhere in ``allowed_text``.
 
     Latin names match as tokens; CJK name-shaped runs match as substrings.
-    Longer CJK clauses are not treated as names, so real Chinese questions
-    never false-positive here (a missed fabricated name is caught later by
-    the resolve judge).
+    Longer CJK clauses are not treated as name candidates.
     """
     allowed = {w.casefold().rstrip(".") for w in _TOKEN.findall(allowed_text)}
     out = set()
