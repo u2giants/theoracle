@@ -54,6 +54,7 @@ ORIGIN_INTERVIEW = "interview_answer"
 ORIGIN_DOCUMENT = "document_text"
 ORIGIN_FILE_META = "file_metadata"
 ORIGIN_UPLOAD = "upload_time"
+ORIGIN_MESSAGE = "message_record"  # message threads: date of the first record (#607)
 
 DATE_ORIGINS = (
     ORIGIN_ADMIN,
@@ -277,7 +278,7 @@ def resolve_source_date(
     usage: dict[str, int] | None = None,
 ) -> tuple[date, str]:
     """Return ``(effective_date, date_origin)`` by first-hit precedence."""
-    if stored_origin == ORIGIN_ADMIN and stored_date is not None:
+    if stored_origin in (ORIGIN_ADMIN, ORIGIN_MESSAGE) and stored_date is not None:
         return stored_date, stored_origin
 
     meeting: date | None = None

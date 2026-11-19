@@ -313,6 +313,52 @@ def chunk_turns(turns: Sequence[Turn]) -> list[Chunk]:
     return chunks
 
 
+def pack_turns(turns: Sequence[Turn]) -> list[Chunk]:
+    """Pack consecutive message turns into passages of up to WINDOW_TOKENS.
+
+    For message threads (plan_pm_message_intake.md 1.6): each turn becomes one
+    ``Speaker: text`` line and lines are packed until the next would pass the
+    window. A turn is never split unless it alone is over the window (then it
+    is cut at sentence boundaries, as ``chunk_turns`` does).
+    """
+    usable = [turn for turn in turns if turn.text.strip()]
+    chunks: list[Chunk] = []
+    lines: list[str] = []
+    first = 0
+
+    def flush() -> None:
+        nonlocal lines
+        if lines:
+            turn = usable[first]
+            body = "\n".join(lines)
+            locator: dict[str, Any] = {"turn": first + 1, "speaker": turn.speaker}
+            if turn.t0 is not None:
+                locator["t0"] = turn.t0
+            chunks.append(Chunk(locator, body, count_tokens(body)))
+        lines = []
+
+    for number, turn in enumerate(usable):
+        line = f"{turn.speaker}: {turn.text.strip()}"
+        n = count_tokens(line)
+        if n > WINDOW_TOKENS:
+            flush()
+            for piece in _split_long_turn(turn.text):
+                chunks.append(_turn_chunk(turn, number + 1, piece))
+            continue
+        if lines and count_tokens("\n".join([*lines, line])) > WINDOW_TOKENS:
+            flush()
+        if not lines:
+            first = number
+        lines.append(line)
+    flush()
+    return chunks
+
+
+def read_message_thread(text: str) -> list[Chunk]:
+    """Read a rendered message thread (JSON turn list) into packed passages."""
+    return pack_turns(parse_turns(text))
+
+
 def read_transcript(text: str) -> list[Chunk]:
     """Read a transcript into turn chunks (plan step 3, transcript.py)."""
     return chunk_turns(parse_turns(text))

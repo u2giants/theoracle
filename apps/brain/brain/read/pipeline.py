@@ -37,7 +37,7 @@ from brain.read.image import read_image
 from brain.read.office import read_delimited, read_docx, read_pptx, read_xlsx
 from brain.read.pdf import read_pdf
 from brain.read.state import NO_CONTENT_ERROR, set_read_state
-from brain.read.transcript import read_transcript
+from brain.read.transcript import read_message_thread, read_transcript
 from brain.read.vision import start_read_notes
 
 logger = logging.getLogger(__name__)
@@ -168,7 +168,15 @@ def handle_read_source(job: dict[str, Any]) -> None:
     notes = start_read_notes()
     try:
         data = storage_mod.get_storage().download(storage_path)
-        chunks = read_chunks(read_kind(kind, storage_path), data, usage)
+        with pool.connection() as conn:
+            origin_row = conn.execute(
+                "SELECT origin FROM cmap.source WHERE id = %s", (source_id,)
+            ).fetchone()
+        if origin_row is not None and origin_row[0] and kind == KIND_TRANSCRIPT:
+            # Message threads are packed into full passages (intake plan 1.6).
+            chunks = read_message_thread(_decode_text(data))
+        else:
+            chunks = read_chunks(read_kind(kind, storage_path), data, usage)
         _record_read_notes(source_id, notes)
         pairs = _store_chunks(source_id, chunks)
         with pool.connection() as conn:
