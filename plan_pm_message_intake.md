@@ -25,9 +25,9 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 |---|---|---|---|---|
 | A | Access probes | 🟨 Teams + ClickUp proven; email blocked | #607 opening comment (2026-11-18): ClickUp `GET /api/v2/team` 200, both managers are members; Graph `/users/{id}/chats` and `/chats/{id}/messages` 200 for both; Graph `/users/{id}/messages` 403 `ErrorAccessDenied` (no `Mail.Read` application role) | 2026-11-18 |
 | 0.1 | Sizing script and cost forecast (no paid calls) | ✅ done | #607 comment 6993848642: 1,045 passages, $0.12–$0.80 forecast | 2026-11-18 |
-| 1.1 | `cmap.intake_item` / `cmap.intake_thread` staging tables | 🟨 in PR | sql/036_message_intake.sql; CI runs schema test | 2026-11-18 |
-| 1.2 | ClickUp collector | ⬜ open | — | — |
-| 1.3 | Teams chat collector | 🟨 in PR | `apps/brain/brain/intake/graph_chats.py`; `apps/brain/tests/test_intake_graph_chats.py` (7 synthetic pure tests pass; DB upsert test runs in CI); shared client `apps/brain/brain/graph_ms.py`; PR branch `claude/intake-teams-collector`; dry-run counts on live data not yet taken | 2026-11-18 |
+| 1.1 | `cmap.intake_item` / `cmap.intake_thread` staging tables | ✅ done | PR #617 merged; schema test green in CI | 2026-11-18 |
+| 1.2 | ClickUp collector | ✅ done | PR #620 merged; live dry run 160 items vs 160 in step 0.1 | 2026-11-18 |
+| 1.3 | Teams chat collector | ✅ done | PR #622 merged; live dry run 12,864 kept vs 12,828 (0.3%), 956 threads vs 954 | 2026-11-18 |
 | 1.4 | Free cleaning and thread assembly (drop-only) | ⬜ open | — | — |
 | 1.5 | Thread relevance gate + triage summary (ScaleDown) | ⬜ open | — | — |
 | 1.6 | Kept thread becomes a `cmap.source` (record date, no date call) | ⬜ open | — | — |
