@@ -208,7 +208,7 @@ def test_clarify_retries_once_when_a_name_is_flagged_and_sees_the_reply(
     ).fetchone()
     prompts: list[str] = []
     outputs = [
-        {"text": "Zorblax wants to know who signs."},
+        {"text": "The team asks whether Zorblax signs."},
         {"text": "Which person signs off this step? For example: the team lead signs."},
     ]
 
