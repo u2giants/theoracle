@@ -46,6 +46,7 @@ _COMMON = {
     "i'm",
     "i've",
     "i'd",
+    "i'll",
     "a",
     "an",
     "the",

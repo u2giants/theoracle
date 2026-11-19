@@ -13,11 +13,11 @@ commit, test path or run id.
 
 | Step | What | State | Evidence |
 |---|---|---|---|
-| 1 | Directory lookup (`find_person`) | ⬜ open | — |
-| 2 | Agent loop in the composer (tool calls, then one decision) | ⬜ open | — |
-| 3 | `refer` decision: hand the question to the named colleague | ⬜ open | — |
-| 4 | "I don't know" replies go through the agent too | ⬜ open | — |
-| 5 | Referred question opens with who sent it | ⬜ open | — |
+| 1 | Directory lookup (`find_person`) | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_find_person_returns_both_duplicate_names` (prefix match, Teams-reachable first) |
+| 2 | Agent loop in the composer (tool calls, then one decision) | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_agent_looks_up_then_refers`; live model check on Albert's chat returned refer to Jennifer Chaffier |
+| 3 | `refer` decision: hand the question to the named colleague | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_agent_looks_up_then_refers`, `::test_refer_to_unlooked_up_id_is_rejected` |
+| 4 | "I don't know" replies go through the agent too | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_dont_know_naming_a_colleague_refers`, `::test_dont_know_without_a_name_still_asks_who_would_know` |
+| 5 | Referred question opens with who sent it | ✅ done 2026-11-18 | `apps/brain/tests/test_interview_agent.py::test_referred_question_opens_with_referrer` |
 | 6 | Tests, PR, merge, deploy, live proof in Albert's chat | ⬜ open | — |
 
 ## 1. The ultimate goal
