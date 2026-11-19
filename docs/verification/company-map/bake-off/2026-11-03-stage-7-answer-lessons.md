@@ -73,3 +73,37 @@ This file explains how the run actually went and what a future re-run should do 
 - Re-run stage 7 on the **final** 20 questions once Albert and Ilona have edited them. Use Haiku, GLM, and DeepSeek if budget allows.
 - Test **global/auto mode** once community reports exist (stage 6 output) on a cloned DB.
 - If GLM-5.3-flash is ever considered for the seat, first confirm its first-call empty-content rate in production logs. Consider whether it should run with the low-reasoning setting from the start rather than only on retry.
+
+## November 19, 2026 DSPy follow-up
+
+**Decision:** Albert declined DSPy adoption. Keep TheOracle's current Claude
+Haiku 5.5 answer setup. The trial made no runtime or database changes.
+
+In a separate drafting test, each model received the same 22 POP workflow
+questions and the same fixed evidence, drawn from the
+[published workflow and SOP transcriptions](2026-11-03-stage-1-vision.json).
+Four questions came from the [existing evaluation bank](../../../../apps/brain/eval/questions.b1.json).
+An answer passed when it was complete and its material claims had supporting
+citations. A clear admission of missing information passed when the supplied
+evidence could not answer the question.
+
+| Model and instructions | First set (14) | Fresh follow-up (8) | Total |
+|---|---:|---:|---:|
+| Haiku 5.5 with current Oracle instructions | 14 | 6 | 20/22 |
+| Haiku 5.5 with DSPy | 12 | 7 | 19/22 |
+| Gemma 4 26B A4B with DSPy | 11 | 3 | 14/22 |
+| GPT-5 Nano with DSPy | 5 | 2 | 7/22 |
+| Local Qwen3 8B, Q4_K_M, with DSPy | 6 | 1 | 7/22 |
+
+DSPy used four examples selected by BootstrapFewShot from a separate training
+set. The follow-up constrained each claim to one sentence and attached citations
+from source IDs. The cheaper and local models replayed the frozen DSPy method
+for each set. The structured format without examples passed 12/14 and 6/8
+on Haiku. On the earlier 14 fictional questions with local Qwen2.5 3B, the
+revised format improved from 3/14 to 7/14.
+
+Gemma's 22 drafts cost about $0.0041 and Nano's cost about $0.0031 in provider
+charges. Qwen ran on local hardware without per-call charges. These are single
+runs on a small sample. Retrieval, live routing and the live support-checking
+stage were outside the test, so the results describe drafting from fixed
+evidence only.
