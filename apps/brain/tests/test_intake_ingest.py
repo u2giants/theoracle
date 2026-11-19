@@ -182,6 +182,23 @@ def test_thread_becomes_one_dated_source_and_reingest_versions(
     assert (str(eff2), origin2) == ("2026-11-10", "message_record") and not called
 
 
+def test_cli_scope_ignores_threads_outside_literal_prefix(
+    db: Any, storage: Any, capped: Any
+) -> None:
+    _seed(db, "pilot%_one", ["Approval goes to the supplier."])
+    _seed(db, "pilotxyone", ["Use the vendor’s size chart."])
+    _seed(db, "other-pilot", ["The factory creates the final proof."])
+
+    ingest.main(["--thread-prefix", "pilot%_"])
+
+    assert db.execute("SELECT external_ref FROM cmap.source").fetchall() == [
+        ("pilot%_one",)
+    ]
+    assert db.execute(
+        "SELECT count(*) FROM cmap.job WHERE kind = 'read_source'"
+    ).fetchone() == (1,)
+
+
 def test_spend_cap_stops_queueing(
     db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
