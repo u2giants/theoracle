@@ -169,7 +169,7 @@ def test_apply_writes_drop_reasons_and_blanks_secrets(db: Any) -> None:
     db.commit()
     counts = clean.apply(db, "email")
     assert (
-        counts["kept"] == 1
+        counts["kept"] == 2  # the short message itself is kept; its thread is dropped
         and counts["secret"] == 1
         and counts["too_short_thread"] == 1
     )
