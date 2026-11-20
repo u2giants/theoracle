@@ -1021,6 +1021,15 @@ def _apply_fact_corrections(
     return confirmed_nodes + kept_nodes, confirmed_edges + kept_edges
 
 
+def _function_graph_scope(graph: Any, universe_ids: list[str]) -> set[str]:
+    rows = graph.query(
+        "MATCH (a:Entity)-[r]-(x:Entity) WHERE a.id IN $ids "
+        "AND type(r) IN ['HANDS_OFF_TO', 'PRECEDES'] RETURN DISTINCT x.id",
+        {"ids": universe_ids},
+    ).result_set
+    return set(universe_ids) | {str(row[0]) for row in rows}
+
+
 def _graph_context(
     entities: list[dict[str, Any]],
     settings: Settings,
@@ -1041,14 +1050,7 @@ def _graph_context(
     graph = connect_graph(settings)
     allowed: set[str] | None = None
     if universe_ids is not None:
-        allowed = set(universe_ids)
-        rows = graph.query(
-            "MATCH (a:Entity)-[r]-(x:Entity) WHERE a.id IN $ids "
-            "AND type(r) IN ['HANDS_OFF_TO', 'PRECEDES'] RETURN DISTINCT x.id",
-            {"ids": universe_ids},
-        ).result_set
-        allowed |= {str(row[0]) for row in rows}
-        allowed |= set(ids)
+        allowed = _function_graph_scope(graph, universe_ids) | set(ids)
     kind_score: dict[str, float] = {entity_id: 1.0 for entity_id in ids}
     frontier = list(ids)
     seen: set[str] = set(ids)
@@ -1984,23 +1986,40 @@ def answer_question(
         return _verify_support(
             _global_answer(text, turns, cfg, counters), cfg, counters
         )
-    subject = scenario_subject(text)
-    if subject is not None:
-        answer_md, citations, unknown = trace_impact(subject, cfg)
-        result = _dont_know(text, [], "local")
-        result.update(
-            answer_md=unknown or answer_md,
-            citations=citations,
-            unknowns=[unknown] if unknown else [],
-        )
-        return _verify_support(result, cfg, counters)
     routed = _route_functions(text, turns, cfg, counters)
     routed_ids = [item["id"] for item in routed]
+    hybrid = mode == "auto" and bool(routed) and routed[0]["weight"] < ROUTE_MIN_WEIGHT
+    subject = scenario_subject(text)
+    if subject is not None and not hybrid:
+        try:
+            universe_ids = graph_scope = None
+            if routed_ids:
+                with get_pool().connection() as conn:
+                    universe_ids = _function_entity_ids(conn, routed_ids)
+                graph_scope = _function_graph_scope(connect_graph(cfg), universe_ids)
+            impact = trace_impact(
+                subject,
+                cfg,
+                function_ids=routed_ids or None,
+                universe_ids=universe_ids,
+                graph_scope=graph_scope,
+            )
+        except Exception:
+            logger.warning(
+                "Impact tracing failed; using regular answering", exc_info=True
+            )
+        else:
+            if impact is not None:
+                answer_md, citations = impact
+                mode_used = "global" if mode == "auto" and not routed else "local"
+                result = _dont_know(text, routed, mode_used)
+                result.update(answer_md=answer_md, citations=citations, unknowns=[])
+                return _verify_support(result, cfg, counters)
     if mode == "auto" and not routed:
         return _verify_support(
             _global_answer(text, turns, cfg, counters), cfg, counters
         )
-    if mode == "auto" and routed[0]["weight"] < ROUTE_MIN_WEIGHT:
+    if hybrid:
         # Low routing confidence: the top function's scope plus the company
         # report in ONE prompt — never two answers concatenated (C4 step 5).
         result = _local_answer(

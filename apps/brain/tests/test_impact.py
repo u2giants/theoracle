@@ -156,7 +156,7 @@ def test_what_if_person_absent_lists_downstream(db, monkeypatch, question):
         assert citation["locator"] == locator
 
 
-def test_impact_declines_missing_or_ambiguous_subject(db):
+def test_impact_falls_back_for_missing_or_ambiguous_subject(db, monkeypatch):
     _, chunk_id = _seed_impact(db)
     (other_id,) = db.execute(
         "INSERT INTO cmap.entity (entity_type, canonical_name) "
@@ -168,10 +168,12 @@ def test_impact_declines_missing_or_ambiguous_subject(db):
         (chunk_id, other_id),
     )
     db.commit()
+    monkeypatch.setattr(
+        answer_mod, "_global_answer", lambda *args: {"answer_md": "Regular answer"}
+    )
     for subject in ("Alice Chen", "Unlisted employee"):
         result = answer_question(f"What breaks if {subject} is out?")
-        assert "Please name one" in result["answer_md"]
-        assert result["citations"] == []
+        assert result["answer_md"] == "Regular answer"
 
 
 def test_flow_performer_can_seed_graph_handoff_without_performs_edge(db, monkeypatch):
@@ -192,7 +194,7 @@ def test_flow_performer_can_seed_graph_handoff_without_performs_edge(db, monkeyp
     assert "Purchasing workflow: Send PO" in result["answer_md"]
 
 
-def test_impact_declines_superseded_evidence_even_before_graph_rebuild(db):
+def test_impact_skips_superseded_evidence_even_before_graph_rebuild(db, monkeypatch):
     source_id, _ = _seed_impact(db)
     replacement = _seed_text(db, "Replacement source", "replacement")
     db.execute(
@@ -201,6 +203,8 @@ def test_impact_declines_superseded_evidence_even_before_graph_rebuild(db):
         (replacement, source_id),
     )
     db.commit()
+    monkeypatch.setattr(
+        answer_mod, "_global_answer", lambda *args: {"answer_md": "Regular answer"}
+    )
     result = answer_question("What breaks if Alice Chen is out?")
-    assert result["unknowns"]
-    assert result["citations"] == []
+    assert result["answer_md"] == "Regular answer"
