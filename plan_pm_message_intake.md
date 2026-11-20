@@ -1,5 +1,5 @@
 ---
-summary: "Open plan for reading the two project managers' Teams messages, ClickUp records and email into the Company Map at the lowest cost that still passes the quality gates: steps, gates and STATUS table."
+summary: "Steps and gates for low-cost Teams, ClickUp and email intake into the Company Map. Tracks issue 607."
 kind: plan
 status: open
 read-when: working on bulk message intake (Teams chat, ClickUp, email) or on the cost of the extraction stages; read STATUS first
@@ -32,7 +32,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 1.5 | Thread relevance gate + triage summary (ScaleDown) | ✅ done — gate **not needed** | Probe `python -m brain.intake.gate --probe 200` on 226 cleaned threads (271 ScaleDown calls): predicted token share dropped 0.000 at 0.9 and 0.95 (1 of 226 threads), so the paid gate is not built; slicing and verdict rule kept in `brain/intake/gate.py` (`tests/test_intake_gate.py`). ScaleDown summarize returns 403 (not on the account): `summary` stays null. Admin listing `GET /intake/threads` (`tests/test_intake_api.py`) | 2026-11-19 |
 | 1.6 | Kept thread becomes a `cmap.source` (record date, no date call) | ✅ done (live ingest waits for the pilot) | `apps/brain/brain/intake/ingest.py`, `sql/038_intake_sources.sql`, `read_message_thread` packing in `brain/read/transcript.py`; `tests/test_intake_ingest.py` (round trip, packing, date with no model call, re-ingest versions, spend cap). Job `intake_ingest` + hourly sweep, off unless `BRAIN_INTAKE_ENABLED`. Drift: no `intake_collect`/`intake_gate` jobs; collection stays a command for the pilot (gate not needed, 1.5) | 2026-11-19 |
 | 2.1 | Gold sample from real threads (private store) | ✅ done | [#607 sandbox verification](https://github.com/u2giants/theoracle/issues/607#issuecomment-7024467855). Private reference and verified manifest cover 30 scoring threads, 1,920 lead decisions, 384 independent checks, all 182 disagreements settled, and 1,006 flagged quotes reviewed separately. The frozen 120-thread scoring reserve stays available if later confidence bounds require it. | 2026-11-19 |
-| 2.2 | Flat-extraction bake-off on message-shaped text | ⬜ open | — | — |
+| 2.2 | Flat-extraction bake-off on message-shaped text | ✅ done | [Private sandbox comparison, aggregate results](docs/verification/2026-11-19-pm-intake-flat-extraction.md). GLM found 316 of 328 verified mentions. The best ScaleDown run found 202 and needed 307 to pass. Retain GLM. | 2026-11-19 |
 | 2.3 | Relations bake-off across the four candidates | ⬜ open | — | — |
 | 2.4 | Batch + cached-prefix sending path | ⬜ open | — | — |
 | 2.5 | Business-area sorting with ScaleDown classify (test, adopt if it passes) | ⬜ open | — | — |
@@ -225,7 +225,7 @@ Cost levers in order of size: fewer, fuller passages (packing short messages, st
 - Gate: the private sandbox contains the reviewed reference and a manifest with thread IDs, scope, method, coverage, corrections, and hashes. The issue carries aggregate counts and the manifest hash only. Outside the sampled threads and flagged queue, candidate rows have not been lead-reviewed.
 
 **2.2 Flat-extraction bake-off.** `lead-only`.
-- Candidates: seated flat model; ScaleDown `/extract` with the current entity spec; ScaleDown `/extract` with a spec tuned by the `slm-agent:optimize` skill on a 20-thread tuning split (never the 40 scoring threads).
+- Candidates: seated flat model; ScaleDown `/extract` with the current entity spec; ScaleDown `/extract` with a spec tuned by the `slm-agent:optimize` skill on a separate 20-thread tuning split (outside the scoring threads frozen in step 2.1).
 - Measure mention recall and precision against gold. **Gate to pass:** recall ≥ 97% of the seated model's recall and precision not lower. Cheapest passing candidate wins; if ScaleDown passes, add a seat value that selects it for `origin IS NOT NULL` sources.
 - Gate: results table (numbers only) committed to `docs/verification/` and linked from STATUS.
 
