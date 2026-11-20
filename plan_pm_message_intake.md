@@ -9,7 +9,7 @@ read-when: working on bulk message intake (Teams chat, ClickUp, email) or on the
 
 Written 2026-11-18, 3:05 PM EST, by Claude Code (edge-dev session `c9d36e3c`) for Albert Hazan.
 Tracking issue: https://github.com/u2giants/theoracle/issues/607 (its checklist is the definition of done). Parent programme: #520.
-Registered handoff: [resume at step 2.3](HANDOFF.d/2026-11-20T1258Z-edge-dev3-codex-intake-relations-bakeoff.md).
+Registered handoff: [resume the independent blind review at step 2.3](HANDOFF.d/2026-11-20T2108Z-edge-dev3-codex-intake-blind-review.md).
 Sibling plan (different source, same staging idea — reuse, do not fold in): [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md).
 Cost analysis this plan is built on: [docs/company-map/scaledown-report-2026-11-18.md](docs/company-map/scaledown-report-2026-11-18.md).
 
@@ -33,7 +33,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 1.6 | Kept thread becomes a `cmap.source` (record date, no date call) | ✅ done (live ingest waits for the pilot) | `apps/brain/brain/intake/ingest.py`, `sql/038_intake_sources.sql`, `read_message_thread` packing in `brain/read/transcript.py`; `tests/test_intake_ingest.py` (round trip, packing, date with no model call, re-ingest versions, spend cap). Job `intake_ingest` + hourly sweep, off unless `BRAIN_INTAKE_ENABLED`. Drift: no `intake_collect`/`intake_gate` jobs; collection stays a command for the pilot (gate not needed, 1.5) | 2026-11-19 |
 | 2.1 | Gold sample from real threads (private store) | ✅ done | [#607 sandbox verification](https://github.com/u2giants/theoracle/issues/607#issuecomment-7024467855). Private reference and verified manifest cover 30 scoring threads, 1,920 lead decisions, 384 independent checks, all 182 disagreements settled, and 1,006 flagged quotes reviewed separately. The frozen 120-thread scoring reserve stays available if later confidence bounds require it. | 2026-11-19 |
 | 2.2 | Flat-extraction bake-off on message-shaped text | ✅ done | [Private sandbox comparison, aggregate results](docs/verification/2026-11-19-pm-intake-flat-extraction.md). GLM found 316 of 328 verified mentions. The best ScaleDown run found 202 and needed 307 to pass. Retain GLM. | 2026-11-19 |
-| 2.3 | Relations bake-off across the four candidates | ⬜ open | [Private sandbox archive replay](docs/verification/2026-11-20-pm-intake-relations.md). All four candidates and GLM → Luna missed 95% correctness. No qualification. Fresh joint and wider-context comparisons and blind semantic recall remain open. | 2026-11-20 |
+| 2.3 | Relations bake-off across the four candidates | ⬜ open | [Archive replay](docs/verification/2026-11-20-pm-intake-relations.md): all four candidates and GLM → Luna missed 95% correctness. [Direct and cap trials](https://github.com/u2giants/theoracle/issues/607#issuecomment-7048075191): Haiku and Luna each returned 57 usable first replies at 16,000 tokens. Independent blind correctness and recall, Luna batch results, and fresh joint and wider-context comparisons remain open. No model qualified. | 2026-11-20 |
 | 2.4 | Batch + cached-prefix sending path | ⬜ open | — | — |
 | 2.5 | Business-area sorting with ScaleDown classify (test, adopt if it passes) | ⬜ open | — | — |
 | 3.1 | Pilot: two weeks of data end to end, measured cost | ⬜ open | — | — |
@@ -99,7 +99,7 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 - **Source date** costs one model call per source for documents without metadata (`document_text_date` in `brain/read/dates.py`); transcripts skip it (`:293`).
 - **Transcript reader** parses JSON turns with speaker, text and time or plain speaker lines without timestamps. The message reader packs consecutive turns for sources with a message origin. Other transcripts retain speaker-run packing.
 - `cmap.source.kind` is constrained to `pdf, docx, xlsx, pptx, text, image, transcript` (`apps/brain/brain/sql/001*.sql:6`).
-- **No batch path.** Every call is synchronous through OpenRouter.
+- **No production batch path.** The existing pipeline calls OpenRouter synchronously. The private benchmark also ran direct standard and provider batch requests for comparison. [Benchmark receipt](https://github.com/u2giants/theoracle/issues/607#issuecomment-7048075191)
 - Live seats on 2026-11-18: flat `z-ai/glm-5.3-flash`; relations `meta/muse-spark-1.3-contributor`; resolve, reports, recommend, grade `openai/gpt-6-luna`; answer `anthropic/claude-haiku-5.5`. Read the table, do not trust this line.
 - Steps 2.1 and 2.2 are complete in the private sandbox. Step 2.3 is the next open step. The qualified relations model, batching, business-area sorting and later live rollout remain open.
 
@@ -125,7 +125,7 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 | Replace relations with ScaleDown extract | Relation typing across neighbouring passages is multi-step reasoning; two earlier analyses (2026-10-27, 2026-11-03) kept it on a chat model. |
 | One source per message | Explodes source count, destroys the conversational context relations need. Threads are the unit. |
 | New `kind` values per system in `cmap.source` | Forces changes through every `kind` switch in the reader. Kept threads are stored as `transcript` with a separate `origin` column. |
-| Route batch through OpenRouter | OpenRouter has no batch discount; discounts come from the providers' own batch interfaces. |
+| Assume a batch route through OpenRouter | Earlier planning favored the providers' own batch interfaces. A later pinned OpenRouter Luna submission was accepted in the sandbox. Completed results and actual route economics still need verification. |
 
 ## 8. Design decisions
 
@@ -242,7 +242,7 @@ Use the private Oracle Coolify sandbox for this continuation. At the end of each
 **2.4 Batch and cached-prefix path.** `lead-only`.
 - Only if the 2.3 winner's provider offers a batch interface (check the provider's current documentation; do not assume). Add `apps/brain/brain/llm_batch.py`: submit a job's passages as one batch, poll from the worker with backoff, map results back by passage id, then run the unchanged `validate_response`. Provider key from a new env var documented in `docs/configuration.md`; a missing key falls back to the synchronous path with a logged warning.
 - Prompt caching: the relations template (`relations.py:206` `build_prompt`) already starts with fixed text, and the mention list and context vary per call, so the cacheable share may be small. **Measure the cache-hit share on a 100-passage run first**; restructure the prompt only if the measured saving is worth it, and if you do, re-run the 2.3 scoring set and confirm the gates still pass.
-- A direct provider path needs a provider key and a change to provider resolution in `brain/llm.py`; OpenRouter gives no batch discount.
+- A direct provider path needs a provider key and a change to provider resolution in `brain/llm.py`. Verify actual batch prices, route eligibility and completion before choosing a provider path.
 - Gate: `tests/test_llm_batch.py` (mocked provider: success, partial failure, expiry, duplicate result ids); a 100-passage live batch on gold costs within 10% of the forecast batch price.
 
 **2.5 Business-area sorting with ScaleDown classify (owner ruling 2026-11-18: "yes").** `lead-only` (changes how every passage is scoped for answers).
