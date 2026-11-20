@@ -9,7 +9,7 @@ read-when: working on bulk message intake (Teams chat, ClickUp, email) or on the
 
 Written 2026-11-18, 3:05 PM EST, by Claude Code (edge-dev session `c9d36e3c`) for Albert Hazan.
 Tracking issue: https://github.com/u2giants/theoracle/issues/607 (its checklist is the definition of done). Parent programme: #520.
-Registered handoff: [HANDOFF.d/2026-11-19T1340Z-edge-dev-claude-pm-intake-sources-built.md](HANDOFF.d/2026-11-19T1340Z-edge-dev-claude-pm-intake-sources-built.md).
+Registered handoff: [resume at step 2.3](HANDOFF.d/2026-11-20T1258Z-edge-dev3-codex-intake-relations-bakeoff.md).
 Sibling plan (different source, same staging idea — reuse, do not fold in): [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md).
 Cost analysis this plan is built on: [docs/company-map/scaledown-report-2026-11-18.md](docs/company-map/scaledown-report-2026-11-18.md).
 
@@ -82,7 +82,7 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 **In:** collecting the two managers' Teams chats and ClickUp records for a time window; free cleaning; a cheap relevance gate; making kept threads ordinary sources; choosing the cheapest passing models for the two per-passage stages on this kind of text; a batch sending path; a measured pilot; the full run.
 
 **NOT in this plan:**
-- Email collection until the permission exists (step 5.1 stays blocked; design is included so it is a small step later).
+- Email collection outside the approved scope in L10. Step 5.1 covers the authorized mailboxes.
 - Teams **channel** posts (needs a different permission; chats only).
 - Additional employees beyond the two managers and the separate Ilona Kereki comparison authorized on 2026-11-19. Keep the project-manager evaluation sample and rollout unchanged.
 - Turning the interview bot on (#518) or changing interview logic.
@@ -218,6 +218,8 @@ Cost levers in order of size: fewer, fuller passages (packing short messages, st
 
 ### Phase 2 — choose the cheapest models that pass *(context cut point: start a fresh session here)*
 
+Use the private Oracle Coolify sandbox for this continuation. At the end of each remaining phase, re-read every downstream phase through plan-end and record and report drift in STATUS and on #607 before handing forward.
+
 **2.1 Gold sample.** `lead-only`.
 - Owner-approved review revision (2026-11-19): retain the frozen **200** threads, with **50 for tuning** and **150 held out for scoring**. Keep the evidence and judgments in the private Oracle Coolify sandbox. Calibrate the review rubric using tuning threads only. Freeze the first **30 whole scoring threads** before opening any scoring text. Draw by origin and length using a deterministic seed, include every ClickUp scoring thread, and preserve the sampling probabilities. For subsequent bake-offs, report 95% intervals accounting for claims clustered within threads and keep the existing passing bounds. Expand the blind thread sample in preselected order if the initial sample cannot support a decision.
 - For each sampled scoring thread the lead reads the source first and records supported relations before seeing candidate claims. Then the lead judges and corrects pooled claims from all four candidates with model labels hidden. Include supported relationships that all candidates missed. Independently recheck a seeded random 20% of the sampled lead judgments using a different permitted family with no self-grading. The lead settles disagreements and records correction counts. Earlier machine judgments may guide triage. They do not establish the reference or enter the score.
@@ -234,7 +236,7 @@ Cost levers in order of size: fewer, fuller passages (packing short messages, st
 - **Call-shape variants, each measured on the same gold and adopted only if every gate still passes:** (a) skip the relations call when the passage has fewer than two mentions from the flat stage (today only chatter with no mentions is skipped, `relations.py:858`) and count what is lost; (b) one joint flat-plus-relations call for threads under about 400 tokens; (c) wider context (4-6 turns, or 800-1,200 tokens) against today's two-turn window (`transcript.py:317`), judged on recall as well as cost because decisions in chat often span many messages; (d) dropping near-identical recurring threads (automated digests and the like) beyond exact duplicates — whole threads only, and only when the lead confirms the group is machine-generated.
 - **End-to-end check before seating:** build the map from the scoring threads with the winner and with the reference, ask the same 15 questions through `brain/eval`, and require the winner's grade to be no lower.
 - Measure: (a) share of relations whose quote validates (`validate_response`); (b) grader-judged correctness of validated relations; (c) recall against gold; (d) truncation and malformed-JSON rate; (e) measured cost per 1,000 passages at sync and batch prices.
-- **Gates to pass, all four, measured against the lead-judged gold:** correctness at least 95%; recall at least 90% of gold relations; quote validation at least 98%; truncation at most 1% (each by the lower confidence bound, step 2.1). Among passers the lowest measured cost wins. If none passes, try the cheapest candidate with its failed passages retried on the best-scoring other candidate and count the blended cost. If no single candidate or pair passes, **stop and report on #607 with the numbers; do not fall back to a frontier model (L9).**
+- **Gates to pass, all four, measured against the lead-judged gold:** correctness at least 95%; recall at least 90% of gold relations; quote validation at least 98%; truncation at most 1% (use the lower confidence bound for minimums and the upper bound for truncation, step 2.1). Among passers the lowest measured cost wins. If none passes, try the cheapest candidate with its failed passages retried on the best-scoring other candidate and count the blended cost. If no single candidate or pair passes, **stop and report on #607 with the numbers; do not fall back to a frontier model (L9).**
 - Gate: results table in `docs/verification/`; the winning model is selectable for message sources. `seats.py:22` `STAGES` is a fixed list and an unknown stage raises, so either add a `relations_messages` stage (extend `STAGES`, seed the row in the step 1.1 SQL file style, mind the seat cache) or keep stage `relations` and choose the model by source `origin` — whichever touches less. `tests/test_model_seats.py` extended.
 
 **2.4 Batch and cached-prefix path.** `lead-only`.
@@ -268,9 +270,9 @@ Cost levers in order of size: fewer, fuller passages (packing short messages, st
 - Run the 90-day window. Then ask The Oracle (web) five questions about how project management works and confirm each answer cites message-derived sources.
 - Leave `- [ ] live proof` on #607 until the owner has looked at the function page and at the questions the brain would now ask the two managers (generated but **not sent**; the bot stays off per #518).
 
-### Phase 5 — email (blocked)
+### Phase 5 — email (complete)
 
-**5.1 Email collector.** Blocked as in STATUS. When the permission exists: `brain/intake/graph_mail.py`, `GET /users/{id}/messages` with `$select` of sender, recipients, subject, `conversationId`, `receivedDateTime`, `body`, `uniqueBody` (prefer `uniqueBody` — it already excludes quoted history), thread by `conversationId`, then steps 1.4–1.6 unchanged. Tests mirror 1.3.
+**5.1 Email collector.** Access and collection are complete as recorded in STATUS. Implementation: `brain/intake/graph_mail.py`, `GET /users/{id}/messages` with `$select` of sender, recipients, subject, `conversationId`, `receivedDateTime`, `body`, `uniqueBody` (prefer `uniqueBody` — it already excludes quoted history), thread by `conversationId`, then steps 1.4–1.6 unchanged. Tests mirror 1.3.
 
 ### 9a. Adversarial cases (all inputs come from outside the repo)
 
@@ -315,12 +317,12 @@ Every test file named in §9 and §9a, plus: `tests/test_prompts.py` must list a
 - GitHub: `gh` authenticated as the owner's personal identity.
 - 1Password vault `vibe_coding` (titles only): "clickup.com API credentials" (field **api token**; the field named `credential` is empty), "Designflow - Azure Graph client secret (AZURE_CLIENT_SECRET)" (its note holds the app and tenant ids), the ScaleDown and OpenRouter items already used by the brain.
 - Brain env on Coolify already has `AZURE_TENANT_ID`, `AZURE_GRAPH_CLIENT_ID`, `AZURE_GRAPH_CLIENT_SECRET` (added 2026-11-16, #593). To add: `CLICKUP_API_TOKEN`, `BRAIN_INTAKE_ENABLED`, `BRAIN_INTAKE_MAX_USD`, and a provider batch key if 2.4 runs.
-- Test database and private test store: on edge-dev3, as described in [HANDOFF.d/2026-11-15T1321Z-edge-dev-mimo-oracle-repair-waiting-on-eval-approval.md](HANDOFF.d/2026-11-15T1321Z-edge-dev-mimo-oracle-repair-waiting-on-eval-approval.md).
+- The private Oracle Coolify sandbox is authoritative for the #607 reference, dedicated test database, and benchmark artifacts. Use the registered handoff to find custody and verification.
 - Local run: `docs/development.md`.
 
 ## 13. Definition of done, risks, open questions
 
-**Done when:** every STATUS row except 5.1 is ✅ with an artifact; code merged with CI green; brain deployed and the deployed commit verified; pilot and full-run numbers on #607; `docs/configuration.md` and `docs/architecture.md` updated; this plan's STATUS current; the handoff deleted under the successor rule; `- [ ] live proof` ticked after the owner's look.
+**Done when:** every required STATUS row is complete with an artifact; code merged with CI green; brain deployed and the deployed commit verified; pilot and full-run numbers on #607; `docs/configuration.md` and `docs/architecture.md` updated; this plan's STATUS current; the handoff deleted under the successor rule; `- [ ] live proof` ticked after the owner's look.
 
 **Risks:**
 - *Privacy.* One-to-one chats may hold personal matters. Mitigations: gate label, secret drop, admin-only listing, O4. Rollback: delete sources where `origin IS NOT NULL` and their staging rows (versions make this clean).
@@ -330,7 +332,7 @@ Every test file named in §9 and §9a, plus: `tests/test_prompts.py` must list a
 - *Graph throttling on large chats.* Bounded backoff; collection is resumable by `(origin, external_id)`.
 
 **Open questions for the owner (business meaning only; also in the handoff §0):**
-1. ~~Mailboxes~~ — answered 2026-11-18: yes, both mailboxes. Step 5.1 now waits only on the mailbox permission.
+1. ~~Mailboxes~~ — answered 2026-11-18: yes, both mailboxes. Mailbox permission and the collector are verified in STATUS.
 2. ~~One-to-one chats~~ — answered 2026-11-18: private and group chats are both read.
 3. ~~Telling the two managers~~ — answered 2026-11-18 (owner: *"Don't announce"*): the system does not announce the reading.
 
@@ -362,6 +364,7 @@ posts; ask the lead when a step's stop-and-ask trigger fires; taken back after 3
 
 Hard rules: no paid model call before the 0.1 forecast is on #607; no message content in the repo,
 issues, PRs or logs; cleaning is drop-only; quality gates before cost; the interview bot stays off;
-step 5.1 (email) stays blocked until the mailbox permission exists - do not work around it.
-Start a fresh session at each marked cut point and re-read the downstream phases first.
+Step 5.1 is complete. Follow the registered handoff and keep production untouched in this continuation.
+Start a fresh session at each marked cut point. At phase-end, re-read every downstream phase
+through plan-end and record and report any drift before handing forward.
 ```
