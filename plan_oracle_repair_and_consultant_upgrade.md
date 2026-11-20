@@ -70,7 +70,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Phases A a
 | I2 | Recurring-problem detector across functions | C2 | ⬜ open | | |
 | I3 | Recommendation follow-through | — | ⬜ open | | |
 | I4 | Weekly owner briefing | I1, I2, D3 | ⬜ open — deferred by owner 2026-11-16 (§13 Q4: "we don't need one yet. we need to collect WAY more information to get this system on its way to being useful") | | |
-| I5 | "What if" impact tracing | E2 | 🟡 implemented; live proof open | Local integration tests in `T/test_impact.py` exercise Ask Oracle on isolated Postgres and FalkorDB: people and aliases, systems, vendors and removed steps; directional hand-offs across workflows; potential downstream steps and documented exceptions; current verbatim citations and an explicit unknown for missing or ambiguous subjects. No schema change. [Tracking #520](https://github.com/u2giants/theoracle/issues/520). | 2026-11-20 8:47 AM EST |
+| I5 | "What if" impact tracing | E2 | ✅ live | [#656](https://github.com/u2giants/theoracle/pull/656) shipped. All 606 tests passed on clean test stores. A production disruption question returned a downstream step and 18 source-verified citations. An unknown subject prompted clarification. [Live proof on #520](https://github.com/u2giants/theoracle/issues/520#issuecomment-7041047459). | 2026-11-20 |
 | I6 | Role playbooks for onboarding | E2, C2 | ⬜ open | | |
 | I7 | Meeting follow-through (decisions and action items) | D1 | ⬜ open | | |
 | J1 | Operational numbers: design and first feed | C1 | ⬜ open — first data set chosen by owner 2026-11-16 (§13 Q3 answered: "yes" to order-to-ship lead times and late shipments) | | |
