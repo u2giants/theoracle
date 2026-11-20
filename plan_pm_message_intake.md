@@ -57,7 +57,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 
 ## 1. The ultimate goal
 
-Today the brain knows too little about any one part of the company for anyone to judge whether the questions it asks employees are smart. **When this work is done, the brain holds a deep, evidence-backed picture of how the project-management function actually runs — who hands what to whom, what stalls, which rules people really follow — built from the two project managers' real Teams messages, ClickUp records and (once permitted) email. Albert can then read the questions The Oracle asks those two people and judge its judgement.**
+Today the brain knows too little about any one part of the company for anyone to judge whether the questions it asks employees are smart. **When this work is done, the brain holds a deep, evidence-backed picture of how the project-management function actually runs — who hands what to whom, what stalls, which rules people really follow — built from the two project managers' real Teams messages, ClickUp records and authorized email. Albert can then read the questions The Oracle asks those two people and judge its judgement.**
 
 Two conditions come with it, in this order: (1) the picture must be as good as the best model would produce — every fact still carries a verbatim quote and its source; (2) subject to that, the run must cost as little as possible.
 
@@ -92,16 +92,16 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 
 ## 5. Current state of the code
 
-- **No intake exists** for ClickUp, Teams chat history or email. Nothing in `apps/brain` calls ClickUp. Graph is called only from the web (`apps/web/lib/microsoft-graph.ts`, client-credentials, `.default` scope) and from the interview code for sending.
+- **Intake is implemented** for ClickUp, Teams chat and approved email. See STATUS for the merged collectors, free cleaning and scoped ingest. The hourly intake sweep requires explicit enablement and remains outside the sandbox evaluation.
 - **Passage classification** already runs on ScaleDown: `flat.py:54` (`CLASSIFY_LABELS`), `:213` (`classify_body`), `:382` (`is_chatter`, skip at `CHATTER_SKIP_SCORE = 0.8`, `:51`).
-- **Flat extraction** runs on the seated flat model (`flat.py:250` `_post_chat`); ScaleDown `/extract` is the fallback path (`:218`, `:423`).
+- **Flat extraction** uses the seated model when one is selected. Step 2.2 verified GLM-5.3 Flash as the message baseline. Both ScaleDown Extract configurations failed the recall gate. See the STATUS verification.
 - **Relations** — the cost centre — is one chat call per non-chatter passage: `apps/brain/brain/extract/relations.py:224` (`_post_chat`), `:431` (`_call_model`), `:839` (`handle_relations`). Windows: transcripts use `exchange_windows` (`brain/read/transcript.py:317`), everything else the anchor plus previous passages (`relations.py:193`). Every relation must carry a quote found verbatim in stored text (`:259` `find_quote`, `:293` `validate_response`).
 - **Source date** costs one model call per source for documents without metadata (`document_text_date` in `brain/read/dates.py`); transcripts skip it (`:293`).
-- **Transcript reader** parses a JSON list of turns with speaker, text and time (`brain/read/transcript.py:87`) or plain `Speaker: text` lines without times (labels with a clock time or more than five words are not speakers, `:174-195`); chunks one passage per speaker run (`:280`); finds a start date.
+- **Transcript reader** parses JSON turns with speaker, text and time or plain speaker lines without timestamps. The message reader packs consecutive turns for sources with a message origin. Other transcripts retain speaker-run packing.
 - `cmap.source.kind` is constrained to `pdf, docx, xlsx, pptx, text, image, transcript` (`apps/brain/brain/sql/001*.sql:6`).
 - **No batch path.** Every call is synchronous through OpenRouter.
 - Live seats on 2026-11-18: flat `z-ai/glm-5.3-flash`; relations `meta/muse-spark-1.3-contributor`; resolve, reports, recommend, grade `openai/gpt-6-luna`; answer `anthropic/claude-haiku-5.5`. Read the table, do not trust this line.
-- Nothing from this plan is built. This plan, its handoff and the cost report are the only files added.
+- Steps 2.1 and 2.2 are complete in the private sandbox. Step 2.3 is the next open step. The qualified relations model, batching, business-area sorting and later live rollout remain open.
 
 ## 6. Key findings
 
@@ -110,7 +110,7 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 3. **Each record already has its date,** so the source date is exact. (No saving: transcript sources already skip the date model call, `dates.py:293`.)
 3a. **Chat is the worst shape for the current chunker.** One passage per speaker run (`transcript.py:280`) turns a back-and-forth chat into many tiny passages, each paying two model calls. Packing messages into full passages is the largest single saving in this plan.
 4. **ClickUp is mostly structured.** Assignee, status, list, due date, dependencies are fields, not prose. They need formatting, not a model.
-5. **Access (probed 2026-11-18, counts only):** ClickUp API key works and both managers are in the 48-member workspace. The Entra app already holds `ChatMessage.Read.All`, `Chat.ReadWrite.All`, `User.Read.All`; chat listing (41+ and 50+ chats on the first page, more pages exist) and message reads return 200. Mail read returns 403.
+5. **Access (probed 2026-11-18, counts only):** ClickUp API key works and both managers are in the 48-member workspace. The Entra app already holds `ChatMessage.Read.All`, `Chat.ReadWrite.All`, `User.Read.All`; chat listing (41+ and 50+ chats on the first page, more pages exist) and message reads return 200. The initial mail read returned 403. The later permission and successful collector probes are recorded in STATUS.
 6. **ScaleDown summarize is a private preview** per the report. It may not be enabled on the account; step 1.5 probes it and has a fallback.
 7. The ScaleDown plugin's own tool server failed to start in the planning session (package-cache error on that machine). The report was produced by running the already-installed copy of the same tool. Not a repo problem; noted so nobody hunts for it.
 
