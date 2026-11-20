@@ -122,3 +122,28 @@ def search_name(
         {"ids": ids, "limit": limit},
     )
     return [_node_props(row) for row in result.result_set]
+
+
+def impact_edges(
+    ids: list[str],
+    settings: Settings,
+) -> list[list[Any]]:
+    """Return explicit dependencies in impact direction, plus stated exceptions."""
+    if not ids:
+        return []
+    graph = connect(settings)
+    downstream = graph.query(
+        "MATCH (a:Entity)-[r]->(b:Entity) WHERE a.id IN $ids "
+        "AND type(r) IN ['PRECEDES', 'HANDS_OFF_TO', 'PERFORMS', 'OWNS', 'EXCEPT_WHEN'] "
+        "RETURN a.id, b.id, b.name, type(r), r.source_refs "
+        "ORDER BY a.id, type(r), b.id LIMIT 100",
+        {"ids": ids},
+    ).result_set
+    dependent = graph.query(
+        "MATCH (a:Entity)<-[r]-(b:Entity) WHERE a.id IN $ids "
+        "AND type(r) IN ['DEPENDS_ON', 'USES', 'BLOCKED_BY'] "
+        "RETURN a.id, b.id, b.name, type(r), r.source_refs "
+        "ORDER BY a.id, type(r), b.id LIMIT 100",
+        {"ids": ids},
+    ).result_set
+    return downstream + dependent

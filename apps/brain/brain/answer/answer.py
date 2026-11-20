@@ -61,6 +61,7 @@ from typing import Any
 
 import httpx
 
+from brain.answer.impact import scenario_subject, trace_impact
 from brain.config import Settings, get_settings
 from brain.contradictions import disagreement_lines
 from brain.corrections import (
@@ -1983,6 +1984,16 @@ def answer_question(
         return _verify_support(
             _global_answer(text, turns, cfg, counters), cfg, counters
         )
+    subject = scenario_subject(text)
+    if subject is not None:
+        answer_md, citations, unknown = trace_impact(subject, cfg)
+        result = _dont_know(text, [], "local")
+        result.update(
+            answer_md=unknown or answer_md,
+            citations=citations,
+            unknowns=[unknown] if unknown else [],
+        )
+        return _verify_support(result, cfg, counters)
     routed = _route_functions(text, turns, cfg, counters)
     routed_ids = [item["id"] for item in routed]
     if mode == "auto" and not routed:
