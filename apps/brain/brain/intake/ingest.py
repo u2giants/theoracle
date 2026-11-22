@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -136,11 +137,18 @@ def _items(conn: Any, origin: str, key: str) -> list[dict[str, Any]]:
 
 
 def ingest_thread(
-    conn: Any, origin: str, key: str, title: str | None, old_source: Any, now: datetime
+    conn: Any,
+    origin: str,
+    key: str,
+    title: str | None,
+    old_source: Any,
+    now: datetime,
+    *,
+    can_afford: Callable[[int], bool] | None = None,
 ) -> tuple[str, int]:
     """Store one thread as a source. Returns (outcome, estimated passages).
 
-    outcome: 'created', 'versioned', 'unchanged' or 'empty'.
+    outcome: 'created', 'versioned', 'unchanged', 'empty' or 'capped'.
     """
     rows = _items(conn, origin, key)
     if not any(r["drop_reason"] is None for r in rows):
@@ -158,6 +166,10 @@ def ingest_thread(
             (existing[0], origin, key),
         )
         return "unchanged", 0
+    text_tokens = sum(count_tokens(r["body_text"] or "") for r in rows)
+    passages = estimate_passages(text_tokens)
+    if can_afford is not None and not can_afford(passages):
+        return "capped", passages
     source_id = str(uuid.uuid4())
     storage_path = f"cmap/{source_id}/thread.json"
     storage_mod.get_storage().upload(storage_path, data, "application/json")
@@ -191,8 +203,7 @@ def ingest_thread(
         "WHERE origin = %s AND thread_key = %s",
         (source_id, origin, key),
     )
-    text_tokens = sum(count_tokens(r["body_text"] or "") for r in rows)
-    return outcome, estimate_passages(text_tokens)
+    return outcome, passages
 
 
 def run(
@@ -219,13 +230,20 @@ def run(
         for th_origin, key, title, old in _threads(
             conn, origin, limit, thread_prefix, since=since
         ):
-            outcome, passages = ingest_thread(conn, th_origin, key, title, old, now)
+            outcome, passages = ingest_thread(
+                conn,
+                th_origin,
+                key,
+                title,
+                old,
+                now,
+                can_afford=lambda p: counts["estimated_usd"] + p * per_passage <= cap,
+            )
+            if outcome == "capped":
+                counts["stopped_at_cap"] = True
+                break
             cost = passages * per_passage
             if outcome in ("created", "versioned"):
-                if counts["estimated_usd"] + cost > cap:
-                    conn.rollback()
-                    counts["stopped_at_cap"] = True
-                    break
                 counts["estimated_usd"] += cost
                 sid = conn.execute(
                     "SELECT source_id::text FROM cmap.intake_thread "

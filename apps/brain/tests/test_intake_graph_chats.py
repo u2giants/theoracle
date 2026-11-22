@@ -6,6 +6,7 @@ that writes uses the ``db`` fixture and runs in CI, where Postgres is present.
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -257,6 +258,7 @@ def test_stored_fields_hold_text_and_original():
     assert item.sent_at == datetime(2026, 11, 11, 9, 0, tzinfo=UTC)
 
 
+@pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
 def test_store_upserts_are_idempotent(db):
     migrate()  # the schema is idempotent; CI already has Postgres
     chat = {"id": "synthetic-chat-db", "topic": "synthetic"}
@@ -292,5 +294,84 @@ def test_store_upserts_are_idempotent(db):
         ).fetchall()
         assert items == 2
         assert rows == [(2, "pending")]
+    finally:
+        cleanup()
+
+
+@pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
+def test_store_recomputes_and_prunes_threads_on_shorter_window(db):
+    from brain.read.chunk import count_tokens
+
+    migrate()
+    chat_id = "19:syn_rekey_test@thread.v2"
+    chat = {"id": chat_id, "topic": "rekey"}
+    msgs_long = [
+        human("rk-1", "2026-11-10T08:00:00Z", "first message"),
+        human("rk-2", "2026-11-10T09:00:00Z", "second message"),
+        human("rk-3", "2026-11-10T10:00:00Z", "third message"),
+    ]
+    source_id = "00000000-0000-4000-8000-000000000999"
+
+    def cleanup() -> None:
+        db.execute(
+            "DELETE FROM cmap.intake_item WHERE origin = 'teams_chat' "
+            "AND external_id LIKE 'rk-%'"
+        )
+        db.execute(
+            "DELETE FROM cmap.intake_thread WHERE origin = 'teams_chat' "
+            "AND thread_key LIKE %s",
+            (f"{chat_id}:%",),
+        )
+        db.execute("DELETE FROM cmap.source WHERE id = %s", (source_id,))
+        db.commit()
+
+    cleanup()
+    try:
+        # Initial longer-window collection puts all 3 items under :rk-1.
+        threads_long = graph_chats.split_threads(chat, msgs_long)
+        graph_chats.store(db, threads_long)
+
+        # Add an orphan thread (0 items, source_id IS NULL) and an ingested thread (source_id IS NOT NULL).
+        db.execute(
+            "INSERT INTO cmap.source (id, kind, title, original_filename, storage_path, sha256, bytes, read_state) "
+            "VALUES (%s, 'transcript', 't', 't.json', 'cmap/t.json', 'abc', 10, 'queued')",
+            (source_id,),
+        )
+        db.execute(
+            "INSERT INTO cmap.intake_thread (origin, thread_key, title, item_count, token_count) "
+            "VALUES ('teams_chat', %s, 'orphan', 1, 5)",
+            (f"{chat_id}:rk-0",),
+        )
+        db.execute(
+            "INSERT INTO cmap.intake_thread (origin, thread_key, title, item_count, token_count, source_id) "
+            "VALUES ('teams_chat', %s, 'ingested', 1, 5, %s)",
+            (f"{chat_id}:rk-ingested", source_id),
+        )
+        db.commit()
+
+        # Re-run with shorter window starting at rk-2: rk-2 and rk-3 move to :rk-2.
+        threads_short = graph_chats.split_threads(chat, msgs_long[1:])
+        graph_chats.store(db, threads_short)
+
+        rows = dict(
+            (r[0], r[1:])
+            for r in db.execute(
+                "SELECT thread_key, item_count, token_count, source_id::text "
+                "FROM cmap.intake_thread WHERE origin = 'teams_chat' AND thread_key LIKE %s",
+                (f"{chat_id}:%",),
+            ).fetchall()
+        )
+        assert f"{chat_id}:rk-0" not in rows  # orphan with source_id IS NULL pruned
+        assert f"{chat_id}:rk-ingested" in rows  # ingested thread preserved
+        assert rows[f"{chat_id}:rk-1"] == (
+            1,
+            count_tokens("first message & more"),
+            None,
+        )
+        assert rows[f"{chat_id}:rk-2"] == (
+            2,
+            threads_short[0].tokens,
+            None,
+        )
     finally:
         cleanup()

@@ -208,8 +208,25 @@ ON CONFLICT (origin, thread_key) DO UPDATE SET
 """
 
 
+def _chat_id(th: Thread) -> str | None:
+    if th.items:
+        suffix = f":{th.items[0].external_id}"
+        if th.thread_key.endswith(suffix):
+            return th.thread_key[: -len(suffix)]
+    chat_id, sep, _ = th.thread_key.rpartition(":")
+    return chat_id if sep else None
+
+
+def _like_prefix(chat_id: str) -> str:
+    escaped = chat_id.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return f"{escaped}:%"
+
+
 def store(conn: psycopg.Connection, threads: list[Thread]) -> None:
     """Upsert threads and their items in one transaction; re-running is harmless."""
+    touched_chats: list[str] = list(
+        dict.fromkeys(cid for th in threads if (cid := _chat_id(th)) is not None)
+    )
     with conn.cursor() as cur:
         for th in threads:
             for it in th.items:
@@ -236,6 +253,61 @@ def store(conn: psycopg.Connection, threads: list[Thread]) -> None:
                     "token_count": th.tokens,
                 },
             )
+        for chat_id in touched_chats:
+            rows = cur.execute(
+                "SELECT t.thread_key, t.source_id, i.id IS NOT NULL, "
+                "i.body_text, i.sent_at, i.drop_reason "
+                "FROM cmap.intake_thread t "
+                "LEFT JOIN cmap.intake_item i "
+                "  ON i.origin = t.origin AND i.thread_key = t.thread_key "
+                "WHERE t.origin = 'teams_chat' AND t.thread_key LIKE %s ESCAPE '!' "
+                "ORDER BY t.thread_key, i.sent_at NULLS LAST, i.id NULLS LAST",
+                (_like_prefix(chat_id),),
+            ).fetchall()
+            by_thread: dict[
+                str, tuple[Any, list[tuple[str | None, datetime | None, str | None]]]
+            ] = {}
+            for (
+                thread_key,
+                source_id,
+                has_item,
+                body_text,
+                sent_at,
+                drop_reason,
+            ) in rows:
+                entry = by_thread.setdefault(thread_key, (source_id, []))
+                if has_item:
+                    entry[1].append((body_text, sent_at, drop_reason))
+            for thread_key, (source_id, items) in by_thread.items():
+                if not items:
+                    if source_id is None:
+                        cur.execute(
+                            "DELETE FROM cmap.intake_thread "
+                            "WHERE origin = 'teams_chat' AND thread_key = %s "
+                            "AND source_id IS NULL",
+                            (thread_key,),
+                        )
+                    continue
+                times = [sent_at for _, sent_at, _ in items if sent_at is not None]
+                tokens = sum(
+                    count_tokens(body_text)
+                    for body_text, _, drop_reason in items
+                    if body_text and drop_reason is None
+                )
+                cur.execute(
+                    "UPDATE cmap.intake_thread "
+                    "SET started_at = COALESCE(%s, started_at), "
+                    "    ended_at = COALESCE(%s, ended_at), "
+                    "    item_count = %s, token_count = %s, updated_at = now() "
+                    "WHERE origin = 'teams_chat' AND thread_key = %s",
+                    (
+                        min(times) if times else None,
+                        max(times) if times else None,
+                        len(items),
+                        tokens,
+                        thread_key,
+                    ),
+                )
     conn.commit()
 
 

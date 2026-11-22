@@ -11,9 +11,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from conftest import fake_embeddings
 
 from brain.config import get_settings
 from brain.intake import ingest
+from brain.read.pipeline import handle_read_source
 from brain.read.transcript import parse_turns, read_message_thread
 
 NOW = datetime(2026, 11, 19, 12, tzinfo=UTC)
@@ -309,4 +311,132 @@ def test_days_window_and_3pass_cost_rate(
     assert out["created"] == 1
     assert db.execute("SELECT external_ref FROM cmap.source").fetchall() == [
         ("recent-thread",)
+    ]
+
+
+def test_spend_cap_never_uploads_orphan_objects(
+    db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    uploads: list[str] = []
+    real_upload = storage.upload
+
+    def _spy_upload(key: str, data: bytes, content_type: str) -> None:
+        uploads.append(key)
+        real_upload(key, data, content_type)
+
+    monkeypatch.setattr(storage, "upload", _spy_upload)
+    for k in ("orphan-a", "orphan-b", "orphan-c"):
+        _seed(db, k, [f"The vendor needs final artwork approved first ({k})."])
+
+    monkeypatch.setenv("BRAIN_INTAKE_MAX_USD", "0.0015")
+    get_settings.cache_clear()
+    out = ingest.run(get_settings())
+    get_settings.cache_clear()
+
+    assert out["created"] == 1 and out.get("stopped_at_cap") is True
+    db_paths = [
+        r[0]
+        for r in db.execute(
+            "SELECT storage_path FROM cmap.source ORDER BY storage_path"
+        ).fetchall()
+    ]
+    assert len(uploads) == 1
+    assert storage.list() == sorted(db_paths)
+
+    # A second run whose cap cannot afford the next pending thread must still
+    # reuse the unchanged thread's sha256 without uploading, then stop cleanly.
+    uploads.clear()
+    monkeypatch.setenv("BRAIN_INTAKE_MAX_USD", "0.0005")
+    get_settings.cache_clear()
+    out2 = ingest.run(get_settings())
+    get_settings.cache_clear()
+
+    assert out2.get("unchanged") == 1
+    assert out2.get("stopped_at_cap") is True
+    assert out2.get("created", 0) == 0
+    assert uploads == []
+    assert storage.list() == sorted(db_paths)
+
+
+def test_handle_read_source_packs_message_threads_vs_speaker_run_transcripts(
+    db: Any, storage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_embeddings(monkeypatch)
+    turns_json = json.dumps(
+        [
+            {
+                "speaker": "Alice",
+                "text": "Need approval on the proof.",
+                "timestamp": "2026-11-10T14:00:00+00:00",
+            },
+            {
+                "speaker": "Bob",
+                "text": "Sent it to the licensor.",
+                "timestamp": "2026-11-10T14:01:00+00:00",
+            },
+            {
+                "speaker": "Alice",
+                "text": "Great, tell the factory next.",
+                "timestamp": "2026-11-10T14:02:00+00:00",
+            },
+            {
+                "speaker": "Bob",
+                "text": "Confirmed with factory QA.",
+                "timestamp": "2026-11-10T14:03:00+00:00",
+            },
+        ]
+    ).encode("utf-8")
+
+    storage.upload("test/msg-thread.json", turns_json, "application/json")
+    storage.upload("test/transcript.json", turns_json, "application/json")
+
+    msg_sid = str(
+        db.execute(
+            "INSERT INTO cmap.source (kind, title, original_filename, storage_path, "
+            "sha256, bytes, effective_date, date_origin, origin, external_ref) "
+            "VALUES ('transcript', 'msg', 'thread.json', 'test/msg-thread.json', "
+            "'msg-sha', %s, '2026-11-10', 'message_record', 'teams_chat', 'th-1') "
+            "RETURNING id",
+            (len(turns_json),),
+        ).fetchone()[0]
+    )
+    tr_sid = str(
+        db.execute(
+            "INSERT INTO cmap.source (kind, title, original_filename, storage_path, "
+            "sha256, bytes, effective_date, date_origin, origin, external_ref) "
+            "VALUES ('transcript', 'tr', 'transcript.json', 'test/transcript.json', "
+            "'tr-sha', %s, '2026-11-10', 'admin', NULL, NULL) "
+            "RETURNING id",
+            (len(turns_json),),
+        ).fetchone()[0]
+    )
+    db.commit()
+
+    handle_read_source({"id": None, "payload": {"source_id": msg_sid}})
+    handle_read_source({"id": None, "payload": {"source_id": tr_sid}})
+
+    msg_chunks = [
+        r[0]
+        for r in db.execute(
+            "SELECT text FROM cmap.chunk WHERE source_id = %s ORDER BY ordinal",
+            (msg_sid,),
+        ).fetchall()
+    ]
+    tr_chunks = [
+        r[0]
+        for r in db.execute(
+            "SELECT text FROM cmap.chunk WHERE source_id = %s ORDER BY ordinal",
+            (tr_sid,),
+        ).fetchall()
+    ]
+
+    assert len(msg_chunks) == 1
+    assert "Alice: Need approval on the proof." in msg_chunks[0]
+    assert "Bob: Confirmed with factory QA." in msg_chunks[0]
+
+    assert tr_chunks == [
+        "Alice: Need approval on the proof.",
+        "Bob: Sent it to the licensor.",
+        "Alice: Great, tell the factory next.",
+        "Bob: Confirmed with factory QA.",
     ]

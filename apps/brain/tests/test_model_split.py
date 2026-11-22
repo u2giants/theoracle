@@ -64,6 +64,9 @@ def test_flat_model_extracts_while_scaledown_classifies(
 
     def fake_chat(payload: dict[str, Any], **kw: Any) -> dict[str, Any]:
         models.append(payload["model"])
+        assert payload.get("max_tokens") == 8000
+        assert payload.get("response_format") == {"type": "json_object"}
+        assert payload.get("reasoning") == {"effort": "low", "exclude": True}
         content = (
             '{"top_label": "rule", "scores": {}, "entities": '
             '[{"text": "Dana", "type": "Person", "confidence": 0.9}]}'

@@ -96,8 +96,8 @@ def test_html_stripped_no_script_no_data_uri() -> None:
 def test_secret_message_dropped_and_blanked() -> None:
     for text in (
         "password: hunter22",
-        "use key AKIAABCDEFGHIJKLMNOP",
-        "-----BEGIN RSA PRIVATE KEY-----",
+        "use key AKIA" + "ABCDEFGHIJKLMNOP",
+        "-----BEGIN RSA " + "PRIVATE KEY-----",
         "token = ghp_" + "a" * 36,
     ):
         assert clean_item(item(text), set()).drop_reason == "secret"
@@ -228,3 +228,109 @@ def test_spanish_reply_headers_cut_history() -> None:
     assert strip_lines(text)[0] == ["Listo, enviado a fábrica."]
     text2 = "Ok.\nEl lun, 3 nov 2026 a las 9:00, Someone escribió:\nold"
     assert strip_lines(text2)[0] == ["Ok."]
+
+
+def test_html_hidden_single_quotes() -> None:
+    raw = (
+        "<div>visible</div>"
+        "<div style='color:red; display: none;'>hidden single</div>"
+        '<span style="display:none">hidden double</span>'
+        "<p>after</p>"
+    )
+    assert html_to_text(raw) == "visible\nafter"
+
+
+def test_graph_mail_select_includes_meeting_message_type() -> None:
+    from brain.intake import graph_mail
+
+    assert "meetingMessageType" in graph_mail.SELECT.split(",")
+
+
+def test_assemble_accepts_single_pass_signature_generator() -> None:
+    sig = "Pat Example\nProject Manager\nPOP Creations"
+    items = [
+        {
+            "id": 1,
+            "thread_key": "t_gen",
+            "body_text": f"First update.\n\n{sig}",
+            "raw": {},
+        },
+        {
+            "id": 2,
+            "thread_key": "t_gen",
+            "body_text": f"Second update.\n\n{sig}",
+            "raw": {},
+        },
+    ]
+    gen = (s for s in [sig])
+    threads = clean.assemble(items, signatures=gen)
+    assert [m.text for m in threads[0].messages] == [
+        "First update.",
+        "Second update.",
+    ]
+
+
+def test_apply_revives_too_short_thread_when_new_messages_arrive(db: Any) -> None:
+    from brain.migrate import migrate
+
+    migrate()
+    long = (
+        "The vendor needs the final artwork approved before the purchase order is released. "
+        * 3
+    )
+    long_other = (
+        "Confirmed that the packaging specification and shipping schedule are finalized for Q4. "
+        * 3
+    )
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM cmap.intake_item WHERE origin = 'email'")
+        cur.execute("DELETE FROM cmap.intake_thread WHERE origin = 'email'")
+        for key in ("k_revive", "k_llm_drop"):
+            cur.execute(
+                "INSERT INTO cmap.intake_thread (origin, thread_key) VALUES ('email', %s)",
+                (key,),
+            )
+        cur.execute(
+            "INSERT INTO cmap.intake_item (origin, external_id, thread_key, sent_at, body_text, raw, content_hash) "
+            "VALUES ('email', 'm_short', 'k_revive', now() - interval '1 hour', 'ok', '{}'::jsonb, 'h1')"
+        )
+        cur.execute(
+            "INSERT INTO cmap.intake_item (origin, external_id, thread_key, sent_at, body_text, raw, content_hash) "
+            "VALUES ('email', 'm_llm', 'k_llm_drop', now(), %s, '{}'::jsonb, 'h2')",
+            (long_other,),
+        )
+    db.commit()
+
+    clean.apply(db, "email")
+    row = db.execute(
+        "SELECT verdict, gate_scores FROM cmap.intake_thread WHERE origin = 'email' AND thread_key = 'k_revive'"
+    ).fetchone()
+    assert row == ("dropped", {"rule": "too_short"})
+
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE cmap.intake_thread SET verdict = 'dropped', "
+            "gate_scores = '{\"chatter\": 0.99}'::jsonb "
+            "WHERE origin = 'email' AND thread_key = 'k_llm_drop'"
+        )
+        cur.execute(
+            "INSERT INTO cmap.intake_item (origin, external_id, thread_key, sent_at, body_text, raw, content_hash) "
+            "VALUES ('email', 'm_more', 'k_revive', now(), %s, '{}'::jsonb, 'h3')",
+            (long,),
+        )
+    db.commit()
+
+    clean.apply(db, "email")
+    revived = db.execute(
+        "SELECT verdict, gate_scores, token_count FROM cmap.intake_thread "
+        "WHERE origin = 'email' AND thread_key = 'k_revive'"
+    ).fetchone()
+    assert revived[0] == "pending"
+    assert revived[1] == {}
+    assert revived[2] >= clean.MIN_THREAD_TOKENS
+
+    llm_row = db.execute(
+        "SELECT verdict, gate_scores FROM cmap.intake_thread "
+        "WHERE origin = 'email' AND thread_key = 'k_llm_drop'"
+    ).fetchone()
+    assert llm_row == ("dropped", {"chatter": 0.99})

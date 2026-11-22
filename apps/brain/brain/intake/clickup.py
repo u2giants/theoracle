@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -39,6 +40,7 @@ from brain.read.chunk import count_tokens
 
 ORIGIN = "clickup"
 SPEAKER = "ClickUp"
+logger = logging.getLogger(__name__)
 
 
 def _one_line(value: Any) -> str:
@@ -126,22 +128,46 @@ def task_items(task: dict, comments: list[dict]) -> list[dict]:
 
 
 def collect(
-    c: httpx.Client, people: list[tuple[str, str]], since: datetime
+    c: httpx.Client,
+    people: list[tuple[str, str]],
+    since: datetime,
+    counts: Counts | None = None,
 ) -> Iterator[tuple[dict, list[dict]]]:
     """Yield (task, items) for each task in the window where a named person is involved."""
     seen: set[str] = set()
-    for team in get_retry(c, f"{CLICKUP}/team").json()["teams"]:
-        uids = [clickup_member(team.get("members", []), e, n) for e, n in people]
-        if None in uids:
-            raise RuntimeError(
-                f"ClickUp: {uids.count(None)} person(s) not matched to exactly one member"
-            )
-        wanted = set(uids)
+    teams = get_retry(c, f"{CLICKUP}/team").json()["teams"]
+    matched_people: set[int] = set()
+    team_wanted: list[tuple[dict, set[str]]] = []
+    for team in teams:
+        uids = [clickup_member(team.get("members") or [], e, n) for e, n in people]
+        for idx, u in enumerate(uids):
+            if u is not None:
+                matched_people.add(idx)
+        wanted = {str(u) for u in uids if u is not None}
+        if wanted:
+            team_wanted.append((team, wanted))
+    if people and len(matched_people) < len(people):
+        missing = len(people) - len(matched_people)
+        raise RuntimeError(
+            f"ClickUp: {missing} person(s) not matched to exactly one member"
+        )
+    for team, wanted in team_wanted:
         for task in window_tasks(c, team["id"], since):
             tid = str(task["id"])
             if tid in seen:
                 continue
-            comments = task_comments(c, tid)
+            try:
+                comments = task_comments(c, tid)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in (403, 404):
+                    raise
+                logger.warning(
+                    "ClickUp comment fetch skipped (HTTP %s)",
+                    exc.response.status_code,
+                )
+                if counts is not None:
+                    counts.comment_errors += 1
+                comments = []
             if not involves(task, wanted, comments):
                 continue
             seen.add(tid)
@@ -201,6 +227,7 @@ class Counts:
     tasks: int = 0
     items: int = 0
     tokens: int = 0
+    comment_errors: int = 0
 
 
 def run(
@@ -211,7 +238,7 @@ def run(
 ) -> Counts:
     """Collect every involved task; store it when a connection is given (dry run otherwise)."""
     counts = Counts()
-    for task, items in collect(c, people, since):
+    for task, items in collect(c, people, since, counts=counts):
         counts.tasks += 1
         counts.items += len(items)
         counts.tokens += sum(count_tokens(it["body_text"]) for it in items)
@@ -245,6 +272,8 @@ def main(argv: list[str] | None = None) -> None:
         f"tasks {counts.tasks}  items {counts.items}  tokens {counts.tokens}"
         f"{'  (dry run, nothing written)' if a.dry_run else '  (stored)'}"
     )
+    if counts.comment_errors:
+        print(f"  skipped comments (403/404): {counts.comment_errors}")
 
 
 if __name__ == "__main__":
