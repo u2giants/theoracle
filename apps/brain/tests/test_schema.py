@@ -82,8 +82,8 @@ def test_migrate_replays_cleanly_with_widened_constraint_rows() -> None:
             (src_id,),
         )
         conn.execute(
-            "INSERT INTO cmap.chunk (id, source_id, ordinal, text, token_count) "
-            "VALUES (%s, %s, 0, 'body', 1)",
+            "INSERT INTO cmap.chunk (id, source_id, ordinal, locator, text, token_count) "
+            "VALUES (%s, %s, 0, '{}'::jsonb, 'body', 1)",
             (chk_id, src_id),
         )
         conn.execute(
