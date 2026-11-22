@@ -532,14 +532,15 @@ def persist_validated_items(
             source_id, prompt_hash, only_pending=True
         )
         if not remaining:
-            finish_source(source_id)
+            sm_state = finish_source(source_id)
             source_chain_ended(
                 source_id,
-                failed=False,
+                failed=(sm_state == "failed"),
                 resolve=_resolve_interview_answer(source_id),
             )
-            _enqueue_resolve()
-            after_source_relations(source_id)
+            if sm_state != "failed":
+                _enqueue_resolve()
+                after_source_relations(source_id)
             completed_sources.append(source_id)
 
     return completed_sources
