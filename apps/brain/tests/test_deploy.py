@@ -20,6 +20,7 @@ SETTINGS_FIELDS = (
     "BRAIN_CHAT_MODEL",
     "BRAIN_EVAL_MODEL",
     "BRAIN_FLAT_MODEL",
+    "BRAIN_MESSAGE_RELATIONS_MODEL",
     "BRAIN_VISION_MODEL",
     "BRAIN_EMBED_MODEL",
     "SCALEDOWN_API_KEY",
@@ -95,9 +96,11 @@ def test_unset_compose_variables_do_not_break_settings(
 
     monkeypatch.setenv("BRAIN_MAX_FRONTIER_CALLS_PER_JOB", "")
     monkeypatch.setenv("BRAIN_EMBED_DIMS", "")
+    monkeypatch.setenv("BRAIN_MESSAGE_RELATIONS_MODEL", "")
     settings = Settings()
     assert settings.brain_max_frontier_calls_per_job is None
     assert settings.brain_embed_dims == 1024
+    assert settings.brain_message_relations_model is None
 
 
 def test_brain_port_declared_for_proxy() -> None:

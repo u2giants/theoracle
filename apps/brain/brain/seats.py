@@ -24,6 +24,7 @@ STAGES = (
     "embed",
     "flat",
     "relations",
+    "relations_messages",
     "resolve",
     "process",
     "reports",
@@ -90,6 +91,8 @@ def env_model(settings: Settings, stage: str) -> str | None:
         return settings.brain_eval_model or settings.brain_frontier_model
     if stage == "flat":
         return settings.brain_flat_model or settings.brain_frontier_model
+    if stage == "relations_messages":
+        return settings.brain_message_relations_model or settings.brain_frontier_model
     if stage == "contradictions":
         return settings.brain_contradictions_model or settings.brain_frontier_model
     return settings.brain_frontier_model
@@ -99,7 +102,23 @@ def stage_model(settings: Settings, stage: str) -> str | None:
     """The model a stage should call: the page's seat, else its env seat."""
     if stage not in STAGES:
         raise ValueError(f"unknown model stage {stage!r}")
-    return _db_seats().get(stage) or env_model(settings, stage)
+    seats = _db_seats()
+    if stage == "relations_messages":
+        return (
+            seats.get("relations_messages")
+            or settings.brain_message_relations_model
+            or seats.get("relations")
+            or settings.brain_frontier_model
+        )
+    return seats.get(stage) or env_model(settings, stage)
+
+
+def message_relations_chosen(settings: Settings) -> bool:
+    """Whether a dedicated message-relations seat or env model is configured (#607)."""
+    return (
+        "relations_messages" in _db_seats()
+        or settings.brain_message_relations_model is not None
+    )
 
 
 def flat_model_chosen(settings: Settings) -> bool:

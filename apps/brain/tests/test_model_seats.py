@@ -166,3 +166,36 @@ def test_seat_read_failure_is_not_cached_as_no_seats(
     monkeypatch.setattr(seats_mod, "get_pool", real_pool)
     assert stage_model(settings, "reports") == "test/reports"
     assert seats_mod._cache_at > 0.0
+
+
+def test_relations_messages_seat_is_independent_of_document_relations(
+    client: TestClient,
+    env_seats: None,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Message-intake relations (#607) can be seated without changing document relations."""
+    from brain.seats import message_relations_chosen
+
+    monkeypatch.delenv("BRAIN_MESSAGE_RELATIONS_MODEL", raising=False)
+    get_settings.cache_clear()
+    assert message_relations_chosen(get_settings()) is False
+    assert stage_model(get_settings(), "relations_messages") == "test/frontier"
+
+    monkeypatch.setenv("BRAIN_MESSAGE_RELATIONS_MODEL", "test/msg-env")
+    get_settings.cache_clear()
+    assert message_relations_chosen(get_settings()) is True
+    assert stage_model(get_settings(), "relations_messages") == "test/msg-env"
+    assert stage_model(get_settings(), "relations") == "test/frontier"
+
+    resp = client.put(
+        "/models/relations_messages",
+        json={"model": "test/msg-seat"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    assert stage_model(get_settings(), "relations_messages") == "test/msg-seat"
+    assert stage_model(get_settings(), "relations") == "test/frontier"
+    body = client.get("/models", headers={"x-brain-token": TEST_TOKEN}).json()
+    assert body["models"]["relations_messages"] == "test/msg-seat"
+    assert body["models"]["relations"] == "test/frontier"

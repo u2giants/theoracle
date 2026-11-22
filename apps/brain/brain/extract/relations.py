@@ -32,6 +32,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,11 +57,23 @@ from brain.read.state import (
     record_chunk_failure,
     with_retries,
 )
-from brain.seats import stage_model
+from brain.seats import message_relations_chosen, stage_model
 
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "relations.md"
+MESSAGE_PROMPT_PATH = (
+    Path(__file__).resolve().parents[1] / "prompts" / "relations_messages.md"
+)
+MESSAGE_AUDIT_PROMPT_PATH = (
+    Path(__file__).resolve().parents[1] / "prompts" / "relations_messages_audit.md"
+)
+MESSAGE_GATE_PROMPT_PATH = (
+    Path(__file__).resolve().parents[1] / "prompts" / "relations_messages_gate.md"
+)
+_ACTIVE_RELATIONS_STAGE: ContextVar[str] = ContextVar(
+    "relations_stage", default="relations"
+)
 
 CONCURRENCY = 8
 MAX_TOKENS = 8000
@@ -191,6 +204,34 @@ def relations_prompt_hash() -> str:
     return hashlib.sha256(f"relations:{prompt_sha}".encode()).hexdigest()
 
 
+def load_message_relations_prompt() -> str:
+    """Return the message-intake relations prompt text (#607 step 2.3)."""
+    return MESSAGE_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def load_message_relations_audit_prompt() -> str:
+    """Return the message-intake precision audit prompt text (#607 step 2.3)."""
+    return MESSAGE_AUDIT_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def load_message_relations_gate_prompt() -> str:
+    """Return the message-intake Pass 3 gatekeeper prompt text (#607 step 2.3)."""
+    return MESSAGE_GATE_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def message_relations_prompt_hash() -> str:
+    """Combined hash of all three message-intake relation prompts (#607)."""
+    combined = (
+        load_message_relations_prompt()
+        + "\n---\n"
+        + load_message_relations_audit_prompt()
+        + "\n---\n"
+        + load_message_relations_gate_prompt()
+    )
+    prompt_sha = hashlib.sha256(combined.encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"relations_messages:{prompt_sha}".encode()).hexdigest()
+
+
 def window_indices(source_kind: str, anchor: int) -> tuple[int, ...]:
     """Indices (ascending) of the passages in ``anchor``'s window (plan E1).
 
@@ -225,19 +266,80 @@ def build_prompt(
     )
 
 
+def build_message_prompt(
+    chunk_text: str,
+    known: list[KnownMention],
+    previous_context: str,
+) -> str:
+    """Fill ``prompts/relations_messages.md`` for a message-source window (#607)."""
+    mentions_json = json.dumps(
+        [
+            {"key": item.key, "type": item.entity_type, "name": item.name}
+            for item in known
+        ],
+        ensure_ascii=False,
+    )
+    return (
+        load_message_relations_prompt()
+        .replace("{{mentions_json}}", mentions_json)
+        .replace("{{previous_context}}", previous_context)
+        .replace("{{chunk_text}}", chunk_text)
+    )
+
+
+def build_message_audit_prompt(
+    chunk_text: str,
+    previous_context: str,
+    candidate_payload: dict[str, Any],
+) -> str:
+    """Fill ``prompts/relations_messages_audit.md`` for Pass 2 verification (#607)."""
+    return (
+        load_message_relations_audit_prompt()
+        .replace("{{previous_context}}", previous_context)
+        .replace("{{chunk_text}}", chunk_text)
+        .replace(
+            "{{candidate_json}}",
+            json.dumps(candidate_payload, ensure_ascii=False),
+        )
+    )
+
+
+def build_message_gate_prompt(
+    chunk_text: str,
+    previous_context: str,
+    audited_payload: dict[str, Any],
+) -> str:
+    """Fill ``prompts/relations_messages_gate.md`` for Pass 3 gatekeeping (#607)."""
+    return (
+        load_message_relations_gate_prompt()
+        .replace("{{previous_context}}", previous_context)
+        .replace("{{chunk_text}}", chunk_text)
+        .replace(
+            "{{audited_json}}",
+            json.dumps(audited_payload, ensure_ascii=False),
+        )
+    )
+
+
 def _post_chat(
     messages: list[dict[str, Any]], settings: Settings, max_tokens: int = MAX_TOKENS
 ) -> dict[str, Any]:
     """POST one frontier chat-completions request in JSON mode."""
-    model = stage_model(settings, "relations")
+    stage = _ACTIVE_RELATIONS_STAGE.get()
+    model = stage_model(settings, stage)
     if model is None:
         raise RelationsError("BRAIN_FRONTIER_MODEL is not set")
+    effective_max = (
+        TRUNCATION_RETRY_MAX_TOKENS
+        if stage == "relations_messages" and max_tokens == MAX_TOKENS
+        else max_tokens
+    )
     return post_chat_with_rescue(
         {
             "model": model,
             "messages": messages,
             "temperature": 0,
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max,
             "response_format": {"type": "json_object"},
         },
         settings=settings,
@@ -814,21 +916,100 @@ def _record_drop_reasons(source_id: str, drops: dict[str, int], resuming: bool) 
         conn.commit()
 
 
-def _process_window(
-    chunk_id: str,
-    window: list[WindowEntry],
-    counters: _Counters,
-) -> ChunkResult:
-    """Ask the model for one window's relations and validate them."""
-    anchor_text = window[-1][1]
-    known = known_mentions(window)
-    previous_context = "\n\n".join(text for _cid, text, _mentions in window[:-1])
-    prompt = build_prompt(anchor_text, known, previous_context)
-    payload: dict[str, Any] = {}
+def _source_origin(source_id: str) -> str | None:
+    """Return ``cmap.source.origin`` (set on #607 message-intake sources)."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT origin FROM cmap.source WHERE id = %s",
+            (source_id,),
+        ).fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
+def _clean_message_quote(window_pairs: list[tuple[str, str]], quote: str) -> str:
+    """Strip an accidental leading ``Speaker: `` prefix and recover exact turn substring."""
+    q = (quote or "").strip()
+    if not q:
+        return ""
+    if any(q in text for _cid, text in window_pairs) and ":" not in q.split("\n", 1)[0]:
+        return q
+    # Strip leading speaker label if present at line start in a packed message chunk.
+    if ":" in q:
+        prefix, after = q.split(":", 1)
+        body = after.strip()
+        if (
+            body
+            and len(prefix.split()) <= 6
+            and any(f"{prefix.strip()}: {body}" in text for _cid, text in window_pairs)
+        ):
+            return body
+    if any(q in text for _cid, text in window_pairs):
+        return q
+    nq = _normalize_quote(q)
+    if nq:
+        parts = [re.escape(tok) for tok in nq.split()]
+        if parts:
+            pat = r"\s+".join(parts)
+            for _cid, text in window_pairs:
+                m = re.search(pat, text)
+                if m:
+                    return m.group(0)
+    return q
+
+
+def _sanitize_message_payload(
+    window_pairs: list[tuple[str, str]],
+    known: dict[str, KnownMention],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Enforce message-intake ontology and single-turn quote rules (#607)."""
+    entity_types: dict[str, str] = {k: m.entity_type for k, m in known.items()}
+    clean_nms: list[dict[str, Any]] = []
+    for nm in payload.get("new_mentions") or []:
+        if not isinstance(nm, dict):
+            continue
+        item = dict(nm)
+        item["quote"] = _clean_message_quote(
+            window_pairs, str(item.get("quote") or "")
+        )
+        key = str(item.get("key") or "")
+        etype = str(item.get("type") or "")
+        if key and etype in ENTITY_TYPES:
+            entity_types[key] = etype
+        clean_nms.append(item)
+
+    clean_rels: list[dict[str, Any]] = []
+    for rel in payload.get("relations") or []:
+        if not isinstance(rel, dict):
+            continue
+        item = dict(rel)
+        item["quote"] = _clean_message_quote(
+            window_pairs, str(item.get("quote") or "")
+        )
+        rtype = str(item.get("type") or "")
+        if rtype == "MENTIONS":
+            item["type"] = "APPLIES_TO"
+            rtype = "APPLIES_TO"
+        if str(item.get("stance") or "") == "inference":
+            item["stance"] = "report"
+        fk = str(item.get("from") or "")
+        tk = str(item.get("to") or "")
+        if (
+            rtype == "APPLIES_TO"
+            and entity_types.get(fk) == "Person"
+            and entity_types.get(tk) == "Person"
+        ):
+            continue
+        clean_rels.append(item)
+    return {"relations": clean_rels, "new_mentions": clean_nms}
+
+
+def _call_with_retries(
+    prompt: str, chunk_id: str, counters: _Counters
+) -> dict[str, Any]:
     for attempt in range(1, CALL_ATTEMPTS + 1):
         try:
-            payload = _call_model(prompt, counters)
-            break
+            return _call_model(prompt, counters)
         except FrontierCapReached:
             raise
         except (RelationsError, httpx.HTTPError) as exc:
@@ -838,9 +1019,53 @@ def _process_window(
                 "relations call failed (%s); retrying chunk %s", exc, chunk_id
             )
             time.sleep(read_state.BACKOFF_SECONDS * 2 ** (attempt - 1))
+    return {}
+
+
+def _process_window(
+    chunk_id: str,
+    window: list[WindowEntry],
+    counters: _Counters,
+    *,
+    message_mode: bool = False,
+) -> ChunkResult:
+    """Ask the model for one window's relations and validate them."""
+    anchor_text = window[-1][1]
+    known = known_mentions(window)
+    previous_context = "\n\n".join(text for _cid, text, _mentions in window[:-1])
+    window_pairs = [(cid, text) for cid, text, _mentions in window]
     by_key = {item.key: item for item in known}
+    if message_mode:
+        prompt = build_message_prompt(anchor_text, known, previous_context)
+        first_payload = _call_with_retries(prompt, chunk_id, counters)
+        audit_prompt = build_message_audit_prompt(
+            anchor_text, previous_context, first_payload
+        )
+        audited = _call_with_retries(audit_prompt, chunk_id, counters)
+        audited_rels = list(audited.get("relations") or [])
+        if audited_rels:
+            gated_rels: list[Any] = []
+            gated_nms: list[Any] = list(audited.get("new_mentions") or [])
+            for start in range(0, len(audited_rels), 25):
+                sub_audited = {
+                    "relations": audited_rels[start : start + 25],
+                    "new_mentions": audited.get("new_mentions") or [],
+                }
+                gate_prompt = build_message_gate_prompt(
+                    anchor_text, previous_context, sub_audited
+                )
+                sub_gated = _call_with_retries(gate_prompt, chunk_id, counters)
+                gated_rels.extend(sub_gated.get("relations") or [])
+                gated_nms.extend(sub_gated.get("new_mentions") or [])
+            gated = {"relations": gated_rels, "new_mentions": gated_nms}
+        else:
+            gated = audited
+        payload = _sanitize_message_payload(window_pairs, by_key, gated)
+    else:
+        prompt = build_prompt(anchor_text, known, previous_context)
+        payload = _call_with_retries(prompt, chunk_id, counters)
     relations, new_mentions, drops = validate_response(
-        [(cid, text) for cid, text, _mentions in window], by_key, payload
+        window_pairs, by_key, payload
     )
     for reason, amount in drops.items():
         counters.drop(reason, amount)
@@ -875,10 +1100,15 @@ def handle_relations(job: dict[str, Any]) -> None:
         and _is_colab_offload(source_id)
         and not awaits_reply(source_id)
     )
-    model = stage_model(settings, "relations")
+    origin = _source_origin(source_id)
+    message_mode = bool(origin) and message_relations_chosen(settings)
+    active_stage = "relations_messages" if message_mode else "relations"
+    model = stage_model(settings, active_stage)
     if model is None and not defer_to_colab:
         raise RelationsError("BRAIN_FRONTIER_MODEL is not set")
-    prompt_hash = relations_prompt_hash()
+    prompt_hash = (
+        message_relations_prompt_hash() if message_mode else relations_prompt_hash()
+    )
     source_kind, chunks = _load_chunks(source_id)
     mentions = _load_mentions(source_id)
     done = _load_done(source_id, prompt_hash)
@@ -887,7 +1117,11 @@ def handle_relations(job: dict[str, Any]) -> None:
     pending: list[tuple[str, list[WindowEntry]]] = []
     for index, (chunk_id, _text, passage_kind) in enumerate(chunks):
         chunk_mentions = mentions.get(chunk_id, [])
-        skip = chunk_id in done or (passage_kind == "chatter" and not chunk_mentions)
+        # Message-intake passages omit flat-mention gating so missed conversational
+        # mentions can be recovered via new_mentions (#607 step 2.3).
+        skip = chunk_id in done or (
+            not message_mode and passage_kind == "chatter" and not chunk_mentions
+        )
         if skip:
             continue
         window: list[WindowEntry] = []
@@ -915,7 +1149,13 @@ def handle_relations(job: dict[str, Any]) -> None:
 
     def _one(item: tuple[str, list[WindowEntry]]) -> ChunkResult:
         """Extract, embed and store one window's relations."""
-        result = _process_window(item[0], item[1], counters)
+        token = _ACTIVE_RELATIONS_STAGE.set(active_stage)
+        try:
+            result = _process_window(
+                item[0], item[1], counters, message_mode=message_mode
+            )
+        finally:
+            _ACTIVE_RELATIONS_STAGE.reset(token)
         with_retries(
             lambda: _embed_new_mentions(result, counters),
             f"embedding new mentions of chunk {item[0]}",
