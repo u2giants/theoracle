@@ -37,7 +37,15 @@ Browser ──> apps/web (Vercel) ──/api/brain/*──> apps/brain (Coolify)
 Teams ──> Azure Bot ──> /api/teams/bot/messages ──> Recall bot
 Recall ──> /api/teams/live/recall ──> finished transcript recorded as a
            Company Map `transcript` source (via the brain)
+Colab GPU (ephemeral) ──POST /colab/lease, /colab/submit──> apps/brain (Coolify)
 ```
+
+## Google Colab GPU batch offload (`#664`)
+
+High-volume `relations` backfills and open-weight/QLoRA evaluations (`plan_colab_gpu_offload.md`) run on ephemeral Google Colab GPU runtimes without placing Colab in any live user or Teams request path:
+
+- **Offline JSONL packets (`apps/brain/brain/colab_packet.py`, `apps/brain/colab/run_vllm_batch.py`):** exports pending windows and a strict ontology JSON Schema for grammar-constrained vLLM decoding, then re-validates replies on `apps/brain`.
+- **Pull-based leases (`apps/brain/brain/sql/039_colab_leases.sql`, `apps/brain/brain/api/colab.py`, `apps/brain/colab/drain_leases.py`):** when `BRAIN_COLAB_LEASE_ENABLED=true`, workers authenticated with `BRAIN_COLAB_WORKER_TOKEN` claim 15-minute (`<=30m` DB-enforced) chunk leases from `colab_offload=true` sources (excluding live `awaits_reply` interview turns) and submit raw JSON back for server-side `validate_response` and mention embedding. Disabling `BRAIN_COLAB_LEASE_ENABLED` falls back immediately to the standard worker.
 
 ## Teams live meetings (Recall.ai)
 

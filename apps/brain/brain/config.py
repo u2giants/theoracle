@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -73,6 +74,26 @@ class Settings(BaseSettings):
     # second-database URL are set.
     dflow_directory_sync_enabled: bool = False
     dflow_directory_database_url: str | None = None
+    # Google Colab batch offload (plan_colab_gpu_offload.md Step 0.2).
+    # Dedicated bearer token for /colab/*; never reuse brain_shared_token.
+    brain_colab_worker_token: str | None = None
+    brain_colab_lease_enabled: bool = False
+    brain_colab_lease_ttl_seconds: int = 900
+    brain_colab_max_batch_size: int = 64
+
+    @field_validator("brain_colab_lease_ttl_seconds")
+    @classmethod
+    def _validate_colab_lease_ttl_seconds(cls, v: int) -> int:
+        if not 60 <= v <= 1800:
+            raise ValueError("brain_colab_lease_ttl_seconds must be between 60 and 1800")
+        return v
+
+    @field_validator("brain_colab_max_batch_size")
+    @classmethod
+    def _validate_colab_max_batch_size(cls, v: int) -> int:
+        if not 1 <= v <= 256:
+            raise ValueError("brain_colab_max_batch_size must be between 1 and 256")
+        return v
 
 
 @lru_cache

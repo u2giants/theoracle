@@ -46,6 +46,8 @@ EXPECTED_TABLES = {
     "interview_turn",  # added by #604 (sql/034_interview_conversation.sql)
     "intake_item",  # added by #607 (sql/036_message_intake.sql)
     "intake_thread",  # added by #607 (sql/036_message_intake.sql)
+    "colab_lease",  # added by #664 (sql/039_colab_leases.sql)
+    "colab_lease_item",  # added by #664 (sql/039_colab_leases.sql)
 }
 
 

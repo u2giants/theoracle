@@ -170,6 +170,10 @@ Read by `apps/brain/brain/config.py`, passed through `apps/brain/deploy/compose.
 | `BRAIN_ANSWER_CONTEXT_TOKENS` | `12000` | Step C4. Hard token ceiling for one answer's assembled context (function report → ordered flow → relations → quotes → passages). The answer never exceeds it; ScaleDown compression is an optimisation, never a correctness dependency. |
 | `BRAIN_INTAKE_MAX_USD` | unset | Message intake (plan_pm_message_intake.md step 0.1). Hard spend cap in US dollars for one intake run. Unset means intake refuses to start. |
 | `CLICKUP_API_TOKEN` | unset | Message intake. ClickUp API key (1Password `clickup.com API credentials`, field **api token**). Also read by `python -m brain.intake.sizing`. |
+| `BRAIN_COLAB_WORKER_TOKEN` | unset | Colab batch offload (`plan_colab_gpu_offload.md` Step 0.2). Dedicated bearer token for `/colab/*` pull-lease endpoints (never reuse `BRAIN_SHARED_TOKEN`). Source: `1Password vibe_coding` (also passed through Coolify). Optional in dev and prod; `/colab/*` returns `503` when disabled or token is unset. |
+| `BRAIN_COLAB_LEASE_ENABLED` | `false` | Colab batch offload (`plan_colab_gpu_offload.md` Step 0.2). Master kill-switch for `/colab/*` pull-lease endpoints. Source: `1Password vibe_coding` / Coolify env. Optional in dev and prod; off by default (`/colab/*` returns `503` when disabled or token is unset). |
+| `BRAIN_COLAB_LEASE_TTL_SECONDS` | `900` | Colab batch offload (`plan_colab_gpu_offload.md` Step 0.2). Lease lifetime in seconds, validated `60..1800` (enforces the <=30 minute standing rule). Source: `1Password vibe_coding` / Coolify env. Optional in dev and prod; invalid values fail startup `Settings` validation. |
+| `BRAIN_COLAB_MAX_BATCH_SIZE` | `64` | Colab batch offload (`plan_colab_gpu_offload.md` Step 0.2). Maximum prompts returned per `/colab/lease` call, validated `1..256`. Source: `1Password vibe_coding` / Coolify env. Optional in dev and prod; invalid values fail startup `Settings` validation. |
 
 Admin actions added by Phase A (brain API, reached through the web proxy and the sources page):
 `POST /sources/reread-all`, `POST /sources/{id}/reread`, `POST /jobs/retry-failed`.

@@ -9,7 +9,7 @@ read-when: working on Google Colab GPU batch offload, open-weight vLLM bake-offs
 
 Written 2026-11-21, 8:57 PM EST, by Antigravity (edge-dev session `0e6ed4f6`) for Albert Hazan.
 Tracking issue: https://github.com/u2giants/theoracle/issues/664 (its checklist is the definition of done).
-Registered handoff: [HANDOFF.d/2026-11-22T0157Z-edge-dev-agy-colab-gpu-offload-plan.md](HANDOFF.d/2026-11-22T0157Z-edge-dev-agy-colab-gpu-offload-plan.md).
+Registered handoff: [HANDOFF.d/2026-11-22T0249Z-edge-dev-agy-colab-offload-code-landed.md](HANDOFF.d/2026-11-22T0249Z-edge-dev-agy-colab-offload-code-landed.md).
 Companion plans (do not fold in; preserve their gates): [plan_pm_message_intake.md](plan_pm_message_intake.md) (issue `#607`), [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md), and [plan_oracle_company_map.md](plan_oracle_company_map.md).
 
 **Who this is written for:** a fresh lead session walking in with zero memory of this conversation. Every step names concrete files, functions, SQL objects, runtime flags, verification gates, and `lead-only` / `helper-ok` delegation rules. If reality disagrees with a step, stop and record the drift in STATUS rather than guessing.
@@ -22,18 +22,18 @@ Fresh session starts at: **the first row marked `⬜ open`, in order.** Re-read 
 
 | Step | Title | Role | State | Evidence / blocker | Updated (EST) |
 |---|---|---|---|---|---|
-| 0.1 | Provision & verify `google-colab-cli`, account CCU probe, and mandatory `try/finally` teardown wrapper (`apps/brain/colab/preflight.py`) | `lead-only` | ⬜ open | — | — |
-| 0.2 | Add Colab runner settings & CCU budget guard (`apps/brain/brain/config.py`, `docs/configuration.md`) | `helper-ok` | ⬜ open | — | — |
-| 1.1 | Deterministic JSONL packet exporter & validated importer reusing `relations.py` (`apps/brain/brain/colab_packet.py`) | `lead-only` | ⬜ open | — | — |
-| 1.2 | Offline vLLM guided-JSON batch runner for Colab GPUs (`apps/brain/colab/run_vllm_batch.py`) | `helper-ok` | ⬜ open | — | — |
-| 1.3 | Sandbox open-weight relations bake-off on `#607` Step 2.3 benchmark (zero production writes) | `lead-only` | ⬜ open | — | — |
-| 2.1 | QLoRA dataset builder from `#607` tuning split + adapter trainer (`apps/brain/colab/train_relations_lora.py`) | `lead-only` | ⬜ open | Conditional: runs if 1.3 zero-shot open-weight runs miss `#607` Step 2.3 bounds, or when a smaller/faster GPU tier is desired | — |
-| 2.2 | Merged/LoRA vLLM qualification against `#607` held-out blind review & 15-question end-to-end eval | `lead-only` | ⬜ open | Conditional on 2.1 or 1.3 finalist | — |
-| 3.1 | Idempotent lease table `apps/brain/brain/sql/039_colab_leases.sql` (15-min TTL, prompt-hash lock) | `lead-only` | ⬜ open | — | — |
-| 3.2 | Scoped bearer auth (`BRAIN_COLAB_WORKER_TOKEN`) & pull endpoints `POST /colab/lease`, `POST /colab/submit`, `GET /colab/status` (`apps/brain/brain/api/colab.py`) | `lead-only` | ⬜ open | — | — |
-| 3.3 | Pull-loop Colab worker CLI (`apps/brain/colab/drain_leases.py`) with budget cap, heartbeat & guaranteed teardown | `helper-ok` | ⬜ open | — | — |
-| 4.1 | Private Coolify sandbox end-to-end lease-drain proof (100+ passages, kill-mid-lease recovery, $0 cloud relations spend) | `lead-only` | ⬜ open | — | — |
-| 4.2 | Production backfill drain proof on approved `#607` pilot window (`- [ ] live proof` on `#664`) | `lead-only` | ⬜ open | Awaits `#607` Step 2.3 qualification + pilot authorization | — |
+| 0.1 | Provision & verify `google-colab-cli`, account CCU probe, and mandatory `try/finally` teardown wrapper (`apps/brain/colab/preflight.py`) | `lead-only` | 🟨 code landed, awaiting live proof | `google-colab-cli v0.8.0` installed on `edge-dev`; `apps/brain/colab/preflight.py`, `apps/brain/colab/requirements-colab.txt`, and `apps/brain/tests/test_colab_preflight.py` (`uv run pytest tests/test_colab_preflight.py` — 7 passed). Blocked on one-time interactive Google OAuth (`accounts.google.com`) for scope `https://www.googleapis.com/auth/colaboratory` | 2026-11-21 9:49 PM EST |
+| 0.2 | Add Colab runner settings & CCU budget guard (`apps/brain/brain/config.py`, `docs/configuration.md`) | `helper-ok` | ✅ done | `apps/brain/brain/config.py`, `docs/configuration.md`, `docs/agents/12-credentials-and-environment.md`, `apps/brain/deploy/compose.coolify.yaml`, and `apps/brain/tests/test_colab_config.py` (`uv run pytest tests/test_colab_config.py` — 12 passed, incl. `pyproject.toml` zero-GPU-deps guard) | 2026-11-21 9:49 PM EST |
+| 1.1 | Deterministic JSONL packet exporter & validated importer reusing `relations.py` (`apps/brain/brain/colab_packet.py`) | `lead-only` | ✅ done | `apps/brain/brain/colab_packet.py` and `apps/brain/tests/test_colab_packet.py` (`uv run pytest tests/test_colab_packet.py` — 4 passed, incl. `handle_relations` parity & §9a adversarial checks) | 2026-11-21 9:49 PM EST |
+| 1.2 | Offline vLLM guided-JSON batch runner for Colab GPUs (`apps/brain/colab/run_vllm_batch.py`) | `helper-ok` | 🟨 code landed, awaiting live proof | `apps/brain/colab/run_vllm_batch.py` and `apps/brain/tests/test_colab_vllm_runner.py` (`uv run pytest tests/test_colab_vllm_runner.py` — 9 passed). 10-passage synthetic Colab GPU smoke blocked on one-time Google `colaboratory` OAuth | 2026-11-21 9:49 PM EST |
+| 1.3 | Sandbox open-weight relations bake-off on `#607` Step 2.3 benchmark (zero production writes) | `lead-only` | ⬜ open | Blocked on Step 0.1 one-time Google `colaboratory` OAuth | 2026-11-21 9:49 PM EST |
+| 2.1 | QLoRA dataset builder from `#607` tuning split + adapter trainer (`apps/brain/colab/train_relations_lora.py`) | `lead-only` | 🟨 code landed, awaiting live proof | `apps/brain/colab/build_tuning_sft.py`, `apps/brain/colab/train_relations_lora.py`, and `apps/brain/tests/test_colab_lora_leakage_guard.py` (`uv run pytest tests/test_colab_lora_leakage_guard.py` — 3 passed). Live training run conditional on Step 1.3 after Google OAuth | 2026-11-21 9:49 PM EST |
+| 2.2 | Merged/LoRA vLLM qualification against `#607` held-out blind review & 15-question end-to-end eval | `lead-only` | ⬜ open | Conditional on 1.3/2.1 finalist + `#607` calibrated protected blind review | 2026-11-21 9:49 PM EST |
+| 3.1 | Idempotent lease table `apps/brain/brain/sql/039_colab_leases.sql` (15-min TTL, prompt-hash lock) | `lead-only` | ✅ done | `apps/brain/brain/sql/039_colab_leases.sql`, `apps/brain/brain/extract/relations.py`, `apps/brain/brain/chain.py`, `apps/brain/tests/test_schema.py`, and `apps/brain/tests/test_colab_leases_db.py` (`uv run pytest tests/test_schema.py tests/test_colab_leases_db.py` — 7 passed) | 2026-11-21 9:49 PM EST |
+| 3.2 | Scoped bearer auth (`BRAIN_COLAB_WORKER_TOKEN`) & pull endpoints `POST /colab/lease`, `POST /colab/submit`, `GET /colab/status` (`apps/brain/brain/api/colab.py`) | `lead-only` | ✅ done | `apps/brain/brain/api/deps.py`, `apps/brain/brain/api/colab.py`, `apps/brain/brain/main.py`, and `apps/brain/tests/test_colab_api.py` (`uv run pytest tests/test_colab_api.py` — 7 passed); 1Password `vibe_coding` items `naytnzqu4ldh4t7jutxbx7btzq` (sandbox) and `gulz2yow5h7tkkrdsopkh4udxq` (prod) provisioned | 2026-11-21 9:49 PM EST |
+| 3.3 | Pull-loop Colab worker CLI (`apps/brain/colab/drain_leases.py`) with budget cap, heartbeat & guaranteed teardown | `helper-ok` | ✅ done | `apps/brain/colab/drain_leases.py` and `apps/brain/tests/test_colab_drain_worker.py` (`uv run pytest tests/test_colab_drain_worker.py` — 4 passed against FastAPI `brain.main.app`) | 2026-11-21 9:49 PM EST |
+| 4.1 | Private Coolify sandbox end-to-end lease-drain proof (100+ passages, kill-mid-lease recovery, $0 cloud relations spend) | `lead-only` | ⬜ open | Blocked on Step 0.1 Google `colaboratory` OAuth + Step 2.2 qualification | 2026-11-21 9:49 PM EST |
+| 4.2 | Production backfill drain proof on approved `#607` pilot window (`- [ ] live proof` on `#664`) | `lead-only` | ⬜ open | Awaits Step 4.1 + `#607` Step 2.3 qualification & pilot window | 2026-11-21 9:49 PM EST |
 
 ---
 
@@ -452,7 +452,7 @@ Every data path crossing between `apps/brain`, Colab VMs, Hugging Face Hub, and 
 
 #### Open business questions for the owner
 - **None blocking Phases 0–3 or Step 4.1.** (Albert's 2026-11-21 instruction authorized integrating Colab, and `#607`'s existing sandbox authorization covers Step 1.3 / Phase 2 tuning and qualification.)
-- Downstream `#607` business checkpoints (presenting measured 14-day pilot cost / CCU projection before all-employee rollout and before deciding whether exact-quote L1 stays post-pilot) remain tracked in [HANDOFF.d/2026-11-22T0157Z-edge-dev-agy-colab-gpu-offload-plan.md](HANDOFF.d/2026-11-22T0157Z-edge-dev-agy-colab-gpu-offload-plan.md) §0 and [plan_pm_message_intake.md](plan_pm_message_intake.md) STATUS.
+- Downstream `#607` business checkpoints (presenting measured 14-day pilot cost / CCU projection before all-employee rollout and before deciding whether exact-quote L1 stays post-pilot) remain tracked in [HANDOFF.d/2026-11-22T0249Z-edge-dev-agy-colab-offload-code-landed.md](HANDOFF.d/2026-11-22T0249Z-edge-dev-agy-colab-offload-code-landed.md) §0 and [plan_pm_message_intake.md](plan_pm_message_intake.md) STATUS.
 
 ---
 
@@ -471,7 +471,7 @@ Every data path crossing between `apps/brain`, Colab VMs, Hugging Face Hub, and 
 
 ```text
 You are the lead session implementing Google Colab GPU batch offload and fine-tuning in https://github.com/u2giants/theoracle (issue #664).
-Read AGENTS.md first, then plan_colab_gpu_offload.md (STATUS table first, then §1, §8, §9, §9a, §11), then HANDOFF.d/2026-11-22T0157Z-edge-dev-agy-colab-gpu-offload-plan.md, and issue #664.
+Read AGENTS.md first, then plan_colab_gpu_offload.md (STATUS table first, then §1, §8, §9, §9a, §11), then HANDOFF.d/2026-11-22T0249Z-edge-dev-agy-colab-offload-code-landed.md, and issue #664.
 
 Start at the first open row in plan_colab_gpu_offload.md STATUS. Create your own isolated git worktree from origin/main, verify git var GIT_COMMITTER_IDENT, and run `ai-task-gates start --class code` before editing any file (redeclare `--class production` before Step 4.2).
 
