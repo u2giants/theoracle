@@ -184,17 +184,19 @@ def test_paging_reads_every_page_until_a_short_page():
 
 def test_only_tasks_involving_the_person_and_each_task_once():
     pages = {
-        0: [
-            make_task("t1", assignees=(101,)),
-            make_task("t2", assignees=(202,)),
-            make_task("t3", assignees=(202,)),
-        ],
+        0: [make_task("t1", assignees=(101,))]
+        + [make_task(f"uninvolved_{i}", assignees=(202,)) for i in range(99)],
         1: [make_task("t1", assignees=(101,))],
     }
-    client, _ = make_client(pages)
+    client, seen = make_client(pages)
     with client:
         got = [t["id"] for t, _ in clickup.collect(client, PEOPLE, SINCE)]
     assert got == ["t1"]
+    assert [
+        int(r.url.params["page"])
+        for r in seen
+        if r.url.path == "/api/v2/team/T1/task"
+    ] == [0, 1]
 
 
 def test_creator_counts_as_involved():
@@ -382,3 +384,26 @@ def test_comment_404_and_403_skipped_with_warning_and_counter(
     assert counts.comment_errors == 2
     assert any("404" in rec.message for rec in caplog.records)
     assert any("403" in rec.message for rec in caplog.records)
+
+
+def test_collect_skips_unrelated_team_when_members_matched_elsewhere() -> None:
+    unrelated_team = {
+        "id": "T_OTHER",
+        "members": [{"user": {"id": 999, "username": "Other", "email": "o@x.test"}}],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v2/team":
+            return httpx.Response(200, json={"teams": [unrelated_team, TEAM]})
+        if path == "/api/v2/team/T1/task":
+            return httpx.Response(
+                200, json={"tasks": [make_task("t_matched", assignees=(101,))]}
+            )
+        if path == "/api/v2/task/t_matched/comment":
+            return httpx.Response(200, json={"comments": []})
+        return httpx.Response(404)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        got = [t["id"] for t, _ in clickup.collect(client, PEOPLE, SINCE)]
+    assert got == ["t_matched"]

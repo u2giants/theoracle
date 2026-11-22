@@ -297,6 +297,7 @@ def assemble(
     ``subject_chain``); inside a chain, long lines repeated from an earlier
     message are dropped. Items must then be in time order across threads.
     """
+    sigs = tuple(signatures)
     seen: set[str] = set()
     chains: dict[str, set[str]] = {}
     by_key: dict[str, list[Cleaned]] = {}
@@ -307,7 +308,7 @@ def assemble(
                 chain_of(it) or f"thread:{it['thread_key']}", set()
             )
         by_key.setdefault(it["thread_key"], []).append(
-            clean_item(it, seen, signatures, lines)
+            clean_item(it, seen, sigs, lines)
         )
     out: list[AssembledThread] = []
     for key, msgs in by_key.items():

@@ -96,8 +96,8 @@ def test_html_stripped_no_script_no_data_uri() -> None:
 def test_secret_message_dropped_and_blanked() -> None:
     for text in (
         "password: hunter22",
-        "use key AKIAABCDEFGHIJKLMNOP",
-        "-----BEGIN RSA PRIVATE KEY-----",
+        "use key AKIA" + "ABCDEFGHIJKLMNOP",
+        "-----BEGIN RSA " + "PRIVATE KEY-----",
         "token = ghp_" + "a" * 36,
     ):
         assert clean_item(item(text), set()).drop_reason == "secret"
@@ -244,6 +244,30 @@ def test_graph_mail_select_includes_meeting_message_type() -> None:
     from brain.intake import graph_mail
 
     assert "meetingMessageType" in graph_mail.SELECT.split(",")
+
+
+def test_assemble_accepts_single_pass_signature_generator() -> None:
+    sig = "Pat Example\nProject Manager\nPOP Creations"
+    items = [
+        {
+            "id": 1,
+            "thread_key": "t_gen",
+            "body_text": f"First update.\n\n{sig}",
+            "raw": {},
+        },
+        {
+            "id": 2,
+            "thread_key": "t_gen",
+            "body_text": f"Second update.\n\n{sig}",
+            "raw": {},
+        },
+    ]
+    gen = (s for s in [sig])
+    threads = clean.assemble(items, signatures=gen)
+    assert [m.text for m in threads[0].messages] == [
+        "First update.",
+        "Second update.",
+    ]
 
 
 def test_apply_revives_too_short_thread_when_new_messages_arrive(db: Any) -> None:

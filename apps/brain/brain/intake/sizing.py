@@ -220,22 +220,37 @@ def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> No
     with httpx.Client(headers=h, timeout=60) as c:
         teams = get_retry(c, f"{CLICKUP}/team").json()["teams"]
         seen_tasks: set[str] = set()
+        matched_people: set[int] = set()
+        team_wanted: list[tuple[dict, set[str]]] = []
         for team in teams:
             uids = [clickup_member(team.get("members") or [], e, n) for e, n in people]
-            if None in uids:
-                sys.exit(
-                    f"ClickUp: {uids.count(None)} person(s) not matched to exactly one member"
-                )
-            wanted = {str(u) for u in uids}
+            for idx, u in enumerate(uids):
+                if u is not None:
+                    matched_people.add(idx)
+            wanted = {str(u) for u in uids if u is not None}
+            if wanted:
+                team_wanted.append((team, wanted))
+        if people and len(matched_people) < len(people):
+            missing = len(people) - len(matched_people)
+            sys.exit(
+                f"ClickUp: {missing} person(s) not matched to exactly one member"
+            )
+        for team, wanted in team_wanted:
             # Kept when either person is assignee, creator, watcher or commenter.
             for task in window_tasks(c, team["id"], since):
                 t.scanned += 1
-                if task["id"] in seen_tasks:
+                tid = str(task["id"])
+                if tid in seen_tasks:
                     continue
-                comments = task_comments(c, task["id"])
+                try:
+                    comments = task_comments(c, tid)
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code not in (403, 404):
+                        raise
+                    comments = []
                 if not involves(task, wanted, comments):
                     continue
-                seen_tasks.add(task["id"])
+                seen_tasks.add(tid)
                 header = "\n".join(
                     str(x or "")
                     for x in (

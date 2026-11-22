@@ -135,13 +135,23 @@ def collect(
 ) -> Iterator[tuple[dict, list[dict]]]:
     """Yield (task, items) for each task in the window where a named person is involved."""
     seen: set[str] = set()
-    for team in get_retry(c, f"{CLICKUP}/team").json()["teams"]:
+    teams = get_retry(c, f"{CLICKUP}/team").json()["teams"]
+    matched_people: set[int] = set()
+    team_wanted: list[tuple[dict, set[str]]] = []
+    for team in teams:
         uids = [clickup_member(team.get("members") or [], e, n) for e, n in people]
-        if None in uids:
-            raise RuntimeError(
-                f"ClickUp: {uids.count(None)} person(s) not matched to exactly one member"
-            )
-        wanted = {str(u) for u in uids}
+        for idx, u in enumerate(uids):
+            if u is not None:
+                matched_people.add(idx)
+        wanted = {str(u) for u in uids if u is not None}
+        if wanted:
+            team_wanted.append((team, wanted))
+    if people and len(matched_people) < len(people):
+        missing = len(people) - len(matched_people)
+        raise RuntimeError(
+            f"ClickUp: {missing} person(s) not matched to exactly one member"
+        )
+    for team, wanted in team_wanted:
         for task in window_tasks(c, team["id"], since):
             tid = str(task["id"])
             if tid in seen:

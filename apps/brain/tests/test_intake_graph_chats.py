@@ -6,6 +6,7 @@ that writes uses the ``db`` fixture and runs in CI, where Postgres is present.
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -257,6 +258,7 @@ def test_stored_fields_hold_text_and_original():
     assert item.sent_at == datetime(2026, 11, 11, 9, 0, tzinfo=UTC)
 
 
+@pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
 def test_store_upserts_are_idempotent(db):
     migrate()  # the schema is idempotent; CI already has Postgres
     chat = {"id": "synthetic-chat-db", "topic": "synthetic"}
@@ -296,6 +298,7 @@ def test_store_upserts_are_idempotent(db):
         cleanup()
 
 
+@pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
 def test_store_recomputes_and_prunes_threads_on_shorter_window(db):
     from brain.read.chunk import count_tokens
 
