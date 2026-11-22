@@ -1032,6 +1032,32 @@ def _clean_message_quote(window_pairs: list[tuple[str, str]], quote: str) -> str
     return q
 
 
+def _merge_message_new_mentions(*groups: Any) -> list[dict[str, Any]]:
+    """Carry ``new_mentions`` keys forward across Pass 1 -> Pass 2 -> Pass 3 (#607).
+
+    Later passes often keep relations referencing ``x1``/``x2`` emitted in Pass 1
+    while returning ``"new_mentions": []`` when no extra entities were added.
+    Later non-empty fields override earlier ones for the same key.
+    """
+    by_key: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        for item in group or []:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            if not key:
+                continue
+            if key not in by_key:
+                by_key[key] = dict(item)
+            else:
+                merged = dict(by_key[key])
+                for field_name, val in item.items():
+                    if val not in (None, ""):
+                        merged[field_name] = val
+                by_key[key] = merged
+    return list(by_key.values())
+
+
 def _sanitize_message_payload(
     window_pairs: list[tuple[str, str]],
     known: dict[str, KnownMention],
@@ -1039,34 +1065,49 @@ def _sanitize_message_payload(
 ) -> dict[str, Any]:
     """Enforce message-intake ontology and single-turn quote rules (#607)."""
     entity_types: dict[str, str] = {k: m.entity_type for k, m in known.items()}
-    clean_nms: list[dict[str, Any]] = []
-    for nm in payload.get("new_mentions") or []:
-        if not isinstance(nm, dict):
+    raw_rels = [r for r in (payload.get("relations") or []) if isinstance(r, dict)]
+    fallback_quotes_by_key: dict[str, str] = {}
+    for rel in raw_rels:
+        rq = _clean_message_quote(window_pairs, str(rel.get("quote") or ""))
+        if not rq:
             continue
+        for end_key in (str(rel.get("from") or ""), str(rel.get("to") or "")):
+            if end_key and end_key not in fallback_quotes_by_key:
+                fallback_quotes_by_key[end_key] = rq
+
+    clean_nms: list[dict[str, Any]] = []
+    for nm in _merge_message_new_mentions(payload.get("new_mentions")):
         item = dict(nm)
-        item["quote"] = _clean_message_quote(
-            window_pairs, str(item.get("quote") or "")
-        )
-        key = str(item.get("key") or "")
-        etype = str(item.get("type") or "")
-        if key and etype in ENTITY_TYPES:
+        key = str(item.get("key") or "").strip()
+        item["key"] = key
+        raw_quote = str(item.get("quote") or "").strip()
+        cleaned_q = _clean_message_quote(window_pairs, raw_quote)
+        if not cleaned_q and key in fallback_quotes_by_key:
+            cleaned_q = fallback_quotes_by_key[key]
+        item["quote"] = cleaned_q
+        etype = str(item.get("type") or "").strip()
+        if etype not in ENTITY_TYPES:
+            etype = "Artifact"
+        item["type"] = etype
+        if key:
             entity_types[key] = etype
         clean_nms.append(item)
 
     clean_rels: list[dict[str, Any]] = []
-    for rel in payload.get("relations") or []:
-        if not isinstance(rel, dict):
-            continue
+    for rel in raw_rels:
         item = dict(rel)
         item["quote"] = _clean_message_quote(
             window_pairs, str(item.get("quote") or "")
         )
-        rtype = str(item.get("type") or "")
-        if rtype == "MENTIONS":
+        rtype = str(item.get("type") or "").strip()
+        if rtype == "MENTIONS" or rtype not in REL_TYPES:
             item["type"] = "APPLIES_TO"
             rtype = "APPLIES_TO"
-        if str(item.get("stance") or "") == "inference":
+        stance = str(item.get("stance") or "").strip()
+        if stance == "inference" or stance not in STANCES:
             item["stance"] = "report"
+        if _confidence(item.get("confidence")) is None:
+            item["confidence"] = 0.9
         fk = str(item.get("from") or "")
         tk = str(item.get("to") or "")
         if (
@@ -1119,23 +1160,30 @@ def _process_window(
         )
         audited = _call_with_retries(audit_prompt, chunk_id, counters)
         audited_rels = list(audited.get("relations") or [])
+        base_nms = _merge_message_new_mentions(
+            first_payload.get("new_mentions"),
+            audited.get("new_mentions"),
+        )
         if audited_rels:
             gated_rels: list[Any] = []
-            gated_nms: list[Any] = list(audited.get("new_mentions") or [])
+            slice_nms: list[Any] = []
             for start in range(0, len(audited_rels), 25):
                 sub_audited = {
                     "relations": audited_rels[start : start + 25],
-                    "new_mentions": audited.get("new_mentions") or [],
+                    "new_mentions": base_nms,
                 }
                 gate_prompt = build_message_gate_prompt(
                     anchor_text, previous_context, sub_audited
                 )
                 sub_gated = _call_with_retries(gate_prompt, chunk_id, counters)
                 gated_rels.extend(sub_gated.get("relations") or [])
-                gated_nms.extend(sub_gated.get("new_mentions") or [])
-            gated = {"relations": gated_rels, "new_mentions": gated_nms}
+                slice_nms.extend(sub_gated.get("new_mentions") or [])
+            gated = {
+                "relations": gated_rels,
+                "new_mentions": _merge_message_new_mentions(base_nms, slice_nms),
+            }
         else:
-            gated = audited
+            gated = {"relations": [], "new_mentions": base_nms}
         payload = _sanitize_message_payload(window_pairs, by_key, gated)
         covered = covered_ids
     else:
@@ -1336,6 +1384,10 @@ def _run_message_batch(
                 continue
             aud = p2_payloads[cid]
             aud_rels = list(aud.get("relations") or [])
+            base_nms = _merge_message_new_mentions(
+                p1_payloads[cid].get("new_mentions"),
+                aud.get("new_mentions"),
+            )
             if not aud_rels:
                 p3_ready_ids.append(cid)
                 continue
@@ -1352,7 +1404,7 @@ def _run_message_batch(
                 scid = f"{cid}__s{s_idx:02d}"
                 sub_aud = {
                     "relations": aud_rels[start : start + 25],
-                    "new_mentions": aud.get("new_mentions") or [],
+                    "new_mentions": base_nms,
                 }
                 slices_for_cid.append((scid, sub_aud))
                 slice_batch_items.append(
@@ -1421,19 +1473,26 @@ def _run_message_batch(
             if cid in failed_ids:
                 continue
             aud = p2_payloads[cid]
+            base_nms = _merge_message_new_mentions(
+                p1_payloads[cid].get("new_mentions"),
+                aud.get("new_mentions"),
+            )
             slices = p3_slices.get(cid, [])
             if slices:
                 if any(scid not in p3_out_map for scid, _sub in slices):
                     continue
                 gated_rels: list[Any] = []
-                gated_nms: list[Any] = list(aud.get("new_mentions") or [])
+                slice_nms: list[Any] = []
                 for scid, _sub in slices:
                     sub_gated = p3_out_map[scid]
                     gated_rels.extend(sub_gated.get("relations") or [])
-                    gated_nms.extend(sub_gated.get("new_mentions") or [])
-                gated = {"relations": gated_rels, "new_mentions": gated_nms}
+                    slice_nms.extend(sub_gated.get("new_mentions") or [])
+                gated = {
+                    "relations": gated_rels,
+                    "new_mentions": _merge_message_new_mentions(base_nms, slice_nms),
+                }
             else:
-                gated = aud
+                gated = {"relations": [], "new_mentions": base_nms}
 
             _anchor, _known, pairs, by_key = prep[cid]
             sanitized = _sanitize_message_payload(pairs, by_key, gated)
