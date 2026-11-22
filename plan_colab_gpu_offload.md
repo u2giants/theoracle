@@ -59,7 +59,7 @@ Albert already pays for a **Google AI Ultra** subscription that includes **2,000
   - `apps/web` — Next.js 16 web app deployed on Vercel (`https://oracle.designflow.app`, Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`). Serves `/map/*`, `/admin/*`, `/api/brain/*` proxy, Microsoft Teams bot (`/api/teams/bot/*`), and Recall.ai webhook (`/api/teams/live/*`).
   - `apps/brain` — Python 3.12+ FastAPI API and background job worker (`apps/brain/brain/worker.py`) deployed on Coolify as `oracle-brain` (`https://oracle-brain.designflow.app`, image `ghcr.io/u2giants/theoracle-brain`). Owns Postgres schema `cmap` and FalkorDB graph `company`.
   - **Supabase Cloud** — Managed Postgres (`public` + `cmap` schemas, `pgvector`), Auth, Storage (`company_documents` bucket), and Realtime.
-  - **Private Oracle Coolify sandbox** — Separate isolated brain + Postgres sandbox used for `#607` private message-intake evaluation and gold-set custody (`HANDOFF.d/2026-11-22T0053Z-edge-dev3-codex-intake-luna-reconciled.md` §8).
+  - **Private Oracle Coolify sandbox** — Separate isolated brain + Postgres sandbox used for `#607` private message-intake evaluation and gold-set custody ([docs/verification/2026-11-colab-sandbox-drain-proof.md](docs/verification/2026-11-colab-sandbox-drain-proof.md)).
 
 #### Terms a newcomer must know
 - **`cmap` pipeline:** `source` (uploaded doc, meeting transcript, or packed message thread) → `chunk` (~400-token passage) → `mention` (flat entity span) → `relation` (typed directed claim between mentions with `stance`, `confidence`, and verbatim `quote`) → `entity` (resolved canonical node) → `community` (Leiden cluster summary).
@@ -76,7 +76,7 @@ Two facts converged on 2026-11-21:
 1. **Owner request (2026-11-21 chat):** Albert noted his Google AI Ultra subscription includes **2,000 free monthly compute units in Google Colab**, stated he is non-technical, and asked first whether The Oracle (or coding/building The Oracle) can use Colab, then asked to **make an implementation plan to integrate it into The Oracle**.
 2. **Active cost-and-quality deadlock on `#607` (`plan_pm_message_intake.md` Step 2.3):**
    - Staging already holds **3,373 cleaned project-manager threads** (ClickUp, Teams chats, and authorized email; ~2.8M email tokens / ~20,535 email passages alone), before expanding to the rest of the company.
-   - Per `docs/verification/2026-11-20-pm-intake-relations.md` and `HANDOFF.d/2026-11-22T0053Z-edge-dev3-codex-intake-luna-reconciled.md` §3, **every low-cost cloud API route failed the Step 2.3 correctness gate (`≥95%` one-sided 95% lower confidence bound)**: synchronous runs peaked at `65.79%` point estimate (`57.07%` lower bound), and reconciled native/router batch upper bounds peaked at `93.28%–94.83%` even under optimistic unreviewed assumptions, while one route missed the `≥98%` quote lower bound (`96.24%` / `97.28%`).
+   - Per `docs/verification/2026-11-20-pm-intake-relations.md` and `docs/verification/2026-11-21-pm-intake-step-2-3-qualification.md`, **every initial single-pass low-cost cloud API route failed the Step 2.3 correctness gate (`≥95%` one-sided 95% lower confidence bound)**: synchronous runs peaked at `65.79%` point estimate (`57.07%` lower bound), and reconciled native/router batch upper bounds peaked at `93.28%–94.83%` even under optimistic unreviewed assumptions, while one route missed the `≥98%` quote lower bound (`96.24%` / `97.28%`).
    - Meanwhile, Albert's binding cost ruling (`plan_pm_message_intake.md` STATUS L9, 2026-11-18) states: *"we can't afford frontier models"*.
    - Prepaid Colab A100 GPUs break that deadlock: they let us run large (27B–72B) open-weight models with grammar-enforced JSON AND/OR fine-tune a dedicated relations adapter on the 50 `#607` tuning threads (`plan_pm_message_intake.md` Step 2.1) at **$0 marginal API cost**.
 
@@ -235,7 +235,7 @@ Two facts converged on 2026-11-21:
 
 **Step 1.3 — Run `#607` Step 2.3 open-weight bake-off in the private Coolify sandbox.**
 - **Who does it:** `lead-only` — accesses `#607` private sandbox custody, enforces tuning-vs-holdout separation (L5), and judges qualification gates.
-- **Dependencies:** Steps 1.1 and 1.2, plus coordination with `#607`'s protected review rubric (`HANDOFF.d/2026-11-22T0053Z-edge-dev3-codex-intake-luna-reconciled.md` §6.1–6.2).
+- **Dependencies:** Steps 1.1 and 1.2, plus coordination with `#607`'s protected review rubric ([docs/verification/2026-11-21-pm-intake-step-2-3-qualification.md](docs/verification/2026-11-21-pm-intake-step-2-3-qualification.md)).
 - **What to do:**
   - Inside the private Oracle Coolify sandbox (production untouched!), export the **50 tuning threads** first via `brain.colab_packet export`.
   - Run 2–3 open-weight candidates selected per O1 on Colab `A100` via `preflight.py` + `run_vllm_batch.py`, keeping raw outputs inside the private sandbox only (L8).
@@ -267,7 +267,7 @@ Two facts converged on 2026-11-21:
 
 **Step 2.2 — Blind held-out qualification & 15-question end-to-end eval check.**
 - **Who does it:** `lead-only` — executes `#607` Step 2.3 qualification protocol.
-- **Dependencies:** Step 1.3 finalist or Step 2.1 adapter, plus `#607`'s calibrated blind review & truncation-ceiling sample (`HANDOFF.d/2026-11-22T0053Z-edge-dev3-codex-intake-luna-reconciled.md` §6.1–6.4).
+- **Dependencies:** Step 1.3 finalist or Step 2.1 adapter, plus `#607`'s calibrated blind review & truncation-ceiling sample ([docs/verification/2026-11-22-pm-intake-luna-v7-qualification.md](docs/verification/2026-11-22-pm-intake-luna-v7-qualification.md)).
 - **What to do:**
   - Run the frozen finalist (zero-shot or `+lora:<sha>`) once via `run_vllm_batch.py` over the frozen held-out benchmark packet in the private Coolify sandbox.
   - Pool and blind-score under `#607`'s exact Step 2.3 protocol (whole-thread stratified 95% confidence bounds: correctness `>=95%`, recall `>=90%`, quote validation `>=98%`, truncation `<=1%`), plus run the 15-question `brain/eval` end-to-end comparison requiring mean score no lower than reference (`plan_pm_message_intake.md` Step 2.3).
@@ -421,7 +421,7 @@ Every data path crossing between `apps/brain`, Colab VMs, Hugging Face Hub, and 
     - `"The Oracle — Sandbox Brain Colab Worker Token (BRAIN_COLAB_WORKER_TOKEN)"` (item `naytnzqu4ldh4t7jutxbx7btzq`, field `BRAIN_COLAB_WORKER_TOKEN`)
     - `"The Oracle — Production Brain Colab Worker Token (BRAIN_COLAB_WORKER_TOKEN)"` (item `gulz2yow5h7tkkrdsopkh4udxq`, field `BRAIN_COLAB_WORKER_TOKEN`)
 - **Target environments:**
-  - **Private Coolify sandbox:** Used for Phases 1, 2, and 4.1 (`HANDOFF.d/2026-11-22T0053Z-edge-dev3-codex-intake-luna-reconciled.md` §8 describes exact sandbox custody and existing `step-2.3-relations` artifacts).
+  - **Private Coolify sandbox:** Used for Phases 1, 2, and 4.1 ([docs/verification/2026-11-colab-sandbox-drain-proof.md](docs/verification/2026-11-colab-sandbox-drain-proof.md) and [docs/verification/2026-11-22-pm-intake-luna-v7-qualification.md](docs/verification/2026-11-22-pm-intake-luna-v7-qualification.md) record exact sandbox custody and `step-2.3-relations` artifacts).
   - **Production:** Coolify service `oracle-brain` (`https://oracle-brain.designflow.app`, image `ghcr.io/u2giants/theoracle-brain`) and Vercel web (`https://oracle.designflow.app`) — touched **only** in Step 4.2 after sandbox proof and `#607` Step 2.3 qualification pass.
 - **Running brain tests locally:**
   - See `docs/development.md`; from `apps/brain`, run `uv run pytest` and `uv run ruff check .`.
