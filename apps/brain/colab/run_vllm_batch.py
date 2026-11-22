@@ -13,8 +13,11 @@ import json
 import os
 import re
 import sys
+import tarfile
+import tempfile
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -225,29 +228,71 @@ def load_model_config_and_files(
     return config, repo_files
 
 
+@contextmanager
+def resolved_lora_directory(lora_path: str | Path | None) -> Iterator[Path | None]:
+    """Yield a directory containing LoRA adapter files, safely unpacking ``.tar.gz`` if needed."""
+    if lora_path is None:
+        yield None
+        return
+    src = Path(lora_path)
+    if src.is_dir():
+        yield src
+        return
+    if src.is_file() and src.name.endswith((".tar.gz", ".tgz")):
+        with tempfile.TemporaryDirectory(prefix="oracle-vllm-lora-") as tmp_dir:
+            dest = Path(tmp_dir)
+            try:
+                with tarfile.open(src, "r:gz") as tf:
+                    for member in tf.getmembers():
+                        parts = Path(member.name).parts
+                        if (
+                            not parts
+                            or member.name.startswith("/")
+                            or ".." in parts
+                            or member.issym()
+                            or member.islnk()
+                        ):
+                            raise VllmBatchError(f"unsafe LoRA tar archive entry: {member.name!r}")
+                    tf.extractall(dest, filter="data")
+            except (tarfile.TarError, OSError) as exc:
+                raise VllmBatchError(f"failed to extract LoRA archive {src}: {exc}") from exc
+            yield dest
+            return
+    raise VllmBatchError(f"lora_path does not exist or is not a directory/.tar.gz: {src}")
+
+
 def hash_lora_adapter(lora_path: str | Path) -> str:
     """Compute a deterministic SHA-256 hex digest over all files in ``lora_path``."""
-    root = Path(lora_path)
-    if not root.is_dir():
-        raise VllmBatchError(f"lora_path does not exist or is not a directory: {root}")
-    files = sorted(
-        (p for p in root.rglob("*") if p.is_file()),
-        key=lambda p: p.relative_to(root).as_posix(),
-    )
-    if not files:
-        raise VllmBatchError(f"lora_path contains no adapter files: {root}")
+    with resolved_lora_directory(lora_path) as root:
+        assert root is not None
+        manifest_file = root / "adapter_manifest.json"
+        if manifest_file.is_file():
+            try:
+                manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+                recorded_sha = manifest.get("adapter_sha256")
+                if isinstance(recorded_sha, str) and len(recorded_sha) == 64:
+                    return recorded_sha
+            except (OSError, json.JSONDecodeError):
+                pass
 
-    digest = hashlib.sha256()
-    for path in files:
-        rel = path.relative_to(root).as_posix().encode("utf-8")
-        digest.update(rel)
-        digest.update(b"\0")
-        digest.update(str(path.stat().st_size).encode("ascii"))
-        digest.update(b"\0")
-        with path.open("rb") as fh:
-            while chunk := fh.read(65536):
-                digest.update(chunk)
-    return digest.hexdigest()
+        files = sorted(
+            (p for p in root.rglob("*") if p.is_file() and p.name != "adapter_manifest.json"),
+            key=lambda p: p.relative_to(root).as_posix(),
+        )
+        if not files:
+            raise VllmBatchError(f"lora_path contains no adapter files: {root}")
+
+        digest = hashlib.sha256()
+        for path in files:
+            rel = path.relative_to(root).as_posix().encode("utf-8")
+            digest.update(rel)
+            digest.update(b"\0")
+            digest.update(str(path.stat().st_size).encode("ascii"))
+            digest.update(b"\0")
+            with path.open("rb") as fh:
+                while chunk := fh.read(65536):
+                    digest.update(chunk)
+        return digest.hexdigest()
 
 
 def compute_model_tag(
@@ -466,6 +511,10 @@ def build_vllm_engine(
     }
     if lora_path is not None:
         kwargs["enable_lora"] = True
+        kwargs["max_lora_rank"] = 32
+        kwargs["max_loras"] = 1
+        kwargs["max_cpu_loras"] = 1
+        kwargs["enforce_eager"] = True
 
     if engine_factory is not None:
         return engine_factory(**kwargs)
@@ -521,6 +570,35 @@ def _extract_output(req_out: Any, elapsed_ms: float) -> _GeneratedItem:
     )
 
 
+def _format_prompts_for_llm(llm: Any, prompts: list[str]) -> list[str]:
+    """Apply chat template when running against a real vLLM tokenizer (matches SFT chat format)."""
+    get_tok = getattr(llm, "get_tokenizer", None)
+    if not callable(get_tok):
+        return prompts
+    tokenizer = get_tok()
+    apply_fn = getattr(tokenizer, "apply_chat_template", None)
+    if not callable(apply_fn) or not getattr(tokenizer, "chat_template", None):
+        return prompts
+    formatted: list[str] = []
+    for prompt in prompts:
+        msgs = [{"role": "user", "content": prompt}]
+        try:
+            rendered = apply_fn(
+                msgs,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except TypeError:
+            rendered = apply_fn(
+                msgs,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        formatted.append(str(rendered))
+    return formatted
+
+
 def _generate_batch(
     llm: Any,
     prompts: list[str],
@@ -528,11 +606,12 @@ def _generate_batch(
     *,
     lora_request: Any = None,
 ) -> list[_GeneratedItem]:
+    rendered_prompts = _format_prompts_for_llm(llm, prompts)
     t0 = time.monotonic()
     if lora_request is not None:
-        raw_outputs = llm.generate(prompts, sampling_params, lora_request=lora_request)
+        raw_outputs = llm.generate(rendered_prompts, sampling_params, lora_request=lora_request)
     else:
-        raw_outputs = llm.generate(prompts, sampling_params)
+        raw_outputs = llm.generate(rendered_prompts, sampling_params)
     elapsed_ms = (time.monotonic() - t0) * 1000.0
     if len(raw_outputs) != len(prompts):
         raise VllmBatchError(
@@ -544,6 +623,10 @@ def _generate_batch(
 
 def _unassign_colab_runtime() -> None:
     """Best-effort Colab runtime teardown when ``--unassign-on-exit`` is set."""
+    if os.environ.get("COLAB_GUARD_MANAGED_TEARDOWN") == "1":
+        # Host-side `colab.preflight` tears down managed sessions via `colab stop`
+        # after reading the exit marker and downloading artifacts.
+        return
     try:
         from google.colab import runtime  # type: ignore[import-not-found]
     except ImportError:
@@ -579,119 +662,120 @@ def run_batch(
 
         schema = load_schema(schema_path)
         items = load_packet_items(input_path)
-        model_tag = compute_model_tag(model_id, revision, lora_path)
+        with resolved_lora_directory(lora_path) as active_lora_dir:
+            model_tag = compute_model_tag(model_id, revision, active_lora_dir)
 
-        loader = config_loader if config_loader is not None else load_model_config_and_files
-        config, repo_files = loader(model_id, revision)
-        validate_model_config(config, repo_files=repo_files)
+            loader = config_loader if config_loader is not None else load_model_config_and_files
+            config, repo_files = loader(model_id, revision)
+            validate_model_config(config, repo_files=repo_files)
 
-        expected_hashes = {item["chunk_id"]: item["prompt_hash"] for item in items}
-        completed_ids = _load_completed_chunk_ids(output_path, expected_hashes)
-        pending = [item for item in items if item["chunk_id"] not in completed_ids]
-        skipped = len(items) - len(pending)
+            expected_hashes = {item["chunk_id"]: item["prompt_hash"] for item in items}
+            completed_ids = _load_completed_chunk_ids(output_path, expected_hashes)
+            pending = [item for item in items if item["chunk_id"] not in completed_ids]
+            skipped = len(items) - len(pending)
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        if not pending:
-            if not output_path.exists():
-                output_path.write_text("", encoding="utf-8")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            if not pending:
+                if not output_path.exists():
+                    output_path.write_text("", encoding="utf-8")
+                return BatchRunSummary(
+                    total_items=len(items),
+                    skipped_items=skipped,
+                    processed_items=0,
+                    retried_items=0,
+                    model_tag=model_tag,
+                    output_path=output_path,
+                    first_truncated_items=0,
+                )
+
+            allow_fallback = engine_factory is not None
+            llm = build_vllm_engine(
+                hf_model=model_id,
+                hf_revision=revision,
+                max_model_len=max_model_len,
+                lora_path=active_lora_dir,
+                engine_factory=engine_factory,
+            )
+            lora_request = _build_lora_request(active_lora_dir, allow_fallback=allow_fallback)
+
+            processed = 0
+            retried = 0
+            first_truncated = 0
+            with output_path.open("a", encoding="utf-8") as fh:
+                for start in range(0, len(pending), checkpoint_every):
+                    batch = pending[start : start + checkpoint_every]
+                    prompts = [item["prompt"] for item in batch]
+                    params_list = [
+                        build_sampling_params(
+                            schema,
+                            item["max_tokens"],
+                            allow_fallback=allow_fallback,
+                        )
+                        for item in batch
+                    ]
+                    results = _generate_batch(
+                        llm,
+                        prompts,
+                        params_list,
+                        lora_request=lora_request,
+                    )
+
+                    first_finish_reasons = [res.finish_reason for res in results]
+                    retry_indices = [
+                        idx
+                        for idx, reason in enumerate(first_finish_reasons)
+                        if reason == "length"
+                    ]
+                    retry_set = set(retry_indices)
+                    first_truncated += len(retry_indices)
+                    if retry_indices:
+                        retry_prompts = [batch[idx]["prompt"] for idx in retry_indices]
+                        retry_params = [
+                            build_sampling_params(
+                                schema,
+                                TRUNCATION_RETRY_MAX_TOKENS,
+                                allow_fallback=allow_fallback,
+                            )
+                            for _ in retry_indices
+                        ]
+                        retry_results = _generate_batch(
+                            llm,
+                            retry_prompts,
+                            retry_params,
+                            lora_request=lora_request,
+                        )
+                        for orig_idx, retry_res in zip(retry_indices, retry_results, strict=True):
+                            retry_res.elapsed_ms += results[orig_idx].elapsed_ms
+                            results[orig_idx] = retry_res
+                        retried += len(retry_indices)
+
+                    for idx, (item, res) in enumerate(zip(batch, results, strict=True)):
+                        record = {
+                            "chunk_id": item["chunk_id"],
+                            "prompt_hash": item["prompt_hash"],
+                            "model_tag": model_tag,
+                            "raw_content": res.raw_content,
+                            "finish_reason": res.finish_reason,
+                            "first_finish_reason": first_finish_reasons[idx],
+                            "retried": idx in retry_set,
+                            "prompt_tokens": res.prompt_tokens,
+                            "completion_tokens": res.completion_tokens,
+                            "elapsed_ms": round(res.elapsed_ms, 2),
+                        }
+                        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                    processed += len(batch)
+
             return BatchRunSummary(
                 total_items=len(items),
                 skipped_items=skipped,
-                processed_items=0,
-                retried_items=0,
+                processed_items=processed,
+                retried_items=retried,
                 model_tag=model_tag,
                 output_path=output_path,
-                first_truncated_items=0,
+                first_truncated_items=first_truncated,
             )
-
-        allow_fallback = engine_factory is not None
-        llm = build_vllm_engine(
-            hf_model=model_id,
-            hf_revision=revision,
-            max_model_len=max_model_len,
-            lora_path=lora_path,
-            engine_factory=engine_factory,
-        )
-        lora_request = _build_lora_request(lora_path, allow_fallback=allow_fallback)
-
-        processed = 0
-        retried = 0
-        first_truncated = 0
-        with output_path.open("a", encoding="utf-8") as fh:
-            for start in range(0, len(pending), checkpoint_every):
-                batch = pending[start : start + checkpoint_every]
-                prompts = [item["prompt"] for item in batch]
-                params_list = [
-                    build_sampling_params(
-                        schema,
-                        item["max_tokens"],
-                        allow_fallback=allow_fallback,
-                    )
-                    for item in batch
-                ]
-                results = _generate_batch(
-                    llm,
-                    prompts,
-                    params_list,
-                    lora_request=lora_request,
-                )
-
-                first_finish_reasons = [res.finish_reason for res in results]
-                retry_indices = [
-                    idx
-                    for idx, reason in enumerate(first_finish_reasons)
-                    if reason == "length"
-                ]
-                retry_set = set(retry_indices)
-                first_truncated += len(retry_indices)
-                if retry_indices:
-                    retry_prompts = [batch[idx]["prompt"] for idx in retry_indices]
-                    retry_params = [
-                        build_sampling_params(
-                            schema,
-                            TRUNCATION_RETRY_MAX_TOKENS,
-                            allow_fallback=allow_fallback,
-                        )
-                        for _ in retry_indices
-                    ]
-                    retry_results = _generate_batch(
-                        llm,
-                        retry_prompts,
-                        retry_params,
-                        lora_request=lora_request,
-                    )
-                    for orig_idx, retry_res in zip(retry_indices, retry_results, strict=True):
-                        retry_res.elapsed_ms += results[orig_idx].elapsed_ms
-                        results[orig_idx] = retry_res
-                    retried += len(retry_indices)
-
-                for idx, (item, res) in enumerate(zip(batch, results, strict=True)):
-                    record = {
-                        "chunk_id": item["chunk_id"],
-                        "prompt_hash": item["prompt_hash"],
-                        "model_tag": model_tag,
-                        "raw_content": res.raw_content,
-                        "finish_reason": res.finish_reason,
-                        "first_finish_reason": first_finish_reasons[idx],
-                        "retried": idx in retry_set,
-                        "prompt_tokens": res.prompt_tokens,
-                        "completion_tokens": res.completion_tokens,
-                        "elapsed_ms": round(res.elapsed_ms, 2),
-                    }
-                    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-                fh.flush()
-                os.fsync(fh.fileno())
-                processed += len(batch)
-
-        return BatchRunSummary(
-            total_items=len(items),
-            skipped_items=skipped,
-            processed_items=processed,
-            retried_items=retried,
-            model_tag=model_tag,
-            output_path=output_path,
-            first_truncated_items=first_truncated,
-        )
     finally:
         if unassign_on_exit:
             _unassign_colab_runtime()

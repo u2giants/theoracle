@@ -35,6 +35,7 @@ from colab.run_vllm_batch import (
     build_vllm_engine,
     compute_model_tag,
     load_model_config_and_files,
+    resolved_lora_directory,
     validate_hf_model,
     validate_hf_revision,
     validate_model_config,
@@ -285,150 +286,151 @@ def drain_leases(
         config, repo_files = loader(model_id, revision)
         validate_model_config(config, repo_files=repo_files)
 
-        model_tag = f"colab-vllm/{compute_model_tag(model_id, revision, lora_path)}"
-        allow_fallback = engine_factory is not None
-        llm = build_vllm_engine(
-            hf_model=model_id,
-            hf_revision=revision,
-            max_model_len=max_model_len,
-            lora_path=lora_path,
-            engine_factory=engine_factory,
-        )
-        lora_request = _build_lora_request(lora_path, allow_fallback=allow_fallback)
+        with resolved_lora_directory(lora_path) as active_lora_dir:
+            model_tag = f"colab-vllm/{compute_model_tag(model_id, revision, active_lora_dir)}"
+            allow_fallback = engine_factory is not None
+            llm = build_vllm_engine(
+                hf_model=model_id,
+                hf_revision=revision,
+                max_model_len=max_model_len,
+                lora_path=active_lora_dir,
+                engine_factory=engine_factory,
+            )
+            lora_request = _build_lora_request(active_lora_dir, allow_fallback=allow_fallback)
 
-        clock = time_fn if time_fn is not None else time.monotonic
-        sleeper = sleep_fn if sleep_fn is not None else time.sleep
-        start_time = clock()
-        deadline = start_time + (max_wall_minutes * 60.0)
+            clock = time_fn if time_fn is not None else time.monotonic
+            sleeper = sleep_fn if sleep_fn is not None else time.sleep
+            start_time = clock()
+            deadline = start_time + (max_wall_minutes * 60.0)
 
-        client = httpx.Client(
-            base_url=base_url,
-            headers={"Authorization": f"Bearer {token}"},
-            transport=transport,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-
-        batches_completed = 0
-        chunks_submitted = 0
-        retried_items = 0
-        stop_reason = "empty"
-        error_state: dict[str, float | int] = {
-            "consecutive_errors": 0,
-            "streak_retry_wait": 0.0,
-        }
-
-        while True:
-            if max_batches is not None and batches_completed >= max_batches:
-                stop_reason = "max_batches"
-                break
-            if clock() >= deadline:
-                stop_reason = "max_wall_minutes"
-                break
-
-            lease_data = _post_with_retry(
-                client,
-                "/colab/lease",
-                {"worker_id": resolved_worker_id, "max_items": max_items},
-                max_consecutive_errors=MAX_CONSECUTIVE_HTTP_ERRORS,
-                initial_backoff_seconds=INITIAL_BACKOFF_SECONDS,
-                max_backoff_seconds=MAX_BACKOFF_SECONDS,
-                max_total_retry_wait_seconds=MAX_TOTAL_RETRY_WAIT_SECONDS,
-                sleep_fn=sleeper,
-                time_fn=clock,
-                deadline=deadline,
-                error_state=error_state,
+            client = httpx.Client(
+                base_url=base_url,
+                headers={"Authorization": f"Bearer {token}"},
+                transport=transport,
+                timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
             )
 
-            items = lease_data.get("items") or []
-            if not items:
-                stop_reason = "empty"
-                break
+            batches_completed = 0
+            chunks_submitted = 0
+            retried_items = 0
+            stop_reason = "empty"
+            error_state: dict[str, float | int] = {
+                "consecutive_errors": 0,
+                "streak_retry_wait": 0.0,
+            }
 
-            lease_id = lease_data.get("lease_id")
-            prompt_hash = lease_data.get("prompt_hash")
-            relations_schema = lease_data.get("relations_schema")
-            if not lease_id or not prompt_hash or not isinstance(relations_schema, dict):
-                raise DrainWorkerError(
-                    "POST /colab/lease returned items without lease_id, prompt_hash, or relations_schema"
+            while True:
+                if max_batches is not None and batches_completed >= max_batches:
+                    stop_reason = "max_batches"
+                    break
+                if clock() >= deadline:
+                    stop_reason = "max_wall_minutes"
+                    break
+
+                lease_data = _post_with_retry(
+                    client,
+                    "/colab/lease",
+                    {"worker_id": resolved_worker_id, "max_items": max_items},
+                    max_consecutive_errors=MAX_CONSECUTIVE_HTTP_ERRORS,
+                    initial_backoff_seconds=INITIAL_BACKOFF_SECONDS,
+                    max_backoff_seconds=MAX_BACKOFF_SECONDS,
+                    max_total_retry_wait_seconds=MAX_TOTAL_RETRY_WAIT_SECONDS,
+                    sleep_fn=sleeper,
+                    time_fn=clock,
+                    deadline=deadline,
+                    error_state=error_state,
                 )
 
-            prompts = [str(item["prompt"]) for item in items]
-            params_list = [
-                build_sampling_params(
-                    relations_schema,
-                    int(item.get("max_tokens", DEFAULT_MAX_TOKENS)),
-                    allow_fallback=allow_fallback,
-                )
-                for item in items
-            ]
-            gen_results = _generate_batch(
-                llm,
-                prompts,
-                params_list,
-                lora_request=lora_request,
-            )
+                items = lease_data.get("items") or []
+                if not items:
+                    stop_reason = "empty"
+                    break
 
-            retry_indices = [
-                idx for idx, res in enumerate(gen_results) if res.finish_reason == "length"
-            ]
-            if retry_indices:
-                retry_prompts = [prompts[idx] for idx in retry_indices]
-                retry_params = [
+                lease_id = lease_data.get("lease_id")
+                prompt_hash = lease_data.get("prompt_hash")
+                relations_schema = lease_data.get("relations_schema")
+                if not lease_id or not prompt_hash or not isinstance(relations_schema, dict):
+                    raise DrainWorkerError(
+                        "POST /colab/lease returned items without lease_id, prompt_hash, or relations_schema"
+                    )
+
+                prompts = [str(item["prompt"]) for item in items]
+                params_list = [
                     build_sampling_params(
                         relations_schema,
-                        TRUNCATION_RETRY_MAX_TOKENS,
+                        int(item.get("max_tokens", DEFAULT_MAX_TOKENS)),
                         allow_fallback=allow_fallback,
                     )
-                    for _ in retry_indices
+                    for item in items
                 ]
-                retry_results = _generate_batch(
+                gen_results = _generate_batch(
                     llm,
-                    retry_prompts,
-                    retry_params,
+                    prompts,
+                    params_list,
                     lora_request=lora_request,
                 )
-                for orig_idx, retry_res in zip(retry_indices, retry_results, strict=True):
-                    retry_res.elapsed_ms += gen_results[orig_idx].elapsed_ms
-                    gen_results[orig_idx] = retry_res
-                retried_items += len(retry_indices)
 
-            submit_payload = {
-                "lease_id": lease_id,
-                "prompt_hash": prompt_hash,
-                "model_tag": model_tag,
-                "results": [
-                    {
-                        "chunk_id": item["chunk_id"],
-                        "raw_content": res.raw_content,
-                        "finish_reason": res.finish_reason,
-                    }
-                    for item, res in zip(items, gen_results, strict=True)
-                ],
-            }
-            _post_with_retry(
-                client,
-                "/colab/submit",
-                submit_payload,
-                max_consecutive_errors=MAX_CONSECUTIVE_HTTP_ERRORS,
-                initial_backoff_seconds=INITIAL_BACKOFF_SECONDS,
-                max_backoff_seconds=MAX_BACKOFF_SECONDS,
-                max_total_retry_wait_seconds=MAX_TOTAL_RETRY_WAIT_SECONDS,
-                sleep_fn=sleeper,
-                time_fn=clock,
-                deadline=deadline,
-                error_state=error_state,
+                retry_indices = [
+                    idx for idx, res in enumerate(gen_results) if res.finish_reason == "length"
+                ]
+                if retry_indices:
+                    retry_prompts = [prompts[idx] for idx in retry_indices]
+                    retry_params = [
+                        build_sampling_params(
+                            relations_schema,
+                            TRUNCATION_RETRY_MAX_TOKENS,
+                            allow_fallback=allow_fallback,
+                        )
+                        for _ in retry_indices
+                    ]
+                    retry_results = _generate_batch(
+                        llm,
+                        retry_prompts,
+                        retry_params,
+                        lora_request=lora_request,
+                    )
+                    for orig_idx, retry_res in zip(retry_indices, retry_results, strict=True):
+                        retry_res.elapsed_ms += gen_results[orig_idx].elapsed_ms
+                        gen_results[orig_idx] = retry_res
+                    retried_items += len(retry_indices)
+
+                submit_payload = {
+                    "lease_id": lease_id,
+                    "prompt_hash": prompt_hash,
+                    "model_tag": model_tag,
+                    "results": [
+                        {
+                            "chunk_id": item["chunk_id"],
+                            "raw_content": res.raw_content,
+                            "finish_reason": res.finish_reason,
+                        }
+                        for item, res in zip(items, gen_results, strict=True)
+                    ],
+                }
+                _post_with_retry(
+                    client,
+                    "/colab/submit",
+                    submit_payload,
+                    max_consecutive_errors=MAX_CONSECUTIVE_HTTP_ERRORS,
+                    initial_backoff_seconds=INITIAL_BACKOFF_SECONDS,
+                    max_backoff_seconds=MAX_BACKOFF_SECONDS,
+                    max_total_retry_wait_seconds=MAX_TOTAL_RETRY_WAIT_SECONDS,
+                    sleep_fn=sleeper,
+                    time_fn=clock,
+                    deadline=deadline,
+                    error_state=error_state,
+                )
+
+                batches_completed += 1
+                chunks_submitted += len(items)
+
+            return DrainRunSummary(
+                batches_completed=batches_completed,
+                chunks_submitted=chunks_submitted,
+                retried_items=retried_items,
+                model_tag=model_tag,
+                stop_reason=stop_reason,
             )
-
-            batches_completed += 1
-            chunks_submitted += len(items)
-
-        return DrainRunSummary(
-            batches_completed=batches_completed,
-            chunks_submitted=chunks_submitted,
-            retried_items=retried_items,
-            model_tag=model_tag,
-            stop_reason=stop_reason,
-        )
     finally:
         if client is not None:
             client.close()
