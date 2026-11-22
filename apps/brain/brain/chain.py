@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 INTERVAL_SECONDS = 3600
 STALE_READ_SECONDS = 600
 FAILED_COOLDOWN_SECONDS = 6 * 3600
+MAX_COLAB_DEFER_SECONDS = 1800
 
 _ACTIVE = "state IN ('queued', 'running')"
 
@@ -71,6 +72,39 @@ def _active(conn: Any, kind: str) -> bool:
         f"SELECT 1 FROM cmap.job WHERE kind = %s AND {_ACTIVE} LIMIT 1", (kind,)
     ).fetchone()
     return row is not None
+
+
+def _colab_deferral_active(conn: Any, source_id: str) -> bool:
+    """Return True while a Colab-offloaded source is within its 30-minute drain window."""
+    row = conn.execute(
+        "SELECT ("
+        "  COALESCE(("
+        "    SELECT j.finished_at > now() - make_interval(secs => %s) "
+        "    FROM cmap.job j "
+        "    WHERE j.kind = 'relations' AND j.state = 'done' "
+        "      AND j.payload->>'source_id' = %s "
+        "    ORDER BY j.created_at DESC LIMIT 1"
+        "  ), false) "
+        "  OR EXISTS ("
+        "    SELECT 1 FROM cmap.colab_lease_item cli "
+        "    JOIN cmap.colab_lease cl ON cl.id = cli.lease_id "
+        "    WHERE cli.source_id = %s "
+        "      AND ("
+        "        (cl.state = 'active' AND cl.expires_at > now()) "
+        "        OR cl.leased_at > now() - make_interval(secs => %s) "
+        "        OR (cli.state = 'accepted' AND cl.completed_at > now() - make_interval(secs => %s))"
+        "      )"
+        "  )"
+        ")",
+        (
+            MAX_COLAB_DEFER_SECONDS,
+            source_id,
+            source_id,
+            MAX_COLAB_DEFER_SECONDS,
+            MAX_COLAB_DEFER_SECONDS,
+        ),
+    ).fetchone()
+    return bool(row and row[0])
 
 
 def _heal_sources(conn: Any, stats: dict[str, int]) -> None:
@@ -117,8 +151,21 @@ def _heal_sources(conn: Any, stats: dict[str, int]) -> None:
             and state == "done"
             and not awaits_reply(str(source_id))
         ):
-            # Deferred intentionally to /colab/lease (#664); re-queues automatically
-            # if BRAIN_COLAB_LEASE_ENABLED is turned off.
+            if _colab_deferral_active(conn, str(source_id)):
+                # Deferred intentionally to /colab/lease (#664) within 30 minutes
+                # or while a Colab lease is active/recent.
+                continue
+            # Stalled > 30 minutes with no Colab worker activity: fall back to cloud extraction.
+            conn.execute(
+                "UPDATE cmap.source SET colab_offload = false WHERE id = %s",
+                (source_id,),
+            )
+            conn.execute(
+                "INSERT INTO cmap.job (kind, payload) "
+                "VALUES ('relations', jsonb_build_object('source_id', %s::text))",
+                (source_id,),
+            )
+            stats["classify_extract"] += 1
             continue
         if state == "failed":
             # Its retries are spent: say so instead of looping for ever. An
