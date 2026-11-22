@@ -28,6 +28,8 @@ Claude Code uses .claudeignore. Other tools follow **What to ignore** in this fi
 
 **Project-manager message intake (2026-11-18):** read [plan_pm_message_intake.md](plan_pm_message_intake.md) STATUS first; do not re-derive or re-plan. Teams chat, ClickUp and (blocked) email intake at lowest passing cost; issue #607.
 
+**Google Colab GPU batch offload and fine-tuning (2026-11-21):** read [plan_colab_gpu_offload.md](plan_colab_gpu_offload.md) STATUS first; do not re-derive or re-plan. Offloads bulk relations extraction, open-weight vLLM bake-offs, and QLoRA tuning onto prepaid Colab Compute Units via pull leases; issue #664.
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of
