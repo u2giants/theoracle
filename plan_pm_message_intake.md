@@ -9,7 +9,7 @@ read-when: working on bulk message intake (Teams chat, ClickUp, email) or on the
 
 Written 2026-11-18, 3:05 PM EST, by Claude Code (edge-dev session `c9d36e3c`) for Albert Hazan.
 Tracking issue: https://github.com/u2giants/theoracle/issues/607 (its checklist is the definition of done). Parent programme: #520.
-Registered handoff: [resume the independent blind review at step 2.3](HANDOFF.d/2026-11-20T2108Z-edge-dev3-codex-intake-blind-review.md).
+Registered handoff: [resume step 2.3 and develop the recovery strategy](HANDOFF.d/2026-11-22T0053Z-edge-dev3-codex-intake-luna-reconciled.md).
 Sibling plan (different source, same staging idea — reuse, do not fold in): [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md).
 Cost analysis this plan is built on: [docs/company-map/scaledown-report-2026-11-18.md](docs/company-map/scaledown-report-2026-11-18.md).
 
@@ -33,7 +33,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 1.6 | Kept thread becomes a `cmap.source` (record date, no date call) | ✅ done (live ingest waits for the pilot) | `apps/brain/brain/intake/ingest.py`, `sql/038_intake_sources.sql`, `read_message_thread` packing in `brain/read/transcript.py`; `tests/test_intake_ingest.py` (round trip, packing, date with no model call, re-ingest versions, spend cap). Job `intake_ingest` + hourly sweep, off unless `BRAIN_INTAKE_ENABLED`. Drift: no `intake_collect`/`intake_gate` jobs; collection stays a command for the pilot (gate not needed, 1.5) | 2026-11-19 |
 | 2.1 | Gold sample from real threads (private store) | ✅ done | [#607 sandbox verification](https://github.com/u2giants/theoracle/issues/607#issuecomment-7024467855). Private reference and verified manifest cover 30 scoring threads, 1,920 lead decisions, 384 independent checks, all 182 disagreements settled, and 1,006 flagged quotes reviewed separately. The frozen 120-thread scoring reserve stays available if later confidence bounds require it. | 2026-11-19 |
 | 2.2 | Flat-extraction bake-off on message-shaped text | ✅ done | [Private sandbox comparison, aggregate results](docs/verification/2026-11-19-pm-intake-flat-extraction.md). GLM found 316 of 328 verified mentions. The best ScaleDown run found 202 and needed 307 to pass. Retain GLM. | 2026-11-19 |
-| 2.3 | Relations bake-off across the four candidates | ⬜ open | [Archive replay](docs/verification/2026-11-20-pm-intake-relations.md): all four candidates and GLM → Luna missed 95% correctness. [Direct and cap trials](https://github.com/u2giants/theoracle/issues/607#issuecomment-7048075191): Haiku and Luna each returned 57 usable first replies at 16,000 tokens. Independent blind correctness and recall, Luna batch results, and fresh joint and wider-context comparisons remain open. No model qualified. | 2026-11-20 |
+| 2.3 | Relations bake-off across the four candidates | ⬜ open | [Batch reconciliation](https://github.com/u2giants/theoracle/issues/607#issuecomment-7071834212): both Luna batches are fully imported and fail the quote and correctness gates. Haiku native batch and the [archived four routes and fallback](docs/verification/2026-11-20-pm-intake-relations.md) also miss correctness. No model qualified. Start with the protected review and holdout recovery strategy in the registered handoff. Full blind scoring, semantic recall and fresh joint and wider-context trials remain open. | 2026-11-21 |
 | 2.4 | Batch + cached-prefix sending path | ⬜ open | — | — |
 | 2.5 | Business-area sorting with ScaleDown classify (test, adopt if it passes) | ⬜ open | — | — |
 | 3.1 | Pilot: two weeks of data end to end, measured cost | ⬜ open | — | — |
@@ -125,7 +125,7 @@ Owner's words in the STATUS block. The interview bot is off (#518) and the map i
 | Replace relations with ScaleDown extract | Relation typing across neighbouring passages is multi-step reasoning; two earlier analyses (2026-10-27, 2026-11-03) kept it on a chat model. |
 | One source per message | Explodes source count, destroys the conversational context relations need. Threads are the unit. |
 | New `kind` values per system in `cmap.source` | Forces changes through every `kind` switch in the reader. Kept threads are stored as `transcript` with a separate `origin` column. |
-| Assume a batch route through OpenRouter | Earlier planning favored the providers' own batch interfaces. A later pinned OpenRouter Luna submission was accepted in the sandbox. Completed results and actual route economics still need verification. |
+| Assume a batch route through OpenRouter | Earlier planning favored the providers' own batch interfaces. A later pinned OpenRouter Luna submission was accepted in the sandbox. The pinned Luna batch completed in the sandbox at $0.574 per 1,000 passages including one retry. It missed the quality gates. Batch eligibility, economics and failure handling still need validation for any eventual winner. |
 
 ## 8. Design decisions
 
