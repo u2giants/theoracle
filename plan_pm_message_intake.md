@@ -37,7 +37,7 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Update thi
 | 2.4 | Batch + cached-prefix sending path | ⬜ open | — | — |
 | 2.5 | Business-area sorting with ScaleDown classify (test, adopt if it passes) | ⬜ open | — | — |
 | 3.1 | Pilot: two weeks of data end to end, measured cost | ⬜ open | — | — |
-| 3.1a | Ilona’s private question comparison pilot | 🟡 comparison verified; Company Map proof open | [#607 comparison receipt](https://github.com/u2giants/theoracle/issues/607#issuecomment-7019294549). Seven evidence-checked drafts from 14 days of email, 28 days of Teams chats and six calendar months of ClickUp task records and comments. The full ClickUp change history and production import remain open. | 2026-11-19 |
+| 3.1a | Ilona’s private question comparison pilot | 🟡 offline comparison done; live Brain comparison open | [Pilot receipt](https://github.com/u2giants/theoracle/issues/607#issuecomment-7019294549), [live check](https://github.com/u2giants/theoracle/issues/607#issuecomment-7080098066), [handoff](https://github.com/u2giants/theoracle/blob/main/HANDOFF.d/2026-11-22T1350Z-edge-dev3-codex-ilona-live-pilot.md). Zero live imports. Full ClickUp change history remains open. | 2026-11-22 |
 | 4.1 | Full-window run + live proof | ⬜ open | — | — |
 | 5.1 | Email collector | ✅ done | PR #633; live dry run 10,454 read, 9,927 kept, 3,146 threads; after cleaning 2,640 threads, ~20,535 passages (#607 comment 6999532003). Email is ~20x the other two: run the 1.5 probe on email too | 2026-11-18 |
 
