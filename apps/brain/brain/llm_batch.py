@@ -410,12 +410,38 @@ def _post_flex_response(
     }
     if item.reasoning_effort:
         body["reasoning"] = {"effort": item.reasoning_effort}
-    resp = httpx.post(
-        f"{base_url}/responses",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json=body,
-        timeout=max(timeout, 120.0),
-    )
+    resp: httpx.Response | None = None
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = httpx.post(
+                f"{base_url}/responses",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=body,
+                timeout=max(timeout, 240.0),
+            )
+            if resp.status_code not in {429, 500, 502, 503, 504} or attempt == 2:
+                break
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            if attempt == 2:
+                return BatchResult(
+                    custom_id=item.custom_id,
+                    status="error",
+                    payload=None,
+                    usage={},
+                    error=f"flex transport error: {exc}",
+                )
+        time.sleep(1.5 * (attempt + 1))
+    assert resp is not None or last_exc is not None
+    if resp is None:
+        return BatchResult(
+            custom_id=item.custom_id,
+            status="error",
+            payload=None,
+            usage={},
+            error=f"flex transport error: {last_exc}",
+        )
     if resp.status_code != 200:
         return BatchResult(
             custom_id=item.custom_id,
@@ -685,11 +711,19 @@ def submit_and_wait_batch(
             sleep_fn(min(delay, remaining))
             delay = min(max_backoff_seconds, delay * 2.0)
 
-            poll_resp = httpx.get(
-                f"{base_url}/batches/{batch_id}",
-                headers=auth_headers,
-                timeout=timeout,
-            )
+            try:
+                poll_resp = httpx.get(
+                    f"{base_url}/batches/{batch_id}",
+                    headers=auth_headers,
+                    timeout=timeout,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "OpenAI batch %s poll transport error (%s); retrying",
+                    batch_id,
+                    exc,
+                )
+                continue
             if poll_resp.status_code != 200:
                 logger.warning(
                     "OpenAI batch %s poll returned HTTP %d; retrying",

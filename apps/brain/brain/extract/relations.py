@@ -1717,74 +1717,88 @@ def handle_relations(job: dict[str, Any]) -> None:
         else:
             assert model is not None
             sibling_jobs = _claim_sibling_message_jobs()
-            combined_pending = list(pending)
-            claimed_map: dict[str, _IdentityIndex] = {
-                cid: claimed for cid, _w in pending
+            unsettled_siblings: dict[str, Any] = {
+                str(sib_jid): sib_jid for sib_jid, _sib_sid in sibling_jobs
             }
-            primary_drops = dict.fromkeys(DROP_REASONS, 0)
-            drops_by_chunk: dict[str, dict[str, int]] = {
-                cid: primary_drops for cid, _w in pending
-            }
-            sibling_meta: list[
-                tuple[Any, str, bool, list[str], dict[str, int]]
-            ] = []
-            for sib_jid, sib_sid in sibling_jobs:
-                _sk, sib_chunks = _load_chunks(sib_sid)
-                sib_mentions = _load_mentions(sib_sid)
-                sib_done = _load_done(sib_sid, prompt_hash)
-                sib_pending = message_windows(sib_chunks, sib_mentions, sib_done)
-                if not sib_done:
-                    _clear_relations(sib_sid)
-                sib_claimed = _load_identity_index(sib_sid)
-                sib_drops = dict.fromkeys(DROP_REASONS, 0)
-                sib_cids: list[str] = []
-                for scid, swin in sib_pending:
-                    combined_pending.append((scid, swin))
-                    claimed_map[scid] = sib_claimed
-                    drops_by_chunk[scid] = sib_drops
-                    sib_cids.append(scid)
-                sibling_meta.append(
-                    (sib_jid, sib_sid, bool(sib_done), sib_cids, sib_drops)
-                )
+            try:
+                combined_pending = list(pending)
+                claimed_map: dict[str, _IdentityIndex] = {
+                    cid: claimed for cid, _w in pending
+                }
+                primary_drops = dict.fromkeys(DROP_REASONS, 0)
+                drops_by_chunk: dict[str, dict[str, int]] = {
+                    cid: primary_drops for cid, _w in pending
+                }
+                sibling_meta: list[
+                    tuple[Any, str, bool, list[str], dict[str, int]]
+                ] = []
+                for sib_jid, sib_sid in sibling_jobs:
+                    _sk, sib_chunks = _load_chunks(sib_sid)
+                    sib_mentions = _load_mentions(sib_sid)
+                    sib_done = _load_done(sib_sid, prompt_hash)
+                    sib_pending = message_windows(sib_chunks, sib_mentions, sib_done)
+                    if not sib_done:
+                        _clear_relations(sib_sid)
+                    sib_claimed = _load_identity_index(sib_sid)
+                    sib_drops = dict.fromkeys(DROP_REASONS, 0)
+                    sib_cids: list[str] = []
+                    for scid, swin in sib_pending:
+                        combined_pending.append((scid, swin))
+                        claimed_map[scid] = sib_claimed
+                        drops_by_chunk[scid] = sib_drops
+                        sib_cids.append(scid)
+                    sibling_meta.append(
+                        (sib_jid, sib_sid, bool(sib_done), sib_cids, sib_drops)
+                    )
 
-            (
-                rem_pending,
-                b_written,
-                b_failed,
-                b_rels,
-                b_cap,
-            ) = _run_message_batch(
-                combined_pending,
-                model,
-                prompt_hash,
-                counters,
-                claimed_map,
-                drops_by_chunk=drops_by_chunk,
-            )
-            rem_ids = {cid for cid, _w in rem_pending}
-            sync_pending = [item for item in pending if item[0] in rem_ids]
-            counters.drops = primary_drops
-            written += b_written
-            failed += b_failed
-            relation_count += b_rels
-            if b_cap is not None:
-                cap_error = b_cap
-
-            for sib_jid, sib_sid, sib_resuming, sib_cids, sib_drops in sibling_meta:
-                if any(scid in rem_ids for scid in sib_cids):
-                    _finish_sibling_job(sib_jid, requeue=True)
-                    continue
-                _record_drop_reasons(sib_sid, sib_drops, resuming=sib_resuming)
-                sib_state = finish_source(sib_sid)
-                source_chain_ended(
-                    sib_sid,
-                    failed=(sib_state == "failed"),
-                    resolve=_resolve_interview_answer(sib_sid),
+                (
+                    rem_pending,
+                    b_written,
+                    b_failed,
+                    b_rels,
+                    b_cap,
+                ) = _run_message_batch(
+                    combined_pending,
+                    model,
+                    prompt_hash,
+                    counters,
+                    claimed_map,
+                    drops_by_chunk=drops_by_chunk,
                 )
-                if sib_state != "failed":
-                    any_sibling_succeeded = True
-                    after_source_relations(sib_sid)
-                _finish_sibling_job(sib_jid, requeue=False)
+                rem_ids = {cid for cid, _w in rem_pending}
+                sync_pending = [item for item in pending if item[0] in rem_ids]
+                counters.drops = primary_drops
+                written += b_written
+                failed += b_failed
+                relation_count += b_rels
+                if b_cap is not None:
+                    cap_error = b_cap
+
+                for sib_jid, sib_sid, sib_resuming, sib_cids, sib_drops in sibling_meta:
+                    if any(scid in rem_ids for scid in sib_cids):
+                        _finish_sibling_job(sib_jid, requeue=True)
+                        unsettled_siblings.pop(str(sib_jid), None)
+                        continue
+                    _record_drop_reasons(sib_sid, sib_drops, resuming=sib_resuming)
+                    sib_state = finish_source(sib_sid)
+                    source_chain_ended(
+                        sib_sid,
+                        failed=(sib_state == "failed"),
+                        resolve=_resolve_interview_answer(sib_sid),
+                    )
+                    if sib_state != "failed":
+                        any_sibling_succeeded = True
+                        after_source_relations(sib_sid)
+                    _finish_sibling_job(sib_jid, requeue=False)
+                    unsettled_siblings.pop(str(sib_jid), None)
+            finally:
+                for sib_jid in unsettled_siblings.values():
+                    try:
+                        _finish_sibling_job(sib_jid, requeue=True)
+                    except Exception:
+                        logger.exception(
+                            "failed to requeue unsettled sibling job %s", sib_jid
+                        )
 
     def _one(item: tuple[str, list[WindowEntry]]) -> ChunkResult:
         """Extract, embed and store one window's relations."""

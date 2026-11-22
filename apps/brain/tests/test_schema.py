@@ -68,6 +68,38 @@ def test_migrate_runs_twice_without_error() -> None:
     run_migrate()
 
 
+def test_migrate_replays_cleanly_with_widened_constraint_rows() -> None:
+    """Re-running ``migrate`` must not narrow CHECK constraints broadened in later files."""
+    run_migrate()
+    settings = get_settings()
+    src_id = "00000000-0000-4000-8000-000000000777"
+    chk_id = "00000000-0000-4000-8000-000000000778"
+    with psycopg.connect(settings.database_url, connect_timeout=5) as conn:
+        conn.execute(
+            "INSERT INTO cmap.source "
+            "(id, kind, title, original_filename, storage_path, sha256, bytes, read_state, origin, date_origin) "
+            "VALUES (%s, 'transcript', 't', 't.json', 'cmap/t.json', 'sha', 10, 'read', 'email', 'message_record')",
+            (src_id,),
+        )
+        conn.execute(
+            "INSERT INTO cmap.chunk (id, source_id, ordinal, locator, text, token_count) "
+            "VALUES (%s, %s, 0, '{}'::jsonb, 'body', 1)",
+            (chk_id, src_id),
+        )
+        conn.execute(
+            "INSERT INTO cmap.extraction (chunk_id, stage, prompt_hash, model, payload) "
+            "VALUES (%s, 'contradiction', 'h1', 'm1', '{}'::jsonb)",
+            (chk_id,),
+        )
+        conn.execute(
+            "INSERT INTO cmap.model_seat (stage, model) "
+            "VALUES ('relations_messages', 'openai/gpt-6-luna') "
+            "ON CONFLICT (stage) DO UPDATE SET model = EXCLUDED.model"
+        )
+        conn.commit()
+    run_migrate()
+
+
 def test_all_tables_exist() -> None:
     """information_schema lists exactly the cmap tables (15 from step 1, plus step 6's resolve_decision and step 12's interview tables)."""
     run_migrate()

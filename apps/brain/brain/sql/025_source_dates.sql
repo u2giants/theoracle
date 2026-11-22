@@ -2,10 +2,20 @@
 -- date_origin names which rule won: admin | meeting_start | interview_answer |
 -- document_text | file_metadata | upload_time (the never-NULL floor).
 ALTER TABLE cmap.source ADD COLUMN IF NOT EXISTS date_origin text;
-ALTER TABLE cmap.source DROP CONSTRAINT IF EXISTS source_date_origin_check;
-ALTER TABLE cmap.source ADD CONSTRAINT source_date_origin_check
-  CHECK (date_origin IS NULL OR date_origin IN
-    ('admin','meeting_start','interview_answer','document_text','file_metadata','upload_time'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'cmap.source'::regclass
+      AND conname = 'source_date_origin_check'
+      AND pg_get_constraintdef(oid) LIKE '%upload_time%'
+  ) THEN
+    ALTER TABLE cmap.source DROP CONSTRAINT IF EXISTS source_date_origin_check;
+    ALTER TABLE cmap.source ADD CONSTRAINT source_date_origin_check
+      CHECK (date_origin IS NULL OR date_origin IN
+        ('admin','meeting_start','interview_answer','document_text','file_metadata','upload_time'));
+  END IF;
+END $$;
 
 -- Relations and mentions inherit their date through their source (D1).
 -- One row per relation and one per mention; effective_date and date_origin

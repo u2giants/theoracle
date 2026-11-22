@@ -39,6 +39,16 @@ CREATE TABLE IF NOT EXISTS cmap.entity_function (
 -- The function_assign classifier records its raw model output per chunk in
 -- cmap.extraction, stage 'function' (the same incremental marker the
 -- relations pass uses). Extend the stage vocabulary to hold it.
-ALTER TABLE cmap.extraction DROP CONSTRAINT IF EXISTS extraction_stage_check;
-ALTER TABLE cmap.extraction ADD CONSTRAINT extraction_stage_check
-  CHECK (stage IN ('flat','relations','function'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'cmap.extraction'::regclass
+      AND conname = 'extraction_stage_check'
+      AND pg_get_constraintdef(oid) LIKE '%function%'
+  ) THEN
+    ALTER TABLE cmap.extraction DROP CONSTRAINT IF EXISTS extraction_stage_check;
+    ALTER TABLE cmap.extraction ADD CONSTRAINT extraction_stage_check
+      CHECK (stage IN ('flat','relations','function'));
+  END IF;
+END $$;

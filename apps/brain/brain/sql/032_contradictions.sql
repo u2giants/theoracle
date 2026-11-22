@@ -51,6 +51,16 @@ CREATE INDEX IF NOT EXISTS contradiction_relation_b_idx
 CREATE INDEX IF NOT EXISTS contradiction_status_idx
   ON cmap.contradiction (status, kind);
 
-ALTER TABLE cmap.extraction DROP CONSTRAINT IF EXISTS extraction_stage_check;
-ALTER TABLE cmap.extraction ADD CONSTRAINT extraction_stage_check
-  CHECK (stage IN ('flat', 'relations', 'function', 'contradiction'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'cmap.extraction'::regclass
+      AND conname = 'extraction_stage_check'
+      AND pg_get_constraintdef(oid) LIKE '%contradiction%'
+  ) THEN
+    ALTER TABLE cmap.extraction DROP CONSTRAINT IF EXISTS extraction_stage_check;
+    ALTER TABLE cmap.extraction ADD CONSTRAINT extraction_stage_check
+      CHECK (stage IN ('flat', 'relations', 'function', 'contradiction'));
+  END IF;
+END $$;
