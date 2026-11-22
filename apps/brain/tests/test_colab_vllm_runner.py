@@ -771,3 +771,71 @@ def test_engine_factory_injection_works_without_vllm(tmp_path: Path) -> None:
     assert seen_kwargs["trust_remote_code"] is False
     assert summary.processed_items == 1
     assert VllmBatchError is not None
+
+
+def test_chat_template_applied_when_tokenizer_present(tmp_path: Path) -> None:
+    """When vLLM exposes a chat-templated tokenizer, prompts are formatted with enable_thinking=False."""
+    from colab.run_vllm_batch import _format_prompts_for_llm
+
+    seen_calls: list[dict[str, Any]] = []
+
+    class FakeTokenizer:
+        chat_template = "{{ messages }}"
+
+        def apply_chat_template(
+            self, messages: list[dict[str, str]], **kwargs: Any
+        ) -> str:
+            seen_calls.append({"messages": messages, "kwargs": kwargs})
+            return f"<chat>{messages[0]['content']}</chat>"
+
+    class FakeLLMWithTokenizer:
+        def get_tokenizer(self) -> FakeTokenizer:
+            return FakeTokenizer()
+
+    out = _format_prompts_for_llm(FakeLLMWithTokenizer(), ["extract this"])
+    assert out == ["<chat>extract this</chat>"]
+    assert seen_calls[0]["kwargs"]["enable_thinking"] is False
+    assert seen_calls[0]["kwargs"]["add_generation_prompt"] is True
+    assert tmp_path is not None
+
+
+def test_lora_tar_gz_archive_supported_and_unsafe_paths_rejected(tmp_path: Path) -> None:
+    """Verify --lora-path accepts a safe .tar.gz adapter archive and rejects path traversal."""
+    import io
+    import tarfile
+
+    from colab.run_vllm_batch import (
+        VllmBatchError as RunnerBatchError,
+    )
+    from colab.run_vllm_batch import (
+        compute_model_tag,
+        resolved_lora_directory,
+    )
+
+    adapter_src = tmp_path / "lora_src"
+    adapter_src.mkdir()
+    (adapter_src / "adapter_config.json").write_text('{"r": 16}\n', encoding="utf-8")
+    (adapter_src / "adapter_model.safetensors").write_bytes(b"weights-123")
+    (adapter_src / "adapter_manifest.json").write_text(
+        json.dumps({"adapter_sha256": "b" * 64}) + "\n",
+        encoding="utf-8",
+    )
+
+    good_tar = tmp_path / "adapter.tar.gz"
+    with tarfile.open(good_tar, "w:gz") as tf:
+        for f in sorted(adapter_src.iterdir()):
+            tf.add(f, arcname=f.name)
+
+    tag = compute_model_tag("Qwen/Qwen2.5-14B-Instruct", VALID_REVISION, good_tar)
+    assert tag == f"Qwen/Qwen2.5-14B-Instruct@{VALID_REVISION}+lora:{'b' * 12}"
+
+    evil_tar = tmp_path / "evil.tar.gz"
+    with tarfile.open(evil_tar, "w:gz") as tf:
+        info = tarfile.TarInfo(name="../escape.txt")
+        payload = b"bad"
+        info.size = len(payload)
+        tf.addfile(info, io.BytesIO(payload))
+
+    with pytest.raises(RunnerBatchError, match="unsafe LoRA tar archive entry"):
+        with resolved_lora_directory(evil_tar):
+            pass

@@ -20,6 +20,7 @@ import argparse
 import ast
 import json
 import os
+import posixpath
 import re
 import signal
 import subprocess
@@ -359,6 +360,7 @@ def build_remote_wrapper_source(
     plain_env_vars: Mapping[str, str] | None = None,
     secret_env_remote_path: str | None = None,
     add_content_sys_path: bool = False,
+    defer_unassign_for_download: bool = False,
 ) -> str:
     """Wrap ``target_script_source`` keeping ``__future__`` imports first and guaranteeing ``unassign()``."""
     future_header, body = _split_future_header_and_body(target_script_source)
@@ -401,18 +403,19 @@ def build_remote_wrapper_source(
     if not indented_body.endswith("\n"):
         indented_body += "\n"
 
-    return (
-        future_header
-        + "try:\n"
-        + indented_prelude
-        + indented_body
-        + "finally:\n"
-        + "    try:\n"
-        + "        from google.colab import runtime as _colab_guard_runtime\n"
-        + "        _colab_guard_runtime.unassign()\n"
-        + "    except Exception:\n"
-        + "        pass\n"
-    )
+    if defer_unassign_for_download:
+        finally_block = "finally:\n    pass\n"
+    else:
+        finally_block = (
+            "finally:\n"
+            "    try:\n"
+            "        from google.colab import runtime as _colab_guard_runtime\n"
+            "        _colab_guard_runtime.unassign()\n"
+            "    except Exception:\n"
+            "        pass\n"
+        )
+
+    return future_header + "try:\n" + indented_prelude + indented_body + finally_block
 
 
 def _teardown_session(
@@ -494,9 +497,14 @@ def _run_checked_step(
             f"Colab session {session_name!r} exceeded max_wall_minutes={max_wall_minutes:g} during {step_label}"
         ) from exc
     if proc.returncode != 0:
-        detail = f"{proc.stdout or ''}\n{proc.stderr or ''}".strip()[:400]
+        raw_detail = f"{proc.stdout or ''}\n{proc.stderr or ''}".strip()
+        redacted = re.sub(
+            r"colab-runtime-proxy-token=[^&\s]+",
+            "colab-runtime-proxy-token=[REDACTED]",
+            raw_detail,
+        )[:400]
         raise ColabPreflightError(
-            f"Colab step {step_label!r} failed (exit {proc.returncode}): {detail}"
+            f"Colab step {step_label!r} failed (exit {proc.returncode}): {redacted}"
         )
     return proc
 
@@ -513,9 +521,10 @@ def run_with_colab_guard(
     colab_bin: str = "colab",
     env_vars: Mapping[str, str] | None = None,
     secret_env_vars: Mapping[str, str] | None = None,
+    install_packages: Sequence[str] = (),
     install_requirements: str | Path | None = None,
     uploads: Sequence[tuple[str | Path, str]] = (),
-    downloads: Sequence[tuple[str, str | Path]] = (),
+    downloads: Sequence[tuple[str | Path]] | Sequence[tuple[str, str | Path]] = (),
     session_name: str | None = None,
     runner: SubprocessRunner = subprocess.run,
 ) -> ColabRunResult:
@@ -550,7 +559,8 @@ def run_with_colab_guard(
 
     resolved_downloads = [(str(rem), Path(loc)) for rem, loc in downloads]
     needs_managed_session = bool(
-        req_path is not None
+        install_packages
+        or req_path is not None
         or resolved_uploads
         or resolved_downloads
         or secret_env
@@ -628,13 +638,107 @@ def run_with_colab_guard(
                         secret_remote = REMOTE_SECRETS_PATH
                         resolved_uploads.append((secret_file, REMOTE_SECRETS_PATH))
 
+                    remote_script = f"/content/{script.name}"
+                    resolved_uploads.insert(0, (script, remote_script))
+
+                    install_specs: list[str] = []
+                    if req_path is not None:
+                        remote_req = f"/content/{req_path.name}"
+                        resolved_uploads.insert(0, (req_path, remote_req))
+                        install_specs.extend(["-r", remote_req])
+                    install_specs.extend(str(pkg) for pkg in install_packages)
+
+                    upload_plan: list[tuple[Path, str]] = []
+                    stage_moves: list[tuple[str, str]] = []
+                    chunk_reassemblies: list[tuple[list[str], str]] = []
+                    max_single_upload = 8 * 1024 * 1024
+                    for idx, (local_item, remote_dest) in enumerate(resolved_uploads):
+                        file_size = local_item.stat().st_size
+                        if file_size > max_single_upload:
+                            part_remotes: list[str] = []
+                            with local_item.open("rb") as src_fh:
+                                part_no = 0
+                                while chunk_bytes := src_fh.read(max_single_upload):
+                                    part_local = tmp_root / f"_cg_part_{idx}_{part_no:04d}.bin"
+                                    part_local.write_bytes(chunk_bytes)
+                                    part_remote = f"/content/_cg_part_{idx}_{part_no:04d}.bin"
+                                    upload_plan.append((part_local, part_remote))
+                                    part_remotes.append(part_remote)
+                                    part_no += 1
+                            chunk_reassemblies.append((part_remotes, remote_dest))
+                        else:
+                            parent_dir = posixpath.dirname(remote_dest)
+                            if parent_dir in ("", "/", "/content"):
+                                upload_plan.append((local_item, remote_dest))
+                            else:
+                                staged_flat = f"/content/_cg_stage_{idx}_{local_item.name}"
+                                upload_plan.append((local_item, staged_flat))
+                                stage_moves.append((staged_flat, remote_dest))
+
+                    argv_json = json.dumps([remote_script, *(str(a) for a in args)])
+                    reasm_json = json.dumps(chunk_reassemblies)
+                    moves_json = json.dumps(stage_moves)
+                    specs_json = json.dumps(install_specs)
+                    launcher_body = (
+                        "import json as _cg_sub_json, os as _cg_sub_os, shutil as _cg_shutil, subprocess as _cg_sub, sys as _cg_sub_sys, threading as _cg_thr\n"
+                        "def _cg_run_stream(_cmd, _env=None):\n"
+                        "    _stop = _cg_thr.Event()\n"
+                        "    def _hb():\n"
+                        "        while not _stop.wait(20.0):\n"
+                        "            try:\n"
+                        "                _cg_sub_sys.stderr.write('[colab-guard-heartbeat]\\n')\n"
+                        "                _cg_sub_sys.stderr.flush()\n"
+                        "            except Exception:\n"
+                        "                break\n"
+                        "    _t = _cg_thr.Thread(target=_hb, daemon=True)\n"
+                        "    _t.start()\n"
+                        "    try:\n"
+                        "        _proc = _cg_sub.Popen(_cmd, env=_env, stdout=_cg_sub.PIPE, stderr=_cg_sub.STDOUT, text=True, bufsize=1)\n"
+                        "        assert _proc.stdout is not None\n"
+                        "        for _line in _proc.stdout:\n"
+                        "            _cg_sub_sys.stdout.write(_line)\n"
+                        "            _cg_sub_sys.stdout.flush()\n"
+                        "        return _proc.wait()\n"
+                        "    finally:\n"
+                        "        _stop.set()\n"
+                        f"for _cg_parts, _cg_dst in _cg_sub_json.loads({reasm_json!r}):\n"
+                        "    _cg_sub_os.makedirs(_cg_sub_os.path.dirname(_cg_dst) or '/content', exist_ok=True)\n"
+                        "    with open(_cg_dst, 'wb') as _cg_out:\n"
+                        "        for _cg_pt in _cg_parts:\n"
+                        "            with open(_cg_pt, 'rb') as _cg_in:\n"
+                        "                _cg_shutil.copyfileobj(_cg_in, _cg_out)\n"
+                        "            _cg_sub_os.remove(_cg_pt)\n"
+                        f"for _cg_src, _cg_dst in _cg_sub_json.loads({moves_json!r}):\n"
+                        "    _cg_sub_os.makedirs(_cg_sub_os.path.dirname(_cg_dst), exist_ok=True)\n"
+                        "    _cg_sub_os.replace(_cg_src, _cg_dst)\n"
+                        f"_cg_pkgs = _cg_sub_json.loads({specs_json!r})\n"
+                        "_cg_inst_rc = 0\n"
+                        "if _cg_pkgs:\n"
+                        "    if _cg_shutil.which('uv'):\n"
+                        "        _cg_inst_rc = _cg_run_stream(['uv', 'pip', 'install', '--system', *_cg_pkgs])\n"
+                        "    else:\n"
+                        "        _cg_inst_rc = 1\n"
+                        "    if _cg_inst_rc != 0:\n"
+                        "        _cg_inst_rc = _cg_run_stream([_cg_sub_sys.executable, '-m', 'pip', 'install', '-q', *_cg_pkgs])\n"
+                        "if _cg_inst_rc != 0:\n"
+                        "    _cg_sub_sys.stdout.write(f'\\n__COLAB_INSTALL_RC__={_cg_inst_rc}\\n')\n"
+                        "    _cg_sub_sys.stdout.flush()\n"
+                        "else:\n"
+                        "    _cg_env = _cg_sub_os.environ.copy()\n"
+                        "    _cg_env['COLAB_GUARD_MANAGED_TEARDOWN'] = '1'\n"
+                        "    _cg_env['PYTHONUNBUFFERED'] = '1'\n"
+                        "    _cg_env['PYTHONPATH'] = '/content' + (':' + _cg_env['PYTHONPATH'] if _cg_env.get('PYTHONPATH') else '')\n"
+                        f"    _cg_rc = _cg_run_stream([_cg_sub_sys.executable, *_cg_sub_json.loads({argv_json!r})], _cg_env)\n"
+                        "    _cg_sub_sys.stdout.write(f'\\n__COLAB_EXEC_RC__={_cg_rc}\\n')\n"
+                        "    _cg_sub_sys.stdout.flush()\n"
+                    )
                     wrapped_path.write_text(
                         build_remote_wrapper_source(
-                            script.read_text(encoding="utf-8"),
-                            exec_mode_argv=[script.name, *[str(a) for a in args]],
+                            launcher_body,
                             plain_env_vars=plain_env,
                             secret_env_remote_path=secret_remote,
                             add_content_sys_path=True,
+                            defer_unassign_for_download=True,
                         ),
                         encoding="utf-8",
                     )
@@ -642,26 +746,36 @@ def run_with_colab_guard(
                     new_cmd = [*base, "new", "-s", sess]
                     if tier != "CPU":
                         new_cmd.extend(["--gpu", tier])
-                    _run_checked_step(
-                        new_cmd,
-                        step_label="colab new",
-                        session_name=sess,
-                        max_wall_minutes=max_wall_minutes,
-                        deadline=deadline,
-                        runner=runner,
-                    )
-
-                    if req_path is not None:
+                    try:
                         _run_checked_step(
-                            [*base, "install", "-s", sess, "-r", str(req_path)],
-                            step_label="colab install",
+                            new_cmd,
+                            step_label="colab new",
+                            session_name=sess,
+                            max_wall_minutes=max_wall_minutes,
+                            deadline=deadline,
+                            runner=runner,
+                        )
+                    except ColabPreflightError:
+                        # One bounded retry on transient Colab backend assignment failure
+                        runner(
+                            [*base, "stop", "-s", sess],
+                            stdin=subprocess.DEVNULL,
+                            capture_output=True,
+                            text=True,
+                            timeout=TEARDOWN_TIMEOUT_SECONDS,
+                            check=False,
+                        )
+                        time.sleep(3.0)
+                        _run_checked_step(
+                            new_cmd,
+                            step_label="colab new (retry)",
                             session_name=sess,
                             max_wall_minutes=max_wall_minutes,
                             deadline=deadline,
                             runner=runner,
                         )
 
-                    for local_item, remote_dest in resolved_uploads:
+                    for local_item, remote_dest in upload_plan:
                         _run_checked_step(
                             [*base, "upload", "-s", sess, str(local_item), remote_dest],
                             step_label=f"colab upload -> {remote_dest}",
@@ -684,18 +798,40 @@ def run_with_colab_guard(
                         timeout=exec_remaining,
                         check=False,
                     )
+                    inst_m = re.search(r"__COLAB_INSTALL_RC__=(-?\d+)", proc.stdout or "")
+                    if inst_m and int(inst_m.group(1)) != 0:
+                        detail = f"{proc.stdout or ''}\n{proc.stderr or ''}".strip()[-1200:]
+                        raise ColabPreflightError(
+                            f"Colab staged package install failed (rc={inst_m.group(1)}): {detail}"
+                        )
+                    rc_m = re.search(r"__COLAB_EXEC_RC__=(-?\d+)", proc.stdout or "")
+                    if rc_m:
+                        real_rc = int(rc_m.group(1))
+                        cleaned_stdout = re.sub(r"\n?__COLAB_EXEC_RC__=-?\d+\n?", "\n", proc.stdout or "")
+                        proc = subprocess.CompletedProcess(
+                            proc.args,
+                            real_rc,
+                            cleaned_stdout,
+                            proc.stderr,
+                        )
 
                     if proc.returncode == 0 and resolved_downloads:
                         for remote_src, local_dest in resolved_downloads:
                             local_dest.parent.mkdir(parents=True, exist_ok=True)
-                            _run_checked_step(
-                                [*base, "download", "-s", sess, remote_src, str(local_dest)],
-                                step_label=f"colab download {remote_src}",
-                                session_name=sess,
-                                max_wall_minutes=max_wall_minutes,
-                                deadline=deadline,
-                                runner=runner,
-                            )
+                            try:
+                                _run_checked_step(
+                                    [*base, "download", "-s", sess, remote_src, str(local_dest)],
+                                    step_label=f"colab download {remote_src}",
+                                    session_name=sess,
+                                    max_wall_minutes=max_wall_minutes,
+                                    deadline=deadline,
+                                    runner=runner,
+                                )
+                            except ColabPreflightError as dl_exc:
+                                exec_out = f"{proc.stdout or ''}\n{proc.stderr or ''}".strip()[-1500:]
+                                raise ColabPreflightError(
+                                    f"{dl_exc}\n--- remote exec output ---\n{exec_out}"
+                                ) from dl_exc
             except subprocess.TimeoutExpired as exc:
                 primary_exc = ColabTimeoutError(
                     f"Colab session {sess!r} exceeded max_wall_minutes={max_wall_minutes:g}"
@@ -759,6 +895,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-wall-minutes", type=float, default=120.0)
     parser.add_argument("--max-ccu", type=float, default=25.0)
     parser.add_argument("--override-ccu-cap", action="store_true")
+    parser.add_argument(
+        "--install",
+        action="append",
+        default=[],
+        metavar="PKG_SPEC",
+        help="Install a package spec inside the Colab VM before exec (repeatable).",
+    )
     parser.add_argument("--install-requirements", type=Path, default=None)
     parser.add_argument(
         "--upload",
@@ -838,6 +981,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             auth=ns.auth,
             colab_bin=ns.colab_bin,
             env_vars=forwarded_env,
+            install_packages=ns.install,
             install_requirements=ns.install_requirements,
             uploads=uploads,
             downloads=downloads,

@@ -321,14 +321,20 @@ def test_l1_forbidden_env_keys_blocked_and_worker_secret_never_in_argv(tmp_path:
             return _proc(0, "installed")
         if sub == "upload":
             uploaded_remote_dests.append(cmd[-1])
+            # Every `colab upload` target MUST sit directly under `/content/<file>` (no nested parent)
+            # so `colab upload` never HTTP-500s before directory creation.
+            assert cmd[-1].count("/") == 2 and cmd[-1].startswith("/content/")
             if cmd[-1] == REMOTE_SECRETS_PATH:
                 assert secret_val in Path(cmd[-2]).read_text(encoding="utf-8")
             return _proc(0, "uploaded")
         if sub == "exec":
-            wrapped_text = Path(cmd[-1]).read_text(encoding="utf-8")
-            assert secret_val not in wrapped_text
-            assert f"_colab_guard_os.remove({REMOTE_SECRETS_PATH!r})" in wrapped_text
-            return _proc(0, '{"batches_completed": 1}\n')
+            script_text = Path(cmd[-1]).read_text(encoding="utf-8")
+            assert secret_val not in script_text
+            assert f"_colab_guard_os.remove({REMOTE_SECRETS_PATH!r})" in script_text
+            assert "/content/colab/run_vllm_batch.py" in script_text
+            # When downloads are requested, in-VM unassign is deferred until after colab download!
+            assert "_colab_guard_runtime.unassign()" not in script_text
+            return _proc(0, '{"batches_completed": 1}\n__COLAB_EXEC_RC__=0\n')
         if sub == "download":
             Path(cmd[-1]).write_text('{"chunk_id":"c1"}\n', encoding="utf-8")
             return _proc(0, "downloaded")
@@ -356,13 +362,53 @@ def test_l1_forbidden_env_keys_blocked_and_worker_secret_never_in_argv(tmp_path:
     )
     assert res.returncode == 0
     assert out_local.read_text(encoding="utf-8") == '{"chunk_id":"c1"}\n'
-    assert "/content/colab/run_vllm_batch.py" in uploaded_remote_dests
+    assert "/content/requirements-colab.txt" in uploaded_remote_dests
+    assert any(dest.endswith("_run_vllm_batch.py") for dest in uploaded_remote_dests)
     assert REMOTE_SECRETS_PATH in uploaded_remote_dests
-    assert seen_subs[0:3] == ["usage", "new", "install"]
-    assert seen_subs[-3:] == ["download", "stop", "sessions"]
+    assert seen_subs.count("exec") == 1
+    assert seen_subs[0:3] == ["usage", "new", "upload"]
+    assert seen_subs[-4:] == ["exec", "download", "stop", "sessions"]
 
     # Verify Windows drive-letter upload/download spec parsers
     up_loc, up_rem = parse_upload_spec(r"D:\tmp\packet.jsonl:/content/packet.jsonl")
     assert str(up_loc).endswith("packet.jsonl") and up_rem == "/content/packet.jsonl"
     dl_rem, dl_loc = parse_download_spec(r"/content/results.jsonl:D:\tmp\results.jsonl")
     assert dl_rem == "/content/results.jsonl" and str(dl_loc).endswith("results.jsonl")
+
+
+def test_large_upload_splits_into_proxy_safe_chunks(tmp_path: Path) -> None:
+    """Files >8 MiB split into <=8 MiB flat part uploads to avoid Colab proxy HTTP PUT resets."""
+    script = tmp_path / "eval_lora.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    big_adapter = tmp_path / "adapter.tar.gz"
+    big_adapter.write_bytes(b"x" * (9 * 1024 * 1024 + 123))
+    part_uploads: list[tuple[int, str]] = []
+    exec_code = ""
+
+    def chunk_runner(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal exec_code
+        sub = cmd[4]
+        if sub == "usage":
+            return _proc(0, "Current balance: 1500.00 compute units")
+        if sub == "new":
+            return _proc(0, "created")
+        if sub == "upload":
+            part_uploads.append((Path(cmd[-2]).stat().st_size, cmd[-1]))
+            return _proc(0, "uploaded")
+        if sub == "exec":
+            exec_code = Path(cmd[-1]).read_text(encoding="utf-8")
+            return _proc(0, "ok\n__COLAB_EXEC_RC__=0\n")
+        if sub in ("stop", "sessions"):
+            return _proc(0, "")
+        raise AssertionError(sub)
+
+    res = run_with_colab_guard(
+        script,
+        uploads=[(big_adapter, "/content/adapter.tar.gz")],
+        runner=chunk_runner,
+    )
+    assert res.returncode == 0
+    assert all(sz <= 8 * 1024 * 1024 for sz, _ in part_uploads)
+    assert sum(1 for _, rem in part_uploads if "_cg_part_" in rem) == 2
+    assert "/content/adapter.tar.gz" in exec_code
+    assert "_cg_shutil.copyfileobj" in exec_code

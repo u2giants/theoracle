@@ -242,9 +242,11 @@ def _default_qlora_fit(
     hparams: LoraHyperparameters,
 ) -> None:
     """Run 4-bit QLoRA training inside a Colab A100 runtime (lazy GPU imports)."""
+    import inspect
+
     import torch
     from datasets import load_dataset
-    from peft import LoraConfig
+    from peft import LoraConfig, prepare_model_for_kbit_training
     from transformers import (
         AutoConfig,
         AutoModelForCausalLM,
@@ -282,6 +284,7 @@ def _default_qlora_fit(
         device_map="auto",
         trust_remote_code=False,
     )
+    model = prepare_model_for_kbit_training(model)
     lora_config = LoraConfig(
         r=hparams.r,
         lora_alpha=hparams.lora_alpha,
@@ -291,21 +294,27 @@ def _default_qlora_fit(
         task_type="CAUSAL_LM",
     )
     dataset = load_dataset("json", data_files=str(sft_path), split="train")
-    sft_args = SFTConfig(
-        output_dir=str(output_dir / "checkpoints"),
-        num_train_epochs=hparams.num_train_epochs,
-        per_device_train_batch_size=hparams.per_device_train_batch_size,
-        gradient_accumulation_steps=hparams.gradient_accumulation_steps,
-        learning_rate=hparams.learning_rate,
-        lr_scheduler_type=hparams.lr_scheduler_type,
-        bf16=hparams.bf16,
-        max_seq_length=hparams.max_seq_length,
-        seed=hparams.seed,
-        data_seed=hparams.seed,
-        save_strategy="no",
-        report_to=[],
-        push_to_hub=False,
-    )
+    sft_kwargs: dict[str, Any] = {
+        "output_dir": str(output_dir / "checkpoints"),
+        "num_train_epochs": hparams.num_train_epochs,
+        "per_device_train_batch_size": hparams.per_device_train_batch_size,
+        "gradient_accumulation_steps": hparams.gradient_accumulation_steps,
+        "learning_rate": hparams.learning_rate,
+        "lr_scheduler_type": hparams.lr_scheduler_type,
+        "bf16": hparams.bf16,
+        "gradient_checkpointing": True,
+        "seed": hparams.seed,
+        "data_seed": hparams.seed,
+        "save_strategy": "no",
+        "report_to": [],
+        "push_to_hub": False,
+    }
+    sft_sig = inspect.signature(SFTConfig.__init__).parameters
+    if "max_length" in sft_sig:
+        sft_kwargs["max_length"] = hparams.max_seq_length
+    else:
+        sft_kwargs["max_seq_length"] = hparams.max_seq_length
+    sft_args = SFTConfig(**sft_kwargs)
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
