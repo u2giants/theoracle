@@ -466,3 +466,39 @@ def test_stage_json_repair_persistent_failure_is_bounded_and_names_provider(
         )
     assert "prose" in str(excinfo.value), "the error carries a content excerpt"
     assert len(calls) == 2, "bounded: first call plus one repair re-ask, no more"
+
+
+def test_openai_direct_provider_resolution_and_parameter_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """openai-api/* models route to OpenAI directly and drop OpenRouter-only keys."""
+    s = Settings(openrouter_api_key="or-k", openai_api_key="oa-k")
+    base, key = llm.resolve_provider("openai-api/gpt-6-luna", s)
+    assert base == llm.OPENAI_BASE_URL
+    assert key == "oa-k"
+    assert llm.strip_provider_prefix("openai-api/gpt-6-luna") == "gpt-6-luna"
+
+    seen: list[dict[str, Any]] = []
+
+    def fake_post(url: str, **kw: Any) -> _Resp:
+        seen.append({"url": url, "json": kw["json"]})
+        return _Resp(_body('{"ok": true}'))
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    llm.post_chat_with_rescue(
+        {
+            "model": "openai-api/gpt-6-luna",
+            "messages": [{"role": "user", "content": "Return JSON."}],
+            "max_tokens": 2000,
+            "provider": {"only": ["openai"]},
+            "reasoning": {"effort": "low"},
+        },
+        settings=s,
+        timeout=5.0,
+        error_cls=_Boom,
+        label="openai direct",
+    )
+    assert seen[0]["url"] == f"{llm.OPENAI_BASE_URL}/chat/completions"
+    assert seen[0]["json"]["model"] == "gpt-6-luna"
+    assert "provider" not in seen[0]["json"]
+    assert "reasoning" not in seen[0]["json"]

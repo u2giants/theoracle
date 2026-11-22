@@ -73,6 +73,12 @@ read-when: adding, renaming or debugging an environment variable or credential
 | `BRAIN_COLAB_LEASE_TTL_SECONDS` | Colab pull-lease TTL in seconds (default `900`, validated `60..1800`) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
 | `BRAIN_COLAB_MAX_BATCH_SIZE` | Maximum prompts leased per Colab `/colab/lease` batch (default `64`, validated `1..256`) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
 | `BRAIN_MESSAGE_RELATIONS_MODEL` | Dedicated relations model fallback for message-intake sources (`origin IS NOT NULL`; overridden by `cmap.model_seat` stage `relations_messages`) | `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_OPENAI_API_KEY` | Optional direct OpenAI key override for native `/v1/batches` (`llm_batch.py`) and `openai-api/*` routes in `apps/brain` (falls back to `OPENAI_API_KEY`; unset falls back to synchronous OpenRouter) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_RELATIONS_BATCH_ENABLED` | Enables the 3-round OpenAI native `/v1/batches` path on `relations_messages` (default `true`) | `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_SCALEDOWN_FUNCTION_ASSIGN_ENABLED` | Opt-in switch for ScaleDown `/classify` function sorting on message sources (default `false`; defaults message `function_assign` to `relations_messages`) | `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_SCALEDOWN_FUNCTION_THRESHOLD` | Minimum ScaleDown `/classify` score kept as a function weight when enabled (default `0.1`) | `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_SCALEDOWN_FUNCTION_MULTI_LABEL` | Passes `multi_label=true` to ScaleDown `/classify` for function sorting when enabled (default `false`) | `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_MESSAGE_FUNCTION_MODEL` | Optional explicit model override for message-source `function_assign` (defaults to `relations_messages`, never a frontier model) | `.env.local`, Coolify (brain) | optional | optional |
 
 **Canonical OpenRouter credential:** vault `vibe_coding`, existing note
 `OpenRouter API Key - The Oracle (local .env.local)`, item

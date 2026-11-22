@@ -22,24 +22,35 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from brain import storage as storage_mod
-from brain.config import Settings, get_settings, intake_spend_cap
+from brain.config import Settings, get_settings, intake_spend_cap, openai_api_key
 from brain.db import enqueue_job, get_pool
 from brain.read.chunk import WINDOW_TOKENS, count_tokens
+from brain.seats import message_relations_chosen
 
 logger = logging.getLogger(__name__)
 
 EASTERN = ZoneInfo("America/New_York")
 REMOVED_MARKER = "[message removed]"
-# Upper bound per passage for flat + relations on the candidate models; the
-# step 0.1 forecast was $0.12-$0.80 per 1,045 passages (#607). Rounded up so
-# the cap trips early rather than late.
+# Upper bound per passage for flat + relations + function_assign (#607). Rounded
+# up so BRAIN_INTAKE_MAX_USD trips early rather than late.
 EST_USD_PER_PASSAGE = 0.001
+EST_USD_PER_PASSAGE_BATCH_3PASS = 0.0018
+EST_USD_PER_PASSAGE_SYNC_3PASS = 0.0032
 INTAKE_SWEEP_SECONDS = 3600
+
+
+def estimated_usd_per_passage(settings: Settings) -> float:
+    """Conservative per-passage dollar ceiling for the active message route."""
+    if not message_relations_chosen(settings):
+        return EST_USD_PER_PASSAGE
+    if settings.brain_relations_batch_enabled and openai_api_key(settings):
+        return EST_USD_PER_PASSAGE_BATCH_3PASS
+    return EST_USD_PER_PASSAGE_SYNC_3PASS
 
 
 def speaker_of(origin: str, author_ref: str | None, raw: dict[str, Any]) -> str:
@@ -88,17 +99,28 @@ def estimate_passages(text_tokens: int) -> int:
 
 
 def _threads(
-    conn: Any, origin: str | None, limit: int | None, prefix: str | None = None
+    conn: Any,
+    origin: str | None,
+    limit: int | None,
+    prefix: str | None = None,
+    since: datetime | None = None,
 ) -> list[tuple]:
     sql = (
         "SELECT origin, thread_key, title, source_id FROM cmap.intake_thread "
         "WHERE verdict IN ('pending', 'kept') "
         + ("AND origin = %(o)s " if origin else "")
         + ("AND starts_with(thread_key, %(prefix)s) " if prefix is not None else "")
+        + (
+            "AND COALESCE(ended_at, started_at, updated_at) >= %(since)s "
+            if since is not None
+            else ""
+        )
         + "ORDER BY started_at NULLS LAST, thread_key"
         + (" LIMIT %(n)s" if limit else "")
     )
-    return conn.execute(sql, {"o": origin, "n": limit, "prefix": prefix}).fetchall()
+    return conn.execute(
+        sql, {"o": origin, "n": limit, "prefix": prefix, "since": since}
+    ).fetchall()
 
 
 def _items(conn: Any, origin: str, key: str) -> list[dict[str, Any]]:
@@ -179,19 +201,26 @@ def run(
     limit: int | None = None,
     *,
     thread_prefix: str | None = None,
+    days: int | None = None,
 ) -> dict[str, Any]:
     """Ingest pending threads until done or the spend cap is reached."""
     if thread_prefix is not None and not thread_prefix.strip():
         raise ValueError("the thread prefix must not be empty")
+    if days is not None and days <= 0:
+        raise ValueError("days must be positive")
     cap = intake_spend_cap(settings)
     now = datetime.now(UTC)
+    since = now - timedelta(days=days) if days is not None else None
+    per_passage = estimated_usd_per_passage(settings)
     counts: dict[str, Any] = {"estimated_usd": 0.0}
     queued: list[str] = []
     pool = get_pool(settings)
     with pool.connection() as conn:
-        for th_origin, key, title, old in _threads(conn, origin, limit, thread_prefix):
+        for th_origin, key, title, old in _threads(
+            conn, origin, limit, thread_prefix, since=since
+        ):
             outcome, passages = ingest_thread(conn, th_origin, key, title, old, now)
-            cost = passages * EST_USD_PER_PASSAGE
+            cost = passages * per_passage
             if outcome in ("created", "versioned"):
                 if counts["estimated_usd"] + cost > cap:
                     conn.rollback()
@@ -214,7 +243,11 @@ def run(
 
 def handle_intake_ingest(job: dict[str, Any]) -> None:
     payload = job.get("payload") or {}
-    counts = run(get_settings(), payload.get("origin"), payload.get("limit"))
+    days_raw = payload.get("days")
+    days = int(days_raw) if days_raw is not None else None
+    counts = run(
+        get_settings(), payload.get("origin"), payload.get("limit"), days=days
+    )
     logger.info("intake_ingest: %s", counts)
 
 
@@ -240,10 +273,19 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--origin", choices=["clickup", "teams_chat", "email"])
     ap.add_argument("--limit", type=int)
     ap.add_argument(
+        "--days", type=int, help="Only ingest threads active within the last N days"
+    )
+    ap.add_argument(
         "--thread-prefix", help="Only import threads with this literal key prefix"
     )
     a = ap.parse_args(argv)
-    result = run(get_settings(), a.origin, a.limit, thread_prefix=a.thread_prefix)
+    result = run(
+        get_settings(),
+        a.origin,
+        a.limit,
+        thread_prefix=a.thread_prefix,
+        days=a.days,
+    )
     print(f"intake_ingest: {result}")
 
 

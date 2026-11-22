@@ -481,3 +481,243 @@ def test_eval_question_functions_backfilled(db: Any) -> None:
         (item["question"],),
     ).fetchone()
     assert list(row[0]) == ["Edited"]
+
+
+# ------------------------------------ Step 2.5 ScaleDown & message sorting
+
+
+def _seed_message_source(
+    db: Any,
+    title: str = "PM chat thread",
+    origin: str = "teams_chat",
+    department_hint: str | None = None,
+) -> str:
+    row = db.execute(
+        "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes, "
+        "origin, external_ref, department_hint) "
+        "VALUES ('transcript', %s, %s, %s, 20, %s, %s, %s) RETURNING id::text",
+        (title, f"cmap/msg/{title}", f"sha-msg-{title}", origin, f"ext-{title}", department_hint),
+    ).fetchone()
+    db.commit()
+    return str(row[0])
+
+
+def test_scaledown_labels_built_from_function_table(
+    seeded: list[dict[str, Any]],
+    db: Any,
+    client: Any,
+    admin_headers: dict[str, str],
+) -> None:
+    """ScaleDown /classify labels come live from active cmap.function rows
+    (name = key, rubric = description + aliases), so page edits take effect
+    without any code change."""
+    from brain.function_assign import load_functions, scaledown_function_labels
+
+    initial = scaledown_function_labels(load_functions(db))
+    assert [item["name"] for item in initial] == [key for key, _ in SEEDED]
+    by_name = {item["name"]: item["rubric"] for item in initial}
+    assert "Licensing Team" in by_name["licensing"]
+    assert "Licensor submissions" in by_name["licensing"]
+
+    # Owner renames description/aliases on one function, adds a new function, and retires one.
+    sampling = _by_key(seeded, "sampling")
+    assert (
+        client.put(
+            f"/functions/{sampling['id']}",
+            json={
+                "name": sampling["name"],
+                "description": "Fit and pre-production physical prototype sign-off.",
+                "aliases": ["Sample Room", "Proto Lab"],
+            },
+            headers=admin_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/functions",
+            json={
+                "key": "project-management",
+                "name": "Project Management",
+                "description": "Cross-functional schedule tracking and handoff coordination.",
+                "aliases": ["PM Team"],
+            },
+            headers=admin_headers,
+        ).status_code
+        == 200
+    )
+    hr = _by_key(seeded, "hr-administration")
+    assert (
+        client.post(f"/functions/{hr['id']}/retire", headers=admin_headers).status_code
+        == 200
+    )
+
+    updated = scaledown_function_labels(load_functions(db))
+    updated_map = {item["name"]: item["rubric"] for item in updated}
+    assert "hr-administration" not in updated_map
+    assert "project-management" in updated_map
+    assert "PM Team" in updated_map["project-management"]
+    assert "Proto Lab" in updated_map["sampling"]
+    assert "Fit and pre-production" in updated_map["sampling"]
+
+
+def test_scaledown_scores_become_weights_top_three(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ScaleDown scores above threshold become weights, capped to the strongest three."""
+    from brain import function_assign as fa_mod
+
+    migrate()
+    monkeypatch.setenv("BRAIN_SCALEDOWN_ENABLED", "true")
+    monkeypatch.setenv("BRAIN_SCALEDOWN_FUNCTION_ASSIGN_ENABLED", "true")
+    monkeypatch.setenv("BRAIN_SCALEDOWN_FUNCTION_THRESHOLD", "0.25")
+    monkeypatch.setenv("SCALEDOWN_API_KEY", "sd-test-key")
+    monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "test/frontier")
+    get_settings.cache_clear()
+
+    seen_bodies: list[dict[str, Any]] = []
+
+    def fake_sd(path: str, body: dict[str, Any], settings: Any) -> dict[str, Any]:
+        del settings
+        assert path == "/classify"
+        seen_bodies.append(body)
+        return {
+            "top_label": "licensing",
+            "scores": {
+                "licensing": 0.91,
+                "sampling": 0.74,
+                "product-design-development": 0.62,
+                "production-quality": 0.45,
+                "logistics-shipping": 0.12,
+                "unknown-function": 0.99,
+            },
+        }
+
+    monkeypatch.setattr(fa_mod, "_post_scaledown", fake_sd)
+    source = _seed_message_source(db, "Top3 thread")
+    chunk = _seed_chunk(db, source, "Concept art, sample check, licensor review, factory run.", 0)
+    handle_function_assign({})
+    get_settings.cache_clear()
+
+    assert len(seen_bodies) == 1
+    assert seen_bodies[0]["reasoning"] is False
+    rows = _function_rows(db, "chunk_function", "chunk_id", chunk)
+    assert set(rows) == {"licensing", "sampling", "product-design-development"}
+    assert rows["licensing"] == (pytest.approx(0.91), "auto")
+    assert rows["sampling"] == (pytest.approx(0.74), "auto")
+    assert rows["product-design-development"] == (pytest.approx(0.62), "auto")
+
+
+def test_scaledown_failure_falls_back_to_model(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Three ScaleDown failures fall back automatically to the message-seat model
+    (and never a frontier model when relations_messages is seated, rule L9)."""
+    from brain import function_assign as fa_mod
+
+    migrate()
+    monkeypatch.setenv("BRAIN_SCALEDOWN_ENABLED", "true")
+    monkeypatch.setenv("BRAIN_SCALEDOWN_FUNCTION_ASSIGN_ENABLED", "true")
+    monkeypatch.setenv("SCALEDOWN_API_KEY", "sd-test-key")
+    monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "frontier/forbidden-model")
+    monkeypatch.setenv("BRAIN_MESSAGE_RELATIONS_MODEL", "openai/gpt-6-luna")
+    get_settings.cache_clear()
+
+    sd_attempts: list[int] = []
+
+    def failing_sd(path: str, body: dict[str, Any], settings: Any) -> dict[str, Any]:
+        del path, body, settings
+        sd_attempts.append(1)
+        raise fa_mod.FunctionAssignError("scaledown 503 outage")
+
+    chat_models_used: list[str] = []
+
+    def fake_post_rescue(payload: dict[str, Any], **_kw: Any) -> dict[str, Any]:
+        chat_models_used.append(str(payload["model"]))
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"functions": [{"key": "sourcing-vendor-management", "weight": 0.85}]}
+                        )
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 12},
+        }
+
+    monkeypatch.setattr(fa_mod, "_post_scaledown", failing_sd)
+    monkeypatch.setattr(fa_mod, "post_chat_with_rescue", fake_post_rescue)
+
+    source = _seed_message_source(db, "Fallback thread")
+    chunk = _seed_chunk(db, source, "Factory quote came back from vendor.", 0)
+    handle_function_assign({})
+    get_settings.cache_clear()
+
+    assert len(sd_attempts) == 3, "retried three times before falling back"
+    assert chat_models_used == ["openai/gpt-6-luna"]
+    rows = _function_rows(db, "chunk_function", "chunk_id", chunk)
+    assert rows["sourcing-vendor-management"] == (pytest.approx(0.85), "auto")
+
+
+def test_priors_still_apply_on_scaledown_path(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """merge_priors and the company-wide source fallback behave identically on
+    the ScaleDown /classify path."""
+    from brain import function_assign as fa_mod
+
+    migrate()
+    db.execute(
+        "INSERT INTO public.employees (id, email, name, role) "
+        "VALUES ('00000000-0000-4000-8000-0000000000d2', 'carlos@test.invalid', 'Carlos', '') "
+        "ON CONFLICT (id) DO NOTHING"
+    )
+    db.execute(
+        "INSERT INTO cmap.employee_flags (employee_id, department) "
+        "VALUES ('00000000-0000-4000-8000-0000000000d2', 'Sample Room') "
+        "ON CONFLICT (employee_id) DO NOTHING"
+    )
+    db.commit()
+
+    monkeypatch.setenv("BRAIN_SCALEDOWN_ENABLED", "true")
+    monkeypatch.setenv("BRAIN_SCALEDOWN_FUNCTION_ASSIGN_ENABLED", "true")
+    monkeypatch.setenv("BRAIN_SCALEDOWN_FUNCTION_THRESHOLD", "0.3")
+    monkeypatch.setenv("SCALEDOWN_API_KEY", "sd-test-key")
+    monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "test/frontier")
+    get_settings.cache_clear()
+
+    def fake_sd(path: str, body: dict[str, Any], settings: Any) -> dict[str, Any]:
+        del path, settings
+        text = str(body["text"])
+        if "freight booking" in text:
+            return {"top_label": "logistics-shipping", "scores": {"logistics-shipping": 0.88, "licensing": 0.35}}
+        return {"top_label": "logistics-shipping", "scores": {"logistics-shipping": 0.05}}
+
+    monkeypatch.setattr(fa_mod, "_post_scaledown", fake_sd)
+
+    src_priors = _seed_message_source(db, "Priors msg", department_hint="Licensing")
+    ch_strong = _seed_chunk(
+        db,
+        src_priors,
+        "Confirm freight booking for the container.",
+        0,
+        locator={"turn": 1, "speaker": "Carlos"},
+    )
+    src_empty = _seed_message_source(db, "Unmatched msg")
+    _seed_chunk(db, src_empty, "Quick ping.", 0)
+
+    handle_function_assign({})
+    get_settings.cache_clear()
+
+    chunk_rows = _function_rows(db, "chunk_function", "chunk_id", ch_strong)
+    # Evidence kept uncapped (0.88), weak Licensing score lifted to PRIOR_WEIGHT (0.5),
+    # and speaker department prior (Sample Room -> sampling 0.5) added.
+    assert chunk_rows["logistics-shipping"] == (pytest.approx(0.88), "auto")
+    assert chunk_rows["licensing"] == (pytest.approx(0.5), "auto")
+    assert chunk_rows["sampling"] == (pytest.approx(0.5), "auto")
+
+    # Source with zero chunk functions still gets executive-company-wide fallback.
+    fallback_rows = _function_rows(db, "source_function", "source_id", src_empty)
+    assert fallback_rows == {"executive-company-wide": (pytest.approx(0.3), "auto")}

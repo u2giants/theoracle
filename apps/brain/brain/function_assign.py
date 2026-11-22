@@ -26,20 +26,27 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
+import httpx
 from psycopg.types.json import Json
 
 from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.llm import message_content, post_chat_with_rescue
-from brain.seats import stage_model
+from brain.seats import message_relations_chosen, stage_model
 
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "function_assign.md"
 B1_SEED_PATH = Path(__file__).resolve().parents[1] / "eval" / "questions.b1.json"
+SCALEDOWN_BASE_URL = "https://api.scaledown.xyz"
+SCALE_DOWN_ATTEMPTS = 3
+_ACTIVE_FUNCTION_MODEL: ContextVar[str | None] = ContextVar(
+    "active_function_model", default=None
+)
 
 # A prior (department hint, speaker's profile department) is strong enough to
 # supply a function the model missed and to lift a weak weight to this floor —
@@ -53,7 +60,7 @@ MAX_TOKENS = 2000
 FALLBACK_FUNCTION_KEY = "executive-company-wide"
 FALLBACK_WEIGHT = 0.3
 
-PROJECTION = "id::text, key, name, description"
+PROJECTION = "id::text, key, name, description, aliases"
 
 
 class FunctionAssignError(RuntimeError):
@@ -66,7 +73,13 @@ def load_functions(conn: Any) -> list[dict[str, Any]]:
         f"SELECT {PROJECTION} FROM cmap.function WHERE active ORDER BY sort, name"
     ).fetchall()
     return [
-        {"id": row[0], "key": row[1], "name": row[2], "description": row[3]}
+        {
+            "id": row[0],
+            "key": row[1],
+            "name": row[2],
+            "description": row[3],
+            "aliases": list(row[4] or []) if len(row) > 4 else [],
+        }
         for row in rows
     ]
 
@@ -90,7 +103,13 @@ def function_for_label(conn: Any, label: str) -> dict[str, Any] | None:
     ).fetchone()
     if row is None:
         return None
-    return {"id": row[0], "key": row[1], "name": row[2], "description": row[3]}
+    return {
+        "id": row[0],
+        "key": row[1],
+        "name": row[2],
+        "description": row[3],
+        "aliases": list(row[4] or []) if len(row) > 4 else [],
+    }
 
 
 def load_function_assign_prompt() -> str:
@@ -126,11 +145,24 @@ def build_prompt(chunk_text: str, functions: list[dict[str, Any]]) -> str:
     )
 
 
+def message_function_model(settings: Settings) -> str | None:
+    """Model for message-source function sorting (#607 step 2.5, rule L9).
+
+    Uses ``BRAIN_MESSAGE_FUNCTION_MODEL`` when set, else the qualified step 2.3
+    ``relations_messages`` model when configured, else the ``flat`` seat.
+    """
+    if settings.brain_message_function_model:
+        return settings.brain_message_function_model
+    if message_relations_chosen(settings):
+        return stage_model(settings, "relations_messages")
+    return stage_model(settings, "flat")
+
+
 def _post_chat(
     messages: list[dict[str, Any]], settings: Settings, max_tokens: int = MAX_TOKENS
 ) -> dict[str, Any]:
-    """POST one flat-seat chat-completions request in JSON mode."""
-    model = stage_model(settings, "flat")
+    """POST one flat-seat (or message-seat) chat-completions request in JSON mode."""
+    model = _ACTIVE_FUNCTION_MODEL.get() or stage_model(settings, "flat")
     if model is None:
         raise FunctionAssignError(
             "no model on the flat seat (BRAIN_FLAT_MODEL / BRAIN_FRONTIER_MODEL)"
@@ -148,6 +180,120 @@ def _post_chat(
         error_cls=FunctionAssignError,
         label="flat function assign",
     )
+
+
+def scaledown_function_labels(
+    functions: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Build ScaleDown ``/classify`` labels from active ``cmap.function`` rows (#607 2.5)."""
+    labels: list[dict[str, str]] = []
+    for item in functions:
+        desc = str(item.get("description") or "").strip()
+        name = str(item.get("name") or "").strip()
+        aliases = [
+            str(alias).strip()
+            for alias in (item.get("aliases") or [])
+            if str(alias).strip()
+        ]
+        rubric = f"{name}: {desc}" if name and desc else (desc or name)
+        if aliases:
+            rubric = f"{rubric} Aliases: {', '.join(aliases)}."
+        labels.append({"name": str(item["key"]), "rubric": rubric})
+    return labels
+
+
+def scaledown_classify_body(
+    chunk_text: str,
+    functions: list[dict[str, Any]],
+    *,
+    multi_label: bool = False,
+) -> dict[str, Any]:
+    """Return the ScaleDown ``/classify`` body for function sorting (#607 2.5)."""
+    body: dict[str, Any] = {
+        "text": chunk_text,
+        "labels": scaledown_function_labels(functions),
+        "reasoning": False,
+    }
+    if multi_label:
+        body["multi_label"] = True
+    return body
+
+
+def scores_to_weights(
+    scores: dict[str, Any],
+    known: dict[str, str],
+    *,
+    threshold: float,
+) -> dict[str, float]:
+    """Convert ScaleDown ``scores`` into at most the 3 strongest function weights."""
+    picked: dict[str, float] = {}
+    for key, raw in (scores or {}).items():
+        skey = str(key).strip()
+        weight = _weight(raw)
+        if skey not in known or weight is None or weight < threshold:
+            continue
+        picked[skey] = weight
+    if len(picked) > MAX_MODEL_FUNCTIONS:
+        strongest = sorted(picked, key=picked.get, reverse=True)[:MAX_MODEL_FUNCTIONS]
+        picked = {key: picked[key] for key in strongest}
+    return picked
+
+
+def _post_scaledown(
+    path: str, body: dict[str, Any], settings: Settings
+) -> dict[str, Any]:
+    """POST one ScaleDown ``/classify`` call and return its JSON object."""
+    if settings.scaledown_api_key is None:
+        raise FunctionAssignError("SCALEDOWN_API_KEY is not set")
+    response = httpx.post(
+        f"{SCALEDOWN_BASE_URL}{path}",
+        headers={"x-api-key": settings.scaledown_api_key},
+        json=body,
+        timeout=120.0,
+    )
+    if response.status_code != 200:
+        raise FunctionAssignError(
+            f"scaledown {path} failed: {response.status_code} {response.text[:200]}"
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise FunctionAssignError(f"scaledown {path} response is not JSON") from exc
+    if not isinstance(payload, dict):
+        raise FunctionAssignError(
+            f"scaledown {path} response is not a JSON object"
+        )
+    return payload
+
+
+def _scaledown_function_available(settings: Settings) -> bool:
+    return (
+        settings.brain_scaledown_enabled
+        and settings.brain_scaledown_function_assign_enabled
+        and settings.scaledown_api_key is not None
+    )
+
+
+def _call_scaledown_classify(
+    chunk_text: str, functions: list[dict[str, Any]], settings: Settings
+) -> dict[str, Any] | None:
+    """Try ScaleDown ``/classify`` up to 3 times; return None to fall back to the model."""
+    if not _scaledown_function_available(settings):
+        return None
+    body = scaledown_classify_body(
+        chunk_text,
+        functions,
+        multi_label=settings.brain_scaledown_function_multi_label,
+    )
+    for _ in range(SCALE_DOWN_ATTEMPTS):
+        try:
+            return _post_scaledown("/classify", body, settings)
+        except (FunctionAssignError, httpx.HTTPError) as exc:
+            logger.warning(
+                "scaledown function /classify failed (%s); retrying before fallback",
+                exc,
+            )
+    return None
 
 
 def _weight(value: Any) -> float | None:
@@ -212,17 +358,55 @@ def classify_chunk(
     functions: list[dict[str, Any]],
     priors: dict[str, float],
     settings: Settings,
+    *,
+    origin: str | None = None,
 ) -> dict[str, float]:
-    """One chunk's function weights: model evidence merged with the priors."""
+    """One chunk's function weights: ScaleDown or model evidence merged with priors."""
+    weights, _used_model = _classify_chunk_with_model(
+        chunk_text, functions, priors, settings, origin=origin
+    )
+    return weights
+
+
+def _classify_chunk_with_model(
+    chunk_text: str,
+    functions: list[dict[str, Any]],
+    priors: dict[str, float],
+    settings: Settings,
+    *,
+    origin: str | None = None,
+) -> tuple[dict[str, float], str]:
     known = {item["key"]: item["id"] for item in functions}
     if not known:
         raise FunctionAssignError("no active functions to classify against")
-    body = _post_chat(
-        [{"role": "user", "content": build_prompt(chunk_text, functions)}],
-        settings,
+    if origin:
+        sd_payload = _call_scaledown_classify(chunk_text, functions, settings)
+        if sd_payload is not None:
+            scores = sd_payload.get("scores")
+            evidence = scores_to_weights(
+                scores if isinstance(scores, dict) else {},
+                known,
+                threshold=settings.brain_scaledown_function_threshold,
+            )
+            return merge_priors(evidence, priors), "scaledown/classify"
+
+    chosen_model = (
+        message_function_model(settings) if origin else stage_model(settings, "flat")
     )
+    if chosen_model is None:
+        raise FunctionAssignError(
+            "no model on the flat seat (BRAIN_FLAT_MODEL / BRAIN_FRONTIER_MODEL)"
+        )
+    token = _ACTIVE_FUNCTION_MODEL.set(chosen_model)
+    try:
+        body = _post_chat(
+            [{"role": "user", "content": build_prompt(chunk_text, functions)}],
+            settings,
+        )
+    finally:
+        _ACTIVE_FUNCTION_MODEL.reset(token)
     evidence = validate_response(_parse_response(body), known)
-    return merge_priors(evidence, priors)
+    return merge_priors(evidence, priors), chosen_model
 
 
 def _speaker_priors(conn: Any, speaker: str | None) -> dict[str, float]:
@@ -252,7 +436,7 @@ def _hint_prior(conn: Any, department_hint: str | None) -> dict[str, float]:
 def _pending_chunks(conn: Any, prompt_hash: str) -> list[dict[str, Any]]:
     """Chunks with no classifier run for this prompt, with their prior inputs."""
     rows = conn.execute(
-        "SELECT c.id::text, c.text, c.locator, s.department_hint "
+        "SELECT c.id::text, c.text, c.locator, s.department_hint, s.origin "
         "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
         "WHERE NOT EXISTS (SELECT 1 FROM cmap.extraction e "
         "  WHERE e.chunk_id = c.id AND e.stage = 'function' AND e.prompt_hash = %s) "
@@ -265,6 +449,7 @@ def _pending_chunks(conn: Any, prompt_hash: str) -> list[dict[str, Any]]:
             "text": row[1],
             "speaker": (row[2] or {}).get("speaker"),
             "department_hint": row[3],
+            "origin": row[4],
         }
         for row in rows
     ]
@@ -422,8 +607,8 @@ def run_function_assign(settings: Settings | None = None) -> dict[str, int]:
         pending = _pending_chunks(conn, prompt_hash)
         conn.commit()
 
-    model = stage_model(cfg, "flat")
-    if model is None:
+    default_model = stage_model(cfg, "flat") or message_function_model(cfg)
+    if default_model is None and not _scaledown_function_available(cfg):
         raise FunctionAssignError(
             "no model on the flat seat (BRAIN_FLAT_MODEL / BRAIN_FRONTIER_MODEL)"
         )
@@ -432,12 +617,24 @@ def run_function_assign(settings: Settings | None = None) -> dict[str, int]:
         for item in pending:
             priors = _hint_prior(conn, item["department_hint"])
             priors.update(_speaker_priors(conn, item["speaker"]))
-            weights = classify_chunk(item["text"], functions, priors, cfg)
+            weights, used_model = _classify_chunk_with_model(
+                item["text"],
+                functions,
+                priors,
+                cfg,
+                origin=item.get("origin"),
+            )
             payload = {
                 "functions": [{"key": key, "weight": w} for key, w in weights.items()]
             }
             _write_chunk_functions(
-                conn, item["chunk_id"], weights, known, prompt_hash, model, payload
+                conn,
+                item["chunk_id"],
+                weights,
+                known,
+                prompt_hash,
+                used_model,
+                payload,
             )
             conn.commit()
             classified += 1

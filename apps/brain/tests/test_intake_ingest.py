@@ -222,3 +222,41 @@ def test_no_cap_no_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_sweep_disabled_by_default() -> None:
     assert ingest.maybe_queue_intake() is False
+
+
+def test_days_window_and_3pass_cost_rate(
+    db: Any, storage: Any, capped: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--days filters staged threads by recency so the 14-day pilot never drains
+    older staged backlog, and estimated_usd_per_passage reflects 3-pass batch vs sync."""
+    del storage
+    _seed(db, "old-thread", ["Old factory tooling note."])
+    db.execute(
+        "UPDATE cmap.intake_thread SET started_at = now() - interval '45 days', "
+        "ended_at = now() - interval '45 days', updated_at = now() - interval '45 days' "
+        "WHERE thread_key = 'old-thread'"
+    )
+    _seed(db, "recent-thread", ["Recent sample room approval note."])
+    db.execute(
+        "UPDATE cmap.intake_thread SET started_at = now() - interval '5 days', "
+        "ended_at = now() - interval '3 days' WHERE thread_key = 'recent-thread'"
+    )
+    db.commit()
+
+    monkeypatch.setenv("BRAIN_MESSAGE_RELATIONS_MODEL", "openai/gpt-6-luna")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-batch")
+    get_settings.cache_clear()
+    s_batch = get_settings()
+    assert ingest.estimated_usd_per_passage(s_batch) == pytest.approx(0.0018)
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    get_settings.cache_clear()
+    s_sync = get_settings()
+    assert ingest.estimated_usd_per_passage(s_sync) == pytest.approx(0.0032)
+
+    out = ingest.run(capped, days=14)
+    get_settings.cache_clear()
+    assert out["created"] == 1
+    assert db.execute("SELECT external_ref FROM cmap.source").fetchall() == [
+        ("recent-thread",)
+    ]

@@ -33,23 +33,26 @@ from typing import Any
 
 import httpx
 
-from brain.config import Settings
+from brain.config import Settings, openai_api_key
 
 logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 META_BASE_URL = "https://api.meta.ai/v1"
+OPENAI_BASE_URL = "https://api.openai.com/v1"
 _META_PROVIDER_PREFIX = "meta-model-api/"
+_OPENAI_PROVIDER_PREFIX = "openai-api/"
 
 _PROVIDER_NAMES: dict[str, str] = {
     OPENROUTER_BASE_URL: "openrouter",
     META_BASE_URL: "meta",
+    OPENAI_BASE_URL: "openai",
 }
 
-# Body keys Meta's direct API understands. OpenRouter accepts the whole
+# Body keys Meta's and OpenAI's direct APIs understand. OpenRouter accepts the
 # chat-completions surface plus its own extensions (``reasoning``, ``provider``
-# routing, ``transforms``), so only Meta payloads are filtered — against an
-# allowlist, so a future OpenRouter-only parameter cannot reach Meta either
+# routing, ``transforms``), so direct-provider payloads are filtered against an
+# allowlist so an OpenRouter-only parameter never causes a 400
 # (production 2026-11-11: ``unknown parameter: reasoning``, issue #590).
 _META_ALLOWED_PARAMS = frozenset(
     {
@@ -63,6 +66,14 @@ _META_ALLOWED_PARAMS = frozenset(
         "seed",
         "user",
         "response_format",
+    }
+)
+_OPENAI_ALLOWED_PARAMS = frozenset(
+    {
+        *_META_ALLOWED_PARAMS,
+        "max_completion_tokens",
+        "reasoning_effort",
+        "store",
     }
 )
 
@@ -87,13 +98,17 @@ def resolve_provider(model: str | None, settings: Settings) -> tuple[str, str | 
     """Return ``(base_url, api_key)`` for the model's provider."""
     if model and model.startswith(_META_PROVIDER_PREFIX):
         return META_BASE_URL, settings.brain_meta_api_key
+    if model and model.startswith(_OPENAI_PROVIDER_PREFIX):
+        return OPENAI_BASE_URL, openai_api_key(settings)
     return OPENROUTER_BASE_URL, settings.openrouter_api_key
 
 
 def strip_provider_prefix(model: str) -> str:
-    """Strip the ``meta-model-api/`` prefix so the API sees its own model name."""
+    """Strip ``meta-model-api/`` or ``openai-api/`` so the API sees its bare model id."""
     if model.startswith(_META_PROVIDER_PREFIX):
         return model[len(_META_PROVIDER_PREFIX) :]
+    if model.startswith(_OPENAI_PROVIDER_PREFIX):
+        return model[len(_OPENAI_PROVIDER_PREFIX) :]
     return model
 
 
@@ -106,18 +121,23 @@ def gate_payload_for_provider(payload: dict[str, Any], base_url: str) -> dict[st
     """Drop request parameters the provider does not understand.
 
     Only parameters the active provider understands are sent: OpenRouter
-    payloads pass through untouched (its extension parameters stay), Meta
-    payloads are filtered against ``_META_ALLOWED_PARAMS``. Model ids are
-    never inspected beyond the provider routing prefix.
+    payloads pass through untouched (its extension parameters stay), while
+    direct Meta and OpenAI payloads are filtered against their allowlists.
     """
-    if base_url != META_BASE_URL:
+    if base_url == META_BASE_URL:
+        allowed = _META_ALLOWED_PARAMS
+    elif base_url == OPENAI_BASE_URL:
+        allowed = _OPENAI_ALLOWED_PARAMS
+    else:
         return payload
-    dropped = sorted(key for key in payload if key not in _META_ALLOWED_PARAMS)
+    dropped = sorted(key for key in payload if key not in allowed)
     if dropped:
         logger.warning(
-            "dropping request parameters Meta's API does not accept: %s", dropped
+            "dropping request parameters %s's API does not accept: %s",
+            provider_name(base_url),
+            dropped,
         )
-    return {key: value for key, value in payload.items() if key in _META_ALLOWED_PARAMS}
+    return {key: value for key, value in payload.items() if key in allowed}
 
 
 def message_content(body: dict[str, Any]) -> str:
