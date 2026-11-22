@@ -8,6 +8,7 @@ Upload, delete and run endpoints additionally require the employee's
 
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -133,3 +134,37 @@ def admin_or_enabled_service(
             raise HTTPException(status_code=403, detail="interviews are disabled")
         return None
     return require_admin(current_user(x_brain_token=x_brain_token, x_user_id=x_user_id))
+
+
+def require_colab_worker(authorization: str = Header(default="")) -> None:
+    """Authenticate an ephemeral Google Colab worker via ``BRAIN_COLAB_WORKER_TOKEN`` (#664).
+
+    Enforces master switch ``brain_colab_lease_enabled``, refuses misconfigured
+    token reuse with ``BRAIN_SHARED_TOKEN``, and compares bearer tokens in
+    constant time via :func:`hmac.compare_digest`.
+    """
+    settings = get_settings()
+    if not settings.brain_colab_lease_enabled:
+        raise HTTPException(status_code=503, detail="Colab leasing is disabled")
+    expected = settings.brain_colab_worker_token
+    if not expected:
+        raise HTTPException(status_code=503, detail="BRAIN_COLAB_WORKER_TOKEN is not set")
+    if settings.brain_shared_token and hmac.compare_digest(
+        expected.encode("utf-8"),
+        settings.brain_shared_token.encode("utf-8"),
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="BRAIN_COLAB_WORKER_TOKEN must be distinct from BRAIN_SHARED_TOKEN",
+        )
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="missing or invalid Authorization bearer header")
+    if settings.brain_shared_token and hmac.compare_digest(
+        token.encode("utf-8"),
+        settings.brain_shared_token.encode("utf-8"),
+    ):
+        raise HTTPException(status_code=401, detail="BRAIN_SHARED_TOKEN is not valid for /colab/*")
+    if not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="invalid Colab worker token")
+

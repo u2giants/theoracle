@@ -1,0 +1,12 @@
+# Isolated GPU dependencies installed ONLY inside ephemeral Google Colab runtimes (#664 L6).
+# Never add these packages to apps/brain/pyproject.toml — doing so would bloat
+# ghcr.io/u2giants/theoracle-brain by >8 GB and break CPU CI disk budgets.
+vllm==0.8.5.post1
+pydantic>=2.10.0,<3.0.0
+httpx>=0.28.0,<1.0.0
+transformers>=4.51.0,<5.0.0
+peft==0.15.2
+trl==0.17.0
+bitsandbytes==0.45.5
+accelerate==1.6.0
+datasets==3.5.1

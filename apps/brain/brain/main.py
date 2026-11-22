@@ -6,6 +6,7 @@ from falkordb import FalkorDB
 from fastapi import FastAPI
 
 from brain.api.answer import router as answer_router
+from brain.api.colab import router as colab_router
 from brain.api.entities import router as entities_router
 from brain.api.eval import router as eval_router
 from brain.api.flags import router as flags_router
@@ -21,6 +22,7 @@ from brain.db import check_database
 
 app = FastAPI(title="brain")
 app.include_router(sources_router)
+app.include_router(colab_router)
 app.include_router(flags_router)
 app.include_router(answer_router)
 app.include_router(map_router)

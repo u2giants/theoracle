@@ -853,6 +853,16 @@ def _process_window(
     )
 
 
+def _is_colab_offload(source_id: str) -> bool:
+    """True when ``cmap.source.colab_offload`` is enabled for ``source_id``."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT colab_offload FROM cmap.source WHERE id = %s",
+            (source_id,),
+        ).fetchone()
+    return bool(row and row[0])
+
+
 def handle_relations(job: dict[str, Any]) -> None:
     """Extract relations for every non-chatter chunk of one source."""
     payload = job.get("payload") or {}
@@ -860,8 +870,13 @@ def handle_relations(job: dict[str, Any]) -> None:
     if not source_id:
         raise ValueError("relations job has no source_id")
     settings = get_settings()
+    defer_to_colab = (
+        settings.brain_colab_lease_enabled
+        and _is_colab_offload(source_id)
+        and not awaits_reply(source_id)
+    )
     model = stage_model(settings, "relations")
-    if model is None:
+    if model is None and not defer_to_colab:
         raise RelationsError("BRAIN_FRONTIER_MODEL is not set")
     prompt_hash = relations_prompt_hash()
     source_kind, chunks = _load_chunks(source_id)
@@ -884,6 +899,13 @@ def handle_relations(job: dict[str, Any]) -> None:
         # A fresh extraction (first run, or a new prompt hash): replace the
         # source's old relations rather than adding to them (repair plan A8).
         _clear_relations(source_id)
+    if defer_to_colab and pending:
+        logger.info(
+            "relations source=%s deferred %d pending chunks to /colab/lease",
+            source_id,
+            len(pending),
+        )
+        return
     claimed = _load_identity_index(source_id)
 
     cap_error: FrontierCapReached | None = None

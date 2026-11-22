@@ -111,7 +111,7 @@ def _clean_cmap() -> None:
             "cmap.graph_version, cmap.eval_question, cmap.eval_run, cmap.model_seat, "
             "cmap.teams_intake, cmap.review_flag, cmap.correction, cmap.function, "
             "cmap.process_flow, cmap.contradiction, cmap.employee_flags, "
-            "cmap.interview_conversation CASCADE"
+            "cmap.interview_conversation, cmap.colab_lease CASCADE"
         )
         conn.commit()
     clear_seat_cache()

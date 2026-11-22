@@ -24,7 +24,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from brain.config import get_settings
 from brain.db import get_pool
+from brain.interview.conversation import awaits_reply
 from brain.read.state import set_read_state
 
 logger = logging.getLogger(__name__)
@@ -91,8 +93,8 @@ def _heal_sources(conn: Any, stats: dict[str, int]) -> None:
         )
         stats["read_source"] += 1
     stalled = conn.execute(
-        "SELECT s.id::text, "
-        "(SELECT j.state || '|' || COALESCE(j.error, '') FROM cmap.job j "
+        "SELECT s.id::text, s.colab_offload, "
+        "(SELECT j.kind || '|' || j.state || '|' || COALESCE(j.error, '') FROM cmap.job j "
         "  WHERE j.kind IN ('classify_extract', 'relations') "
         "  AND j.payload->>'source_id' = s.id::text "
         "  ORDER BY j.created_at DESC LIMIT 1) "
@@ -102,8 +104,22 @@ def _heal_sources(conn: Any, stats: dict[str, int]) -> None:
         f"  AND j.payload->>'source_id' = s.id::text AND j.{_ACTIVE})"
     ).fetchall()
     conn.commit()
-    for source_id, last in stalled:
-        state, _, error = str(last or "").partition("|")
+    colab_enabled = get_settings().brain_colab_lease_enabled
+    for source_id, colab_offload, last in stalled:
+        parts = str(last or "").split("|", 2)
+        last_kind = parts[0] if len(parts) >= 1 else ""
+        state = parts[1] if len(parts) >= 2 else ""
+        error = parts[2] if len(parts) >= 3 else ""
+        if (
+            colab_enabled
+            and bool(colab_offload)
+            and last_kind == "relations"
+            and state == "done"
+            and not awaits_reply(str(source_id))
+        ):
+            # Deferred intentionally to /colab/lease (#664); re-queues automatically
+            # if BRAIN_COLAB_LEASE_ENABLED is turned off.
+            continue
         if state == "failed":
             # Its retries are spent: say so instead of looping for ever. An
             # admin retry (re-read) starts it again.

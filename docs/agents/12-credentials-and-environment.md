@@ -68,6 +68,10 @@ read-when: adding, renaming or debugging an environment variable or credential
 | `MICROSOFT_BOT_TENANT_ID` | Tenant ID for single-tenant Bot Framework auth; omit for multi-tenant | Vercel | optional | optional |
 | `DFLOW_DIRECTORY_SYNC_ENABLED` | Feature flag for the brain DesignFlow people/roles directory sync job (default off) | `.env.local`, Coolify (brain) | optional | optional |
 | `DFLOW_DIRECTORY_DATABASE_URL` | Read-only connection to the shared company Supabase holding `api.oracle_user_directory` (a different database from Oracle's own); unset makes the sync a no-op | `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_COLAB_WORKER_TOKEN` | Dedicated bearer token for Colab worker `/colab/*` pull-lease endpoints (never reuse `BRAIN_SHARED_TOKEN`; `503` on `/colab/*` when disabled or unset) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_COLAB_LEASE_ENABLED` | Master kill-switch for Colab `/colab/*` pull-lease endpoints (default `false`; `503` when disabled) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_COLAB_LEASE_TTL_SECONDS` | Colab pull-lease TTL in seconds (default `900`, validated `60..1800`) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_COLAB_MAX_BATCH_SIZE` | Maximum prompts leased per Colab `/colab/lease` batch (default `64`, validated `1..256`) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
 
 **Canonical OpenRouter credential:** vault `vibe_coding`, existing note
 `OpenRouter API Key - The Oracle (local .env.local)`, item
