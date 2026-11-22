@@ -161,17 +161,33 @@ def stratified_bootstrap_bounds(
     )
 
 
-def _hypergeom_tail_le(pop_n: int, pop_k: int, draw_n: int, max_obs: int) -> float:
-    """Exact P(X <= max_obs) for X ~ Hypergeometric(pop_n, pop_k, draw_n)."""
+_FRONTIER_BUDGET = 50_000
+
+
+def _stratum_hypergeom_pmf(
+    pop_n: int, pop_k: int, draw_n: int, max_obs: int
+) -> tuple[float, ...]:
+    """Exact (P(X = 0), ..., P(X = max_obs)) for X ~ Hypergeometric(pop_n, pop_k, draw_n)."""
     if pop_k < 0 or pop_k > pop_n or draw_n < 0 or draw_n > pop_n:
-        return 0.0
-    total = math.comb(pop_n, draw_n)
-    acc = 0
+        return (0.0,) * (max_obs + 1)
+    denom = math.comb(pop_n, draw_n)
+    pmf = [0.0] * (max_obs + 1)
     low = max(0, draw_n - (pop_n - pop_k))
     high = min(max_obs, pop_k, draw_n)
     for x in range(low, high + 1):
-        acc += math.comb(pop_k, x) * math.comb(pop_n - pop_k, draw_n - x)
-    return acc / total
+        pmf[x] = math.comb(pop_k, x) * math.comb(pop_n - pop_k, draw_n - x) / denom
+    return tuple(pmf)
+
+
+def _pareto_prune(candidates: Sequence[tuple[float, ...]]) -> list[tuple[float, ...]]:
+    """Keep only tuples not componentwise dominated by another tuple."""
+    kept: list[tuple[float, ...]] = []
+    for cand in sorted(candidates, reverse=True):
+        if not any(
+            all(a >= b for a, b in zip(prev, cand, strict=True)) for prev in kept
+        ):
+            kept.append(cand)
+    return kept
 
 
 def conditional_truncation_upper_bound(
@@ -190,86 +206,94 @@ def conditional_truncation_upper_bound(
     """
     if target_frame_total <= 0:
         raise ValueError("target_frame_total must be positive")
+    if observed_additional_failures < 0:
+        raise ValueError("observed_additional_failures must be non-negative")
     active = [s for s in additional_strata if s.eligible_remaining > 0]
     rem_capacity = sum(s.eligible_remaining for s in active)
-    if not active:
+    if not active or observed_additional_failures > rem_capacity:
         return round(observed_initial_failures / target_frame_total, 6)
 
-    # DP over strata to maximize P(sum_h X_h <= observed_additional_failures)
-    # for each total remaining affected count k_rem.
-    max_feasible = observed_initial_failures
-    for k_rem in range(observed_additional_failures, rem_capacity + 1):
-        # dp[used_k][obs_sum] -> max probability? No: for a fixed allocation (k_1..k_H)
-        # X_h are independent hypergeometric RVs, so we maximize P(sum X_h <= obs_add)
-        # over k_1 + ... + k_H = k_rem. With H <= 12 and obs_add small, exact allocation
-        # enumeration is fast when k_rem is small; fall back to Clopper-Pearson when large.
-        if k_rem <= 18 and len(active) <= 12:
-            best_p = 0.0
-            # Partition k_rem into len(active) non-negative integers bounded by eligible_remaining
-            def _allocs(idx: int, left: int) -> Iterable[tuple[int, ...]]:
-                if idx == len(active) - 1:
-                    if left <= active[idx].eligible_remaining:
-                        yield (left,)
-                    return
-                cap = min(left, active[idx].eligible_remaining)
-                for take in range(cap + 1):
-                    for rest in _allocs(idx + 1, left - take):
-                        yield (take, *rest)
-
-            for alloc in _allocs(0, k_rem):
-                # Convolve exact hypergeometric PMFs up to observed_additional_failures
-                pmf = [1.0] + [0.0] * observed_additional_failures
-                possible = True
-                for s, kh in zip(active, alloc, strict=True):
-                    denom = math.comb(s.eligible_remaining, s.selected_additional)
-                    step = [0.0] * (observed_additional_failures + 1)
-                    for x in range(min(kh, s.selected_additional, observed_additional_failures) + 1):
-                        if s.selected_additional - x <= s.eligible_remaining - kh:
-                            step[x] = (
-                                math.comb(kh, x)
-                                * math.comb(
-                                    s.eligible_remaining - kh,
-                                    s.selected_additional - x,
-                                )
-                                / denom
-                            )
-                    nxt = [0.0] * (observed_additional_failures + 1)
-                    for a_idx, pa in enumerate(pmf):
-                        if pa == 0.0:
-                            continue
-                        for b_idx in range(observed_additional_failures + 1 - a_idx):
-                            nxt[a_idx + b_idx] += pa * step[b_idx]
-                    pmf = nxt
-                    if sum(pmf) == 0.0:
-                        possible = False
+    alpha_prune = max(0.0, alpha - 1e-12)
+    if observed_additional_failures == 0:
+        dp: list[float] = [1.0]
+        for s in active:
+            cap = s.eligible_remaining
+            draw = s.selected_additional
+            p_zero = [
+                _stratum_hypergeom_pmf(cap, kh, draw, 0)[0] for kh in range(cap + 1)
+            ]
+            nxt = [0.0] * (len(dp) + cap)
+            for k_used, p_prev in enumerate(dp):
+                if p_prev <= alpha_prune:
+                    continue
+                for kh, p_h in enumerate(p_zero):
+                    prod = p_prev * p_h
+                    if prod <= alpha_prune:
                         break
-                if possible:
-                    prob_le = sum(pmf)
-                    if prob_le > best_p:
-                        best_p = prob_le
-            if best_p > alpha:
+                    if prod > nxt[k_used + kh]:
+                        nxt[k_used + kh] = prod
+            while len(nxt) > 1 and nxt[-1] <= alpha_prune:
+                nxt.pop()
+            dp = nxt
+
+        max_feasible = observed_initial_failures
+        for k_rem in range(min(rem_capacity, len(dp) - 1) + 1):
+            if dp[k_rem] > alpha:
                 max_feasible = observed_initial_failures + k_rem
             else:
                 break
-        else:
-            # Conservative worst-stratum bound for large k_rem
-            worst_s = min(
-                active,
-                key=lambda s: s.selected_additional / s.eligible_remaining,
-            )
-            if k_rem <= worst_s.eligible_remaining:
-                p_tail = _hypergeom_tail_le(
-                    worst_s.eligible_remaining,
-                    k_rem,
-                    worst_s.selected_additional,
-                    observed_additional_failures,
-                )
-                if p_tail > alpha:
-                    max_feasible = observed_initial_failures + k_rem
-                else:
-                    break
-            else:
+        return round(max_feasible / target_frame_total, 6)
+
+    obs = observed_additional_failures
+    frontier: dict[int, list[tuple[float, ...]]] = {0: [(1.0,) * (obs + 1)]}
+    for s in active:
+        cap = s.eligible_remaining
+        draw = s.selected_additional
+        pmfs: list[tuple[float, ...]] = []
+        for kh in range(cap + 1):
+            g = _stratum_hypergeom_pmf(cap, kh, draw, obs)
+            if sum(g) <= alpha_prune:
                 break
+            pmfs.append(g)
+
+        raw_next: dict[int, list[tuple[float, ...]]] = defaultdict(list)
+        for k_used, states in frontier.items():
+            for kh, g in enumerate(pmfs):
+                k_new = k_used + kh
+                bucket = raw_next[k_new]
+                for f_old in states:
+                    f_new = tuple(
+                        sum(f_old[t - x] * g[x] for x in range(t + 1))
+                        for t in range(obs + 1)
+                    )
+                    if f_new[obs] > alpha_prune:
+                        bucket.append(f_new)
+                if len(bucket) > 256:
+                    raw_next[k_new] = _pareto_prune(bucket)
+
+        next_frontier: dict[int, list[tuple[float, ...]]] = {}
+        total_states = 0
+        for k_new, bucket in raw_next.items():
+            if not bucket:
+                continue
+            pruned = _pareto_prune(bucket)
+            if pruned:
+                next_frontier[k_new] = pruned
+                total_states += len(pruned)
+                if total_states > _FRONTIER_BUDGET:
+                    raise ValueError(
+                        "conditional_truncation_upper_bound exceeded exact DP frontier budget"
+                    )
+        frontier = next_frontier
+
+    max_feasible = observed_initial_failures
+    for k_rem in range(obs, rem_capacity + 1):
+        states = frontier.get(k_rem)
+        best_p = max((st[obs] for st in states), default=0.0) if states else 0.0
+        if best_p > alpha:
+            max_feasible = observed_initial_failures + k_rem
+        else:
+            break
     return round(max_feasible / target_frame_total, 6)
 
 
@@ -407,7 +431,8 @@ def score_candidate(
     seed: int = 60723,
 ) -> CandidateScore:
     """Compute all step 2.3 quality and cost metrics for one candidate route."""
-    threads = sorted({a.thread_id for a in attempts} | set(meta_by_thread))
+    attempted_threads = sorted({a.thread_id for a in attempts})
+    threads = sorted(set(attempted_threads) | set(meta_by_thread))
     trunc_threads = {
         a.thread_id for a in attempts if a.first_status == "truncated"
     }
@@ -488,14 +513,19 @@ def score_candidate(
 
     if truncation_upper_override is not None:
         trunc_upper = truncation_upper_override
+    elif not attempted_threads:
+        trunc_upper = 1.0
     elif len(trunc_threads) == 0:
-        trunc_upper = independent_zero_event_upper(len(threads))
+        trunc_upper = independent_zero_event_upper(len(attempted_threads))
     else:
         trunc_ratios = {
-            t: (1.0 if t in trunc_threads else 0.0, 1.0) for t in threads
+            t: (1.0 if t in trunc_threads else 0.0, 1.0) for t in attempted_threads
+        }
+        attempted_meta = {
+            t: meta_by_thread[t] for t in attempted_threads if t in meta_by_thread
         }
         trunc_upper = stratified_bootstrap_bounds(
-            trunc_ratios, meta_by_thread, resamples=bootstrap_resamples, seed=seed
+            trunc_ratios, attempted_meta, resamples=bootstrap_resamples, seed=seed
         ).upper_95
 
     n_att = len(attempts)

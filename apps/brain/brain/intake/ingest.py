@@ -241,12 +241,35 @@ def run(
     return counts
 
 
+def _parse_positive_int(raw: Any, field_name: str) -> int | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        raise ValueError(f"{field_name} must be a positive integer")
+    if isinstance(raw, int):
+        val = raw
+    elif isinstance(raw, str):
+        try:
+            val = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must be a positive integer") from exc
+    else:
+        raise ValueError(f"{field_name} must be a positive integer")
+    if val <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return val
+
+
 def handle_intake_ingest(job: dict[str, Any]) -> None:
     payload = job.get("payload") or {}
-    days_raw = payload.get("days")
-    days = int(days_raw) if days_raw is not None else None
+    days = _parse_positive_int(payload.get("days"), "days")
+    limit = _parse_positive_int(payload.get("limit"), "limit")
     counts = run(
-        get_settings(), payload.get("origin"), payload.get("limit"), days=days
+        get_settings(),
+        payload.get("origin"),
+        limit,
+        thread_prefix=payload.get("thread_prefix"),
+        days=days,
     )
     logger.info("intake_ingest: %s", counts)
 
