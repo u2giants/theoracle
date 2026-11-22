@@ -131,9 +131,9 @@ def resolve_people(firsts: list[str]) -> list[tuple[str, str]]:
     return out
 
 
-def clickup_member(members: list[dict], email: str, name: str) -> int | None:
+def clickup_member(members: list[dict], email: str, name: str) -> int | str | None:
     """ClickUp user id: same email, else same full name, else a unique first-name match."""
-    users = [m["user"] for m in members]
+    users = [m["user"] for m in (members or []) if m and m.get("user")]
     for test in (
         lambda u: (u.get("email") or "").lower() == email.lower(),
         lambda u: (u.get("username") or "").lower() == name.lower(),
@@ -144,7 +144,7 @@ def clickup_member(members: list[dict], email: str, name: str) -> int | None:
     ):
         hits = [u for u in users if test(u)]
         if len(hits) == 1:
-            return hits[0]["id"]
+            return hits[0].get("id")
     return None
 
 
@@ -199,11 +199,20 @@ def task_comments(c: httpx.Client, task_id: str) -> list[dict]:
 def involves(task: dict, wanted: set, comments: list[dict] | None = None) -> bool:
     """True when a wanted user is assignee, watcher, creator or commenter."""
     people_on = {
-        u.get("id") for u in task.get("assignees", []) + task.get("watchers", [])
+        str(u["id"])
+        for u in (task.get("assignees") or []) + (task.get("watchers") or [])
+        if u and u.get("id") is not None
     }
-    people_on.add((task.get("creator") or {}).get("id"))
-    people_on.update((cm.get("user") or {}).get("id") for cm in comments or [])
-    return bool(people_on & wanted)
+    creator_id = (task.get("creator") or {}).get("id")
+    if creator_id is not None:
+        people_on.add(str(creator_id))
+    people_on.update(
+        str(cm["user"]["id"])
+        for cm in comments or []
+        if cm and (cm.get("user") or {}).get("id") is not None
+    )
+    wanted_ids = {str(w) for w in wanted if w is not None}
+    return bool(people_on & wanted_ids)
 
 
 def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> None:
@@ -212,12 +221,12 @@ def size_clickup(people: list[tuple[str, str]], since: datetime, t: Tally) -> No
         teams = get_retry(c, f"{CLICKUP}/team").json()["teams"]
         seen_tasks: set[str] = set()
         for team in teams:
-            uids = [clickup_member(team.get("members", []), e, n) for e, n in people]
+            uids = [clickup_member(team.get("members") or [], e, n) for e, n in people]
             if None in uids:
                 sys.exit(
                     f"ClickUp: {uids.count(None)} person(s) not matched to exactly one member"
                 )
-            wanted = set(uids)
+            wanted = {str(u) for u in uids}
             # Kept when either person is assignee, creator, watcher or commenter.
             for task in window_tasks(c, team["id"], since):
                 t.scanned += 1

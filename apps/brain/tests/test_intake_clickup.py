@@ -324,3 +324,61 @@ def test_commenter_counts_as_involved() -> None:
     task = make_task("Z9", assignees=())
     assert not sizing.involves(task, {101})
     assert sizing.involves(task, {101}, [_comment(1, 1, user=101)])
+
+
+def test_involves_handles_none_lists_and_mixed_id_types() -> None:
+    task_none = make_task("n1", assignees=(), watchers=None)
+    task_none["assignees"] = None
+    assert not sizing.involves(task_none, {101})
+
+    task_str = make_task("s1", assignees=(), watchers=None)
+    task_str["assignees"] = [{"id": "101", "username": "Pat Example"}]
+    assert sizing.involves(task_str, {101})
+    assert sizing.involves(task_str, {"101"})
+
+    task_int = make_task("i1", assignees=(101,))
+    assert sizing.involves(task_int, {"101"})
+
+    watcher_str = make_task("w1", assignees=(), watchers=[{"id": "101"}])
+    assert sizing.involves(watcher_str, {101})
+
+    comment_str = _comment(1, 1, user="101")  # type: ignore[arg-type]
+    assert sizing.involves(make_task("c1", assignees=()), {101}, [comment_str])
+
+
+def test_comment_404_and_403_skipped_with_warning_and_counter(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    pages = {
+        0: [
+            make_task("t_404", assignees=(101,), text_content="kept body"),
+            make_task("t_403", assignees=(202,)),
+            make_task("t_ok", assignees=(101,)),
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v2/team":
+            return httpx.Response(200, json={"teams": [TEAM]})
+        if path == "/api/v2/team/T1/task":
+            page = int(request.url.params["page"])
+            return httpx.Response(200, json={"tasks": pages.get(page, [])})
+        if path == "/api/v2/task/t_404/comment":
+            return httpx.Response(404, json={"err": "Task not found"})
+        if path == "/api/v2/task/t_403/comment":
+            return httpx.Response(403, json={"err": "Forbidden"})
+        if path == "/api/v2/task/t_ok/comment":
+            return httpx.Response(
+                200, json={"comments": [_comment(1, 1790000600000, user=101)]}
+            )
+        return httpx.Response(404)
+
+    with caplog.at_level("WARNING", logger="brain.intake.clickup"):
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            counts = clickup.run(client, PEOPLE, SINCE)
+
+    assert counts.tasks == 2
+    assert counts.comment_errors == 2
+    assert any("404" in rec.message for rec in caplog.records)
+    assert any("403" in rec.message for rec in caplog.records)

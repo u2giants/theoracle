@@ -34,7 +34,7 @@ _DROP_ELEMENTS = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _HIDDEN = re.compile(
-    r"<(\w+)\b[^>]*style\s*=\s*\"[^\"]*display\s*:\s*none[^\"]*\"[^>]*>.*?</\1\s*>",
+    r"<(\w+)\b[^>]*style\s*=\s*(?:\"[^\"]*display\s*:\s*none[^\"]*\"|'[^']*display\s*:\s*none[^']*')[^>]*>.*?</\1\s*>",
     re.IGNORECASE | re.DOTALL,
 )
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -374,8 +374,12 @@ def apply(conn: Any, origin: str, signatures: Iterable[str] = ()) -> dict[str, i
                 )
             else:
                 cur.execute(
-                    "UPDATE cmap.intake_thread SET token_count = %s, updated_at = now() "
-                    "WHERE origin = %s AND thread_key = %s",
+                    "UPDATE cmap.intake_thread SET token_count = %s, "
+                    "verdict = CASE WHEN verdict = 'dropped' AND gate_scores->>'rule' = 'too_short' "
+                    "THEN 'pending' ELSE verdict END, "
+                    "gate_scores = CASE WHEN verdict = 'dropped' AND gate_scores->>'rule' = 'too_short' "
+                    "THEN '{}'::jsonb ELSE gate_scores END, "
+                    "updated_at = now() WHERE origin = %s AND thread_key = %s",
                     (th.tokens, origin, th.thread_key),
                 )
     conn.commit()
