@@ -1698,6 +1698,7 @@ def handle_relations(job: dict[str, Any]) -> None:
     written = 0
     failed = 0
     relation_count = 0
+    any_sibling_succeeded = False
 
     sync_pending = pending
     if (
@@ -1781,6 +1782,7 @@ def handle_relations(job: dict[str, Any]) -> None:
                     resolve=_resolve_interview_answer(sib_sid),
                 )
                 if sib_state != "failed":
+                    any_sibling_succeeded = True
                     after_source_relations(sib_sid)
                 _finish_sibling_job(sib_jid, requeue=False)
 
@@ -1849,8 +1851,9 @@ def handle_relations(job: dict[str, Any]) -> None:
         failed=(state == "failed"),
         resolve=_resolve_interview_answer(source_id),
     )
-    if state != "failed":
+    if state != "failed" or any_sibling_succeeded:
         _enqueue_resolve()
+    if state != "failed":
         after_source_relations(source_id)
 
 
