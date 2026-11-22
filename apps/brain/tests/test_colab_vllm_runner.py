@@ -291,6 +291,7 @@ def test_rejects_remote_code_and_unpinned_revision(
 def test_batch_execution_guided_json_and_lora_model_tag(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
     use_structured_outputs: bool,
 ) -> None:
     """Verify temperature=0, default 2000 max_tokens, guided JSON (0.8.x + structured fallback), and LoRA tag."""
@@ -329,6 +330,8 @@ def test_batch_execution_guided_json_and_lora_model_tag(
         ]
     )
     assert rc == 0
+    printed_summary = json.loads(capsys.readouterr().out.strip())
+    assert printed_summary["first_truncated_items"] == 0
 
     llm_kw = recorded["llm_kwargs"][0]
     assert llm_kw["trust_remote_code"] is False
@@ -362,12 +365,17 @@ def test_batch_execution_guided_json_and_lora_model_tag(
         "model_tag",
         "raw_content",
         "finish_reason",
+        "first_finish_reason",
+        "retried",
         "prompt_tokens",
         "completion_tokens",
         "elapsed_ms",
     }
     assert rows[0]["chunk_id"] == "chunk-0000"
     assert rows[0]["model_tag"] == expected_tag
+    assert rows[0]["finish_reason"] == "stop"
+    assert rows[0]["first_finish_reason"] == "stop"
+    assert rows[0]["retried"] is False
     assert rows[0]["prompt_tokens"] == 4
     assert rows[0]["completion_tokens"] == 3
     assert isinstance(rows[0]["elapsed_ms"], (int, float))
@@ -453,7 +461,9 @@ def test_checkpoint_64_and_resume_skips_completed_chunks(
 
 
 def test_finish_reason_length_retries_once_at_4000_tokens(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Chunks hitting finish_reason=='length' retry exactly once at TRUNCATION_RETRY_MAX_TOKENS (4000)."""
     assert TRUNCATION_RETRY_MAX_TOKENS == 4000
@@ -503,6 +513,7 @@ def test_finish_reason_length_retries_once_at_4000_tokens(
 
     assert summary.processed_items == 3
     assert summary.retried_items == 2
+    assert summary.first_truncated_items == 2
     assert len(recorded["generate_calls"]) == 2
     retry_call = recorded["generate_calls"][1]
     assert len(retry_call["prompts"]) == 2
@@ -510,9 +521,35 @@ def test_finish_reason_length_retries_once_at_4000_tokens(
 
     rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
     assert rows[0]["finish_reason"] == "stop"
+    assert rows[0]["first_finish_reason"] == "stop"
+    assert rows[0]["retried"] is False
     assert rows[1]["finish_reason"] == "stop"
+    assert rows[1]["first_finish_reason"] == "length"
+    assert rows[1]["retried"] is True
     assert rows[1]["raw_content"] == '{"relations": [], "new_mentions": []}'
     assert rows[2]["finish_reason"] == "length"
+    assert rows[2]["first_finish_reason"] == "length"
+    assert rows[2]["retried"] is True
+
+    cli_output = tmp_path / "cli_results.jsonl"
+    rc = main(
+        [
+            "--input",
+            str(packet_path),
+            "--schema",
+            str(schema_path),
+            "--output",
+            str(cli_output),
+            "--hf-model",
+            str(model_dir),
+            "--hf-revision",
+            VALID_REVISION,
+        ]
+    )
+    assert rc == 0
+    cli_summary = json.loads(capsys.readouterr().out.strip())
+    assert cli_summary["retried_items"] == 2
+    assert cli_summary["first_truncated_items"] == 2
 
 
 def test_unassign_on_exit_fires_even_on_error(
