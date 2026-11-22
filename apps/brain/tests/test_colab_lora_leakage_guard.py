@@ -1,9 +1,11 @@
-"""Tests for QLoRA holdout leakage guard and trainer safety (#664 Step 2.1 & §9a)."""
+"""Tests for QLoRA holdout leakage guard and trainer L1/L8 safety (#664 Step 2.1 & §9a)."""
 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import tarfile
 from pathlib import Path
 
 import httpx
@@ -125,8 +127,10 @@ def test_tuning_sft_formats_positive_and_negative_windows(tmp_path: Path) -> Non
     assert neg_target == {"relations": [], "new_mentions": []}
 
 
-def test_lora_trainer_enforces_l7_l8_and_teardown(tmp_path: Path) -> None:
-    """Trainer rejects unpinned/remote-code models, refuses --push-to-hub, writes manifest, and unassigns."""
+def test_lora_trainer_enforces_l1_l7_l8_archive_and_host_only_upload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Trainer enforces L1 (no Supabase/DB keys on Colab), L7, L8, tar archive round-trip, and teardown."""
     with pytest.raises(LoraTrainingSafetyError, match="40-char"):
         validate_base_model_spec("Qwen/Qwen2.5-32B-Instruct", "main")
 
@@ -138,31 +142,74 @@ def test_lora_trainer_enforces_l7_l8_and_teardown(tmp_path: Path) -> None:
         )
 
     assert main(["--push-to-hub"]) == 2
+    assert main(["--upload-private"]) == 2
 
     sft_file = tmp_path / "sft.jsonl"
     sft_file.write_text('{"chunk_id":"c1","messages":[]}\n', encoding="utf-8")
     out_dir = tmp_path / "adapter"
+    tar_path = tmp_path / "adapter.tar.gz"
     unassigned: list[bool] = []
 
     def fake_fit(*, output_dir: Path, **_kwargs: object) -> None:
         (output_dir / "adapter_model.safetensors").write_bytes(b"fake-lora-weights")
         (output_dir / "adapter_config.json").write_text('{"r": 16}', encoding="utf-8")
 
-    manifest = run_lora_training_pipeline(
-        sft_path=sft_file,
-        output_dir=out_dir,
-        hf_model="Qwen/Qwen2.5-32B-Instruct",
-        hf_revision="b" * 40,
-        run_id="run-20261121",
-        fit_fn=fake_fit,
-        unassign_on_exit=True,
-        unassign_fn=lambda: unassigned.append(True),
-    )
-    assert unassigned == [True]
-    assert manifest["model_tag"].startswith(
-        f"colab-vllm/Qwen/Qwen2.5-32B-Instruct@{'b' * 40}+lora:"
-    )
+    # 1. Inside a simulated Colab VM, presence of SUPABASE_SERVICE_ROLE_KEY or DATABASE_URL aborts (L1)
+    with monkeypatch.context() as colab_mp:
+        for key in (
+            "DATABASE_URL",
+            "DIRECT_URL",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "OPENROUTER_API_KEY",
+            "BRAIN_SHARED_TOKEN",
+            "PROD_DIRECT_URL",
+        ):
+            colab_mp.delenv(key, raising=False)
+        colab_mp.setenv("COLAB_RELEASE_TAG", "release-colab-20261121")
+        colab_mp.setenv("SUPABASE_SERVICE_ROLE_KEY", "forbidden-on-colab")
+        with pytest.raises(LoraTrainingSafetyError, match="L1 violation"):
+            run_lora_training_pipeline(
+                sft_path=sft_file,
+                output_dir=out_dir,
+                hf_model="Qwen/Qwen2.5-32B-Instruct",
+                hf_revision="b" * 40,
+                run_id="run-20261121",
+                fit_fn=fake_fit,
+                unassign_on_exit=True,
+                unassign_fn=lambda: unassigned.append(True),
+            )
+        assert unassigned == [True]
 
+        # Calling upload_adapter_to_private_bucket while inside Colab is also refused (L1)
+        with pytest.raises(LoraTrainingSafetyError, match="trusted host"):
+            upload_adapter_to_private_bucket(
+                out_dir,
+                run_id="run-20261121",
+                supabase_url="https://example.supabase.co",
+                service_role_key="service-role-test",
+            )
+
+        # 2. Clean Colab training run (no forbidden secrets) writes manifest + .tar.gz and unassigns
+        colab_mp.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+        unassigned.clear()
+        manifest = run_lora_training_pipeline(
+            sft_path=sft_file,
+            output_dir=out_dir,
+            hf_model="Qwen/Qwen2.5-32B-Instruct",
+            hf_revision="b" * 40,
+            run_id="run-20261121",
+            fit_fn=fake_fit,
+            archive_tar_path=tar_path,
+            unassign_on_exit=True,
+            unassign_fn=lambda: unassigned.append(True),
+        )
+        assert unassigned == [True]
+        assert tar_path.is_file()
+        assert manifest["model_tag"].startswith(
+            f"colab-vllm/Qwen/Qwen2.5-32B-Instruct@{'b' * 40}+lora:"
+        )
+
+    # 3. Back on trusted host (COLAB_RELEASE_TAG unset), upload directly from downloaded .tar.gz succeeds!
     uploaded_paths: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -170,7 +217,7 @@ def test_lora_trainer_enforces_l7_l8_and_teardown(tmp_path: Path) -> None:
         return httpx.Response(200, json={"Key": request.url.path})
 
     keys = upload_adapter_to_private_bucket(
-        out_dir,
+        tar_path,
         run_id="run-20261121",
         supabase_url="https://example.supabase.co",
         service_role_key="service-role-test",
@@ -179,3 +226,19 @@ def test_lora_trainer_enforces_l7_l8_and_teardown(tmp_path: Path) -> None:
     assert all(k.startswith("private-models/colab-lora/run-20261121/") for k in keys)
     assert any(k.endswith("adapter_manifest.json") for k in keys)
     assert len(uploaded_paths) == 3
+
+    # 4. Path-traversal .tar.gz archive is rejected before extracting
+    evil_tar = tmp_path / "evil.tar.gz"
+    with tarfile.open(evil_tar, "w:gz") as tf:
+        info = tarfile.TarInfo(name="../escape.txt")
+        payload = b"evil"
+        info.size = len(payload)
+        tf.addfile(info, io.BytesIO(payload))
+    with pytest.raises(LoraTrainingSafetyError, match="unsafe tar archive entry"):
+        upload_adapter_to_private_bucket(
+            evil_tar,
+            run_id="run-20261121",
+            supabase_url="https://example.supabase.co",
+            service_role_key="service-role-test",
+            transport=httpx.MockTransport(handler),
+        )

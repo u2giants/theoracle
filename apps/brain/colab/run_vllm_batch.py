@@ -80,6 +80,7 @@ class BatchRunSummary:
     retried_items: int
     model_tag: str
     output_path: Path
+    first_truncated_items: int = 0
 
 
 ConfigLoader = Callable[[str, str], tuple[dict[str, Any], Sequence[str] | None]]
@@ -600,6 +601,7 @@ def run_batch(
                 retried_items=0,
                 model_tag=model_tag,
                 output_path=output_path,
+                first_truncated_items=0,
             )
 
         allow_fallback = engine_factory is not None
@@ -614,6 +616,7 @@ def run_batch(
 
         processed = 0
         retried = 0
+        first_truncated = 0
         with output_path.open("a", encoding="utf-8") as fh:
             for start in range(0, len(pending), checkpoint_every):
                 batch = pending[start : start + checkpoint_every]
@@ -633,9 +636,14 @@ def run_batch(
                     lora_request=lora_request,
                 )
 
+                first_finish_reasons = [res.finish_reason for res in results]
                 retry_indices = [
-                    idx for idx, res in enumerate(results) if res.finish_reason == "length"
+                    idx
+                    for idx, reason in enumerate(first_finish_reasons)
+                    if reason == "length"
                 ]
+                retry_set = set(retry_indices)
+                first_truncated += len(retry_indices)
                 if retry_indices:
                     retry_prompts = [batch[idx]["prompt"] for idx in retry_indices]
                     retry_params = [
@@ -657,13 +665,15 @@ def run_batch(
                         results[orig_idx] = retry_res
                     retried += len(retry_indices)
 
-                for item, res in zip(batch, results, strict=True):
+                for idx, (item, res) in enumerate(zip(batch, results, strict=True)):
                     record = {
                         "chunk_id": item["chunk_id"],
                         "prompt_hash": item["prompt_hash"],
                         "model_tag": model_tag,
                         "raw_content": res.raw_content,
                         "finish_reason": res.finish_reason,
+                        "first_finish_reason": first_finish_reasons[idx],
+                        "retried": idx in retry_set,
                         "prompt_tokens": res.prompt_tokens,
                         "completion_tokens": res.completion_tokens,
                         "elapsed_ms": round(res.elapsed_ms, 2),
@@ -680,6 +690,7 @@ def run_batch(
             retried_items=retried,
             model_tag=model_tag,
             output_path=output_path,
+            first_truncated_items=first_truncated,
         )
     finally:
         if unassign_on_exit:
@@ -757,6 +768,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "skipped_items": summary.skipped_items,
                 "processed_items": summary.processed_items,
                 "retried_items": summary.retried_items,
+                "first_truncated_items": summary.first_truncated_items,
                 "model_tag": summary.model_tag,
                 "output_path": str(summary.output_path),
             }

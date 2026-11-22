@@ -44,7 +44,7 @@ Colab GPU (ephemeral) ──POST /colab/lease, /colab/submit──> apps/brain (
 
 High-volume `relations` backfills and open-weight/QLoRA evaluations (`plan_colab_gpu_offload.md`) run on ephemeral Google Colab GPU runtimes without placing Colab in any live user or Teams request path:
 
-- **Offline JSONL packets (`apps/brain/brain/colab_packet.py`, `apps/brain/colab/run_vllm_batch.py`):** exports pending windows and a strict ontology JSON Schema for grammar-constrained vLLM decoding, then re-validates replies on `apps/brain`.
+- **Offline JSONL packets (`apps/brain/brain/colab_packet.py`, `apps/brain/brain/colab_bakeoff.py`, `apps/brain/colab/run_vllm_batch.py`):** exports pending windows and a strict ontology JSON Schema for grammar-constrained vLLM decoding, then re-validates replies on `apps/brain` and scores bake-offs via `brain.intake.bakeoff`.
 - **Pull-based leases (`apps/brain/brain/sql/039_colab_leases.sql`, `apps/brain/brain/api/colab.py`, `apps/brain/colab/drain_leases.py`):** when `BRAIN_COLAB_LEASE_ENABLED=true`, workers authenticated with `BRAIN_COLAB_WORKER_TOKEN` claim 15-minute (`<=30m` DB-enforced) chunk leases from `colab_offload=true` sources (excluding live `awaits_reply` interview turns) and submit raw JSON back for server-side `validate_response` and mention embedding. Disabling `BRAIN_COLAB_LEASE_ENABLED` falls back immediately to the standard worker.
 
 ## Teams live meetings (Recall.ai)
