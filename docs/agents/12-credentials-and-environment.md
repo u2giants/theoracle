@@ -72,6 +72,7 @@ read-when: adding, renaming or debugging an environment variable or credential
 | `BRAIN_COLAB_LEASE_ENABLED` | Master kill-switch for Colab `/colab/*` pull-lease endpoints (default `false`; `503` when disabled) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
 | `BRAIN_COLAB_LEASE_TTL_SECONDS` | Colab pull-lease TTL in seconds (default `900`, validated `60..1800`) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
 | `BRAIN_COLAB_MAX_BATCH_SIZE` | Maximum prompts leased per Colab `/colab/lease` batch (default `64`, validated `1..256`) | `1Password vibe_coding`, `.env.local`, Coolify (brain) | optional | optional |
+| `BRAIN_MESSAGE_RELATIONS_MODEL` | Dedicated relations model fallback for message-intake sources (`origin IS NOT NULL`; overridden by `cmap.model_seat` stage `relations_messages`) | `.env.local`, Coolify (brain) | optional | optional |
 
 **Canonical OpenRouter credential:** vault `vibe_coding`, existing note
 `OpenRouter API Key - The Oracle (local .env.local)`, item

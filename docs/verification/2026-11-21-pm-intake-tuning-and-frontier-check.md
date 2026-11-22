@@ -1,5 +1,5 @@
 ---
-summary: "Step 2.3 addendum: calibrated L8 2-of-3 blind scores across all 11 completed routes (including frontier diagnostics), message-prompt + L8 guard tuning, and the flat-mention recall bottleneck for issue 607."
+summary: "Step 2.3 addendum (#607): blind scores across 11 routes (incl. frontier diagnostics), message-prompt tuning, and flat-mention bottleneck."
 kind: proof
 status: current
 read-when: reviewing why frontier models also fail the original prompt, how message-specific prompting and an L8 verify/narrow guard perform on tuning, or the precision-recall trade-off for issue 607

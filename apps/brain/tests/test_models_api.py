@@ -16,6 +16,7 @@ SEAT_KEYS = (
     "embed_dims",
     "flat_fallback",
     "relations",
+    "relations_messages",
     "resolve",
     "reports",
     "answer",

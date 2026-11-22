@@ -72,3 +72,27 @@ def test_contradiction_prompt_contract() -> None:
         "true contradiction",
     ):
         assert value in text, value
+
+
+def test_message_relations_prompt_contracts() -> None:
+    """Message-intake relation prompts (#607) name their DATA slots and JSON contract."""
+    primary = (PROMPTS_DIR / "relations_messages.md").read_text(encoding="utf-8")
+    assert '"relations"' in primary
+    assert '"new_mentions"' in primary
+    assert "{{mentions_json}}" in primary
+    assert "{{previous_context}}" in primary
+    assert "{{chunk_text}}" in primary
+
+    audit = (PROMPTS_DIR / "relations_messages_audit.md").read_text(encoding="utf-8")
+    assert '"relations"' in audit
+    assert '"new_mentions"' in audit
+    assert "{{previous_context}}" in audit
+    assert "{{chunk_text}}" in audit
+    assert "{{candidate_json}}" in audit
+
+    gate = (PROMPTS_DIR / "relations_messages_gate.md").read_text(encoding="utf-8")
+    assert '"relations"' in gate
+    assert '"new_mentions"' in gate
+    assert "{{previous_context}}" in gate
+    assert "{{chunk_text}}" in gate
+    assert "{{audited_json}}" in gate

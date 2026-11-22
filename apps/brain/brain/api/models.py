@@ -33,6 +33,7 @@ def get_models() -> dict[str, Any]:
             "embed_dims": settings.brain_embed_dims,
             "flat_fallback": seats["flat"]["model"],
             "relations": seats["relations"]["model"],
+            "relations_messages": seats["relations_messages"]["model"],
             "resolve": seats["resolve"]["model"],
             "reports": seats["reports"]["model"],
             "answer": seats["answer"]["model"],

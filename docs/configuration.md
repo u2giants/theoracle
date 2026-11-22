@@ -174,6 +174,7 @@ Read by `apps/brain/brain/config.py`, passed through `apps/brain/deploy/compose.
 | `BRAIN_COLAB_LEASE_ENABLED` | `false` | Colab batch offload (`plan_colab_gpu_offload.md` Step 0.2). Master kill-switch for `/colab/*` pull-lease endpoints. Source: `1Password vibe_coding` / Coolify env. Optional in dev and prod; off by default (`/colab/*` returns `503` when disabled or token is unset). |
 | `BRAIN_COLAB_LEASE_TTL_SECONDS` | `900` | Colab batch offload (`plan_colab_gpu_offload.md` Step 0.2). Lease lifetime in seconds, validated `60..1800` (enforces the <=30 minute standing rule). Source: `1Password vibe_coding` / Coolify env. Optional in dev and prod; invalid values fail startup `Settings` validation. |
 | `BRAIN_COLAB_MAX_BATCH_SIZE` | `64` | Colab batch offload (`plan_colab_gpu_offload.md` Step 0.2). Maximum prompts returned per `/colab/lease` call, validated `1..256`. Source: `1Password vibe_coding` / Coolify env. Optional in dev and prod; invalid values fail startup `Settings` validation. |
+| `BRAIN_MESSAGE_RELATIONS_MODEL` | unset | Message intake (`plan_pm_message_intake.md` step 2.3, `#607`). Optional env fallback for the `relations_messages` seat used on `cmap.source` rows with `origin IS NOT NULL`. When neither the `relations_messages` seat nor this variable is set, message sources fall back to `relations`. |
 
 Admin actions added by Phase A (brain API, reached through the web proxy and the sources page):
 `POST /sources/reread-all`, `POST /sources/{id}/reread`, `POST /jobs/retry-failed`.
