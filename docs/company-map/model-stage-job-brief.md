@@ -26,7 +26,10 @@ It also specifies the model-page rework and the bake-off protocol.
 **Scope:** the nine model-touching stages of `apps/brain` (vision, embed, flat,
 relations, resolve, community reports, answers, recommendations, eval grader).
 The frozen legacy app (interview/extraction/synthesis routes) is out of scope
-except that its admin controls must keep working.
+except that its admin controls must keep working. For offline/batch open-weight
+vLLM bake-offs, QLoRA fine-tuning, and prepaid Google Colab GPU offload of the
+relations stage (#664), read [`plan_colab_gpu_offload.md`](../../plan_colab_gpu_offload.md)
+STATUS first — do not re-derive or re-plan.
 
 ---
 
