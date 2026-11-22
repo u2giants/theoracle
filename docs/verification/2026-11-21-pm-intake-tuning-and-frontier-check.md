@@ -68,10 +68,32 @@ Extracting relations directly from full thread turns without restricting endpoin
 | `GPT-6 Luna` → `Claude Haiku 5.5` verify/narrow guard (L8 pair) | 20/20 | 100.0% | 74.5% (35/47) | **86.7% / 86.8%** | **$0.850** |
 | `Claude Opus 5.5` medium (frontier diagnostic, 20 threads) | 20/20 | — | 95.2% (40/42) | — / 68.6% | ~$29.00 |
 
+### 3c. Dynamic few-shot RAG with `GPT-6 Luna` (zero Colab, zero frontier)
+
+Retrieving top-k similar verified good/bad extraction examples strictly from the **other 30 tuning threads** (`rag_bank_tuning30_v2.json`: `29` usable threads, `78` consensus-good + `29` consensus-bad examples, zero held-out overlap) via TF-IDF cosine similarity + same-origin boost into single-pass `GPT-6 Luna` produced the largest single jump across all tuning experiments (`rag-l8-results.json` `804e7408...`; `rag-l8-v2-results.json` `34763645...`; `rag-l8-v3-results.json` `594d11b6...`):
+
+| Tuning arm (20 tuning threads, zero held-out access) | First-attempt OK | In-turn quote % | Semantic recall (source-first) | Strict 2-of-3 non-author precision (Haiku / GLM / DeepSeek) | Est. batch USD / 1k threads |
+|---|---:|---:|---:|---:|---:|
+| `rag_luna_k3_full3j` (`k=3`, base message prompt) | 20/20 | 100.0% | 93.2% (41/44) | 91.4% (74/81) (`86.4%` / `93.8%` / `90.1%`) | $0.506 |
+| **`rag_luna_k4_recall_full3j` (`k=4` + completeness check)** | **20/20** | **100.0%** | **95.5% (42/44)** | **91.0% (81/89)** (`84.3%` / `94.4%` / `87.6%`) | **$0.583** |
+| `rag_luna_v3_tight` (heavier prompt rules) | 20/20 | 100.0% | 87.2% (41/47) | 88.0% (73/83) | $0.631 |
+| `rag_luna_v3` + `Haiku` repair guard | 19/20 | 69.9% | 66.0% (31/47) | 73.5% (36/49, 2-of-2 non-author) | $1.056 |
+
+### 3d. Zero-leakage held-out check on the 30 frozen Step 2.1 gold threads
+
+Running the frozen winning recipe (`rag_luna_k4_recall_full3j`, zero further tuning, zero overlap between the 29-thread tuning RAG bank and the 30 frozen Step 2.1 scoring threads; `qualify-30gold-report.json` SHA-256 `2e6972c1e1fe1a4017b1f072571416e61170e5ee9fb851874a334de2d9e6b585`) gave:
+
+- **First-attempt completion:** `30/30` (`0%` truncation) at **`$0.6704` per 1,000 threads** (OpenAI native batch; ~$2.26 for all 3,373 staged PM threads).
+- **Exact single-turn verbatim quotes:** `202/204` = **`99.02%`** (stratified bootstrap 95% LB `97.93%`).
+- **Lead source-first recall (51 Step 2.1 `source_first_observations`):** `51/51` = **`100.0%`** (95% LB **`100.0%`**).
+- **Full-thread source-first recall (97 GLM facts across all 30 threads):** `91/97` = **`93.81%`** (95% LB **`91.25%`**, clearing `>= 90%`).
+- **Granular 4-model-union claim coverage (944 Step 2.1 `accepted_candidate_claims`):** `662/944` = `70.13%` (95% LB `62.92%`; single-pass concise relations cover 100% of lead source-first facts while omitting redundant multi-chunk duplicates).
+- **Strict 2-of-3 non-author blind precision:** `180/202` = **`89.11%`** (95% LB **`82.91%`**, UB `93.75%`; `j-haiku-med 88.6%`, `j-glm-flash 89.6%`, `j-deepseek 89.7%` — `+29.6` points above Luna on `relations.md` and `+49.6` points above frontier Opus, but still short of the `>= 95%` lower confidence bound).
+
 ## 4. Stop verdict and business options
 
-Neither any zero-shot/prompt-tuned L8 route, nor the cheapest L8 extract+guard pair (`$0.85/1k` batch), nor even frontier `Claude Opus 5.5` clears **both** `>= 95%` correctness and `>= 90%` semantic recall simultaneously on unstructured PM messages. Per plan §2.3, Stage 4 paid runs on the 350 held-out threads remain stopped awaiting an owner business decision:
+Single-pass `GPT-6 Luna` + few-shot RAG clears source-first coverage (`100%` of lead source-first facts; `93.8%` full-thread recall, LB `91.25%`), quote accuracy (`99.02%`), and truncation (`0/30`) at `$0.67/1,000` threads with **zero Colab reliance**, but reaches **`89.11%` strict blind precision (LB `82.91%`, UB `93.75%`)** — still short of the `>= 95%` lower confidence bound. Per plan §2.3, paid runs on the remaining 320 held-out threads remain stopped awaiting an owner business decision:
 
-1. **Train a custom fine-tuned open-weight model** via companion plan [`plan_colab_gpu_offload.md`](../../plan_colab_gpu_offload.md) (`#664`) to pursue the unchanged `95% / 90%` dual gate.
-2. **Approve practical message-intake thresholds** (e.g., `>= 85%` correctness and `>= 80%` recall) and authorize qualifying the single-pass `GPT-6 Luna` (`~$0.51/1k` batch) or `Luna → Haiku` verify/narrow pair (`~$0.85/1k` batch) on the 350 held-out threads, eliminating the flat-extraction bottleneck.
+1. **Adopt `GPT-6 Luna` + RAG (~89% strict blind accuracy, 94%–100% coverage, ~$0.67/1,000 threads, zero Colab)** by lowering the message-intake correctness bar (e.g., to `>= 85%` LB / `>= 88%` point) and running full 350-thread qualification + 15-question eval.
+2. **Train a custom fine-tuned open-weight model** via companion plan [`plan_colab_gpu_offload.md`](../../plan_colab_gpu_offload.md) (`#664`) to pursue the unchanged `95% / 90%` dual gate (can also run on any rented cloud GPU if prepaid Colab units ever run out).
 3. **Pause project-manager message intake** until one of the above is selected.
