@@ -4,21 +4,28 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+import psycopg
 import pytest
 from conftest import FakeRelations, fake_embeddings, fake_relations, fake_scaledown
 from test_flat import PDF_FIXTURE, _seed_fixture, _seed_text
 
+from brain import colab_packet as colab_packet_mod
 from brain import db as db_mod
 from brain.colab_packet import (
     ColabPacketError,
     export_relations_packet,
     export_relations_schema,
     import_relations_results,
+    load_source_windows,
     main,
     manifest_path_for,
+    persist_validated_items,
+    validate_chunk_submission,
 )
 from brain.config import get_settings
 from brain.extract.flat import ENTITY_TYPES, handle_classify_extract
@@ -306,3 +313,144 @@ def test_prompt_injected_passage_cannot_invent_unquoted_relation(
     assert summary.relation_count == 0
     assert summary.drops["quote_mismatch"] >= 1
     assert _query_relations_snapshot(db, source_id) == []
+
+
+def test_concurrent_persist_serializes_source_clear_race(
+    monkeypatch: pytest.MonkeyPatch, db: Any, packet_env
+) -> None:
+    """#668 (c): FOR UPDATE serialization stops concurrent second batch from clearing first batch's relations."""
+    from psycopg.types.json import Json
+
+    srow = db.execute(
+        "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes, read_state, colab_offload) "
+        "VALUES ('text', 'concurrent-clear-race', 'test/concurrent-clear-race', 'sha-concurrent-clear-race', "
+        "200, 'extracting', true) RETURNING id::text"
+    ).fetchone()
+    source_id = str(srow[0])
+    passages = [
+        ("Jessica is the Licensing Manager for Disney approvals.", "Person", "Jessica", "jessica", "Role", "Licensing Manager", "licensing manager"),
+        ("Marco manages the vendor onboarding schedule.", "Person", "Marco", "marco", "Process", "vendor onboarding", "vendor onboarding"),
+    ]
+    for idx, (text, t1, s1, n1, t2, s2, n2) in enumerate(passages):
+        crow = db.execute(
+            "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count, passage_kind) "
+            "VALUES (%s, %s, %s, %s, 30, 'process') RETURNING id::text",
+            (source_id, idx, Json({"page": idx + 1}), text),
+        ).fetchone()
+        cid = str(crow[0])
+        db.execute(
+            "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, normalized_name, quote) "
+            "VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s)",
+            (cid, t1, s1, n1, text, cid, t2, s2, n2, text),
+        )
+    db.commit()
+
+    prompt_hash = relations_prompt_hash()
+    _done, _eligible, pending = load_source_windows(
+        source_id, prompt_hash, only_pending=True
+    )
+    assert len(pending) == 2
+
+    spec_0, spec_1 = pending[0], pending[1]
+    k0_from = next(k.key for k in spec_0.known if "jessica" in k.normalized_name)
+    k0_to = next(k.key for k in spec_0.known if "licensing" in k.normalized_name)
+    item_0 = validate_chunk_submission(
+        spec_0,
+        raw_content=json.dumps(
+            {
+                "relations": [
+                    {
+                        "from": k0_from,
+                        "to": k0_to,
+                        "type": "PERFORMS",
+                        "description": "Jessica is the Licensing Manager.",
+                        "description_en": "",
+                        "stance": "report",
+                        "confidence": 0.9,
+                        "quote": spec_0.window[-1][1],
+                    }
+                ],
+                "new_mentions": [],
+            }
+        ),
+        finish_reason="stop",
+        model_full="colab-vllm/Qwen/Qwen2.5-32B-Instruct@abcdef1234",
+    )
+
+    k1_from = next(k.key for k in spec_1.known if "marco" in k.normalized_name)
+    k1_to = next(k.key for k in spec_1.known if "vendor" in k.normalized_name)
+    item_1 = validate_chunk_submission(
+        spec_1,
+        raw_content=json.dumps(
+            {
+                "relations": [
+                    {
+                        "from": k1_from,
+                        "to": k1_to,
+                        "type": "OWNS",
+                        "description": "Marco manages vendor onboarding.",
+                        "description_en": "",
+                        "stance": "report",
+                        "confidence": 0.9,
+                        "quote": spec_1.window[-1][1],
+                    }
+                ],
+                "new_mentions": [],
+            }
+        ),
+        finish_reason="stop",
+        model_full="colab-vllm/Qwen/Qwen2.5-32B-Instruct@abcdef1234",
+    )
+
+    # Hold an external FOR UPDATE lock on cmap.source to prove persist_validated_items serializes on it.
+    db_url = get_settings().database_url
+    assert db_url is not None
+    entered_persist = threading.Event()
+    real_embed = colab_packet_mod._embed_new_mentions
+
+    def _tracking_embed(result: Any, counters: Any) -> None:
+        entered_persist.set()
+        real_embed(result, counters)
+
+    monkeypatch.setattr(colab_packet_mod, "_embed_new_mentions", _tracking_embed)
+
+    with psycopg.connect(db_url, connect_timeout=5) as lock_conn:
+        lock_conn.execute(
+            "SELECT id FROM cmap.source WHERE id = %s FOR UPDATE", (source_id,)
+        ).fetchone()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f0 = pool.submit(persist_validated_items, [item_0], prompt_hash=prompt_hash)
+            assert entered_persist.wait(timeout=5.0)
+            # Item 0 must still be waiting on the cmap.source FOR UPDATE lock.
+            assert not f0.done()
+            lock_conn.commit()
+            f0.result(timeout=10.0)
+
+            # Now run a concurrent two-thread burst (e.g. if both raced before either wrote)
+            # by clearing extractions/relations and racing item_0 vs item_1 with a barrier.
+            db.execute("DELETE FROM cmap.extraction WHERE stage = 'relations'")
+            db.execute(
+                "DELETE FROM cmap.relation WHERE chunk_id IN "
+                "(SELECT id FROM cmap.chunk WHERE source_id = %s)",
+                (source_id,),
+            )
+            db.commit()
+
+            monkeypatch.setattr(colab_packet_mod, "_embed_new_mentions", real_embed)
+            barrier = threading.Barrier(2)
+            real_get_pool = db_mod.get_pool
+
+            def _barrier_pool() -> Any:
+                barrier.wait(timeout=5.0)
+                return real_get_pool()
+
+            monkeypatch.setattr(db_mod, "get_pool", _barrier_pool)
+            b0 = pool.submit(persist_validated_items, [item_0], prompt_hash=prompt_hash)
+            b1 = pool.submit(persist_validated_items, [item_1], prompt_hash=prompt_hash)
+            res0 = b0.result(timeout=10.0)
+            res1 = b1.result(timeout=10.0)
+
+    assert set(res0 + res1) == {source_id}
+    snapshot = _query_relations_snapshot(db, source_id)
+    assert len(snapshot) == 2
+    assert {row[6] for row in snapshot} == {"PERFORMS", "OWNS"}

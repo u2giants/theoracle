@@ -450,3 +450,144 @@ def test_model_tag_validation(client: TestClient, colab_enabled_env) -> None:
             },
         )
         assert resp.status_code == 422, f"expected 422 for {bad_tag!r}, got {resp.status_code}"
+
+
+def test_submit_truncation_salvage_requires_length_finish_reason(
+    client: TestClient, db: Any, colab_enabled_env
+) -> None:
+    """#668 (a): Only finish_reason=='length' salvages '{...'; malformed stop reply -> 400."""
+    _src, chunks = _seed_source_with_chunks(
+        db,
+        tag="salvage-guard",
+        passages=["Jessica is the Licensing Manager who approves proofs."],
+    )
+    lease = client.post(
+        "/colab/lease",
+        headers=_worker_headers(),
+        json={"worker_id": "w1", "max_items": 4},
+    ).json()
+    assert len(lease["items"]) == 1
+
+    # 1. Malformed '{broken' with finish_reason='stop' must return HTTP 400, NOT salvage
+    bad_sub = client.post(
+        "/colab/submit",
+        headers=_worker_headers(),
+        json={
+            "lease_id": lease["lease_id"],
+            "prompt_hash": lease["prompt_hash"],
+            "model_tag": VALID_MODEL_TAG,
+            "results": [
+                {
+                    "chunk_id": chunks[0],
+                    "raw_content": "{broken",
+                    "finish_reason": "stop",
+                }
+            ],
+        },
+    )
+    assert bad_sub.status_code == 400
+    assert db.execute("SELECT count(*) FROM cmap.extraction").fetchone()[0] == 0
+
+    # 2. Cut-off '{broken' with finish_reason='length' salvages with truncation=1
+    len_sub = client.post(
+        "/colab/submit",
+        headers=_worker_headers(),
+        json={
+            "lease_id": lease["lease_id"],
+            "prompt_hash": lease["prompt_hash"],
+            "model_tag": VALID_MODEL_TAG,
+            "results": [
+                {
+                    "chunk_id": chunks[0],
+                    "raw_content": "{broken",
+                    "finish_reason": "length",
+                }
+            ],
+        },
+    )
+    assert len_sub.status_code == 200
+    body = len_sub.json()
+    assert body["accepted_chunks"] == 1
+    assert body["drops"]["truncation"] == 1
+
+
+def test_lease_chunks_releases_skipped_windows_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+    db: Any,
+    colab_enabled_env,
+) -> None:
+    """#668 (b): Claimed chunks with WindowSpec is None are deleted from colab_lease_item immediately."""
+    from brain.api import colab as colab_api_mod
+
+    src_id, chunks = _seed_source_with_chunks(
+        db,
+        tag="skipped-window",
+        passages=[
+            "Jessica approves licensing proofs.",
+            "Marco coordinates vendor schedules.",
+        ],
+    )
+    real_load = colab_api_mod.load_source_windows
+
+    # Case 1: One chunk skipped, one kept -> skipped chunk released, chunk_count updated to 1
+    def _partial_load(source_id: str, prompt_hash: str, *, only_pending: bool = True):
+        done, eligible, pending = real_load(
+            source_id, prompt_hash, only_pending=only_pending
+        )
+        filtered = {k: v for k, v in eligible.items() if k != chunks[1]}
+        return done, filtered, pending
+
+    monkeypatch.setattr(colab_api_mod, "load_source_windows", _partial_load)
+    resp_partial = client.post(
+        "/colab/lease",
+        headers=_worker_headers(),
+        json={"worker_id": "w1", "max_items": 4},
+    )
+    assert resp_partial.status_code == 200
+    partial_json = resp_partial.json()
+    assert [i["chunk_id"] for i in partial_json["items"]] == [chunks[0]]
+
+    db.commit()
+    lease_items = db.execute(
+        "SELECT chunk_id::text, state FROM cmap.colab_lease_item WHERE lease_id = %s",
+        (partial_json["lease_id"],),
+    ).fetchall()
+    assert [(str(r[0]), str(r[1])) for r in lease_items] == [(chunks[0], "leased")]
+    lease_count = db.execute(
+        "SELECT chunk_count FROM cmap.colab_lease WHERE id = %s",
+        (partial_json["lease_id"],),
+    ).fetchone()[0]
+    assert lease_count == 1
+
+    # Case 2: All claimed chunks skipped -> lease & items deleted, returns lease_id=None
+    def _empty_load(source_id: str, prompt_hash: str, *, only_pending: bool = True):
+        done, _eligible, _pending = real_load(
+            source_id, prompt_hash, only_pending=only_pending
+        )
+        return done, {}, []
+
+    monkeypatch.setattr(colab_api_mod, "load_source_windows", _empty_load)
+    resp_empty = client.post(
+        "/colab/lease",
+        headers=_worker_headers(),
+        json={"worker_id": "w2", "max_items": 4},
+    )
+    assert resp_empty.status_code == 200
+    empty_json = resp_empty.json()
+    assert empty_json["lease_id"] is None
+    assert empty_json["expires_at"] is None
+    assert empty_json["items"] == []
+
+    db.commit()
+    # Only the first lease's kept chunk remains leased; chunk[1] was never held!
+    remaining_for_skipped = db.execute(
+        "SELECT count(*) FROM cmap.colab_lease_item WHERE chunk_id = %s",
+        (chunks[1],),
+    ).fetchone()[0]
+    assert remaining_for_skipped == 0
+    total_leases = db.execute(
+        "SELECT count(*) FROM cmap.colab_lease WHERE worker_id = 'w2'"
+    ).fetchone()[0]
+    assert total_leases == 0
+    assert src_id is not None

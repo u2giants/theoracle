@@ -522,3 +522,176 @@ def test_sanitize_message_payload_enforces_ontology_and_quotes() -> None:
     assert drops == {"quote_mismatch": 0, "unknown_type": 0, "truncation": 0}
     assert len(nms) == 1 and nms[0].entity_type == "Artifact"
     assert len(rels) == 1 and rels[0].rel_type == "APPLIES_TO"
+
+
+def test_clean_message_quote_preserves_in_body_labels_and_strips_speaker() -> None:
+    """#675 (a): in-body colons stay intact; speaker prefixes strip only at turn start."""
+    from brain.extract.relations import _clean_message_quote
+
+    win_msg = [("c1", "Jessica Smith: Reminder: please review before 3pm")]
+    assert (
+        _clean_message_quote(win_msg, "Reminder: please review before 3pm")
+        == "Reminder: please review before 3pm"
+    )
+
+    win_clickup = [("c1", "Task name: Fall Launch\nStatus: In Progress")]
+    assert _clean_message_quote(win_clickup, "Status: In Progress") == "Status: In Progress"
+    assert (
+        _clean_message_quote(win_clickup, "Task name: Fall Launch")
+        == "Task name: Fall Launch"
+    )
+
+    win_turn = [("c1", "Jessica Smith: We ship Tuesday")]
+    assert (
+        _clean_message_quote(win_turn, "Jessica Smith: We ship Tuesday")
+        == "We ship Tuesday"
+    )
+    assert (
+        _clean_message_quote(win_turn, "Jessica: We ship Tuesday")
+        == "We ship Tuesday"
+    )
+
+
+def test_call_model_relations_messages_skips_truncation_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#675 (c): relations_messages already uses max budget on call 1; no length retry."""
+    from types import SimpleNamespace
+
+    from brain.extract import relations
+
+    seen: list[int] = []
+
+    def fake_post(
+        messages: Any, settings: Any, max_tokens: int = relations.MAX_TOKENS
+    ) -> dict[str, Any]:
+        del messages, settings
+        seen.append(max_tokens)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"relations": [{"from": "m1", "to": "m2", "type": "USES", '
+                        '"description": "d", "stance": "report", "confidence": 0.9, "quote": "q"}, '
+                        '{"from": "m2"'
+                    },
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        }
+
+    monkeypatch.setattr(relations, "_post_chat", fake_post)
+    counters = relations._Counters(
+        SimpleNamespace(brain_max_frontier_calls_per_job=None)
+    )
+    token = relations._ACTIVE_RELATIONS_STAGE.set("relations_messages")
+    try:
+        parsed = relations._call_model("prompt", counters)
+    finally:
+        relations._ACTIVE_RELATIONS_STAGE.reset(token)
+
+    assert len(seen) == 1
+    assert counters.usage["frontier_calls"] == 1
+    assert counters.usage["frontier_truncated"] == 1
+    assert "frontier_truncation_retries" not in counters.usage
+    assert len(parsed["relations"]) == 1
+
+
+def test_handle_relations_sibling_failure_propagates_to_source_chain_ended(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#680 (b): failed sibling passes failed=True to source_chain_ended and skips contradictions."""
+    from brain.extract import relations as rel_mod
+    from brain.llm_batch import BatchItem, BatchResult
+
+    fake_embeddings(monkeypatch)
+    monkeypatch.setenv("BRAIN_FRONTIER_MODEL", "test/frontier")
+    monkeypatch.setenv("BRAIN_MESSAGE_RELATIONS_MODEL", "openai/gpt-6-luna")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-sib")
+    get_settings.cache_clear()
+
+    try:
+        sids: list[str] = []
+        jids: list[Any] = []
+        for idx in range(2):
+            sid = db.execute(
+                "INSERT INTO cmap.source (kind, title, storage_path, sha256, bytes, origin, read_state) "
+                "VALUES ('transcript', %s, %s, %s, 30, 'email', 'extracting') RETURNING id::text",
+                (f"Sib {idx}", f"cmap/sib/{idx}", f"sha-sib-fail-{idx}"),
+            ).fetchone()[0]
+            db.execute(
+                "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count) "
+                "VALUES (%s, 0, %s, %s, 10)",
+                (sid, Json({"turn": 1}), f"Alex: Approve spec {idx}."),
+            )
+            jid = db.execute(
+                "INSERT INTO cmap.job (kind, payload, state) "
+                "VALUES ('relations', %s, %s) RETURNING id",
+                (Json({"source_id": sid}), "running" if idx == 0 else "queued"),
+            ).fetchone()[0]
+            sids.append(str(sid))
+            jids.append(jid)
+        db.commit()
+
+        def fake_batch(
+            model: str, items: list[BatchItem], **_kw: Any
+        ) -> dict[str, BatchResult]:
+            del model
+            out: dict[str, BatchResult] = {}
+            for item in items:
+                idx = 1 if "spec 1." in item.prompt else 0
+                quote = f"Approve spec {idx}."
+                out[item.custom_id] = BatchResult(
+                    custom_id=item.custom_id,
+                    status="ok",
+                    payload={
+                        "relations": [
+                            {
+                                "from": "x1",
+                                "to": "x2",
+                                "type": "APPLIES_TO",
+                                "description": f"Approve spec {idx}.",
+                                "stance": "report",
+                                "confidence": 0.9,
+                                "quote": quote,
+                            }
+                        ],
+                        "new_mentions": [
+                            {"key": "x1", "type": "Decision", "name": f"dec {idx}", "quote": quote},
+                            {"key": "x2", "type": "Artifact", "name": f"spec {idx}", "quote": quote},
+                        ],
+                    },
+                    usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+                )
+            return out
+
+        monkeypatch.setattr(rel_mod, "submit_and_wait_batch", fake_batch)
+        monkeypatch.setattr(
+            rel_mod,
+            "finish_source",
+            lambda sid: "failed" if sid == sids[1] else "read",
+        )
+        chain_calls: list[tuple[str, bool]] = []
+        monkeypatch.setattr(
+            rel_mod,
+            "source_chain_ended",
+            lambda sid, *, failed, resolve=None: chain_calls.append((sid, failed))
+            or False,
+        )
+        after_calls: list[str] = []
+        monkeypatch.setattr(
+            rel_mod,
+            "after_source_relations",
+            lambda sid: after_calls.append(sid),
+        )
+        monkeypatch.setattr(rel_mod, "_enqueue_resolve", lambda: None)
+
+        rel_mod.handle_relations({"id": jids[0], "payload": {"source_id": sids[0]}})
+
+        assert (sids[1], True) in chain_calls
+        assert (sids[0], False) in chain_calls
+        assert sids[1] not in after_calls
+        assert sids[0] in after_calls
+    finally:
+        get_settings.cache_clear()

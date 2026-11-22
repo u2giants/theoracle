@@ -215,9 +215,11 @@ def lease_chunks(
         windows_by_chunk.update(eligible)
 
     items: list[dict[str, Any]] = []
+    skipped_ids: list[str] = []
     for chunk_id, source_id in claimed:
         spec = windows_by_chunk.get(chunk_id)
         if spec is None:
+            skipped_ids.append(chunk_id)
             continue
         items.append(
             {
@@ -227,6 +229,33 @@ def lease_chunks(
                 "prompt": spec.prompt,
             }
         )
+
+    if skipped_ids:
+        with get_pool().connection() as conn:
+            conn.execute(
+                "DELETE FROM cmap.colab_lease_item "
+                "WHERE lease_id = %s AND chunk_id = ANY(%s::uuid[])",
+                (lease_id, skipped_ids),
+            )
+            if not items:
+                conn.execute(
+                    "DELETE FROM cmap.colab_lease WHERE id = %s",
+                    (lease_id,),
+                )
+            else:
+                conn.execute(
+                    "UPDATE cmap.colab_lease SET chunk_count = %s WHERE id = %s",
+                    (len(items), lease_id),
+                )
+            conn.commit()
+        if not items:
+            return {
+                "lease_id": None,
+                "expires_at": None,
+                "prompt_hash": prompt_hash,
+                "relations_schema": schema,
+                "items": [],
+            }
 
     return {
         "lease_id": lease_id,
@@ -372,7 +401,10 @@ async def submit_lease(
             )
         except ColabPacketError as exc:
             # Cut-off JSON before the first array item arrived: salvage as empty truncated reply
-            if item.raw_content.lstrip().startswith("{"):
+            if (
+                item.finish_reason == "length"
+                and item.raw_content.lstrip().startswith("{")
+            ):
                 drops = dict.fromkeys(DROP_REASONS, 0)
                 drops["truncation"] = 1
                 v_item = ValidatedChunkItem(

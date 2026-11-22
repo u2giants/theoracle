@@ -19,8 +19,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from psycopg.types.json import Json
+
+from brain import db as db_mod
 from brain.config import Settings, get_settings
 from brain.contradictions import after_source_relations
+from brain.embed import vector_literal
 from brain.extract.flat import ENTITY_TYPES
 from brain.extract.relations import (
     DROP_REASONS,
@@ -32,17 +36,16 @@ from brain.extract.relations import (
     Relation,
     RelationsError,
     WindowEntry,
-    _clear_relations,
     _Counters,
     _embed_new_mentions,
     _enqueue_resolve,
+    _IdentityIndex,
     _load_chunks,
     _load_done,
-    _load_identity_index,
     _load_mentions,
-    _record_drop_reasons,
+    _mention_identity,
+    _relation_identity,
     _resolve_interview_answer,
-    _write_result,
     build_prompt,
     known_mentions,
     parse_relations_json,
@@ -51,7 +54,7 @@ from brain.extract.relations import (
     window_indices,
 )
 from brain.interview.conversation import source_chain_ended
-from brain.read.state import finish_source, with_retries
+from brain.read.state import clear_chunk_failure, finish_source, with_retries
 
 PACKET_VERSION = 1
 DEFAULT_PACKET_MAX_TOKENS = 2000
@@ -338,6 +341,135 @@ def validate_chunk_submission(
     )
 
 
+def _load_identity_index_on(conn: Any, source_id: str) -> _IdentityIndex:
+    """Seed the dedupe index on an open transaction connection."""
+    seen: set[tuple[str, ...]] = set()
+    for row in conn.execute(
+        "SELECT fm.entity_type, fm.normalized_name, tm.entity_type, tm.normalized_name, "
+        "r.rel_type, r.quote "
+        "FROM cmap.relation r JOIN cmap.chunk c ON c.id = r.chunk_id "
+        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+        "WHERE c.source_id = %s",
+        (source_id,),
+    ).fetchall():
+        seen.add(tuple(str(value) for value in row))
+    for row in conn.execute(
+        "SELECT m.chunk_id, m.entity_type, m.normalized_name, m.quote "
+        "FROM cmap.mention m JOIN cmap.chunk c ON c.id = m.chunk_id "
+        "WHERE c.source_id = %s",
+        (source_id,),
+    ).fetchall():
+        seen.add(tuple(str(value) for value in row))
+    return _IdentityIndex(seen)
+
+
+def _write_result_on(
+    conn: Any,
+    result: ChunkResult,
+    prompt_hash: str,
+    model: str,
+    claimed: _IdentityIndex,
+) -> None:
+    """Write one window's new mentions, relations, and extraction on ``conn``."""
+    ids = {key: item.mention_id for key, item in result.known.items()}
+    by_key: dict[str, Any] = dict(result.known)
+    covered = result.covered_chunk_ids or (result.chunk_id,)
+    for cid in covered:
+        conn.execute(
+            "DELETE FROM cmap.extraction WHERE chunk_id = %s AND stage = 'relations' "
+            "AND prompt_hash <> %s",
+            (cid, prompt_hash),
+        )
+    for mention in result.new_mentions:
+        by_key[mention.key] = mention
+        if claimed.claim(_mention_identity(mention)):
+            row = conn.execute(
+                "INSERT INTO cmap.mention "
+                "(chunk_id, entity_type, surface_name, normalized_name, quote, embedding) "
+                "VALUES (%s, %s, %s, %s, %s, %s::vector) RETURNING id",
+                (
+                    mention.quote_chunk_id,
+                    mention.entity_type,
+                    mention.surface_name,
+                    mention.normalized_name,
+                    mention.quote,
+                    vector_literal(mention.vector)
+                    if mention.vector is not None
+                    else None,
+                ),
+            ).fetchone()
+            ids[mention.key] = str(row[0])
+        else:
+            existing = conn.execute(
+                "SELECT id FROM cmap.mention WHERE chunk_id = %s AND entity_type = %s "
+                "AND normalized_name = %s AND quote = %s",
+                (
+                    mention.quote_chunk_id,
+                    mention.entity_type,
+                    mention.normalized_name,
+                    mention.quote,
+                ),
+            ).fetchone()
+            ids[mention.key] = str(existing[0]) if existing else None
+    for relation in result.relations:
+        from_id = ids.get(relation.from_key)
+        to_id = ids.get(relation.to_key)
+        if from_id is None or to_id is None:
+            continue
+        if not claimed.claim(_relation_identity(by_key, relation)):
+            continue
+        conn.execute(
+            "INSERT INTO cmap.relation "
+            "(chunk_id, from_mention_id, to_mention_id, rel_type, description, "
+            "stance, confidence, quote) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                relation.quote_chunk_id,
+                from_id,
+                to_id,
+                relation.rel_type,
+                relation.description,
+                relation.stance,
+                relation.confidence,
+                relation.quote,
+            ),
+        )
+    for cid in covered:
+        clear_chunk_failure(conn, cid, "relations")
+        marker_payload = (
+            result.payload
+            if cid == result.chunk_id
+            else {"grouped_into": result.chunk_id}
+        )
+        conn.execute(
+            "INSERT INTO cmap.extraction (chunk_id, stage, prompt_hash, model, payload) "
+            "VALUES (%s, 'relations', %s, %s, %s) "
+            "ON CONFLICT (chunk_id, stage, prompt_hash) DO NOTHING",
+            (cid, prompt_hash, model, Json(marker_payload)),
+        )
+
+
+def _record_drop_reasons_on(
+    conn: Any, source_id: str, drops: dict[str, int], resuming: bool
+) -> None:
+    """Update ``cmap.source.read_notes->'drop_reasons'`` inside the source lock."""
+    row = conn.execute(
+        "SELECT read_notes FROM cmap.source WHERE id = %s", (source_id,)
+    ).fetchone()
+    notes = dict(row[0] or {}) if row else {}
+    previous = notes.get("drop_reasons") or {}
+    counts: dict[str, int] = {}
+    for reason in DROP_REASONS:
+        prior = int(previous.get(reason) or 0) if resuming else 0
+        counts[reason] = prior + int(drops.get(reason) or 0)
+    notes["drop_reasons"] = counts
+    conn.execute(
+        "UPDATE cmap.source SET read_notes = %s WHERE id = %s",
+        (Json(notes), source_id),
+    )
+
+
 def persist_validated_items(
     validated_items: Sequence[ValidatedChunkItem],
     *,
@@ -353,12 +485,9 @@ def persist_validated_items(
 
     completed_sources: list[str] = []
     for source_id, source_items in by_source.items():
-        done_before = _load_done(source_id, prompt_hash)
-        if not done_before:
-            _clear_relations(source_id)
-        claimed = _load_identity_index(source_id)
+        # Compute mention embeddings BEFORE taking the source row lock so network I/O never holds FOR UPDATE.
+        prepared: list[tuple[ValidatedChunkItem, ChunkResult]] = []
         source_drops = dict.fromkeys(DROP_REASONS, 0)
-
         for item in source_items:
             chunk_result = ChunkResult(
                 chunk_id=item.chunk_id,
@@ -371,23 +500,47 @@ def persist_validated_items(
                 lambda cr=chunk_result, cid=item.chunk_id: _embed_new_mentions(cr, counters),
                 f"embedding new mentions of chunk {item.chunk_id}",
             )
-            _write_result(chunk_result, prompt_hash, item.model, claimed)
+            prepared.append((item, chunk_result))
             for reason, count in item.drops.items():
                 source_drops[reason] = source_drops.get(reason, 0) + count
 
-        _record_drop_reasons(source_id, source_drops, resuming=bool(done_before))
+        with db_mod.get_pool().connection() as conn:
+            conn.execute(
+                "SELECT id FROM cmap.source WHERE id = %s FOR UPDATE",
+                (source_id,),
+            ).fetchone()
+            done_rows = conn.execute(
+                "SELECT e.chunk_id FROM cmap.extraction e "
+                "JOIN cmap.chunk c ON c.id = e.chunk_id "
+                "WHERE c.source_id = %s AND e.stage = 'relations' AND e.prompt_hash = %s",
+                (source_id, prompt_hash),
+            ).fetchall()
+            done_before = bool(done_rows)
+            if not done_before:
+                conn.execute(
+                    "DELETE FROM cmap.relation WHERE chunk_id IN "
+                    "(SELECT id FROM cmap.chunk WHERE source_id = %s)",
+                    (source_id,),
+                )
+            claimed = _load_identity_index_on(conn, source_id)
+            for item, chunk_result in prepared:
+                _write_result_on(conn, chunk_result, prompt_hash, item.model, claimed)
+            _record_drop_reasons_on(conn, source_id, source_drops, resuming=done_before)
+            conn.commit()
+
         _has_done, _eligible, remaining = load_source_windows(
             source_id, prompt_hash, only_pending=True
         )
         if not remaining:
-            finish_source(source_id)
+            sm_state = finish_source(source_id)
             source_chain_ended(
                 source_id,
-                failed=False,
+                failed=(sm_state == "failed"),
                 resolve=_resolve_interview_answer(source_id),
             )
-            _enqueue_resolve()
-            after_source_relations(source_id)
+            if sm_state != "failed":
+                _enqueue_resolve()
+                after_source_relations(source_id)
             completed_sources.append(source_id)
 
     return completed_sources

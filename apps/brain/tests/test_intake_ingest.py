@@ -91,6 +91,56 @@ def test_speakers_per_origin() -> None:
     assert ingest.speaker_of("teams_chat", None, {}) == "Unknown"
 
 
+def test_handle_intake_ingest_forwards_thread_prefix_and_days(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[Any, ...]] = []
+    fake_settings = object()
+    monkeypatch.setattr(ingest, "get_settings", lambda: fake_settings)
+
+    def _fake_run(
+        settings: Any,
+        origin: str | None = None,
+        limit: int | None = None,
+        *,
+        thread_prefix: str | None = None,
+        days: int | None = None,
+    ) -> dict[str, Any]:
+        calls.append((settings, origin, limit, thread_prefix, days))
+        return {"created": 1}
+
+    monkeypatch.setattr(ingest, "run", _fake_run)
+    ingest.handle_intake_ingest(
+        {
+            "payload": {
+                "origin": "email",
+                "limit": "25",
+                "days": "14",
+                "thread_prefix": "pilot-",
+            }
+        }
+    )
+    assert calls == [(fake_settings, "email", 25, "pilot-", 14)]
+
+
+@pytest.mark.parametrize("bad_days", ["abc", True, False, 0, -3, 1.5])
+def test_handle_intake_ingest_rejects_malformed_days(
+    bad_days: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ingest, "run", lambda *a, **k: pytest.fail("run must not be called"))
+    with pytest.raises(ValueError, match="days must be a positive integer"):
+        ingest.handle_intake_ingest({"payload": {"days": bad_days}})
+
+
+@pytest.mark.parametrize("bad_limit", ["xyz", True, False, 0, -1, 2.5])
+def test_handle_intake_ingest_rejects_malformed_limit(
+    bad_limit: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ingest, "run", lambda *a, **k: pytest.fail("run must not be called"))
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        ingest.handle_intake_ingest({"payload": {"limit": bad_limit}})
+
+
 # --- database ------------------------------------------------------------
 
 
