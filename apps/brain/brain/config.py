@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     supabase_service_role_key: str | None = None
     falkordb_url: str = "redis://localhost:6379"
     openrouter_api_key: str | None = None
+    # Direct OpenAI API key (#607 step 2.4 native /v1/batches + openai-api/* routes).
+    # BRAIN_OPENAI_API_KEY overrides OPENAI_API_KEY when set; missing key falls back
+    # to the synchronous OpenRouter path with a warning.
+    openai_api_key: str | None = None
+    brain_openai_api_key: str | None = None
+    brain_relations_batch_enabled: bool = True
     # Direct Meta (Muse) API key. Model ids starting with ``meta-model-api/``
     # route here instead of OpenRouter (issue #426).
     brain_meta_api_key: str | None = None
@@ -49,6 +55,14 @@ class Settings(BaseSettings):
     brain_embed_dims: int = 1024
     scaledown_api_key: str | None = None
     brain_scaledown_enabled: bool = False
+    # Business-area sorting on message-intake passages (#607 step 2.5).
+    # Default off: ScaleDown /classify missed the step 2.5 precision/recall gates, so
+    # message sources default to the step 2.3 winner (relations_messages) rather than
+    # ScaleDown or any frontier model (L9).
+    brain_scaledown_function_assign_enabled: bool = False
+    brain_scaledown_function_threshold: float = 0.1
+    brain_scaledown_function_multi_label: bool = False
+    brain_message_function_model: str | None = None
     brain_shared_token: str | None = None
     brain_max_frontier_calls_per_job: int | None = None
     # Hard token ceiling for one answer's assembled context (repair C4).
@@ -128,3 +142,8 @@ def flat_model(settings: Settings) -> str | None:
 def eval_model(settings: Settings) -> str | None:
     """Model that grades eval answers: BRAIN_EVAL_MODEL, else the frontier model."""
     return settings.brain_eval_model or settings.brain_frontier_model
+
+
+def openai_api_key(settings: Settings) -> str | None:
+    """Direct OpenAI API key: BRAIN_OPENAI_API_KEY, else OPENAI_API_KEY."""
+    return settings.brain_openai_api_key or settings.openai_api_key

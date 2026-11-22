@@ -492,3 +492,33 @@ def test_sanitize_message_payload_enforces_ontology_and_quotes() -> None:
     assert rel["type"] == "APPLIES_TO"
     assert rel["stance"] == "report"
     assert rel["quote"] == "Please review   the Spring catalog\nbefore Friday."
+
+    # Non-standard entity/relation/stance labels from message passes normalize
+    # cleanly instead of dropping new_mentions keys and referenced relations.
+    from brain.extract.relations import _merge_message_new_mentions, validate_response
+
+    merged_nms = _merge_message_new_mentions(
+        [{"key": "x9", "type": "Task", "name": "Spring catalog review"}],
+        [],
+    )
+    cleaned2 = _sanitize_message_payload(
+        win,
+        known,
+        {
+            "new_mentions": merged_nms,
+            "relations": [
+                {
+                    "from": "x9",
+                    "to": "m2",
+                    "type": "ASSIGNED_TO",
+                    "stance": "request",
+                    "description": "Catalog review task assigned",
+                    "quote": "Please review the Spring catalog before Friday.",
+                }
+            ],
+        },
+    )
+    rels, nms, drops = validate_response(win, known, cleaned2)
+    assert drops == {"quote_mismatch": 0, "unknown_type": 0, "truncation": 0}
+    assert len(nms) == 1 and nms[0].entity_type == "Artifact"
+    assert len(rels) == 1 and rels[0].rel_type == "APPLIES_TO"

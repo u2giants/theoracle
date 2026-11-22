@@ -48,6 +48,13 @@ from brain.extract.flat import ENTITY_TYPES
 from brain.extract.normalize import normalize_name
 from brain.interview.conversation import awaits_reply, source_chain_ended
 from brain.llm import post_chat_with_rescue
+from brain.llm_batch import (
+    BatchError,
+    BatchItem,
+    is_openai_batch_model,
+    openai_batch_key,
+    submit_and_wait_batch,
+)
 from brain.read import pdf as pdf_read
 from brain.read import state as read_state
 from brain.read import transcript as transcript_read
@@ -185,6 +192,7 @@ class ChunkResult:
     payload: dict[str, Any]
     relations: list[Relation] = field(default_factory=list)
     new_mentions: list[NewMention] = field(default_factory=list)
+    covered_chunk_ids: tuple[str, ...] = ()
 
 
 # One entry of a window: ``(chunk_id, text, mentions)`` in reading order; the
@@ -243,6 +251,65 @@ def window_indices(source_kind: str, anchor: int) -> tuple[int, ...]:
     if source_kind == "transcript":
         return transcript_read.exchange_windows(anchor)
     return pdf_read.passage_windows(anchor, WINDOW_PREVIOUS)
+
+
+MESSAGE_INTACT_MAX_CHUNKS = 18
+MESSAGE_INTACT_MAX_CHARS = 12000
+MESSAGE_SPLIT_MAX_CHUNKS = 16
+MESSAGE_SPLIT_MAX_CHARS = 8000
+
+
+def message_windows(
+    chunks: list[tuple[str, str, str | None]],
+    mentions: dict[str, list[tuple[str, str, str, str]]],
+    done: set[str],
+) -> list[tuple[str, list[WindowEntry]]]:
+    """Group message-source chunks into qualified w3000 windows (#607 steps 2.3–2.4).
+
+    Threads up to 12,000 characters and <= 18 chunks run as one intact window so
+    multi-turn conversational context is never chopped mid-thought; oversized
+    chains split on chunk boundaries at <= 8,000 characters (<= 16 chunks).
+    ``find_quote`` still resolves every accepted quote back to its true 400-token
+    ``cmap.chunk.id``.
+    """
+    entries: list[WindowEntry] = [
+        (chunk_id, text, mentions.get(chunk_id, []))
+        for chunk_id, text, _kind in chunks
+        if text.strip()
+    ]
+    if not entries:
+        return []
+    total_chars = sum(len(text) for _cid, text, _m in entries)
+    if (
+        len(entries) <= MESSAGE_INTACT_MAX_CHUNKS
+        and total_chars <= MESSAGE_INTACT_MAX_CHARS
+    ):
+        groups = [entries]
+    else:
+        groups = []
+        current: list[WindowEntry] = []
+        current_chars = 0
+        for entry in entries:
+            entry_chars = len(entry[1])
+            if current and (
+                current_chars + entry_chars > MESSAGE_SPLIT_MAX_CHARS
+                or len(current) >= MESSAGE_SPLIT_MAX_CHUNKS
+            ):
+                groups.append(current)
+                current = [entry]
+                current_chars = entry_chars
+            else:
+                current.append(entry)
+                current_chars += entry_chars
+        if current:
+            groups.append(current)
+
+    pending: list[tuple[str, list[WindowEntry]]] = []
+    for group in groups:
+        if all(cid in done for cid, _txt, _m in group):
+            continue
+        pending.append((group[-1][0], group))
+    return pending
 
 
 def build_prompt(
@@ -800,11 +867,13 @@ def _write_result(
     ids = {key: item.mention_id for key, item in result.known.items()}
     by_key: dict[str, Any] = dict(result.known)
     with get_pool().connection() as conn:
-        conn.execute(
-            "DELETE FROM cmap.extraction WHERE chunk_id = %s AND stage = 'relations' "
-            "AND prompt_hash <> %s",
-            (result.chunk_id, prompt_hash),
-        )
+        covered = result.covered_chunk_ids or (result.chunk_id,)
+        for cid in covered:
+            conn.execute(
+                "DELETE FROM cmap.extraction WHERE chunk_id = %s AND stage = 'relations' "
+                "AND prompt_hash <> %s",
+                (cid, prompt_hash),
+            )
         for mention in result.new_mentions:
             by_key[mention.key] = mention
             if claimed.claim(_mention_identity(mention)):
@@ -859,13 +928,19 @@ def _write_result(
                     relation.quote,
                 ),
             )
-        clear_chunk_failure(conn, result.chunk_id, "relations")
-        conn.execute(
-            "INSERT INTO cmap.extraction (chunk_id, stage, prompt_hash, model, payload) "
-            "VALUES (%s, 'relations', %s, %s, %s) "
-            "ON CONFLICT (chunk_id, stage, prompt_hash) DO NOTHING",
-            (result.chunk_id, prompt_hash, model, Json(result.payload)),
-        )
+        for cid in covered:
+            clear_chunk_failure(conn, cid, "relations")
+            marker_payload = (
+                result.payload
+                if cid == result.chunk_id
+                else {"grouped_into": result.chunk_id}
+            )
+            conn.execute(
+                "INSERT INTO cmap.extraction (chunk_id, stage, prompt_hash, model, payload) "
+                "VALUES (%s, 'relations', %s, %s, %s) "
+                "ON CONFLICT (chunk_id, stage, prompt_hash) DO NOTHING",
+                (cid, prompt_hash, model, Json(marker_payload)),
+            )
         conn.commit()
 
 
@@ -957,6 +1032,32 @@ def _clean_message_quote(window_pairs: list[tuple[str, str]], quote: str) -> str
     return q
 
 
+def _merge_message_new_mentions(*groups: Any) -> list[dict[str, Any]]:
+    """Carry ``new_mentions`` keys forward across Pass 1 -> Pass 2 -> Pass 3 (#607).
+
+    Later passes often keep relations referencing ``x1``/``x2`` emitted in Pass 1
+    while returning ``"new_mentions": []`` when no extra entities were added.
+    Later non-empty fields override earlier ones for the same key.
+    """
+    by_key: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        for item in group or []:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            if not key:
+                continue
+            if key not in by_key:
+                by_key[key] = dict(item)
+            else:
+                merged = dict(by_key[key])
+                for field_name, val in item.items():
+                    if val not in (None, ""):
+                        merged[field_name] = val
+                by_key[key] = merged
+    return list(by_key.values())
+
+
 def _sanitize_message_payload(
     window_pairs: list[tuple[str, str]],
     known: dict[str, KnownMention],
@@ -964,34 +1065,49 @@ def _sanitize_message_payload(
 ) -> dict[str, Any]:
     """Enforce message-intake ontology and single-turn quote rules (#607)."""
     entity_types: dict[str, str] = {k: m.entity_type for k, m in known.items()}
-    clean_nms: list[dict[str, Any]] = []
-    for nm in payload.get("new_mentions") or []:
-        if not isinstance(nm, dict):
+    raw_rels = [r for r in (payload.get("relations") or []) if isinstance(r, dict)]
+    fallback_quotes_by_key: dict[str, str] = {}
+    for rel in raw_rels:
+        rq = _clean_message_quote(window_pairs, str(rel.get("quote") or ""))
+        if not rq:
             continue
+        for end_key in (str(rel.get("from") or ""), str(rel.get("to") or "")):
+            if end_key and end_key not in fallback_quotes_by_key:
+                fallback_quotes_by_key[end_key] = rq
+
+    clean_nms: list[dict[str, Any]] = []
+    for nm in _merge_message_new_mentions(payload.get("new_mentions")):
         item = dict(nm)
-        item["quote"] = _clean_message_quote(
-            window_pairs, str(item.get("quote") or "")
-        )
-        key = str(item.get("key") or "")
-        etype = str(item.get("type") or "")
-        if key and etype in ENTITY_TYPES:
+        key = str(item.get("key") or "").strip()
+        item["key"] = key
+        raw_quote = str(item.get("quote") or "").strip()
+        cleaned_q = _clean_message_quote(window_pairs, raw_quote)
+        if not cleaned_q and key in fallback_quotes_by_key:
+            cleaned_q = fallback_quotes_by_key[key]
+        item["quote"] = cleaned_q
+        etype = str(item.get("type") or "").strip()
+        if etype not in ENTITY_TYPES:
+            etype = "Artifact"
+        item["type"] = etype
+        if key:
             entity_types[key] = etype
         clean_nms.append(item)
 
     clean_rels: list[dict[str, Any]] = []
-    for rel in payload.get("relations") or []:
-        if not isinstance(rel, dict):
-            continue
+    for rel in raw_rels:
         item = dict(rel)
         item["quote"] = _clean_message_quote(
             window_pairs, str(item.get("quote") or "")
         )
-        rtype = str(item.get("type") or "")
-        if rtype == "MENTIONS":
+        rtype = str(item.get("type") or "").strip()
+        if rtype == "MENTIONS" or rtype not in REL_TYPES:
             item["type"] = "APPLIES_TO"
             rtype = "APPLIES_TO"
-        if str(item.get("stance") or "") == "inference":
+        stance = str(item.get("stance") or "").strip()
+        if stance == "inference" or stance not in STANCES:
             item["stance"] = "report"
+        if _confidence(item.get("confidence")) is None:
+            item["confidence"] = 0.9
         fk = str(item.get("from") or "")
         tk = str(item.get("to") or "")
         if (
@@ -1030,12 +1146,13 @@ def _process_window(
     message_mode: bool = False,
 ) -> ChunkResult:
     """Ask the model for one window's relations and validate them."""
-    anchor_text = window[-1][1]
     known = known_mentions(window)
-    previous_context = "\n\n".join(text for _cid, text, _mentions in window[:-1])
     window_pairs = [(cid, text) for cid, text, _mentions in window]
     by_key = {item.key: item for item in known}
+    covered_ids = tuple(cid for cid, _text, _mentions in window)
     if message_mode:
+        anchor_text = "\n\n".join(text for _cid, text, _mentions in window)
+        previous_context = ""
         prompt = build_message_prompt(anchor_text, known, previous_context)
         first_payload = _call_with_retries(prompt, chunk_id, counters)
         audit_prompt = build_message_audit_prompt(
@@ -1043,27 +1160,38 @@ def _process_window(
         )
         audited = _call_with_retries(audit_prompt, chunk_id, counters)
         audited_rels = list(audited.get("relations") or [])
+        base_nms = _merge_message_new_mentions(
+            first_payload.get("new_mentions"),
+            audited.get("new_mentions"),
+        )
         if audited_rels:
             gated_rels: list[Any] = []
-            gated_nms: list[Any] = list(audited.get("new_mentions") or [])
+            slice_nms: list[Any] = []
             for start in range(0, len(audited_rels), 25):
                 sub_audited = {
                     "relations": audited_rels[start : start + 25],
-                    "new_mentions": audited.get("new_mentions") or [],
+                    "new_mentions": base_nms,
                 }
                 gate_prompt = build_message_gate_prompt(
                     anchor_text, previous_context, sub_audited
                 )
                 sub_gated = _call_with_retries(gate_prompt, chunk_id, counters)
                 gated_rels.extend(sub_gated.get("relations") or [])
-                gated_nms.extend(sub_gated.get("new_mentions") or [])
-            gated = {"relations": gated_rels, "new_mentions": gated_nms}
+                slice_nms.extend(sub_gated.get("new_mentions") or [])
+            gated = {
+                "relations": gated_rels,
+                "new_mentions": _merge_message_new_mentions(base_nms, slice_nms),
+            }
         else:
-            gated = audited
+            gated = {"relations": [], "new_mentions": base_nms}
         payload = _sanitize_message_payload(window_pairs, by_key, gated)
+        covered = covered_ids
     else:
+        anchor_text = window[-1][1]
+        previous_context = "\n\n".join(text for _cid, text, _mentions in window[:-1])
         prompt = build_prompt(anchor_text, known, previous_context)
         payload = _call_with_retries(prompt, chunk_id, counters)
+        covered = (chunk_id,)
     relations, new_mentions, drops = validate_response(
         window_pairs, by_key, payload
     )
@@ -1075,7 +1203,385 @@ def _process_window(
         payload=payload,
         relations=relations,
         new_mentions=new_mentions,
+        covered_chunk_ids=covered,
     )
+
+
+def _bump_batch_usage(usage: dict[str, int], counters: _Counters) -> None:
+    if usage.get("prompt_tokens"):
+        counters.bump("frontier_prompt_tokens", int(usage["prompt_tokens"]))
+    if usage.get("completion_tokens"):
+        counters.bump("frontier_completion_tokens", int(usage["completion_tokens"]))
+    if usage.get("cached_tokens"):
+        counters.bump("frontier_cached_tokens", int(usage["cached_tokens"]))
+    if usage.get("total_tokens"):
+        counters.bump("frontier_tokens", int(usage["total_tokens"]))
+
+
+def _run_message_batch(
+    pending: list[tuple[str, list[WindowEntry]]],
+    model: str,
+    prompt_hash: str,
+    counters: _Counters,
+    claimed: _IdentityIndex | dict[str, _IdentityIndex],
+    *,
+    drops_by_chunk: dict[str, dict[str, int]] | None = None,
+) -> tuple[list[tuple[str, list[WindowEntry]]], int, int, int, FrontierCapReached | None]:
+    """Run 3-round OpenAI native batch across ``pending`` message windows (#607 step 2.4).
+
+    Returns ``(remaining_for_sync, written, failed, relation_count, cap_error)``.
+    Any batch-level failure returns unfinished windows so ``handle_relations`` falls
+    back cleanly to synchronous ``_process_window``; any per-item error inside a
+    completed batch retries synchronously on that window alone.
+    """
+    settings = counters.settings
+    window_map = dict(pending)
+    active_ids: list[str] = []
+    cap_error: FrontierCapReached | None = None
+
+    for chunk_id, _win in pending:
+        try:
+            counters.take_frontier_call()
+        except FrontierCapReached as exc:
+            cap_error = exc
+            break
+        active_ids.append(chunk_id)
+
+    if not active_ids:
+        return [], 0, 0, 0, cap_error
+
+    prep: dict[str, tuple[str, list[KnownMention], list[tuple[str, str]], dict[str, KnownMention]]] = {}
+    for cid in active_ids:
+        win = window_map[cid]
+        anchor_text = "\n\n".join(text for _c, text, _m in win)
+        known = known_mentions(win)
+        pairs = [(c, text) for c, text, _m in win]
+        prep[cid] = (anchor_text, known, pairs, {item.key: item for item in known})
+
+    token = _ACTIVE_RELATIONS_STAGE.set("relations_messages")
+    failed_ids: set[str] = set()
+    failed = 0
+    written = 0
+    relation_count = 0
+    try:
+        p1_items = [
+            BatchItem(
+                custom_id=cid,
+                prompt=build_message_prompt(prep[cid][0], prep[cid][1], ""),
+                max_output_tokens=TRUNCATION_RETRY_MAX_TOKENS,
+            )
+            for cid in active_ids
+        ]
+        try:
+            p1_out = submit_and_wait_batch(
+                model,
+                p1_items,
+                settings=settings,
+                parse=parse_relations_json,
+                salvage_with_flex=True,
+            )
+            counters.bump("batch_rounds")
+        except BatchError as exc:
+            logger.warning(
+                "message relations Pass 1 batch failed (%s); falling back to sync",
+                exc,
+            )
+            counters.bump("frontier_calls", -len(active_ids))
+            return pending, 0, 0, 0, None
+
+        p1_payloads: dict[str, dict[str, Any]] = {}
+        for cid in active_ids:
+            res = p1_out[cid]
+            _bump_batch_usage(res.usage, counters)
+            if res.status == "ok" and res.payload is not None:
+                p1_payloads[cid] = res.payload
+                continue
+            try:
+                p1_payloads[cid] = _call_with_retries(
+                    build_message_prompt(prep[cid][0], prep[cid][1], ""),
+                    cid,
+                    counters,
+                )
+            except FrontierCapReached as exc:
+                cap_error = exc
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                failed_ids.add(cid)
+                logger.warning("relations chunk %s failed in Pass 1: %s", cid, exc)
+                record_chunk_failure(cid, "relations", str(exc))
+
+        p2_ids: list[str] = []
+        for cid in active_ids:
+            if cid not in p1_payloads or cid in failed_ids:
+                continue
+            try:
+                counters.take_frontier_call()
+            except FrontierCapReached as exc:
+                cap_error = exc
+                break
+            p2_ids.append(cid)
+
+        p2_payloads: dict[str, dict[str, Any]] = {}
+        if p2_ids:
+            p2_items = [
+                BatchItem(
+                    custom_id=cid,
+                    prompt=build_message_audit_prompt(prep[cid][0], "", p1_payloads[cid]),
+                    max_output_tokens=TRUNCATION_RETRY_MAX_TOKENS,
+                )
+                for cid in p2_ids
+            ]
+            try:
+                p2_out = submit_and_wait_batch(
+                    model,
+                    p2_items,
+                    settings=settings,
+                    parse=parse_relations_json,
+                    salvage_with_flex=True,
+                )
+                counters.bump("batch_rounds")
+                for cid in p2_ids:
+                    res = p2_out[cid]
+                    _bump_batch_usage(res.usage, counters)
+                    if res.status == "ok" and res.payload is not None:
+                        p2_payloads[cid] = res.payload
+                        continue
+                    try:
+                        p2_payloads[cid] = _call_with_retries(
+                            build_message_audit_prompt(
+                                prep[cid][0], "", p1_payloads[cid]
+                            ),
+                            cid,
+                            counters,
+                        )
+                    except FrontierCapReached as exc:
+                        cap_error = exc
+                    except Exception as exc:  # noqa: BLE001
+                        failed += 1
+                        failed_ids.add(cid)
+                        logger.warning(
+                            "relations chunk %s failed in Pass 2: %s", cid, exc
+                        )
+                        record_chunk_failure(cid, "relations", str(exc))
+            except BatchError as exc:
+                logger.warning(
+                    "message relations Pass 2 batch failed (%s); falling back to sync",
+                    exc,
+                )
+                counters.bump("frontier_calls", -len(p2_ids))
+                unfinished = [
+                    (cid, window_map[cid])
+                    for cid, _w in pending
+                    if cid not in failed_ids
+                ]
+                return unfinished, 0, failed, 0, cap_error
+
+        p3_items: list[BatchItem] = []
+        p3_slices: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        p3_ready_ids: list[str] = []
+        for cid in p2_ids:
+            if cid not in p2_payloads or cid in failed_ids:
+                continue
+            aud = p2_payloads[cid]
+            aud_rels = list(aud.get("relations") or [])
+            base_nms = _merge_message_new_mentions(
+                p1_payloads[cid].get("new_mentions"),
+                aud.get("new_mentions"),
+            )
+            if not aud_rels:
+                p3_ready_ids.append(cid)
+                continue
+            slices_for_cid: list[tuple[str, dict[str, Any]]] = []
+            slice_batch_items: list[BatchItem] = []
+            cap_hit = False
+            for s_idx, start in enumerate(range(0, len(aud_rels), 25)):
+                try:
+                    counters.take_frontier_call()
+                except FrontierCapReached as exc:
+                    cap_error = exc
+                    cap_hit = True
+                    break
+                scid = f"{cid}__s{s_idx:02d}"
+                sub_aud = {
+                    "relations": aud_rels[start : start + 25],
+                    "new_mentions": base_nms,
+                }
+                slices_for_cid.append((scid, sub_aud))
+                slice_batch_items.append(
+                    BatchItem(
+                        custom_id=scid,
+                        prompt=build_message_gate_prompt(prep[cid][0], "", sub_aud),
+                        max_output_tokens=TRUNCATION_RETRY_MAX_TOKENS,
+                    )
+                )
+            if cap_hit:
+                counters.bump("frontier_calls", -len(slice_batch_items))
+                break
+            p3_slices[cid] = slices_for_cid
+            p3_items.extend(slice_batch_items)
+            p3_ready_ids.append(cid)
+
+        p3_out_map: dict[str, dict[str, Any]] = {}
+        if p3_items:
+            try:
+                p3_out = submit_and_wait_batch(
+                    model,
+                    p3_items,
+                    settings=settings,
+                    parse=parse_relations_json,
+                    salvage_with_flex=True,
+                )
+                counters.bump("batch_rounds")
+                for item in p3_items:
+                    scid = item.custom_id
+                    parent_cid = scid.split("__s", 1)[0]
+                    res = p3_out[scid]
+                    _bump_batch_usage(res.usage, counters)
+                    if res.status == "ok" and res.payload is not None:
+                        p3_out_map[scid] = res.payload
+                        continue
+                    try:
+                        p3_out_map[scid] = _call_with_retries(
+                            item.prompt, parent_cid, counters
+                        )
+                    except FrontierCapReached as exc:
+                        cap_error = exc
+                    except Exception as exc:  # noqa: BLE001
+                        if parent_cid not in failed_ids:
+                            failed += 1
+                            failed_ids.add(parent_cid)
+                            logger.warning(
+                                "relations chunk %s failed in Pass 3: %s",
+                                parent_cid,
+                                exc,
+                            )
+                            record_chunk_failure(parent_cid, "relations", str(exc))
+            except BatchError as exc:
+                logger.warning(
+                    "message relations Pass 3 batch failed (%s); falling back to sync",
+                    exc,
+                )
+                counters.bump("frontier_calls", -len(p3_items))
+                unfinished = [
+                    (cid, window_map[cid])
+                    for cid, _w in pending
+                    if cid not in failed_ids
+                ]
+                return unfinished, 0, failed, 0, cap_error
+
+        for cid in p3_ready_ids:
+            if cid in failed_ids:
+                continue
+            aud = p2_payloads[cid]
+            base_nms = _merge_message_new_mentions(
+                p1_payloads[cid].get("new_mentions"),
+                aud.get("new_mentions"),
+            )
+            slices = p3_slices.get(cid, [])
+            if slices:
+                if any(scid not in p3_out_map for scid, _sub in slices):
+                    continue
+                gated_rels: list[Any] = []
+                slice_nms: list[Any] = []
+                for scid, _sub in slices:
+                    sub_gated = p3_out_map[scid]
+                    gated_rels.extend(sub_gated.get("relations") or [])
+                    slice_nms.extend(sub_gated.get("new_mentions") or [])
+                gated = {
+                    "relations": gated_rels,
+                    "new_mentions": _merge_message_new_mentions(base_nms, slice_nms),
+                }
+            else:
+                gated = {"relations": [], "new_mentions": base_nms}
+
+            _anchor, _known, pairs, by_key = prep[cid]
+            sanitized = _sanitize_message_payload(pairs, by_key, gated)
+            rels, nms, drops = validate_response(pairs, by_key, sanitized)
+            for reason, amount in drops.items():
+                counters.drop(reason, amount)
+                if drops_by_chunk is not None and cid in drops_by_chunk:
+                    drops_by_chunk[cid][reason] = (
+                        drops_by_chunk[cid].get(reason, 0) + amount
+                    )
+            result = ChunkResult(
+                chunk_id=cid,
+                known=by_key,
+                payload=sanitized,
+                relations=rels,
+                new_mentions=nms,
+                covered_chunk_ids=tuple(c for c, _t, _m in window_map[cid]),
+            )
+            target_claimed = (
+                claimed[cid] if isinstance(claimed, dict) else claimed
+            )
+            try:
+                with_retries(
+                    lambda r=result: _embed_new_mentions(r, counters),
+                    f"embedding new mentions of chunk {cid}",
+                )
+                _write_result(result, prompt_hash, model, target_claimed)
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                failed_ids.add(cid)
+                logger.warning("relations chunk %s failed on write: %s", cid, exc)
+                record_chunk_failure(cid, "relations", str(exc))
+                continue
+            written += 1
+            relation_count += len(result.relations)
+    finally:
+        _ACTIVE_RELATIONS_STAGE.reset(token)
+
+    return [], written, failed, relation_count, cap_error
+
+
+MAX_COALESCED_MESSAGE_JOBS = 100
+
+
+def _claim_sibling_message_jobs(limit: int = MAX_COALESCED_MESSAGE_JOBS) -> list[tuple[Any, str]]:
+    """Atomically claim queued message-source ``relations`` jobs to batch together."""
+    if limit <= 0:
+        return []
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT j.id, j.payload->>'source_id' "
+            "FROM cmap.job j "
+            "JOIN cmap.source s ON s.id::text = j.payload->>'source_id' "
+            "WHERE j.kind = 'relations' AND j.state = 'queued' AND j.run_after <= now() "
+            "  AND s.origin IS NOT NULL AND NOT COALESCE(s.colab_offload, false) "
+            "ORDER BY j.created_at "
+            "FOR UPDATE OF j SKIP LOCKED "
+            "LIMIT %s",
+            (limit,),
+        ).fetchall()
+        claimed_jobs: list[tuple[Any, str]] = []
+        for jid, sid in rows:
+            if not sid:
+                continue
+            conn.execute(
+                "UPDATE cmap.job SET state = 'running', attempts = attempts + 1, "
+                "started_at = now() WHERE id = %s",
+                (jid,),
+            )
+            claimed_jobs.append((jid, str(sid)))
+        conn.commit()
+    return claimed_jobs
+
+
+def _finish_sibling_job(job_id: Any, *, requeue: bool = False) -> None:
+    with get_pool().connection() as conn:
+        if requeue:
+            conn.execute(
+                "UPDATE cmap.job SET state = 'queued', started_at = NULL, "
+                "attempts = GREATEST(attempts - 1, 0) WHERE id = %s",
+                (job_id,),
+            )
+        else:
+            conn.execute(
+                "UPDATE cmap.job SET state = 'done', error = NULL, finished_at = now() "
+                "WHERE id = %s",
+                (job_id,),
+            )
+        conn.commit()
 
 
 def _is_colab_offload(source_id: str) -> bool:
@@ -1115,20 +1621,21 @@ def handle_relations(job: dict[str, Any]) -> None:
     counters = _Counters(settings)
 
     pending: list[tuple[str, list[WindowEntry]]] = []
-    for index, (chunk_id, _text, passage_kind) in enumerate(chunks):
-        chunk_mentions = mentions.get(chunk_id, [])
-        # Message-intake passages omit flat-mention gating so missed conversational
-        # mentions can be recovered via new_mentions (#607 step 2.3).
-        skip = chunk_id in done or (
-            not message_mode and passage_kind == "chatter" and not chunk_mentions
-        )
-        if skip:
-            continue
-        window: list[WindowEntry] = []
-        for at in window_indices(source_kind, index):
-            other_id, other_text, _kind = chunks[at]
-            window.append((other_id, other_text, mentions.get(other_id, [])))
-        pending.append((chunk_id, window))
+    if message_mode:
+        pending = message_windows(chunks, mentions, done)
+    else:
+        for index, (chunk_id, _text, passage_kind) in enumerate(chunks):
+            chunk_mentions = mentions.get(chunk_id, [])
+            skip = chunk_id in done or (
+                passage_kind == "chatter" and not chunk_mentions
+            )
+            if skip:
+                continue
+            window: list[WindowEntry] = []
+            for at in window_indices(source_kind, index):
+                other_id, other_text, _kind = chunks[at]
+                window.append((other_id, other_text, mentions.get(other_id, [])))
+            pending.append((chunk_id, window))
     if not done:
         # A fresh extraction (first run, or a new prompt hash): replace the
         # source's old relations rather than adding to them (repair plan A8).
@@ -1147,6 +1654,90 @@ def handle_relations(job: dict[str, Any]) -> None:
     failed = 0
     relation_count = 0
 
+    sync_pending = pending
+    if (
+        message_mode
+        and pending
+        and settings.brain_relations_batch_enabled
+        and is_openai_batch_model(model)
+    ):
+        if openai_batch_key(settings) is None:
+            logger.warning(
+                "OPENAI_API_KEY is not set; falling back to synchronous relations "
+                "path for source %s (model %s)",
+                source_id,
+                model,
+            )
+        else:
+            assert model is not None
+            sibling_jobs = _claim_sibling_message_jobs()
+            combined_pending = list(pending)
+            claimed_map: dict[str, _IdentityIndex] = {
+                cid: claimed for cid, _w in pending
+            }
+            primary_drops = dict.fromkeys(DROP_REASONS, 0)
+            drops_by_chunk: dict[str, dict[str, int]] = {
+                cid: primary_drops for cid, _w in pending
+            }
+            sibling_meta: list[
+                tuple[Any, str, bool, list[str], dict[str, int]]
+            ] = []
+            for sib_jid, sib_sid in sibling_jobs:
+                _sk, sib_chunks = _load_chunks(sib_sid)
+                sib_mentions = _load_mentions(sib_sid)
+                sib_done = _load_done(sib_sid, prompt_hash)
+                sib_pending = message_windows(sib_chunks, sib_mentions, sib_done)
+                if not sib_done:
+                    _clear_relations(sib_sid)
+                sib_claimed = _load_identity_index(sib_sid)
+                sib_drops = dict.fromkeys(DROP_REASONS, 0)
+                sib_cids: list[str] = []
+                for scid, swin in sib_pending:
+                    combined_pending.append((scid, swin))
+                    claimed_map[scid] = sib_claimed
+                    drops_by_chunk[scid] = sib_drops
+                    sib_cids.append(scid)
+                sibling_meta.append(
+                    (sib_jid, sib_sid, bool(sib_done), sib_cids, sib_drops)
+                )
+
+            (
+                rem_pending,
+                b_written,
+                b_failed,
+                b_rels,
+                b_cap,
+            ) = _run_message_batch(
+                combined_pending,
+                model,
+                prompt_hash,
+                counters,
+                claimed_map,
+                drops_by_chunk=drops_by_chunk,
+            )
+            rem_ids = {cid for cid, _w in rem_pending}
+            sync_pending = [item for item in pending if item[0] in rem_ids]
+            counters.drops = primary_drops
+            written += b_written
+            failed += b_failed
+            relation_count += b_rels
+            if b_cap is not None:
+                cap_error = b_cap
+
+            for sib_jid, sib_sid, sib_resuming, sib_cids, sib_drops in sibling_meta:
+                if any(scid in rem_ids for scid in sib_cids):
+                    _finish_sibling_job(sib_jid, requeue=True)
+                    continue
+                _record_drop_reasons(sib_sid, sib_drops, resuming=sib_resuming)
+                finish_source(sib_sid)
+                source_chain_ended(
+                    sib_sid,
+                    failed=False,
+                    resolve=_resolve_interview_answer(sib_sid),
+                )
+                after_source_relations(sib_sid)
+                _finish_sibling_job(sib_jid, requeue=False)
+
     def _one(item: tuple[str, list[WindowEntry]]) -> ChunkResult:
         """Extract, embed and store one window's relations."""
         token = _ACTIVE_RELATIONS_STAGE.set(active_stage)
@@ -1163,26 +1754,27 @@ def handle_relations(job: dict[str, Any]) -> None:
         _write_result(result, prompt_hash, model, claimed)
         return result
 
-    with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-        futures = {pool.submit(_one, item): item[0] for item in pending}
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-            except FrontierCapReached as exc:
-                # Not the chunk's fault: the job is resumed once the cap allows.
-                cap_error = exc
-                continue
-            except Exception as exc:
-                # Keep every finished chunk; note this one and carry on, so a
-                # single bad call never stops the chain (repair plan A2).
-                failed += 1
-                logger.warning(
-                    "relations chunk %s failed for good: %s", futures[future], exc
-                )
-                record_chunk_failure(futures[future], "relations", str(exc))
-                continue
-            written += 1
-            relation_count += len(result.relations)
+    if sync_pending:
+        with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+            futures = {pool.submit(_one, item): item[0] for item in sync_pending}
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                except FrontierCapReached as exc:
+                    # Not the chunk's fault: the job is resumed once the cap allows.
+                    cap_error = exc
+                    continue
+                except Exception as exc:
+                    # Keep every finished chunk; note this one and carry on, so a
+                    # single bad call never stops the chain (repair plan A2).
+                    failed += 1
+                    logger.warning(
+                        "relations chunk %s failed for good: %s", futures[future], exc
+                    )
+                    record_chunk_failure(futures[future], "relations", str(exc))
+                    continue
+                written += 1
+                relation_count += len(result.relations)
     _record_usage(job.get("id"), counters.usage)
     _record_drop_reasons(source_id, counters.drops, resuming=bool(done))
     logger.info(

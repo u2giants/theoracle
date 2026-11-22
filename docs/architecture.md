@@ -47,6 +47,13 @@ High-volume `relations` backfills and open-weight/QLoRA evaluations (`plan_colab
 - **Offline JSONL packets (`apps/brain/brain/colab_packet.py`, `apps/brain/brain/colab_bakeoff.py`, `apps/brain/colab/run_vllm_batch.py`):** exports pending windows and a strict ontology JSON Schema for grammar-constrained vLLM decoding, then re-validates replies on `apps/brain` and scores bake-offs via `brain.intake.bakeoff`.
 - **Pull-based leases (`apps/brain/brain/sql/039_colab_leases.sql`, `apps/brain/brain/api/colab.py`, `apps/brain/colab/drain_leases.py`):** when `BRAIN_COLAB_LEASE_ENABLED=true`, workers authenticated with `BRAIN_COLAB_WORKER_TOKEN` claim 15-minute (`<=30m` DB-enforced) chunk leases from `colab_offload=true` sources (excluding live `awaits_reply` interview turns) and submit raw JSON back for server-side `validate_response` and mention embedding. Disabling `BRAIN_COLAB_LEASE_ENABLED` falls back immediately to the standard worker.
 
+## Project-manager message intake (`#607`)
+
+Teams chat (`apps/brain/brain/intake/graph_chats.py`), ClickUp (`apps/brain/brain/intake/clickup.py`), and authorized Exchange mail (`apps/brain/brain/intake/graph_mail.py`) collect into `cmap.intake_item` and `cmap.intake_thread`, apply drop-only cleaning (`apps/brain/brain/intake/clean.py`), and ingest kept threads as `transcript` sources with `origin IS NOT NULL` (`apps/brain/brain/intake/ingest.py`, gated by `BRAIN_INTAKE_ENABLED` and `BRAIN_INTAKE_MAX_USD`):
+
+- **Three-pass `relations_messages` & OpenAI native batch (`apps/brain/brain/extract/relations.py`, `apps/brain/brain/llm_batch.py`):** message sources (`origin IS NOT NULL` when `relations_messages` is seated) group turns into intact `<=12,000`-character windows (`<=8,000` characters on mega-threads) and execute Pass 1 (`relations_messages.md`), Pass 2 (`relations_messages_audit.md`), and Pass 3 (`relations_messages_gate.md`, `<=25` relations per item) as three `/v1/responses` batch rounds on `https://api.openai.com/v1/batches` (`<=30m` bounded polling, strict `custom_id` reconciliation, automatic temporary file deletion, and automatic synchronous OpenRouter fallback when `OPENAI_API_KEY` / `BRAIN_OPENAI_API_KEY` is unset).
+- **Message business-function sorting (`apps/brain/brain/function_assign.py`):** routes `origin IS NOT NULL` passages to `BRAIN_MESSAGE_FUNCTION_MODEL` or `relations_messages` (`openai/gpt-6-luna`, never a frontier model) by default, with an opt-in ScaleDown `/classify` path (`BRAIN_SCALEDOWN_FUNCTION_ASSIGN_ENABLED`) that builds labels dynamically from active `cmap.function` rows and falls back to the model after three failed attempts.
+
 ## Teams live meetings (Recall.ai)
 
 An admin (`POST /api/teams/live/start`) or a Teams user (`@The Oracle join
