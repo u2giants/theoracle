@@ -9,7 +9,7 @@ read-when: working on Google Colab GPU batch offload, open-weight vLLM bake-offs
 
 Written 2026-11-21, 8:57 PM EST, by Antigravity (edge-dev session `0e6ed4f6`) for Albert Hazan.
 Tracking issue: https://github.com/u2giants/theoracle/issues/664 (its checklist is the definition of done).
-Registered handoff: [HANDOFF.d/2026-11-22T0637Z-edge-dev-agy-colab-offload-qualified.md](HANDOFF.d/2026-11-22T0637Z-edge-dev-agy-colab-offload-qualified.md).
+Registered handoff: [HANDOFF.d/2026-11-22T1358Z-edge-dev-agy-colab-adc-vaulted-step42-gated.md](HANDOFF.d/2026-11-22T1358Z-edge-dev-agy-colab-adc-vaulted-step42-gated.md).
 Companion plans (do not fold in; preserve their gates): [plan_pm_message_intake.md](plan_pm_message_intake.md) (issue `#607`), [plan_meeting_triage_pipeline.md](plan_meeting_triage_pipeline.md), and [plan_oracle_company_map.md](plan_oracle_company_map.md).
 
 **Who this is written for:** a fresh lead session walking in with zero memory of this conversation. Every step names concrete files, functions, SQL objects, runtime flags, verification gates, and `lead-only` / `helper-ok` delegation rules. If reality disagrees with a step, stop and record the drift in STATUS rather than guessing.
@@ -33,7 +33,7 @@ Fresh session starts at: **the first row marked `⬜ open`, in order.** Re-read 
 | 3.2 | Scoped bearer auth (`BRAIN_COLAB_WORKER_TOKEN`) & pull endpoints `POST /colab/lease`, `POST /colab/submit`, `GET /colab/status` (`apps/brain/brain/api/colab.py`) | `lead-only` | ✅ done | `apps/brain/brain/api/colab.py`, `apps/brain/brain/api/deps.py`, `apps/brain/brain/main.py`, and `apps/brain/tests/test_colab_api.py` (`uv run pytest tests/test_colab_api.py` — 7 passed); 1Password `vibe_coding` items `naytnzqu4ldh4t7jutxbx7btzq` (sandbox) and `gulz2yow5h7tkkrdsopkh4udxq` (prod) provisioned | 2026-11-21 9:49 PM EST |
 | 3.3 | Pull-loop Colab worker CLI (`apps/brain/colab/drain_leases.py`) with budget cap, heartbeat & guaranteed teardown | `helper-ok` | ✅ done | `apps/brain/colab/drain_leases.py` (`.tar.gz` `resolved_lora_directory` support), `apps/brain/tests/test_colab_drain_worker.py` (4 passed), and live Colab `L4` 110-passage drain in [docs/verification/2026-11-colab-sandbox-drain-proof.md](docs/verification/2026-11-colab-sandbox-drain-proof.md) | 2026-11-22 1:37 AM EST |
 | 4.1 | Private Coolify sandbox end-to-end lease-drain proof (100+ passages, kill-mid-lease recovery, $0 cloud relations spend) | `lead-only` | ✅ done | [docs/verification/2026-11-colab-sandbox-drain-proof.md](docs/verification/2026-11-colab-sandbox-drain-proof.md): 60s kill-mid-lease expiry recovery + `HTTP 409 Conflict` guard + live Colab `L4` drain of `110/110` passages (`2` batches, `100%` quote validation, `11/11` sources `read`, `$0.00` OpenRouter relations spend, `~0.27` actual CCUs, `0` post-run sessions) | 2026-11-22 12:35 AM EST |
-| 4.2 | Production backfill drain proof on approved `#607` pilot window (`- [ ] live proof` on `#664`) | `lead-only` | ⬜ open | Awaits `#607` Steps 2.4–3.1 pilot window (`HANDOFF.d/2026-11-22T0525Z-edge-dev-agy-intake-step24-batch-and-cache.md`) or approved `colab_offload = true` transcript backfill ([HANDOFF.d/2026-11-22T0637Z-edge-dev-agy-colab-offload-qualified.md](HANDOFF.d/2026-11-22T0637Z-edge-dev-agy-colab-offload-qualified.md)) | 2026-11-22 1:47 AM EST |
+| 4.2 | Production backfill drain proof on approved `#607` pilot window (`- [ ] live proof` on `#664`) | `lead-only` | ⬜ open | Awaits `#607` Steps 2.4–3.1 pilot window (`HANDOFF.d/2026-11-22T0525Z-edge-dev-agy-intake-step24-batch-and-cache.md`) or approved `colab_offload = true` transcript backfill + `--class production` gate ([HANDOFF.d/2026-11-22T1358Z-edge-dev-agy-colab-adc-vaulted-step42-gated.md](HANDOFF.d/2026-11-22T1358Z-edge-dev-agy-colab-adc-vaulted-step42-gated.md)) | 2026-11-22 9:00 AM EST |
 
 ---
 
@@ -416,9 +416,10 @@ Every data path crossing between `apps/brain`, Colab VMs, Hugging Face Hub, and 
   - `uv` / Python 3.12+ — used for `apps/brain` tests and `uv tool install google-colab-cli`.
 - **1Password vault `vibe_coding` (item titles only — NEVER print or log secret values; load `secrets-to-1password` skill before creating/editing items):**
   - Existing brain items: ScaleDown, OpenRouter, Supabase, and `"Designflow - Azure Graph client secret (AZURE_CLIENT_SECRET)"` (referenced in `plan_pm_message_intake.md` §12).
-  - New items to create via `secrets-to-1password` during Phases 3–4:
-    - `"The Oracle — Sandbox Brain Colab Worker Token (BRAIN_COLAB_WORKER_TOKEN)"`
-    - `"The Oracle — Production Brain Colab Worker Token (BRAIN_COLAB_WORKER_TOKEN)"`
+  - Provisioned items in `vibe_coding` via `secrets-to-1password`:
+    - `"Google Colab CLI Application Default Credentials - u2giants@gmail.com (AI Ultra CCUs, theoracle)"` (item `whgwmjd6wvcq4rttpo6mx4367i`, field `ADC_JSON`)
+    - `"The Oracle — Sandbox Brain Colab Worker Token (BRAIN_COLAB_WORKER_TOKEN)"` (item `naytnzqu4ldh4t7jutxbx7btzq`, field `BRAIN_COLAB_WORKER_TOKEN`)
+    - `"The Oracle — Production Brain Colab Worker Token (BRAIN_COLAB_WORKER_TOKEN)"` (item `gulz2yow5h7tkkrdsopkh4udxq`, field `BRAIN_COLAB_WORKER_TOKEN`)
 - **Target environments:**
   - **Private Coolify sandbox:** Used for Phases 1, 2, and 4.1 (`HANDOFF.d/2026-11-22T0053Z-edge-dev3-codex-intake-luna-reconciled.md` §8 describes exact sandbox custody and existing `step-2.3-relations` artifacts).
   - **Production:** Coolify service `oracle-brain` (`https://oracle-brain.designflow.app`, image `ghcr.io/u2giants/theoracle-brain`) and Vercel web (`https://oracle.designflow.app`) — touched **only** in Step 4.2 after sandbox proof and `#607` Step 2.3 qualification pass.
@@ -451,7 +452,7 @@ Every data path crossing between `apps/brain`, Colab VMs, Hugging Face Hub, and 
   - *Rollback:* Ship a compensating migration setting `colab_offload = false` and dropping `cmap.colab_lease_item` / `cmap.colab_lease` (`cmap.extraction` and `cmap.relation` remain completely standard).
 
 #### Open business questions for the owner
-- **None blocking right now** (`#607` Step 2.3 qualified three-pass `GPT-6 Luna` in `2712f979`). Downstream post-pilot checkpoints remain tracked in [HANDOFF.d/2026-11-22T0637Z-edge-dev-agy-colab-offload-qualified.md](HANDOFF.d/2026-11-22T0637Z-edge-dev-agy-colab-offload-qualified.md) §0 and [plan_pm_message_intake.md](plan_pm_message_intake.md) STATUS.
+- **None blocking right now** (`#607` Step 2.3 qualified three-pass `GPT-6 Luna` in `2712f979`). Downstream post-pilot checkpoints remain tracked in [HANDOFF.d/2026-11-22T1358Z-edge-dev-agy-colab-adc-vaulted-step42-gated.md](HANDOFF.d/2026-11-22T1358Z-edge-dev-agy-colab-adc-vaulted-step42-gated.md) §0 and [plan_pm_message_intake.md](plan_pm_message_intake.md) STATUS.
 
 ---
 
@@ -470,7 +471,7 @@ Every data path crossing between `apps/brain`, Colab VMs, Hugging Face Hub, and 
 
 ```text
 You are the lead session implementing Google Colab GPU batch offload and fine-tuning in https://github.com/u2giants/theoracle (issue #664).
-Read AGENTS.md first, then plan_colab_gpu_offload.md (STATUS table first, then §1, §8, §9, §9a, §11), then HANDOFF.d/2026-11-22T0637Z-edge-dev-agy-colab-offload-qualified.md, and issue #664.
+Read AGENTS.md first, then plan_colab_gpu_offload.md (STATUS table first, then §1, §8, §9, §9a, §11), then HANDOFF.d/2026-11-22T1358Z-edge-dev-agy-colab-adc-vaulted-step42-gated.md, and issue #664.
 
 Start at the first open row in plan_colab_gpu_offload.md STATUS. Create your own isolated git worktree from origin/main, verify git var GIT_COMMITTER_IDENT, and run `ai-task-gates start --class code` before editing any file (redeclare `--class production` before Step 4.2).
 
