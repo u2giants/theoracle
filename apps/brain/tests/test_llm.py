@@ -502,3 +502,54 @@ def test_openai_direct_provider_resolution_and_parameter_gate(
     assert seen[0]["json"]["model"] == "gpt-6-luna"
     assert "provider" not in seen[0]["json"]
     assert "reasoning" not in seen[0]["json"]
+
+
+def test_openai_slash_dual_routing_and_direct_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#680 (c): openai/* uses OpenRouter when keyed, else falls back to OpenAI direct."""
+    # When openrouter_api_key is set, openai/* stays on OpenRouter with prefix kept.
+    s_or = Settings(openrouter_api_key="or-k", openai_api_key="oa-k")
+    base, key = llm.resolve_provider("openai/gpt-6-luna", s_or)
+    assert base == llm.OPENROUTER_BASE_URL
+    assert key == "or-k"
+    assert (
+        llm.strip_provider_prefix("openai/gpt-6-luna", llm.OPENROUTER_BASE_URL)
+        == "openai/gpt-6-luna"
+    )
+
+    # When openrouter_api_key is None and openai_api_key is set, openai/* falls back
+    # to direct OpenAI and strips the openai/ prefix + OpenRouter-only params.
+    s_direct = Settings(openrouter_api_key=None, openai_api_key="oa-k")
+    base, key = llm.resolve_provider("openai/gpt-6-luna", s_direct)
+    assert base == llm.OPENAI_BASE_URL
+    assert key == "oa-k"
+    assert (
+        llm.strip_provider_prefix("openai/gpt-6-luna", llm.OPENAI_BASE_URL)
+        == "gpt-6-luna"
+    )
+
+    seen: list[dict[str, Any]] = []
+
+    def fake_post(url: str, **kw: Any) -> _Resp:
+        seen.append({"url": url, "json": kw["json"]})
+        return _Resp(_body('{"ok": true}'))
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    llm.post_chat_with_rescue(
+        {
+            "model": "openai/gpt-6-luna",
+            "messages": [{"role": "user", "content": "Return JSON."}],
+            "max_tokens": 1000,
+            "provider": {"only": ["openai"]},
+            "reasoning": {"effort": "low"},
+        },
+        settings=s_direct,
+        timeout=5.0,
+        error_cls=_Boom,
+        label="openai fallback",
+    )
+    assert seen[0]["url"] == f"{llm.OPENAI_BASE_URL}/chat/completions"
+    assert seen[0]["json"]["model"] == "gpt-6-luna"
+    assert "provider" not in seen[0]["json"]
+    assert "reasoning" not in seen[0]["json"]

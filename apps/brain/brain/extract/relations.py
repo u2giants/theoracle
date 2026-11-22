@@ -604,9 +604,13 @@ def _call_model(prompt: str, counters: _Counters) -> dict[str, Any]:
     messages = [{"role": "user", "content": prompt}]
     counters.take_frontier_call()
     body = _post_chat(messages, counters.settings)
-    if _finish_reason(body) == "length":
+    if (
+        _finish_reason(body) == "length"
+        and _ACTIVE_RELATIONS_STAGE.get() != "relations_messages"
+    ):
         # Dense chunks can need more than MAX_TOKENS; retry once with a larger
         # budget before falling back to item-wise salvage (issue #365).
+        # relations_messages already sends TRUNCATION_RETRY_MAX_TOKENS on call 1.
         counters.bump("frontier_truncation_retries")
         counters.take_frontier_call()
         _bump_usage(body, counters)
@@ -1001,24 +1005,65 @@ def _source_origin(source_id: str) -> str | None:
     return str(row[0]) if row and row[0] else None
 
 
+_NON_SPEAKER_COLON_LABELS = frozenset(
+    {
+        "task name",
+        "list",
+        "status",
+        "assignee",
+        "assignees",
+        "due date",
+        "dependencies",
+        "priority",
+        "reminder",
+        "note",
+        "notes",
+        "subject",
+        "action",
+        "update",
+        "summary",
+        "warning",
+        "blocker",
+        "issue",
+        "url",
+        "link",
+        "http",
+        "https",
+        "re",
+        "fw",
+        "fwd",
+    }
+)
+
+
 def _clean_message_quote(window_pairs: list[tuple[str, str]], quote: str) -> str:
     """Strip an accidental leading ``Speaker: `` prefix and recover exact turn substring."""
     q = (quote or "").strip()
     if not q:
         return ""
-    if any(q in text for _cid, text in window_pairs) and ":" not in q.split("\n", 1)[0]:
+    q_in_window = any(q in text for _cid, text in window_pairs)
+    first_line = q.split("\n", 1)[0]
+    if q_in_window and ":" not in first_line:
         return q
-    # Strip leading speaker label if present at line start in a packed message chunk.
-    if ":" in q:
+    # Strip leading speaker label only when it opens a turn (or was prepended by the model).
+    if ":" in first_line:
         prefix, after = q.split(":", 1)
         body = after.strip()
+        speaker = prefix.strip()
         if (
             body
-            and len(prefix.split()) <= 6
-            and any(f"{prefix.strip()}: {body}" in text for _cid, text in window_pairs)
+            and "\n" not in prefix
+            and 1 <= len(speaker.split()) <= 6
+            and speaker.casefold() not in _NON_SPEAKER_COLON_LABELS
         ):
-            return body
-    if any(q in text for _cid, text in window_pairs):
+            if q_in_window:
+                pat = rf"(?:^|\n){re.escape(speaker)}:\s*{re.escape(body)}"
+                if any(re.search(pat, text) for _cid, text in window_pairs):
+                    return body
+                return q
+            if any(body in text for _cid, text in window_pairs):
+                return body
+    if q_in_window:
         return q
     nq = _normalize_quote(q)
     if nq:
@@ -1729,13 +1774,14 @@ def handle_relations(job: dict[str, Any]) -> None:
                     _finish_sibling_job(sib_jid, requeue=True)
                     continue
                 _record_drop_reasons(sib_sid, sib_drops, resuming=sib_resuming)
-                finish_source(sib_sid)
+                sib_state = finish_source(sib_sid)
                 source_chain_ended(
                     sib_sid,
-                    failed=False,
+                    failed=(sib_state == "failed"),
                     resolve=_resolve_interview_answer(sib_sid),
                 )
-                after_source_relations(sib_sid)
+                if sib_state != "failed":
+                    after_source_relations(sib_sid)
                 _finish_sibling_job(sib_jid, requeue=False)
 
     def _one(item: tuple[str, list[WindowEntry]]) -> ChunkResult:
@@ -1799,10 +1845,13 @@ def handle_relations(job: dict[str, Any]) -> None:
     # An interview answer is now processed: compose the reply (#604) first,
     # so the employee never waits on the global steps below.
     source_chain_ended(
-        source_id, failed=False, resolve=_resolve_interview_answer(source_id)
+        source_id,
+        failed=(state == "failed"),
+        resolve=_resolve_interview_answer(source_id),
     )
-    _enqueue_resolve()
-    after_source_relations(source_id)
+    if state != "failed":
+        _enqueue_resolve()
+        after_source_relations(source_id)
 
 
 def _enqueue_resolve() -> None:

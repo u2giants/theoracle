@@ -42,6 +42,7 @@ META_BASE_URL = "https://api.meta.ai/v1"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 _META_PROVIDER_PREFIX = "meta-model-api/"
 _OPENAI_PROVIDER_PREFIX = "openai-api/"
+_OPENAI_OPENROUTER_PREFIX = "openai/"
 
 _PROVIDER_NAMES: dict[str, str] = {
     OPENROUTER_BASE_URL: "openrouter",
@@ -95,20 +96,41 @@ _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$")
 
 
 def resolve_provider(model: str | None, settings: Settings) -> tuple[str, str | None]:
-    """Return ``(base_url, api_key)`` for the model's provider."""
+    """Return ``(base_url, api_key)`` for the model's provider.
+
+    Dual routing rule for OpenAI models:
+    - ``openai-api/*`` always routes directly to ``OPENAI_BASE_URL`` with
+      ``openai_api_key(settings)``.
+    - ``openai/*`` routes to ``OPENROUTER_BASE_URL`` whenever
+      ``settings.openrouter_api_key`` is set (matching ``plan_pm_message_intake.md``
+      step 2.4). When ``settings.openrouter_api_key`` is unset and
+      ``openai_api_key(settings)`` is set, it falls back directly to
+      ``OPENAI_BASE_URL`` with ``openai/`` stripped by ``strip_provider_prefix``.
+    - ``meta-model-api/*`` routes directly to ``META_BASE_URL``.
+    - Everything else routes to ``OPENROUTER_BASE_URL``.
+    """
     if model and model.startswith(_META_PROVIDER_PREFIX):
         return META_BASE_URL, settings.brain_meta_api_key
     if model and model.startswith(_OPENAI_PROVIDER_PREFIX):
         return OPENAI_BASE_URL, openai_api_key(settings)
+    if (
+        model
+        and model.startswith(_OPENAI_OPENROUTER_PREFIX)
+        and not settings.openrouter_api_key
+        and (direct_key := openai_api_key(settings))
+    ):
+        return OPENAI_BASE_URL, direct_key
     return OPENROUTER_BASE_URL, settings.openrouter_api_key
 
 
-def strip_provider_prefix(model: str) -> str:
-    """Strip ``meta-model-api/`` or ``openai-api/`` so the API sees its bare model id."""
+def strip_provider_prefix(model: str, base_url: str | None = None) -> str:
+    """Strip ``meta-model-api/``, ``openai-api/``, or (on direct OpenAI) ``openai/``."""
     if model.startswith(_META_PROVIDER_PREFIX):
         return model[len(_META_PROVIDER_PREFIX) :]
     if model.startswith(_OPENAI_PROVIDER_PREFIX):
         return model[len(_OPENAI_PROVIDER_PREFIX) :]
+    if base_url == OPENAI_BASE_URL and model.startswith(_OPENAI_OPENROUTER_PREFIX):
+        return model[len(_OPENAI_OPENROUTER_PREFIX) :]
     return model
 
 
@@ -194,7 +216,7 @@ def post_chat_with_rescue(
     if api_key is None:
         raise error_cls(f"{label}: no API key for provider {provider} model {model!r}")
     body = dict(payload)
-    body["model"] = strip_provider_prefix(model)
+    body["model"] = strip_provider_prefix(model, base_url)
     body = gate_payload_for_provider(body, base_url)
     for attempt in range(2):
         response = httpx.post(

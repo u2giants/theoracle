@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from brain.config import get_settings
 from brain.resolve.resolve import _Frontier
-from brain.seats import STAGES, stage_model
+from brain.seats import STAGES, seat_report, stage_model
 
 
 @pytest.fixture()
@@ -199,3 +199,44 @@ def test_relations_messages_seat_is_independent_of_document_relations(
     body = client.get("/models", headers={"x-brain-token": TEST_TOKEN}).json()
     assert body["models"]["relations_messages"] == "test/msg-seat"
     assert body["models"]["relations"] == "test/frontier"
+
+
+def test_seat_report_matches_stage_model_for_relations_messages(
+    client: TestClient,
+    env_seats: None,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#675 (b): seat_report['relations_messages'] stays aligned with stage_model."""
+    monkeypatch.delenv("BRAIN_MESSAGE_RELATIONS_MODEL", raising=False)
+    get_settings.cache_clear()
+
+    # Fallback to relations page seat when relations_messages and its env var are unset.
+    resp = client.put(
+        "/models/relations", json={"model": "test/rel-page"}, headers=admin_headers
+    )
+    assert resp.status_code == 200
+    settings = get_settings()
+    report = seat_report(settings)["relations_messages"]
+    assert report["model"] == stage_model(settings, "relations_messages") == "test/rel-page"
+    assert report["source"] == "page"
+
+    # Dedicated env var beats the relations page fallback and reports source="env".
+    monkeypatch.setenv("BRAIN_MESSAGE_RELATIONS_MODEL", "test/msg-env")
+    get_settings.cache_clear()
+    settings = get_settings()
+    report = seat_report(settings)["relations_messages"]
+    assert report["model"] == stage_model(settings, "relations_messages") == "test/msg-env"
+    assert report["source"] == "env"
+
+    # Dedicated relations_messages page seat wins over both.
+    resp = client.put(
+        "/models/relations_messages",
+        json={"model": "test/msg-page"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    settings = get_settings()
+    report = seat_report(settings)["relations_messages"]
+    assert report["model"] == stage_model(settings, "relations_messages") == "test/msg-page"
+    assert report["source"] == "page"

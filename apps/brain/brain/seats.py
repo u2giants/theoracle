@@ -98,19 +98,29 @@ def env_model(settings: Settings, stage: str) -> str | None:
     return settings.brain_frontier_model
 
 
-def stage_model(settings: Settings, stage: str) -> str | None:
-    """The model a stage should call: the page's seat, else its env seat."""
+def _resolve_stage(
+    settings: Settings, stage: str, seats: dict[str, str]
+) -> tuple[str | None, str]:
+    """Return ``(model, source)`` for ``stage``, keeping stage_model and seat_report aligned."""
     if stage not in STAGES:
         raise ValueError(f"unknown model stage {stage!r}")
-    seats = _db_seats()
     if stage == "relations_messages":
-        return (
-            seats.get("relations_messages")
-            or settings.brain_message_relations_model
-            or seats.get("relations")
-            or settings.brain_frontier_model
-        )
-    return seats.get(stage) or env_model(settings, stage)
+        if seats.get("relations_messages"):
+            return seats["relations_messages"], "page"
+        if settings.brain_message_relations_model:
+            return settings.brain_message_relations_model, "env"
+        if seats.get("relations"):
+            return seats["relations"], "page"
+        return settings.brain_frontier_model, "env"
+    if seats.get(stage):
+        return seats[stage], "page"
+    return env_model(settings, stage), "env"
+
+
+def stage_model(settings: Settings, stage: str) -> str | None:
+    """The model a stage should call: the page's seat, else its env seat."""
+    model, _source = _resolve_stage(settings, stage, _db_seats())
+    return model
 
 
 def message_relations_chosen(settings: Settings) -> bool:
@@ -133,14 +143,15 @@ def flat_model_chosen(settings: Settings) -> bool:
 def seat_report(settings: Settings) -> dict[str, dict[str, Any]]:
     """Every stage's live model and whether the page or the env set it."""
     seats = _db_seats()
-    return {
-        stage: {
-            "model": seats.get(stage) or env_model(settings, stage),
-            "source": "page" if stage in seats else "env",
+    report: dict[str, dict[str, Any]] = {}
+    for stage in STAGES:
+        model, source = _resolve_stage(settings, stage, seats)
+        report[stage] = {
+            "model": model,
+            "source": source,
             "env_model": env_model(settings, stage),
         }
-        for stage in STAGES
-    }
+    return report
 
 
 def set_seat(
