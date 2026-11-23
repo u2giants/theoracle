@@ -427,3 +427,56 @@ def test_reread_and_delete_remove_orphaned_entities_and_aliases(
     assert response.status_code == 200, response.text
     db.commit()
     assert db.execute("SELECT count(*) FROM cmap.entity").fetchone()[0] == 0
+
+
+def test_run_project_creates_indexes_before_nodes_and_edges(monkeypatch: Any) -> None:
+    """Indexes on Entity(id, name, type) must exist before node/edge MATCH batches."""
+    calls: list[str] = []
+
+    class _FakePool:
+        def connection(self) -> Any:
+            class _Ctx:
+                def __enter__(self) -> Any:
+                    return self
+
+                def __exit__(self, *args: Any) -> None:
+                    return None
+
+                def commit(self) -> None:
+                    return None
+
+            return _Ctx()
+
+    monkeypatch.setattr(project_mod, "get_pool", lambda: _FakePool())
+    monkeypatch.setattr(project_mod, "recompute_relation_status", lambda conn: None)
+    monkeypatch.setattr(project_mod, "load_corrections", lambda conn: None)
+    monkeypatch.setattr(project_mod, "apply_renames", lambda conn, c: None)
+    monkeypatch.setattr(project_mod, "apply_entity_edits", lambda conn, c: None)
+    monkeypatch.setattr(project_mod, "_load_entities", lambda conn: [{"id": "e1"}])
+    monkeypatch.setattr(project_mod, "_load_edges", lambda conn: [{"from": "e1", "to": "e1"}])
+    monkeypatch.setattr(project_mod, "_client", lambda cfg: object())
+    monkeypatch.setattr(
+        project_mod,
+        "_drop",
+        lambda client: (calls.append("drop"), object())[1],
+    )
+    monkeypatch.setattr(
+        project_mod,
+        "_create_indexes",
+        lambda graph: calls.append("indexes"),
+    )
+    monkeypatch.setattr(
+        project_mod,
+        "_create_nodes",
+        lambda graph, nodes: calls.append("nodes"),
+    )
+    monkeypatch.setattr(
+        project_mod,
+        "_create_edges",
+        lambda graph, edges: calls.append("edges"),
+    )
+    monkeypatch.setattr(project_mod, "_record_version", lambda conn, n, e: 52)
+
+    stats = run_project()
+    assert stats == {"nodes": 1, "edges": 1, "version": 52}
+    assert calls == ["drop", "indexes", "nodes", "edges"]

@@ -100,7 +100,11 @@ def _client(settings: Settings | None = None) -> FalkorDB:
 
 @functools.lru_cache(maxsize=4)
 def _client_for(url: str) -> FalkorDB:
-    return FalkorDB.from_url(url)
+    return FalkorDB.from_url(
+        url,
+        socket_timeout=120.0,
+        socket_connect_timeout=10.0,
+    )
 
 
 def _drop(graph_client: FalkorDB) -> Graph:
@@ -324,9 +328,9 @@ def run_project(settings: Settings | None = None) -> dict[str, int]:
         nodes = _load_entities(conn)
         edges = _load_edges(conn)
     graph = _drop(_client(cfg))
+    _create_indexes(graph)
     _create_nodes(graph, nodes)
     _create_edges(graph, edges)
-    _create_indexes(graph)
     with get_pool().connection() as conn:
         version = _record_version(conn, len(nodes), len(edges))
     return {"nodes": len(nodes), "edges": len(edges), "version": version}

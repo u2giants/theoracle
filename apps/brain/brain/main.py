@@ -36,10 +36,14 @@ app.include_router(recommend_router)
 
 
 def check_graph(settings: Settings | None = None) -> bool:
-    """Return True when FalkorDB answers a ping."""
+    """Return True when FalkorDB answers a ping within a bounded timeout."""
     cfg = settings if settings is not None else get_settings()
     try:
-        client = FalkorDB.from_url(cfg.falkordb_url)
+        client = FalkorDB.from_url(
+            cfg.falkordb_url,
+            socket_timeout=2.0,
+            socket_connect_timeout=2.0,
+        )
         client.execute_command("PING")
     except Exception:
         return False
