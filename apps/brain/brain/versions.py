@@ -116,12 +116,19 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def _first_chunk_means(conn: Any) -> dict[str, list[float]]:
-    """Mean-pooled embedding of each source's first ``SIMILARITY_FIRST_CHUNKS`` chunks."""
+    """Mean-pooled embedding of each uploaded source's first ``SIMILARITY_FIRST_CHUNKS`` chunks.
+
+    Message-intake sources (``origin IS NOT NULL``) are excluded: they version
+    deterministically by ``thread_key`` and would otherwise bloat every document
+    similarity scan with thousands of thread embeddings.
+    """
     rows = conn.execute(
         "SELECT source_id::text, embedding::text FROM ("
-        "  SELECT source_id, embedding, "
-        "    row_number() OVER (PARTITION BY source_id ORDER BY ordinal) AS rn "
-        "  FROM cmap.chunk WHERE embedding IS NOT NULL"
+        "  SELECT c.source_id, c.embedding, "
+        "    row_number() OVER (PARTITION BY c.source_id ORDER BY c.ordinal) AS rn "
+        "  FROM cmap.chunk c "
+        "  JOIN cmap.source s ON s.id = c.source_id "
+        "  WHERE c.embedding IS NOT NULL AND s.origin IS NULL"
         ") ranked WHERE rn <= %s",
         (SIMILARITY_FIRST_CHUNKS,),
     ).fetchall()
@@ -257,7 +264,8 @@ def detect_title(
     if not key:
         return []
     rows = conn.execute(
-        "SELECT id::text, title, effective_date FROM cmap.source WHERE id <> %s",
+        "SELECT id::text, title, effective_date FROM cmap.source "
+        "WHERE id <> %s AND origin IS NULL",
         (source_id,),
     ).fetchall()
     written: list[dict[str, Any]] = []
