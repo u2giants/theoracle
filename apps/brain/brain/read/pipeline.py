@@ -172,7 +172,8 @@ def handle_read_source(job: dict[str, Any]) -> None:
             origin_row = conn.execute(
                 "SELECT origin FROM cmap.source WHERE id = %s", (source_id,)
             ).fetchone()
-        if origin_row is not None and origin_row[0] and kind == KIND_TRANSCRIPT:
+        is_message_source = bool(origin_row is not None and origin_row[0])
+        if is_message_source and kind == KIND_TRANSCRIPT:
             # Message threads are packed into full passages (intake plan 1.6).
             chunks = read_message_thread(_decode_text(data))
         else:
@@ -192,16 +193,18 @@ def handle_read_source(job: dict[str, Any]) -> None:
             return
         embed_and_store(pairs, usage=usage)
         # D2: the first 3 chunks are embedded now, so similarity detection can
-        # compare this source against the corpus. It only marks supersession
-        # proposals and never blocks reading (failure is logged, read goes on).
-        try:
-            with get_pool().connection() as conn:
-                versions_mod.detect_similarity(conn, source_id)
-                conn.commit()
-        except Exception as exc:  # noqa: BLE001 - marking must never block a read
-            logger.warning(
-                "supersession similarity detection failed for %s: %s", source_id, exc
-            )
+        # compare uploaded documents against the corpus. Message-intake sources
+        # (origin IS NOT NULL) version deterministically by thread_key in
+        # intake/ingest.py and must not trigger O(N) full-corpus chunk scans.
+        if not is_message_source:
+            try:
+                with get_pool().connection() as conn:
+                    versions_mod.detect_similarity(conn, source_id)
+                    conn.commit()
+            except Exception as exc:  # noqa: BLE001 - marking must never block a read
+                logger.warning(
+                    "supersession similarity detection failed for %s: %s", source_id, exc
+                )
         # "read" is set only when extraction has finished (relations job).
         set_read_state(source_id, "extracting", None)
     except Exception as exc:

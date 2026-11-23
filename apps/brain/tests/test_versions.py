@@ -589,3 +589,61 @@ def test_title_key_folds_extensions_and_case() -> None:
     assert title_key("Widget Policy.pdf") == title_key("WIDGET POLICY")
     assert title_key("Widget Policy.docx") == title_key("widget policy")
     assert title_key("Q3.report") != title_key("Q3")
+
+
+def test_message_source_skips_similarity_detection(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    storage: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    db: Any,
+) -> None:
+    """Message-intake sources (origin IS NOT NULL) skip full-corpus similarity scans."""
+    uploaded = _upload(
+        client,
+        admin_headers,
+        "thread-sample.txt",
+        b"2026-11-23 | Jessica: Approved the revised schedule for the buyer.",
+        title="Schedule update",
+        effective_date="2026-11-23",
+    )
+    db.execute(
+        "UPDATE cmap.source SET origin = 'email' WHERE id = %s",
+        (uploaded["id"],),
+    )
+    db.commit()
+
+    called: list[str] = []
+
+    def _forbid_similarity(conn: Any, source_id: str) -> list[dict[str, Any]]:
+        del conn
+        called.append(source_id)
+        raise AssertionError("detect_similarity must not run for message sources")
+
+    monkeypatch.setattr("brain.versions.detect_similarity", _forbid_similarity)
+    _run_read(db, monkeypatch, uploaded["id"])
+    assert called == []
+
+
+def test_similarity_and_title_queries_exclude_message_sources() -> None:
+    """Document supersession queries filter out message-intake sources (origin IS NULL)."""
+    from brain.versions import _first_chunk_means, detect_title
+
+    queries: list[str] = []
+
+    class _DummyCursor:
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            return []
+
+    class _DummyConn:
+        def execute(self, sql: str, params: Any = None) -> _DummyCursor:
+            del params
+            queries.append(sql)
+            return _DummyCursor()
+
+    conn = _DummyConn()
+    assert _first_chunk_means(conn) == {}
+    assert detect_title(conn, "source-1", "Widget Policy", None) == []
+    assert len(queries) == 2
+    assert "s.origin IS NULL" in queries[0]
+    assert "origin IS NULL" in queries[1]
