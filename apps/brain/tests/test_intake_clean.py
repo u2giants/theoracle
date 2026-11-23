@@ -240,10 +240,12 @@ def test_html_hidden_single_quotes() -> None:
     assert html_to_text(raw) == "visible\nafter"
 
 
-def test_graph_mail_select_includes_meeting_message_type() -> None:
+def test_graph_mail_select_omits_subtype_only_meeting_message_type() -> None:
     from brain.intake import graph_mail
+    from brain.intake.clean import is_notification
 
-    assert "meetingMessageType" in graph_mail.SELECT.split(",")
+    assert "meetingMessageType" not in graph_mail.SELECT.split(",")
+    assert is_notification({"raw": {"@odata.type": "#microsoft.graph.eventMessage"}})
 
 
 def test_assemble_accepts_single_pass_signature_generator() -> None:
