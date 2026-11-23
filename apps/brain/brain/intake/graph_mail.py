@@ -37,7 +37,7 @@ from brain.read.chunk import count_tokens
 ORIGIN = "email"
 SELECT = (
     "id,internetMessageId,conversationId,subject,from,sender,toRecipients,"
-    "ccRecipients,receivedDateTime,sentDateTime,isDraft,meetingMessageType,uniqueBody"
+    "ccRecipients,receivedDateTime,sentDateTime,isDraft,uniqueBody"
 )
 TEXT_BODY = {"Prefer": 'outlook.body-content-type="text"'}
 

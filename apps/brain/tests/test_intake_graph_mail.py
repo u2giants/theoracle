@@ -84,6 +84,8 @@ def test_only_named_mailboxes_and_window_filter_requested() -> None:
     for r in seen:
         assert r.url.params["$filter"] == "receivedDateTime ge 2026-11-01T00:00:00Z"
         assert "uniqueBody" in r.url.params["$select"]
+        # Subtype-only eventMessage property causes Graph HTTP 400 on /messages.
+        assert "meetingMessageType" not in r.url.params["$select"]
 
 
 def test_threads_by_conversation_paging_drafts_and_both_mailboxes() -> None:
