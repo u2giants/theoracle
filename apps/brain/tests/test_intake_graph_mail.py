@@ -77,15 +77,44 @@ def test_only_named_mailboxes_and_window_filter_requested() -> None:
         seen,
     )
     graph_mail.collect(client, [(BOX_A, "a"), (BOX_B, "b")], SINCE, graph_mail.Stats())
-    assert {r.url.path for r in seen} == {
+    msg_reqs = [r for r in seen if r.url.path.endswith("/messages")]
+    assert {r.url.path for r in msg_reqs} == {
         f"/v1.0/users/{BOX_A}/messages",
         f"/v1.0/users/{BOX_B}/messages",
     }
-    for r in seen:
+    assert all(
+        r.url.path.startswith((f"/v1.0/users/{BOX_A}/", f"/v1.0/users/{BOX_B}/"))
+        for r in seen
+    )
+    for r in msg_reqs:
         assert r.url.params["$filter"] == "receivedDateTime ge 2026-11-01T00:00:00Z"
         assert "uniqueBody" in r.url.params["$select"]
+        assert "internetMessageHeaders" in r.url.params["$select"]
+        assert "parentFolderId" in r.url.params["$select"]
         # Subtype-only eventMessage property causes Graph HTTP 400 on /messages.
         assert "meetingMessageType" not in r.url.params["$select"]
+
+
+def test_junk_and_deleted_folder_messages_are_skipped() -> None:
+    client = make_client(
+        {
+            f"/v1.0/users/{BOX_A}/mailFolders/junkemail": [{"id": "junk-fid"}],
+            f"/v1.0/users/{BOX_A}/mailFolders/deleteditems": [{"id": "del-fid"}],
+            f"/v1.0/users/{BOX_A}/messages": [
+                {
+                    "value": [
+                        mail("ok1", "conv-ok", "2026-11-06T10:00:00Z", parentFolderId="inbox-fid"),
+                        mail("sp1", "conv-sp", "2026-11-06T09:00:00Z", parentFolderId="junk-fid"),
+                        mail("dl1", "conv-dl", "2026-11-06T08:00:00Z", parentFolderId="del-fid"),
+                    ]
+                }
+            ],
+        }
+    )
+    stats = graph_mail.Stats()
+    threads = graph_mail.collect(client, [(BOX_A, "a")], SINCE, stats)
+    assert [t.thread_key for t in threads] == ["conv-ok"]
+    assert stats.skipped == {"junk_or_deleted": 2}
 
 
 def test_threads_by_conversation_paging_drafts_and_both_mailboxes() -> None:

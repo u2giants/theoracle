@@ -37,9 +37,11 @@ from brain.read.chunk import count_tokens
 ORIGIN = "email"
 SELECT = (
     "id,internetMessageId,conversationId,subject,from,sender,toRecipients,"
-    "ccRecipients,receivedDateTime,sentDateTime,isDraft,uniqueBody"
+    "ccRecipients,receivedDateTime,sentDateTime,isDraft,parentFolderId,"
+    "internetMessageHeaders,uniqueBody"
 )
 TEXT_BODY = {"Prefer": 'outlook.body-content-type="text"'}
+_EXCLUDED_FOLDERS = ("junkemail", "deleteditems")
 
 
 @dataclass
@@ -101,10 +103,28 @@ def _item(m: dict[str, Any]) -> Item:
     )
 
 
+def _excluded_folder_ids(client: httpx.Client, mailbox: str) -> set[str]:
+    """Return folder ids for Junk Email and Deleted Items (best-effort)."""
+    ids: set[str] = set()
+    for well_known in _EXCLUDED_FOLDERS:
+        try:
+            resp = client.get(
+                f"{GRAPH}/users/{mailbox}/mailFolders/{well_known}",
+                params={"$select": "id"},
+            )
+            if resp.status_code == 200:
+                fid = resp.json().get("id")
+                if fid:
+                    ids.add(str(fid))
+        except Exception:  # noqa: BLE001 - never block collection on folder lookup
+            continue
+    return ids
+
+
 def mailbox_messages(
     client: httpx.Client, mailbox: str, since: datetime, stats: Stats
 ) -> list[dict[str, Any]]:
-    """Non-draft messages of one mailbox received inside the window."""
+    """Non-draft, non-junk messages of one mailbox received inside the window."""
     kept: list[dict[str, Any]] = []
     params = {
         "$select": SELECT,
@@ -120,6 +140,16 @@ def mailbox_messages(
             stats.skip("draft")
             continue
         kept.append(m)
+    if any(m.get("parentFolderId") for m in kept):
+        excluded_folders = _excluded_folder_ids(client, mailbox)
+        if excluded_folders:
+            filtered: list[dict[str, Any]] = []
+            for m in kept:
+                if str(m.get("parentFolderId") or "") in excluded_folders:
+                    stats.skip("junk_or_deleted")
+                    continue
+                filtered.append(m)
+            kept = filtered
     return kept
 
 
