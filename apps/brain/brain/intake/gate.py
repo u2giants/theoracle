@@ -201,12 +201,14 @@ def build_gate_prompt(header: dict[str, Any], sliced_texts: Sequence[str]) -> st
     """Fill ``prompts/intake_gate.md`` with metadata JSON and thread text slices."""
     template = load_gate_prompt()
     body = "\n\n---\n\n".join(s for s in sliced_texts if s.strip())
-    return (
-        template.replace(
-            "{{metadata_json}}",
-            json.dumps(header, ensure_ascii=False, indent=2),
-        )
-        .replace("{{thread_text}}", body)
+    values = {
+        "metadata_json": json.dumps(header, ensure_ascii=False, indent=2),
+        "thread_text": body,
+    }
+    return re.sub(
+        r"\{\{(metadata_json|thread_text)\}\}",
+        lambda match: values[match[1]],
+        template,
     )
 
 
@@ -314,7 +316,10 @@ def _load_gate_candidates(
     prompt_hash: str = "",
 ) -> list[dict[str, Any]]:
     where = (
-        ["(verdict = 'pending' OR gate_prompt_hash IS DISTINCT FROM %(prompt_hash)s)"]
+        [
+            "(verdict = 'pending' OR gate_prompt_hash IS DISTINCT FROM %(prompt_hash)s)",
+            "gate_scores->>'rule' IS DISTINCT FROM 'too_short'",
+        ]
         if recheck_prompt
         else ["verdict = 'pending'"]
     )
@@ -378,8 +383,7 @@ def gate_pending_threads(
 ) -> dict[str, int]:
     """Classify pending threads on ``intake_gate`` (OpenAI Batch + sync fallback).
 
-    Any individual thread whose API call or parse fails is left ``pending`` so
-    it is never silently dropped or falsely ingested.
+    A thread whose batch and sync attempts fail keeps its previous verdict.
     """
     prompt_hash = gate_prompt_hash()
     candidates = _load_gate_candidates(
@@ -450,7 +454,6 @@ def gate_pending_threads(
                 if res.status == "ok" and res.payload is not None:
                     parsed_by_cid[cid] = res.payload
                 else:
-                    stats["errors"] += 1
                     logger.warning(
                         "intake_gate batch item %s %s: %s", cid, res.status, res.error
                     )
@@ -473,7 +476,7 @@ def gate_pending_threads(
                 try:
                     _cid, parsed = fut.result()
                     parsed_by_cid[cid] = parsed
-                except Exception as exc:  # noqa: BLE001 - leave pending on failure
+                except Exception as exc:  # noqa: BLE001 - keep the previous verdict
                     stats["errors"] += 1
                     logger.warning("intake_gate thread %s failed: %s", cid, exc)
 
@@ -620,7 +623,10 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--limit", type=int)
     ap.add_argument("--recheck", action="store_true")
     a = ap.parse_args(argv)
+    if not a.run and a.max_calls <= 0:
+        raise SystemExit("--max-calls is required with --probe")
     settings = get_settings()
+    intake_spend_cap(settings)  # refuses to run without a cap
     if a.run:
         with psycopg.connect(settings.database_url) as conn:
             stats = gate_pending_threads(
@@ -632,9 +638,6 @@ def main(argv: list[str] | None = None) -> None:
             )
         print("# intake_gate", stats)
         return
-    if a.max_calls <= 0:
-        raise SystemExit("--max-calls is required with --probe")
-    intake_spend_cap(settings)  # refuses to run without a cap
     with psycopg.connect(settings.database_url) as conn:
         threads = _load(conn)
     origin_tokens: dict[str, int] = {}

@@ -26,6 +26,7 @@ from typing import Any
 
 from brain.config import get_settings
 from brain.db import get_pool
+from brain.function_assign import function_assign_prompt_hash
 from brain.interview.conversation import awaits_reply
 from brain.read.state import set_read_state
 
@@ -221,8 +222,10 @@ def _heal_graph(conn: Any, stats: dict[str, int]) -> None:
         "JOIN cmap.source s ON s.id = c.source_id "
         "WHERE s.ingest_tier = 'rag_only' AND s.read_state = 'read' "
         "AND c.embedding IS NOT NULL "
-        "AND NOT EXISTS (SELECT 1 FROM cmap.chunk_function cf WHERE cf.chunk_id = c.id) "
-        "LIMIT 1"
+        "AND NOT EXISTS (SELECT 1 FROM cmap.extraction e "
+        "WHERE e.chunk_id = c.id AND e.stage = 'function' AND e.prompt_hash = %s) "
+        "LIMIT 1",
+        (function_assign_prompt_hash(),),
     ).fetchone()
     if (
         needs_rag_fa

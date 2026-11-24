@@ -71,10 +71,10 @@ def test_sample_covers_each_origin() -> None:
 def test_metadata_header_and_prompt_contract() -> None:
     items = [
         {
-            "author_ref": "vendor@disney.com",
+            "author_ref": "vendor@designflow.app",
             "body_text": "OPA submission approved.",
             "raw": {
-                "from": {"emailAddress": {"address": "vendor@disney.com"}},
+                "from": {"emailAddress": {"address": "vendor@designflow.app"}},
                 "internetMessageHeaders": [{"name": "Auto-Submitted", "value": "auto-generated"}],
             },
         },
@@ -84,16 +84,32 @@ def test_metadata_header_and_prompt_contract() -> None:
             "raw": {"from": {"emailAddress": {"address": "eparkin@popcre.com"}}},
         },
     ]
-    hdr = gate.thread_metadata_header("email", "RE: OPA Approval", items)
+    hdr = gate.thread_metadata_header("email", "RE: {{thread_text}}", items)
     assert hdr["sender_mix"] == "mixed_internal_external"
     assert hdr["employee_replied"] is True
-    assert hdr["external_domains"] == ["disney.com"]
-    assert hdr["portal_template_domain"] == "disney.com"
+    assert hdr["external_domains"] == ["designflow.app"]
+    assert hdr["portal_template_domain"] == "designflow.app"
     assert hdr["has_automated_headers"] is True
 
     prompt = gate.build_gate_prompt(hdr, gate.gate_slices([i["body_text"] for i in items]))
-    assert "disney.com" in prompt
+    assert '"title": "RE: {{thread_text}}"' in prompt
     assert "OPA submission approved." in prompt
+
+
+def test_gate_run_requires_spend_cap_before_connecting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import psycopg
+
+    from brain.config import Settings
+
+    def unexpected_connection(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("Gate opened a connection without a spend cap")
+
+    monkeypatch.setattr(gate, "get_settings", lambda: Settings(brain_intake_max_usd=None))
+    monkeypatch.setattr(psycopg, "connect", unexpected_connection)
+    with pytest.raises(RuntimeError, match="BRAIN_INTAKE_MAX_USD"):
+        gate.main(["--run"])
 
 
 def test_parse_and_decide_thread_verdict_guards() -> None:
@@ -138,7 +154,7 @@ def test_gate_pending_threads_batch_and_db_persistence(
 
     migrate()
     db.execute("TRUNCATE cmap.intake_item, cmap.intake_thread")
-    for idx in range(20):
+    for idx in range(21):
         key = f"th-{idx:02d}"
         db.execute(
             "INSERT INTO cmap.intake_thread (origin, thread_key, title) "
@@ -152,12 +168,20 @@ def test_gate_pending_threads_batch_and_db_persistence(
             '\'{"from": {"emailAddress": {"address": "eparkin@popcre.com"}}}\'::jsonb, \'h\')',
             (f"m-{idx}", key, "Disney approved SKU 123 and CAD was received today."),
         )
+    db.execute(
+        "UPDATE cmap.intake_thread SET verdict = 'dropped', "
+        """gate_scores = '{"rule": "too_short"}' WHERE thread_key = 'th-20'"""
+    )
     db.commit()
 
     def _fake_batch(model: str, items: Any, **kwargs: Any) -> dict[str, BatchResult]:
         assert model == "openai/gpt-6-luna"
+        assert len(items) == 20
         out: dict[str, BatchResult] = {}
         for pos, it in enumerate(items):
+            if pos >= 18:
+                out[it.custom_id] = BatchResult(it.custom_id, "error", None)
+                continue
             if pos == 0:
                 cat = "knowledge"
             elif pos == 1:
@@ -181,18 +205,28 @@ def test_gate_pending_threads_batch_and_db_persistence(
             )
         return out
 
+    def _fake_sync(cid: str, *args: Any) -> tuple[str, dict[str, Any]]:
+        if cid == "t19":
+            raise gate.IntakeGateError("sync failed")
+        assert cid == "t18"
+        return cid, gate.parse_gate_response(
+            '{"category":"drop_irrelevant_internal","confidence":0.95}'
+        )
+
     monkeypatch.setattr(gate, "submit_and_wait_batch", _fake_batch)
+    monkeypatch.setattr(gate, "_gate_sync_one", _fake_sync)
     monkeypatch.setenv("BRAIN_INTAKE_GATE_MODEL", "openai/gpt-6-luna")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     get_settings.cache_clear()
     try:
-        stats = gate.gate_pending_threads(db, get_settings())
+        stats = gate.gate_pending_threads(db, get_settings(), recheck_prompt=True)
     finally:
         get_settings.cache_clear()
 
-    assert stats["judged"] == 20
+    assert stats["judged"] == 19
     assert stats["kept"] == 2
-    assert stats["dropped"] == 18
+    assert stats["dropped"] == 17
+    assert stats["errors"] == 1
     rows = dict(
         db.execute(
             "SELECT thread_key, verdict || ':' || COALESCE(tier, '') "

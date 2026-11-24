@@ -9,7 +9,8 @@ reader packs its messages into full passages (``read_message_thread``).
 
 A thread that gained messages since it was ingested becomes a NEW source
 that supersedes the old one (``cmap.source_version``, origin
-``intake_update``); an unchanged thread is skipped.
+``intake_update``); an unchanged thread is reused, with extraction queued if
+it was already read as RAG-only and is now eligible for the company map.
 
 Spend: refuses to run without BRAIN_INTAKE_MAX_USD, and stops queueing once
 the estimated downstream cost of this run reaches the cap.
@@ -164,7 +165,7 @@ def ingest_thread(
 ) -> tuple[str, int]:
     """Store one thread as a source. Returns (outcome, estimated passages).
 
-    outcome: 'created', 'versioned', 'unchanged', 'empty' or 'capped'.
+    outcome: 'created', 'versioned', 'promoted', 'unchanged', 'empty' or 'capped'.
     """
     rows = _items(conn, origin, key)
     if not any(r["drop_reason"] is None for r in rows):
@@ -174,24 +175,49 @@ def ingest_thread(
     sha = hashlib.sha256(data).hexdigest()
     ingest_tier, map_eligible = _source_routing_for_tier(tier)
     existing = conn.execute(
-        "SELECT id::text FROM cmap.source WHERE sha256 = %s", (sha,)
+        "SELECT id::text, ingest_tier, read_state FROM cmap.source "
+        "WHERE sha256 = %s FOR UPDATE",
+        (sha,),
     ).fetchone()
+    upgrading = (
+        existing is not None and existing[1] == "rag_only" and ingest_tier == "full"
+    )
+    promote_read = existing is not None and upgrading and existing[2] == "read"
+    passages = 0
+    if existing is None or promote_read:
+        text_tokens = sum(count_tokens(r["body_text"] or "") for r in rows)
+        passages = estimate_passages(text_tokens)
+        if can_afford is not None and not can_afford(passages):
+            return "capped", passages
     if existing is not None:
-        conn.execute(
-            "UPDATE cmap.source SET ingest_tier = %s, map_eligible = %s "
-            "WHERE id = %s AND (ingest_tier IS DISTINCT FROM %s OR map_eligible IS DISTINCT FROM %s)",
-            (ingest_tier, map_eligible, existing[0], ingest_tier, map_eligible),
-        )
+        source_id, _, read_state = existing
+        # The active reader may already have loaded the old tier. Let it finish
+        # before promoting on a later sweep.
+        if not (upgrading and read_state == "reading"):
+            conn.execute(
+                "UPDATE cmap.source SET ingest_tier = %s, map_eligible = %s, read_state = %s "
+                "WHERE id = %s AND (ingest_tier IS DISTINCT FROM %s OR map_eligible IS DISTINCT FROM %s)",
+                (
+                    ingest_tier,
+                    map_eligible,
+                    "extracting" if promote_read else read_state,
+                    source_id,
+                    ingest_tier,
+                    map_eligible,
+                ),
+            )
+        if promote_read:
+            conn.execute(
+                "INSERT INTO cmap.job (kind, payload) "
+                "VALUES ('classify_extract', jsonb_build_object('source_id', %s::text))",
+                (source_id,),
+            )
         conn.execute(
             "UPDATE cmap.intake_thread SET verdict = 'kept', source_id = %s, updated_at = now() "
             "WHERE origin = %s AND thread_key = %s",
-            (existing[0], origin, key),
+            (source_id, origin, key),
         )
-        return "unchanged", 0
-    text_tokens = sum(count_tokens(r["body_text"] or "") for r in rows)
-    passages = estimate_passages(text_tokens)
-    if can_afford is not None and not can_afford(passages):
-        return "capped", passages
+        return ("promoted" if promote_read else "unchanged"), passages
     source_id = str(uuid.uuid4())
     storage_path = f"cmap/{source_id}/thread.json"
     storage_mod.get_storage().upload(storage_path, data, "application/json")
@@ -281,9 +307,8 @@ def run(
             if outcome == "capped":
                 counts["stopped_at_cap"] = True
                 break
-            cost = passages * per_passage
+            counts["estimated_usd"] += passages * per_passage
             if outcome in ("created", "versioned"):
-                counts["estimated_usd"] += cost
                 sid = conn.execute(
                     "SELECT source_id::text FROM cmap.intake_thread "
                     "WHERE origin = %s AND thread_key = %s",

@@ -524,3 +524,18 @@ def test_ingest_gates_pending_threads_and_routes_rag_only(
     assert ("function_assign", None) in [(k, s) for k, s in jobs]
     assert ("classify_extract", know_id) in [(k, s) for k, s in jobs]
     assert ("classify_extract", rag_id) not in [(k, s) for k, s in jobs]
+
+    db.execute(
+        "UPDATE cmap.intake_thread SET tier = 'knowledge' WHERE thread_key = 'pending-rag'"
+    )
+    db.commit()
+    assert ingest.run(capped, run_gate=False)["promoted"] == 1
+    assert ingest.run(capped, run_gate=False)["unchanged"] == 2
+    assert db.execute(
+        "SELECT ingest_tier, map_eligible, read_state FROM cmap.source WHERE id = %s",
+        (rag_id,),
+    ).fetchone() == ("full", True, "extracting")
+    assert db.execute(
+        "SELECT kind FROM cmap.job WHERE payload->>'source_id' = %s",
+        (rag_id,),
+    ).fetchall() == [("classify_extract",)]

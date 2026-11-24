@@ -9,6 +9,7 @@ from test_flat import _seed_text
 
 from brain.chain import MAX_COLAB_DEFER_SECONDS, run_ensure_chain
 from brain.config import get_settings
+from brain.function_assign import function_assign_prompt_hash
 
 
 def _seed_colab_offload_extracting(
@@ -160,7 +161,7 @@ def test_colab_offload_falls_back_to_cloud_after_30_minutes_idle(
 def test_rag_only_source_queues_function_assign_and_never_classify_extract(
     db: Any,
 ) -> None:
-    """#607 phase 1: embedded rag_only chunks missing chunk_function queue function_assign."""
+    """Embedded RAG-only chunks need one completed classification per prompt."""
     source_id = _seed_text(db, "Routine status ping for ROSS SKU.", "rag-only-chain")
     db.execute(
         "UPDATE cmap.source SET read_state = 'read', ingest_tier = 'rag_only', "
@@ -186,4 +187,14 @@ def test_rag_only_source_queues_function_assign_and_never_classify_extract(
     ]
     assert kinds == ["function_assign"]
     # Second pass while function_assign is queued does not duplicate it.
+    assert run_ensure_chain()["function_assign"] == 0
+    db.execute("UPDATE cmap.job SET state = 'done' WHERE kind = 'function_assign'")
+    db.execute(
+        "INSERT INTO cmap.extraction (chunk_id, stage, prompt_hash, model, payload) "
+        "SELECT id, 'function', %s, 'test', '{}'::jsonb "
+        "FROM cmap.chunk WHERE source_id = %s",
+        (function_assign_prompt_hash(), source_id),
+    )
+    db.commit()
+    # An empty assignment still marks the chunk as processed.
     assert run_ensure_chain()["function_assign"] == 0

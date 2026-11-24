@@ -122,7 +122,6 @@ _INTERNAL_DOMAINS = (
     "@popcre.com",
     "@popcreations.com",
     "@spruceline.com",
-    "@designflow.app",
 )
 _PROTECTED_PARTNER_DOMAINS = (
     "disney.com",
