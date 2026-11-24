@@ -11,6 +11,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+import psycopg
+
 from brain.db import get_pool
 from brain.lang import contains_non_latin_letters, looks_english
 
@@ -59,22 +61,32 @@ def ensure_english_question(
 
 
 def upsert_translation(
-    kind: str, ref_id: str, field: str, lang: str, text: str
+    kind: str,
+    ref_id: str,
+    field: str,
+    lang: str,
+    text: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> None:
-    """Store (or overwrite) one translated field for one artifact."""
+    """Store one translated field, joining the caller's transaction if supplied."""
     body = text.strip()
     if not body:
         return
     if kind not in VALID_KINDS or lang not in VALID_LANGS:
         raise ValueError(f"invalid translation key: kind={kind!r} lang={lang!r}")
-    with get_pool().connection() as conn:
-        conn.execute(
-            "INSERT INTO cmap.translation (kind, ref_id, field, lang, text) "
-            "VALUES (%s, %s, %s, %s, %s) "
-            "ON CONFLICT (kind, ref_id, field, lang) DO UPDATE SET text = EXCLUDED.text",
-            (kind, ref_id, field, lang, body),
-        )
-        conn.commit()
+    query = (
+        "INSERT INTO cmap.translation (kind, ref_id, field, lang, text) "
+        "VALUES (%s, %s, %s, %s, %s) "
+        "ON CONFLICT (kind, ref_id, field, lang) DO UPDATE SET text = EXCLUDED.text"
+    )
+    params = (kind, ref_id, field, lang, body)
+    if conn is not None:
+        conn.execute(query, params)
+    else:
+        with get_pool().connection() as pooled_conn:
+            pooled_conn.execute(query, params)
+            pooled_conn.commit()
 
 
 def translations_for(kind: str, ref_id: str) -> dict[str, dict[str, str]]:

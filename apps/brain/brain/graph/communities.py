@@ -132,7 +132,13 @@ def _tokens(text: str) -> int:
     return len(_encoder().encode(text, disallowed_special=()))
 
 
-def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> tuple[str, bool]:
+def _fit(
+    lines: list[str],
+    frontier: _Frontier,
+    _round: int = 0,
+    *,
+    summary_pool: ThreadPoolExecutor | None = None,
+) -> tuple[str, bool]:
     """Join context lines under the token budget by map-reduce, never truncation.
 
     An over-budget context is split into batches, each batch is summarised by
@@ -162,24 +168,39 @@ def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> tuple[str, b
             cut,
         )
         return fitted, cut
-    batches = _batch_lines(lines, max(64, MAX_CONTEXT_TOKENS // 2))
-    if len(batches) <= 1:
-        summaries = [_ask_summary(frontier, "\n".join(batch)) for batch in batches]
+    batches = [
+        "\n".join(batch)
+        for batch in _batch_lines(lines, max(64, MAX_CONTEXT_TOKENS // 2))
+    ]
+    summarize = functools.partial(_ask_summary, frontier)
+    if summary_pool is not None:
+        summaries = list(summary_pool.map(summarize, batches))
+    elif len(batches) <= 1:
+        summaries = [summarize(batch) for batch in batches]
     else:
-        summaries = [""] * len(batches)
         with ThreadPoolExecutor(max_workers=min(REPORT_WORKERS, len(batches))) as pool:
-            futures = {
-                pool.submit(_ask_summary, frontier, "\n".join(batch)): index
-                for index, batch in enumerate(batches)
-            }
-            for future in as_completed(futures):
-                summaries[futures[future]] = future.result()
+            summaries = list(pool.map(summarize, batches))
     combined = [
         "COMBINED SUMMARIES (the full DATA below was summarised in batches; "
         "nothing was dropped):"
     ]
     combined.extend(summaries)
-    return _fit(combined, frontier, _round + 1)
+    return _fit(combined, frontier, _round + 1, summary_pool=summary_pool)
+
+
+def _fit_many(
+    contexts: list[list[str]], frontier: _Frontier
+) -> list[tuple[str, bool]]:
+    if len(contexts) == 1:
+        return [_fit(contexts[0], frontier)]
+    # Fit workers share a separate pool for all model calls, including
+    # single-batch fits and subsequent reduce rounds.
+    with (
+        ThreadPoolExecutor(max_workers=REPORT_WORKERS) as summary_pool,
+        ThreadPoolExecutor(max_workers=min(REPORT_WORKERS, len(contexts))) as fit_pool,
+    ):
+        fit = functools.partial(_fit, frontier=frontier, summary_pool=summary_pool)
+        return list(fit_pool.map(fit, contexts))
 
 
 # Repair #586: the marker every hard-fitted context ends with. The cut is
@@ -1097,23 +1118,14 @@ def _entity_vectors(conn: psycopg.Connection) -> dict[str, list[float]]:
 def _pick_quotes_from_rows(
     rows: Sequence[tuple[str, str, str]],
 ) -> list[dict[str, Any]]:
-    """Up to MAX_QUOTES_IN_CONTEXT quotes, preferring different sources."""
-    deduped: dict[str, tuple[str, str, str]] = {}
-    for quote, title, source_id in rows:
-        q_str = str(quote)
-        t_str = str(title)
-        s_str = str(source_id)
-        existing = deduped.get(q_str)
-        if existing is None or t_str < existing[1]:
-            deduped[q_str] = (q_str, t_str, s_str)
-    ordered = sorted(deduped.values(), key=lambda item: (item[0], item[1]))
+    """Pick from distinct quotes in database order, preferring different sources."""
     picked: list[dict[str, Any]] = []
     seen_sources: set[str] = set()
-    for quote, title, source_id in ordered:
+    for quote, title, source_id in rows:
         if source_id not in seen_sources and len(picked) < MAX_QUOTES_IN_CONTEXT:
             seen_sources.add(source_id)
             picked.append({"quote": quote, "title": title, "source_id": source_id})
-    for quote, title, source_id in ordered:
+    for quote, title, source_id in rows:
         if len(picked) >= MAX_QUOTES_IN_CONTEXT:
             break
         item = {"quote": quote, "title": title, "source_id": source_id}
@@ -1122,26 +1134,38 @@ def _pick_quotes_from_rows(
     return picked
 
 
+def _area_members(areas: list[list[str]]) -> tuple[list[int], list[str]]:
+    """Parallel arrays for joining each area's distinct entity IDs in SQL."""
+    indexes: list[int] = []
+    entity_ids: list[str] = []
+    for index, members in enumerate(areas):
+        distinct = set(members)
+        indexes.extend([index] * len(distinct))
+        entity_ids.extend(distinct)
+    return indexes, entity_ids
+
+
 def _quote_rows_bulk(
-    conn: psycopg.Connection, entity_ids: list[str]
-) -> dict[str, list[tuple[str, str, str]]]:
-    """Load quote rows for a batch of entity ids in one SQL query."""
-    out: dict[str, list[tuple[str, str, str]]] = {}
+    conn: psycopg.Connection, areas: list[list[str]]
+) -> list[list[dict[str, Any]]]:
+    """Load quotes for each area in the same order as the single-area query."""
+    indexes, entity_ids = _area_members(areas)
     if not entity_ids:
-        return out
+        return [[] for _ in areas]
+    raw: list[list[tuple[str, str, str]]] = [[] for _ in areas]
     rows = conn.execute(
-        "SELECT DISTINCT ON (m.entity_id, m.quote) "
-        "m.entity_id::text, m.quote, s.title, ch.source_id::text "
-        "FROM cmap.mention m "
+        "SELECT DISTINCT ON (area.idx, m.quote) area.idx, m.quote, s.title, ch.source_id "
+        "FROM unnest(%s::integer[], %s::uuid[]) AS area(idx, entity_id) "
+        "JOIN cmap.mention m ON m.entity_id = area.entity_id "
         "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
         "JOIN cmap.source s ON s.id = ch.source_id "
-        "WHERE m.entity_id = ANY(%s::uuid[]) AND s.map_eligible = true "
-        "ORDER BY m.entity_id, m.quote, s.title",
-        (entity_ids,),
+        "WHERE s.map_eligible = true "
+        "ORDER BY area.idx, m.quote, s.title, ch.source_id",
+        (indexes, entity_ids),
     ).fetchall()
-    for eid, quote, title, source_id in rows:
-        out.setdefault(str(eid), []).append((str(quote), str(title), str(source_id)))
-    return out
+    for index, quote, title, source_id in rows:
+        raw[index].append((str(quote), str(title), str(source_id)))
+    return [_pick_quotes_from_rows(area_rows) for area_rows in raw]
 
 
 def _quote_rows(
@@ -1154,7 +1178,7 @@ def _quote_rows(
         "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
         "JOIN cmap.source s ON s.id = ch.source_id "
         "WHERE m.entity_id = ANY(%s::uuid[]) AND s.map_eligible = true "
-        "ORDER BY m.quote, s.title",
+        "ORDER BY m.quote, s.title, ch.source_id",
         (entity_ids,),
     ).fetchall()
     return _pick_quotes_from_rows(
@@ -1199,7 +1223,7 @@ def _context_l0_lines(
     handoffs: list[str] | None = None,
     edges_by_entity: dict[str, list[dict[str, Any]]] | None = None,
     disagreements_by_entity: dict[str, list[str]] | None = None,
-    quotes_by_entity: dict[str, list[tuple[str, str, str]]] | None = None,
+    quotes: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """Build raw L0 context lines before token fitting."""
     member_ids = {member["id"] for member in members}
@@ -1247,12 +1271,7 @@ def _context_l0_lines(
             "out leaves the area, in arrives):"
         )
         lines.extend(handoffs)
-    if quotes_by_entity is not None:
-        raw_quotes: list[tuple[str, str, str]] = []
-        for member in members:
-            raw_quotes.extend(quotes_by_entity.get(member["id"], ()))
-        quotes = _pick_quotes_from_rows(raw_quotes)
-    else:
+    if quotes is None:
         quotes = _quote_rows(conn, [member["id"] for member in members])
     lines.append("SOURCES (findings must cite these ids):")
     seen: dict[str, str] = {}
@@ -1650,15 +1669,21 @@ def _store(
         ),
     ).fetchone()
     community_id = str(row[0])
-    upsert_translation("community", community_id, "title", "en", canonical["title"])
-    upsert_translation("community", community_id, "summary", "en", canonical["summary"])
+    upsert_translation(
+        "community", community_id, "title", "en", canonical["title"], conn=conn
+    )
+    upsert_translation(
+        "community", community_id, "summary", "en", canonical["summary"], conn=conn
+    )
     if (
         canonical["title"] != report["title"]
         or detect_language(str(report["title"])) == "zh"
     ):
-        upsert_translation("community", community_id, "title", "zh-CN", report["title"])
         upsert_translation(
-            "community", community_id, "summary", "zh-CN", report["summary"]
+            "community", community_id, "title", "zh-CN", report["title"], conn=conn
+        )
+        upsert_translation(
+            "community", community_id, "summary", "zh-CN", report["summary"], conn=conn
         )
     return community_id, dropped
 
@@ -1685,28 +1710,27 @@ def _departments(conn: psycopg.Connection) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-def _area_people(conn: psycopg.Connection, entity_ids: list[str]) -> list[str]:
-    """Names of the people who belong to one area."""
+def _area_people_bulk(
+    conn: psycopg.Connection, areas: list[list[str]]
+) -> list[list[str]]:
+    """Take each area's first Person names in database order, including ties."""
+    people: list[list[str]] = [[] for _ in areas]
+    indexes, entity_ids = _area_members(areas)
     if not entity_ids:
-        return []
+        return people
     rows = conn.execute(
-        "SELECT canonical_name FROM cmap.entity WHERE entity_type = 'Person' "
-        "AND id = ANY(%s::uuid[]) ORDER BY canonical_name LIMIT %s",
-        (entity_ids, MAX_PEOPLE_IN_CHECK),
+        "SELECT idx, canonical_name FROM ("
+        "  SELECT area.idx, e.canonical_name, "
+        "  row_number() OVER (PARTITION BY area.idx ORDER BY e.canonical_name, e.id) AS position "
+        "  FROM unnest(%s::integer[], %s::uuid[]) AS area(idx, entity_id) "
+        "  JOIN cmap.entity e ON e.id = area.entity_id "
+        "  WHERE e.entity_type = 'Person'"
+        ") AS ranked WHERE position <= %s ORDER BY idx, position",
+        (indexes, entity_ids, MAX_PEOPLE_IN_CHECK),
     ).fetchall()
-    return [str(row[0]) for row in rows]
-
-
-def _area_people_bulk(conn: psycopg.Connection, entity_ids: list[str]) -> dict[str, str]:
-    """Map Person entity id -> canonical_name for a batch of entity ids."""
-    if not entity_ids:
-        return {}
-    rows = conn.execute(
-        "SELECT id::text, canonical_name FROM cmap.entity WHERE entity_type = 'Person' "
-        "AND id = ANY(%s::uuid[])",
-        (entity_ids,),
-    ).fetchall()
-    return {str(eid): str(name) for eid, name in rows}
+    for index, name in rows:
+        people[index].append(str(name))
+    return people
 
 
 def _vet_question_groups(
@@ -1717,7 +1741,7 @@ def _vet_question_groups(
     *,
     departments: list[str] | None = None,
 ) -> list[dict[str, dict[str, Any]]]:
-    """Vet candidate questions across multiple areas with bulk embeddings and parallel batches."""
+    """Vet questions in independent batches, keeping any verdicts before the cap."""
     out: list[dict[str, dict[str, Any]]] = [{} for _ in groups]
     unique_questions: list[str] = []
     seen_q: set[str] = set()
@@ -1784,9 +1808,7 @@ def _vet_question_groups(
     if len(tasks) == 1:
         try:
             responses[0] = frontier.ask(tasks[0][2])
-        except FrontierCapReached:
-            raise
-        except Exception:  # noqa: BLE001 - never fail the run
+        except Exception:  # noqa: BLE001 - vetting is best effort, including at the cap
             logger.warning("question vetting failed for %d questions", len(tasks[0][1]))
     else:
         with ThreadPoolExecutor(max_workers=min(REPORT_WORKERS, len(tasks))) as pool:
@@ -1798,9 +1820,7 @@ def _vet_question_groups(
                 idx = futures[future]
                 try:
                     responses[idx] = future.result()
-                except FrontierCapReached:
-                    raise
-                except Exception:  # noqa: BLE001 - never fail the run
+                except Exception:  # noqa: BLE001 - preserve verdicts from other batches
                     logger.warning(
                         "question vetting failed for %d questions",
                         len(tasks[idx][1]),
@@ -1947,29 +1967,19 @@ def _store_open_questions_chunk(
                 }
                 for future in as_completed(futures):
                     e_idx, q_idx = futures[future]
-                    try:
-                        fresh_per_entry[e_idx][q_idx] = future.result() or ""
-                    except FrontierCapReached:
-                        raise
+                    fresh_per_entry[e_idx][q_idx] = future.result() or ""
 
     english_per_entry: list[list[str]] = [
         [q for q in qs if q] for qs in fresh_per_entry
     ]
-    all_eids = sorted(
-        {
-            str(eid)
-            for idx, (_rep, eids) in enumerate(entries)
-            if english_per_entry[idx]
-            for eid in eids
-        }
+    people_per_entry = _area_people_bulk(
+        conn,
+        [
+            eids if questions else []
+            for (_, eids), questions in zip(entries, english_per_entry, strict=True)
+        ],
     )
-    people_by_id = _area_people_bulk(conn, all_eids)
-    groups: list[tuple[list[str], list[str]]] = []
-    for idx, (_report, entity_ids) in enumerate(entries):
-        people = sorted(
-            {people_by_id[str(eid)] for eid in entity_ids if str(eid) in people_by_id}
-        )[:MAX_PEOPLE_IN_CHECK]
-        groups.append((english_per_entry[idx], people))
+    groups = list(zip(english_per_entry, people_per_entry, strict=True))
 
     verdicts_per_entry = _vet_question_groups(
         conn, groups, frontier, settings, departments=departments
@@ -2028,28 +2038,20 @@ def _refresh_open_questions(
             areas.setdefault(key, []).append((str(qid), str(question), list(ids or [])))
     dept_list = _departments(conn) if departments is None else departments
     area_values = list(areas.values())
-    for start in range(0, len(area_values), 64):
-        area_chunk = area_values[start : start + 64]
-        chunk_eids = sorted(
-            {str(eid) for members in area_chunk for eid in members[0][2]}
+    for start in range(0, len(area_values), L0_ASK_CHUNK):
+        area_chunk = area_values[start : start + L0_ASK_CHUNK]
+        people_per_area = _area_people_bulk(
+            conn, [members[0][2] for members in area_chunk]
         )
-        people_by_id = _area_people_bulk(conn, chunk_eids)
         groups: list[tuple[list[str], list[str]]] = []
         chunk_maps: list[dict[str, str]] = []
-        for members in area_chunk:
+        for members, people in zip(area_chunk, people_per_area, strict=True):
             ids_by_question: dict[str, str] = {}
             for qid, question, _ids in members:
                 if question in ids_by_question:
                     retire.append(qid)
                 else:
                     ids_by_question[question] = qid
-            people = sorted(
-                {
-                    people_by_id[str(eid)]
-                    for eid in members[0][2]
-                    if str(eid) in people_by_id
-                }
-            )[:MAX_PEOPLE_IN_CHECK]
             groups.append((list(ids_by_question), people))
             chunk_maps.append(ids_by_question)
         verdicts_chunk = _vet_question_groups(
@@ -2368,10 +2370,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         total_ask = len(ask_items)
         for start in range(0, total_ask, L0_ASK_CHUNK):
             chunk = ask_items[start : start + L0_ASK_CHUNK]
-            chunk_eids = sorted(
-                {eid for cluster in chunk for eid in cluster["member_ids"]}
+            chunk_quotes = _quote_rows_bulk(
+                conn, [cluster["member_ids"] for cluster in chunk]
             )
-            quotes_by_entity = _quote_rows_bulk(conn, chunk_eids)
             raw_lines_list = [
                 _context_l0_lines(
                     conn,
@@ -2381,23 +2382,11 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                     handoffs=cluster["handoffs"],
                     edges_by_entity=edges_by_entity,
                     disagreements_by_entity=disagreements_by_entity,
-                    quotes_by_entity=quotes_by_entity,
+                    quotes=quotes,
                 )
-                for cluster in chunk
+                for cluster, quotes in zip(chunk, chunk_quotes, strict=True)
             ]
-            fit_results: list[tuple[str, bool]] = [("", False)] * len(chunk)
-            if len(chunk) == 1:
-                fit_results[0] = _fit(raw_lines_list[0], frontier)
-            else:
-                with ThreadPoolExecutor(
-                    max_workers=min(REPORT_WORKERS, len(chunk))
-                ) as pool:
-                    futures = {
-                        pool.submit(_fit, lines, frontier): idx
-                        for idx, lines in enumerate(raw_lines_list)
-                    }
-                    for future in as_completed(futures):
-                        fit_results[futures[future]] = future.result()
+            fit_results = _fit_many(raw_lines_list, frontier)
             chunk_contexts: list[str] = []
             for cluster, (context, incomplete) in zip(chunk, fit_results, strict=True):
                 chunk_contexts.append(context)

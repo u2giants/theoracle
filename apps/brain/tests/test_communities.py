@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from threading import Barrier, get_ident
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from conftest import fake_embeddings, fake_relations, fake_scaledown
@@ -1510,4 +1512,213 @@ def test_fit_parallel_batches_preserve_order() -> None:
     assert incomplete is False
     positions = [text.index(f"ITEM-{i}") for i in range(6)]
     assert positions == sorted(positions)
+
+
+def test_parallel_fits_share_summary_workers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from brain.graph import communities as comm
+
+    monkeypatch.setattr(comm, "REPORT_WORKERS", 2)
+    monkeypatch.setattr(comm, "MAX_CONTEXT_TOKENS", 128)
+    monkeypatch.setattr(comm, "_tokens", len)
+    barrier = Barrier(2, timeout=5)
+    workers: set[int] = set()
+
+    def summarize(frontier: Any, text: str) -> str:
+        workers.add(get_ident())
+        barrier.wait()
+        return text[:2]
+
+    monkeypatch.setattr(comm, "_ask_summary", summarize)
+    contexts = [[f"{area}{n}" + "x" * 62 for n in range(4)] for area in ["A", "B"]]
+    fitted = comm._fit_many(contexts, Mock())
+
+    assert len(workers) == 2
+    for (text, incomplete), area in zip(fitted, ["A", "B"], strict=True):
+        assert text.splitlines()[1:] == [f"{area}{n}" for n in range(4)]
+        assert incomplete is False
+
+
+def test_vetting_cap_preserves_reports_and_translations(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    from brain.graph import communities as comm
+
+    _seed_approval_map(db)
+    run_project()
+    fake_embeddings(monkeypatch)
+    fake = _fake(monkeypatch, open_questions=["Who owns the sign-off?"])
+    enqueue_calls: list[str] = []
+
+    def capped_ask(self: Any, prompt: str) -> dict[str, Any]:
+        if prompt.startswith("QUESTION VETTING"):
+            raise comm.FrontierCapReached("test cap")
+        response = fake([{"content": prompt}], None)
+        return json.loads(response["choices"][0]["message"]["content"])
+
+    monkeypatch.setattr(comm._Frontier, "ask", capped_ask)
+    monkeypatch.setattr(comm, "enqueue_job", lambda kind, payload: enqueue_calls.append(kind))
+    comm.handle_communities({})
+
+    assert db.execute(
+        "SELECT c.level, c.title = t.text FROM cmap.community c "
+        "JOIN cmap.translation t ON t.ref_id = c.id "
+        "WHERE t.kind = 'community' AND t.field = 'title' AND t.lang = 'en' "
+        "ORDER BY c.level"
+    ).fetchall() == [(0, True), (2, True)]
+    assert db.execute("SELECT count(*) FROM cmap.open_question").fetchone()[0] == 0
+    assert enqueue_calls == ["recommend"]
+    qid = db.execute(
+        "INSERT INTO cmap.open_question (question, why, entity_ids) "
+        "SELECT 'Who checks the request?', 'Area', entity_ids FROM cmap.community "
+        "WHERE level = 0 RETURNING id"
+    ).fetchone()[0]
+    db.commit()
+
+    comm.handle_communities({})
+
+    assert db.execute(
+        "SELECT state FROM cmap.open_question WHERE id = %s", (qid,)
+    ).fetchone() == ("open",)
+    assert enqueue_calls == ["recommend", "recommend"]
+
+
+def test_bulk_context_selection_matches_database_order(db: Any) -> None:
+    from brain.graph import communities as comm
+
+    source_a = _seed_text(db, "first", "A")
+    source_b = _seed_text(db, "second", "a")
+    first = _entity(db, "Step", "First", mentions=1, sources=1)
+    second = _entity(db, "Step", "Second", mentions=1, sources=1)
+    for prefix, source, entity in [("a", source_a, first), ("Z", source_b, second)]:
+        for n in range(comm.MAX_QUOTES_IN_CONTEXT):
+            _mention(db, source, "Step", f"{prefix} {n:02}", entity)
+        _mention(db, source, "Step", "Shared quote", entity)
+    members = [
+        {"id": eid, "type": "Step", "name": eid, "description": ""}
+        for eid in [first, second]
+    ]
+    quotes, only_first, empty = comm._quote_rows_bulk(db, [[first, second], [first], []])
+    assert len(quotes) == comm.MAX_QUOTES_IN_CONTEXT
+    assert only_first == comm._quote_rows(db, [first])
+    assert empty == []
+    assert comm._context_l0_lines(db, members, [], quotes=quotes) == (
+        comm._context_l0_lines(db, members, [])
+    )
+
+    people = [
+        _entity(db, "Person", name, mentions=1, sources=1)
+        for name in ["Alice", "Alice", "Zoë", *[f"alice {n:02}" for n in range(30)]]
+    ]
+    expected = db.execute(
+        "SELECT canonical_name FROM cmap.entity WHERE id = ANY(%s::uuid[]) "
+        "ORDER BY canonical_name LIMIT %s",
+        (people, comm.MAX_PEOPLE_IN_CHECK),
+    ).fetchall()
+    names, subset, empty = comm._area_people_bulk(db, [people, people[:2], []])
+    assert names == [name for (name,) in expected]
+    assert subset == ["Alice", "Alice"]
+    assert empty == []
+
+
+@pytest.mark.parametrize("cap_reached", [False, True])
+def test_parallel_vetting_keeps_other_batches(
+    monkeypatch: pytest.MonkeyPatch, cap_reached: bool
+) -> None:
+    from brain.graph import communities as comm
+
+    monkeypatch.setattr(comm, "embed_texts", lambda texts, settings: [[0.5] for _ in texts])
+    monkeypatch.setattr(comm, "_closest_passages", lambda conn, vector: [])
+    error = comm.FrontierCapReached if cap_reached else RuntimeError
+
+    def ask(prompt: str) -> dict[str, Any]:
+        if "Who owns the failed check?" in prompt:
+            raise error("test failed check")
+        return {"results": [{"n": 1, "importance": 4, "person": "Alice"}]}
+
+    verdicts = comm._vet_question_groups(
+        Mock(),
+        [(["Who owns the failed check?"], []), (["Who owns the other check?"], ["Alice"])],
+        Mock(ask=ask),
+        get_settings(),
+        departments=[],
+    )
+    assert verdicts[0] == {}
+    assert verdicts[1]["Who owns the other check?"]["person"] == "Alice"
+
+
+def test_parallel_rewrites_keep_successful_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from brain.graph import communities as comm
+
+    def ask(prompt: str) -> dict[str, Any]:
+        if "谁审批？" in prompt:
+            return {"question_en": "Who approves this?"}
+        raise RuntimeError("test rewrite failure")
+
+    conn = Mock()
+    vet = Mock(return_value=[{"Who approves this?": {
+        "answered": False, "importance": 4, "person": "", "department": "",
+    }}])
+    monkeypatch.setattr(comm, "_vet_question_groups", vet)
+    written = comm._store_open_questions_chunk(
+        conn,
+        [({"title": "Area", "open_questions": ["谁审批？", "谁负责？"]}, [])],
+        Mock(ask=ask),
+        get_settings(),
+        set(),
+        departments=[],
+    )
+    assert vet.call_args.args[1] == [(["Who approves this?"], [])]
+    assert written == 1
+    assert conn.execute.call_args.args[1][0] == "Who approves this?"
+
+
+def test_refresh_chunks_keep_unjudged_questions_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from brain.graph import communities as comm
+
+    rows = [(f"qid-{n}", f"Question {n}?", [f"area-{n}"]) for n in range(65)]
+    conn = Mock()
+    conn.execute.return_value.fetchall.return_value = rows
+    monkeypatch.setattr(comm, "_area_people_bulk", lambda conn, areas: [[] for _ in areas])
+    vet = Mock(side_effect=lambda conn, groups, *args, **kwargs: [{} for _ in groups])
+    monkeypatch.setattr(comm, "_vet_question_groups", vet)
+
+    retired = comm._refresh_open_questions(
+        conn, None, {frozenset(ids) for _, _, ids in rows}, Mock(), get_settings(),
+        departments=[],
+    )
+    assert [len(call.args[1]) for call in vet.call_args_list] == [64, 1]
+    assert vet.call_args.args[1] == [(["Question 64?"], [])]
+    assert retired == 0
+    conn.execute.assert_called_once()
+
+
+def test_report_translations_join_caller_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from brain import translate
+    from brain.graph import communities as comm
+
+    pool = Mock()
+    monkeypatch.setattr(translate, "get_pool", pool)
+    conn = Mock()
+    conn.execute.return_value.fetchone.return_value = ("report-id",)
+    report = {
+        "title": "Area title",
+        "summary": "Area summary",
+        "findings": [],
+        "open_questions": [],
+    }
+    comm._store(conn, 0, None, report, [], 1, set())
+
+    assert "INSERT INTO cmap.community" in conn.execute.call_args_list[0].args[0]
+    assert [call.args[1] for call in conn.execute.call_args_list[1:]] == [
+        ("community", "report-id", "title", "en", "Area title"),
+        ("community", "report-id", "summary", "en", "Area summary"),
+    ]
+    conn.commit.assert_not_called()
+    pool.assert_not_called()
 
