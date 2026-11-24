@@ -20,10 +20,10 @@ from brain.graph.communities import handle_communities
 from brain.graph.project import handle_project
 from brain.intake.ingest import handle_intake_ingest, maybe_queue_intake
 from brain.interview import conversation as conversation_mod
-from brain.meetings.sweep import handle_meeting_sweep, maybe_queue_meeting_sweep
 from brain.interview.converse import handle_interview_reply
 from brain.interview.intake import close_stale_threads
 from brain.interview.tick import handle_interview_tick, maybe_queue_interview_tick
+from brain.meetings.sweep import handle_meeting_sweep, maybe_queue_meeting_sweep
 from brain.process_pass import handle_process_pass
 from brain.read.dates import handle_backfill_dates
 from brain.read.pipeline import handle_read_source
