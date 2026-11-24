@@ -10,6 +10,7 @@ must still land in a real community, and every community must stay within
 
 from __future__ import annotations
 
+import time
 from collections import Counter
 
 from brain.graph.communities import (
@@ -116,5 +117,28 @@ def test_oversized_community_is_split() -> None:
     _fold_leftovers(membership, {}, [set()] * 200, [None] * 200)
     sizes = Counter(membership)
     assert sum(sizes.values()) == 200
+    assert [size for size in sizes.values() if size < MIN_COMMUNITY] == []
+    assert max(sizes.values()) <= MAX_COMMUNITY
+
+
+def test_level0_membership_large_sparse_graph_is_fast() -> None:
+    """2,500 sparse entities with 64-dim vectors fold well under 3s."""
+    n = 2500
+    ids = [f"e{i}" for i in range(n)]
+    edges = [
+        {"from": f"e{i}", "to": f"e{i + 1}", "weight": 1.0}
+        for i in range(0, 1200, 3)
+    ]
+    sources = {f"e{i}": {f"src{i % 25}"} for i in range(0, n, 2)}
+    vectors = {
+        f"e{i}": [1.0 if j == (i % 64) else 0.0 for j in range(64)]
+        for i in range(n)
+    }
+    started = time.perf_counter()
+    membership = _level0_membership(edges, ids, sources, vectors)
+    elapsed = time.perf_counter() - started
+    sizes = Counter(membership.values())
+    assert elapsed < 3.0, f"folding took too long: {elapsed:.2f}s"
+    assert sum(sizes.values()) == n
     assert [size for size in sizes.values() if size < MIN_COMMUNITY] == []
     assert max(sizes.values()) <= MAX_COMMUNITY

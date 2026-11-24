@@ -50,6 +50,7 @@ from typing import Any
 
 import igraph as ig
 import leidenalg
+import numpy as np
 import psycopg
 import tiktoken
 
@@ -636,53 +637,73 @@ def _level0_membership(
         seed=0,
     )
     membership = list(partition.membership)
-    changed = True
-    while changed:
-        changed = False
-        groups: dict[int, list[int]] = {}
-        for vertex, community in enumerate(membership):
-            groups.setdefault(community, []).append(vertex)
-        sizes = {community: len(members) for community, members in groups.items()}
-        for community, members in sorted(groups.items()):
-            if len(members) >= MIN_COMMUNITY:
-                continue
+    neighbours: list[list[tuple[int, float]]] = [[] for _ in range(len(entity_ids))]
+    for (first, second), weight in adjacency.items():
+        neighbours[first].append((second, weight))
+        neighbours[second].append((first, weight))
+    src_vertices: dict[str, list[int]] = {}
+    if entity_sources:
+        for vertex, entity_id in enumerate(entity_ids):
+            for source_id in entity_sources.get(entity_id, ()):
+                src_vertices.setdefault(source_id, []).append(vertex)
+
+    groups: dict[int, list[int]] = {}
+    for vertex, community in enumerate(membership):
+        groups.setdefault(community, []).append(vertex)
+    small_comms: set[int] = {
+        community
+        for community, members in groups.items()
+        if len(members) < MIN_COMMUNITY
+    }
+    unmergeable: set[int] = set()
+    while True:
+        candidates = sorted(small_comms - unmergeable)
+        if not candidates:
+            break
+        merged = False
+        for community in candidates:
+            members = groups[community]
             neighbour_weights: dict[int, float] = {}
-            for (first, second), weight in adjacency.items():
-                first_comm = membership[first]
-                second_comm = membership[second]
-                if first_comm == second_comm:
-                    continue
-                if first_comm == community:
-                    neighbour_weights[second_comm] = (
-                        neighbour_weights.get(second_comm, 0.0) + weight
-                    )
-                elif second_comm == community:
-                    neighbour_weights[first_comm] = (
-                        neighbour_weights.get(first_comm, 0.0) + weight
-                    )
-            if not neighbour_weights and entity_sources:
+            for vertex in members:
+                for other, weight in neighbours[vertex]:
+                    other_comm = membership[other]
+                    if other_comm != community:
+                        neighbour_weights[other_comm] = (
+                            neighbour_weights.get(other_comm, 0.0) + weight
+                        )
+            if not neighbour_weights and src_vertices:
                 # No edge to another community (an isolated entity or a
                 # disconnected pair, most of a real graph: #410). Fall back to
                 # the community sharing the most sources with it.
                 own_sources: set[str] = set()
                 for vertex in members:
                     own_sources |= entity_sources.get(entity_ids[vertex], set())
-                for vertex, other in enumerate(membership):
-                    if other == community:
-                        continue
-                    shared = own_sources & entity_sources.get(entity_ids[vertex], set())
-                    if shared and sizes[other] + len(members) <= MAX_MERGED_COMMUNITY:
-                        neighbour_weights[other] = neighbour_weights.get(
-                            other, 0.0
-                        ) + len(shared)
+                size_self = len(members)
+                for source_id in own_sources:
+                    for other_vertex in src_vertices[source_id]:
+                        other_comm = membership[other_vertex]
+                        if other_comm == community:
+                            continue
+                        if len(groups[other_comm]) + size_self <= MAX_MERGED_COMMUNITY:
+                            neighbour_weights[other_comm] = (
+                                neighbour_weights.get(other_comm, 0.0) + 1.0
+                            )
             if not neighbour_weights:
+                unmergeable.add(community)
                 continue
             target = max(
                 neighbour_weights, key=lambda key: (neighbour_weights[key], -key)
             )
             for vertex in members:
                 membership[vertex] = target
-            changed = True
+            groups[target].extend(members)
+            del groups[community]
+            small_comms.discard(community)
+            if len(groups[target]) >= MIN_COMMUNITY:
+                small_comms.discard(target)
+            merged = True
+            break
+        if not merged:
             break
     sources = [(entity_sources or {}).get(entity_id, set()) for entity_id in entity_ids]
     vectors = [(entity_vectors or {}).get(entity_id) for entity_id in entity_ids]
@@ -714,50 +735,134 @@ def _fold_leftovers(
     for (first, second), weight in adjacency.items():
         neighbours[first].append((second, weight))
         neighbours[second].append((first, weight))
-    has_sources = any(entity_sources)
-    has_vectors = any(vector is not None for vector in entity_vectors)
+    src_vertices: dict[str, list[int]] = {}
+    for vertex, srcs in enumerate(entity_sources):
+        for source_id in srcs:
+            src_vertices.setdefault(source_id, []).append(vertex)
+    has_sources = bool(src_vertices)
+    vec_dim = next((len(v) for v in entity_vectors if v is not None), 0)
+    has_vectors = vec_dim > 0
+    vec_arrays = (
+        [
+            np.asarray(v, dtype=np.float64) if v is not None else None
+            for v in entity_vectors
+        ]
+        if has_vectors
+        else []
+    )
 
-    sums: dict[int, list[float]] = {}
+    groups: dict[int, set[int]] = {}
+    sums: dict[int, np.ndarray] = {}
     counts: dict[int, int] = {}
     for vertex, community in enumerate(membership):
+        groups.setdefault(community, set()).add(vertex)
         counts[community] = counts.get(community, 0) + 1
-        vector = entity_vectors[vertex]
-        if vector is not None:
-            if community in sums:
-                bucket = sums[community]
-                for index, value in enumerate(vector):
-                    bucket[index] += value
-            else:
-                sums[community] = list(vector)
+        if has_vectors:
+            vector = vec_arrays[vertex]
+            if vector is not None:
+                if community in sums:
+                    sums[community] += vector
+                else:
+                    sums[community] = vector.copy()
+
+    small_comms: set[int] = {
+        c for c, members in groups.items() if len(members) < MIN_COMMUNITY
+    }
+    oversized_comms: set[int] = {
+        c for c, members in groups.items() if len(members) > MAX_COMMUNITY
+    }
+
+    vec_comm_at: list[int] = []
+    vec_slot_of: dict[int, int] = {}
+    unit_matrix = np.zeros((max(len(groups), 16), max(vec_dim, 1)), dtype=np.float64)
+
+    def _sync_unit(community: int) -> None:
+        nonlocal unit_matrix
+        if not has_vectors:
+            return
+        bucket = sums.get(community)
+        if bucket is None or counts.get(community, 0) == 0:
+            slot = vec_slot_of.pop(community, None)
+            if slot is not None:
+                last_comm = vec_comm_at.pop()
+                if slot < len(vec_comm_at):
+                    vec_comm_at[slot] = last_comm
+                    vec_slot_of[last_comm] = slot
+                    unit_matrix[slot] = unit_matrix[len(vec_comm_at)]
+            return
+        norm = float(np.linalg.norm(bucket))
+        unit = bucket / norm if norm > 0.0 else bucket
+        slot = vec_slot_of.get(community)
+        if slot is None:
+            slot = len(vec_comm_at)
+            if slot >= unit_matrix.shape[0]:
+                extra = np.zeros_like(unit_matrix)
+                unit_matrix = np.vstack([unit_matrix, extra])
+            vec_comm_at.append(community)
+            vec_slot_of[community] = slot
+        unit_matrix[slot] = unit
+
+    if has_vectors:
+        for community in list(sums):
+            _sync_unit(community)
+
+    next_comm_id = (max(groups) + 1) if groups else 0
 
     def _centroid(community: int) -> list[float] | None:
         bucket = sums.get(community)
         if bucket is None:
             return None
         count = counts[community]
-        return [value / count for value in bucket]
+        return (bucket / count).tolist()
 
-    def _move(vertex: int, target: int) -> None:
+    def _move(vertex: int, target: int, *, sync_vecs: bool = True) -> None:
         source = membership[vertex]
         membership[vertex] = target
+        groups[source].remove(vertex)
+        target_group = groups.setdefault(target, set())
+        target_group.add(vertex)
         counts[source] -= 1
         counts[target] = counts.get(target, 0) + 1
-        vector = entity_vectors[vertex]
-        if vector is not None:
-            bucket = sums.setdefault(target, [0.0] * len(vector))
-            for index, value in enumerate(vector):
-                bucket[index] += value
-            if source in sums:
-                old = sums[source]
-                for index, value in enumerate(vector):
-                    old[index] -= value
+        if has_vectors:
+            vector = vec_arrays[vertex]
+            if vector is not None:
+                if target in sums:
+                    sums[target] += vector
+                else:
+                    sums[target] = vector.copy()
+                if source in sums:
+                    sums[source] -= vector
         if counts[source] == 0:
             counts.pop(source, None)
             sums.pop(source, None)
+            groups.pop(source, None)
+            small_comms.discard(source)
+            oversized_comms.discard(source)
+        else:
+            if len(groups[source]) < MIN_COMMUNITY:
+                small_comms.add(source)
+            else:
+                small_comms.discard(source)
+            if len(groups[source]) > MAX_COMMUNITY:
+                oversized_comms.add(source)
+            else:
+                oversized_comms.discard(source)
+        if len(target_group) < MIN_COMMUNITY:
+            small_comms.add(target)
+        else:
+            small_comms.discard(target)
+        if len(target_group) > MAX_COMMUNITY:
+            oversized_comms.add(target)
+        else:
+            oversized_comms.discard(target)
+        if sync_vecs:
+            _sync_unit(source)
+            _sync_unit(target)
 
-    def _split(members: list[int]) -> None:
-        community = membership[members[0]]
-        centre = _centroid(community)
+    def _split(community: int) -> None:
+        nonlocal next_comm_id
+        members = list(groups[community])
+        centre = _centroid(community) if has_vectors else None
 
         def _central(vertex: int) -> float:
             if centre is None or entity_vectors[vertex] is None:
@@ -778,25 +883,25 @@ def _fold_leftovers(
             chunks.append(ordered[position : position + take])
             position += take
         chunks.append(ordered[position:])
-        next_id = max(membership) + 1
+        touched: set[int] = {community}
         for chunk in chunks[1:]:
+            new_id = next_comm_id
+            next_comm_id += 1
+            touched.add(new_id)
             for vertex in chunk:
-                _move(vertex, next_id)
-            next_id += 1
+                _move(vertex, new_id, sync_vecs=False)
+        for cid in touched:
+            _sync_unit(cid)
 
     while True:
-        groups: dict[int, list[int]] = {}
-        for vertex, community in enumerate(membership):
-            groups.setdefault(community, []).append(vertex)
-        oversized = [m for m in groups.values() if len(m) > MAX_COMMUNITY]
-        if oversized:
-            _split(oversized[0])
+        if oversized_comms:
+            oversized_id = min(oversized_comms)
+            _split(oversized_id)
             continue
-        smalls = [m for m in groups.values() if len(m) < MIN_COMMUNITY]
-        if not smalls:
+        if not small_comms:
             return
-        members = min(smalls, key=lambda m: (len(m), membership[m[0]]))
-        community = membership[members[0]]
+        community = min(small_comms, key=lambda c: (len(groups[c]), c))
+        members = list(groups[community])
         edge_by: dict[int, float] = {}
         for vertex in members:
             for other, weight in neighbours[vertex]:
@@ -810,40 +915,41 @@ def _fold_leftovers(
             own: set[str] = set()
             for vertex in members:
                 own |= entity_sources[vertex]
-            if own:
-                for vertex, other_community in enumerate(membership):
-                    if other_community == community:
-                        continue
-                    shared = own & entity_sources[vertex]
-                    if shared:
-                        source_by[other_community] = source_by.get(
-                            other_community, 0
-                        ) + len(shared)
-        centre = _centroid(community) if has_vectors else None
+            for source_id in own:
+                for other_vertex in src_vertices[source_id]:
+                    other_community = membership[other_vertex]
+                    if other_community != community:
+                        source_by[other_community] = (
+                            source_by.get(other_community, 0) + 1
+                        )
+        cos_by: dict[int, float] = {}
+        if has_vectors and community in vec_slot_of:
+            q = unit_matrix[vec_slot_of[community]]
+            if np.any(q):
+                dots = unit_matrix[: len(vec_comm_at)] @ q
+                for idx, dot_val in enumerate(dots.tolist()):
+                    cos_by[vec_comm_at[idx]] = dot_val
+
         best: int | None = None
-        best_key: tuple[float, float, int, int] | None = None
+        best_key: tuple[float, float, float, int, int] | None = None
+        size_self = len(members)
         for other_community, other_members in groups.items():
             if other_community == community:
                 continue
-            if len(other_members) + len(members) > MAX_COMMUNITY:
+            other_len = len(other_members)
+            if other_len + size_self > MAX_COMMUNITY:
                 continue
-            score = 3.0 * edge_by.get(other_community, 0.0) + 2.0 * source_by.get(
-                other_community, 0
+            score = (
+                3.0 * edge_by.get(other_community, 0.0)
+                + 2.0 * source_by.get(other_community, 0)
+                + cos_by.get(other_community, 0.0)
             )
-            if centre is not None:
-                other_centre = _centroid(other_community)
-                if other_centre is not None:
-                    score += _cosine(centre, other_centre)
-            tier = (
-                0.0
-                if len(other_members) + len(members) <= MAX_MERGED_COMMUNITY
-                else 1.0
-            )
+            tier = 0.0 if other_len + size_self <= MAX_MERGED_COMMUNITY else 1.0
             key = (
-                1.0 if len(other_members) < MIN_COMMUNITY else 0.0,
+                1.0 if other_len < MIN_COMMUNITY else 0.0,
                 tier,
                 -score,
-                len(other_members),
+                other_len,
                 other_community,
             )
             if best_key is None or key < best_key:
@@ -856,7 +962,9 @@ def _fold_leftovers(
                 return
             best = min(candidates, key=lambda c: (counts.get(c, 0), c))
         for vertex in members:
-            _move(vertex, best)
+            _move(vertex, best, sync_vecs=False)
+        _sync_unit(community)
+        _sync_unit(best)
 
 
 def _entity_sources(conn: psycopg.Connection) -> dict[str, set[str]]:
