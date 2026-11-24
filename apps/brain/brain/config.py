@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     supabase_service_role_key: str | None = None
     falkordb_url: str = "redis://localhost:6379"
     openrouter_api_key: str | None = None
+    # Straitly AI gateway key for non-OpenAI, non-Anthropic, non-ScaleDown models
+    # (GLM, DeepSeek, Qwen, Gemini, etc.). BRAIN_STRAITLY_API_KEY overrides
+    # STRAITLY_API_KEY when set.
+    straitly_api_key: str | None = None
+    brain_straitly_api_key: str | None = None
     # Direct OpenAI API key (#607 step 2.4 native /v1/batches + openai-api/* routes).
     # BRAIN_OPENAI_API_KEY overrides OPENAI_API_KEY when set; missing key falls back
     # to the synchronous OpenRouter path with a warning.
@@ -150,3 +155,8 @@ def eval_model(settings: Settings) -> str | None:
 def openai_api_key(settings: Settings) -> str | None:
     """Direct OpenAI API key: BRAIN_OPENAI_API_KEY, else OPENAI_API_KEY."""
     return settings.brain_openai_api_key or settings.openai_api_key
+
+
+def straitly_api_key(settings: Settings) -> str | None:
+    """Straitly API key: BRAIN_STRAITLY_API_KEY, else STRAITLY_API_KEY."""
+    return settings.brain_straitly_api_key or settings.straitly_api_key

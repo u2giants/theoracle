@@ -577,7 +577,7 @@ def test_process_pass_repairs_non_json_reply_and_succeeds(
         return _Reply(json.dumps({"title": "Licensing approval flow", "steps": []}))
 
     monkeypatch.setattr(llm.httpx, "post", fake_post)
-    settings = get_settings().model_copy(update={"openrouter_api_key": "k"})
+    settings = get_settings().model_copy(update={"straitly_api_key": "k"})
     body = process_pass_mod._post_chat(
         [{"role": "user", "content": "extract the flow"}], settings
     )
@@ -605,10 +605,10 @@ def test_process_pass_persistent_non_json_fails_naming_provider(
         return _Reply("I would rather explain the process in prose.")
 
     monkeypatch.setattr(llm.httpx, "post", fake_post)
-    settings = get_settings().model_copy(update={"openrouter_api_key": "k"})
+    settings = get_settings().model_copy(update={"straitly_api_key": "k"})
     with pytest.raises(
         process_pass_mod.ProcessPassError,
-        match=r"provider openrouter, model 'test/frontier-model'",
+        match=r"provider straitly, model 'test/frontier-model'",
     ):
         process_pass_mod._post_chat(
             [{"role": "user", "content": "extract the flow"}], settings

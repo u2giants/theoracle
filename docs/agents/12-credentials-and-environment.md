@@ -37,6 +37,7 @@ read-when: adding, renaming or debugging an environment variable or credential
 | `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional (set in prod 2026-06-25 for the Qwen vision model) |
 | `DASHSCOPE_BASE_URL` | Qwen adapter region override (default `dashscope-us`; set to the `dashscope-intl` compat endpoint in prod) | `.env.local`, Trigger.dev | optional | recommended when using `qwen/*` models served only on intl |
 | `OPENROUTER_API_KEY` | model catalog enrichment; explicitly admitted isolated original reading / holistic processing | 1Password canonical item below; existing Vercel settings | optional | optional |
+| `STRAITLY_API_KEY` / `BRAIN_STRAITLY_API_KEY` | Straitly AI gateway (`https://api.straitly.ai/v1`) for non-OpenAI, non-Anthropic, non-ScaleDown models in `apps/brain` (GLM, DeepSeek, Qwen, Gemini, etc.) | 1Password vault `vibe_coding` item `pwgjqcigt4mzv7lzmom2ocvrki` (`straitly ai api endpoint API key`), `.env.local`, Coolify (`oracle-brain`) | optional | yes when non-OpenAI/Anthropic models are seated |
 
 | `ORACLE_MCP_TOKEN` | Static bearer token for the remote MCP knowledge endpoint (`/api/mcp/mcp`). External AI agents present it to query approved business knowledge. If unset, the endpoint rejects all requests. | `.env.local`, Vercel | optional | yes for MCP access |
 | `ORACLE_MCP_ENABLED_TOOLS` | Optional CSV allowlist for remote MCP capabilities | Vercel/local env if used | optional | optional |

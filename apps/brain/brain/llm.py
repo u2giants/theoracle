@@ -7,9 +7,12 @@ qwen reasoning tiers broke the relations stage the same way). One rescue retry
 doubles the token budget and asks for low hidden reasoning; a second empty
 response raises the caller's error class.
 
-Provider routing (issue #426): model ids starting with ``meta-model-api/``
-go to Meta's direct API with ``BRAIN_META_API_KEY``; everything else goes
-to OpenRouter with ``OPENROUTER_API_KEY``.
+Provider routing (issue #426):
+- ``meta-model-api/*`` goes to Meta's direct API with ``BRAIN_META_API_KEY``.
+- ``openai-api/*`` goes to OpenAI's direct API with ``BRAIN_OPENAI_API_KEY`` / ``OPENAI_API_KEY``.
+- ``openai/*`` goes to OpenRouter with ``OPENROUTER_API_KEY``, falling back to OpenAI direct.
+- ``anthropic/*`` and ``claude-*`` (plus ``scaledown/*`` or unset) go to OpenRouter with ``OPENROUTER_API_KEY``.
+- Everything else (GLM, DeepSeek, Qwen, Gemini, etc.) goes to Straitly with ``BRAIN_STRAITLY_API_KEY`` / ``STRAITLY_API_KEY``.
 
 Per-provider parameter gating (issues #590, #592): every payload passes
 ``gate_payload_for_provider`` before it is sent, so only request parameters
@@ -33,21 +36,25 @@ from typing import Any
 
 import httpx
 
-from brain.config import Settings, openai_api_key
+from brain.config import Settings, openai_api_key, straitly_api_key
 
 logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 META_BASE_URL = "https://api.meta.ai/v1"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
+STRAITLY_BASE_URL = "https://api.straitly.ai/v1"
 _META_PROVIDER_PREFIX = "meta-model-api/"
 _OPENAI_PROVIDER_PREFIX = "openai-api/"
 _OPENAI_OPENROUTER_PREFIX = "openai/"
+_ANTHROPIC_PREFIXES = ("anthropic/", "claude-")
+_SCALEDOWN_PREFIX = "scaledown/"
 
 _PROVIDER_NAMES: dict[str, str] = {
     OPENROUTER_BASE_URL: "openrouter",
     META_BASE_URL: "meta",
     OPENAI_BASE_URL: "openai",
+    STRAITLY_BASE_URL: "straitly",
 }
 
 # Body keys Meta's and OpenAI's direct APIs understand. OpenRouter accepts the
@@ -98,7 +105,8 @@ _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$")
 def resolve_provider(model: str | None, settings: Settings) -> tuple[str, str | None]:
     """Return ``(base_url, api_key)`` for the model's provider.
 
-    Dual routing rule for OpenAI models:
+    Routing order:
+    - ``meta-model-api/*`` routes directly to ``META_BASE_URL``.
     - ``openai-api/*`` always routes directly to ``OPENAI_BASE_URL`` with
       ``openai_api_key(settings)``.
     - ``openai/*`` routes to ``OPENROUTER_BASE_URL`` whenever
@@ -106,21 +114,32 @@ def resolve_provider(model: str | None, settings: Settings) -> tuple[str, str | 
       step 2.4). When ``settings.openrouter_api_key`` is unset and
       ``openai_api_key(settings)`` is set, it falls back directly to
       ``OPENAI_BASE_URL`` with ``openai/`` stripped by ``strip_provider_prefix``.
-    - ``meta-model-api/*`` routes directly to ``META_BASE_URL``.
-    - Everything else routes to ``OPENROUTER_BASE_URL``.
+    - ``anthropic/*``, ``claude-*``, ``scaledown/*``, and empty/``None`` models
+      route to ``OPENROUTER_BASE_URL``.
+    - All other models (e.g. ``z-ai/*``, ``deepseek/*``, ``qwen/*``,
+      ``google/*``, ``meta-llama/*``) route to ``STRAITLY_BASE_URL`` with
+      ``straitly_api_key(settings)``.
     """
     if model and model.startswith(_META_PROVIDER_PREFIX):
         return META_BASE_URL, settings.brain_meta_api_key
     if model and model.startswith(_OPENAI_PROVIDER_PREFIX):
         return OPENAI_BASE_URL, openai_api_key(settings)
+    if model and model.startswith(_OPENAI_OPENROUTER_PREFIX):
+        if not settings.openrouter_api_key and (direct_key := openai_api_key(settings)):
+            return OPENAI_BASE_URL, direct_key
+        return OPENROUTER_BASE_URL, settings.openrouter_api_key
     if (
-        model
-        and model.startswith(_OPENAI_OPENROUTER_PREFIX)
-        and not settings.openrouter_api_key
-        and (direct_key := openai_api_key(settings))
+        not model
+        or model.startswith(_ANTHROPIC_PREFIXES)
+        or model.startswith(_SCALEDOWN_PREFIX)
     ):
-        return OPENAI_BASE_URL, direct_key
-    return OPENROUTER_BASE_URL, settings.openrouter_api_key
+        return OPENROUTER_BASE_URL, settings.openrouter_api_key
+    return STRAITLY_BASE_URL, straitly_api_key(settings)
+
+
+def has_provider_key(model: str | None, settings: Settings) -> bool:
+    """True when ``model`` is set and its resolved provider has an API key."""
+    return bool(model and resolve_provider(model, settings)[1])
 
 
 def strip_provider_prefix(model: str, base_url: str | None = None) -> str:

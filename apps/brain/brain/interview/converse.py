@@ -23,7 +23,7 @@ from brain.db import INTERVIEW_LANE, current_lane, get_pool
 from brain.interview import conversation as conv_mod
 from brain.interview import followup, profile
 from brain.interview.strings import strings
-from brain.llm import message_content, post_chat_with_rescue
+from brain.llm import has_provider_key, message_content, post_chat_with_rescue
 from brain.read.dates import ORIGIN_INTERVIEW
 from brain.seats import stage_model
 
@@ -166,7 +166,7 @@ def _call(
     prompt: str, settings: Settings, max_tokens: int, label: str
 ) -> dict[str, Any]:
     model = stage_model(settings, "converse")
-    if not model or not settings.openrouter_api_key:
+    if not has_provider_key(model, settings):
         return {}
     body = post_chat_with_rescue(
         {

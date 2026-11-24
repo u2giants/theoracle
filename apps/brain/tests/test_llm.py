@@ -33,7 +33,11 @@ def _body(content: Any) -> dict[str, Any]:
 
 
 def _settings() -> Settings:
-    return Settings(openrouter_api_key="k", brain_meta_api_key="mk")
+    return Settings(
+        openrouter_api_key="k",
+        straitly_api_key="sk",
+        brain_meta_api_key="mk",
+    )
 
 
 def test_message_content_normalises_shapes() -> None:
@@ -51,13 +55,38 @@ def test_resolve_provider_routes_meta_models() -> None:
     assert key == "mk"
 
 
-def test_resolve_provider_routes_openrouter_by_default() -> None:
+def test_resolve_provider_routes_openrouter_for_anthropic_scaledown_and_none() -> None:
     s = _settings()
-    base, key = llm.resolve_provider("z-ai/glm-5.3", s)
-    assert base == llm.OPENROUTER_BASE_URL
-    assert key == "k"
-    base, key = llm.resolve_provider(None, s)
-    assert base == llm.OPENROUTER_BASE_URL
+    for model in (
+        "anthropic/claude-sonnet-5-5",
+        "claude-sonnet-5-5",
+        "scaledown/extract",
+        None,
+    ):
+        base, key = llm.resolve_provider(model, s)
+        assert base == llm.OPENROUTER_BASE_URL
+        assert key == "k"
+
+
+def test_resolve_provider_routes_other_models_to_straitly() -> None:
+    s = _settings()
+    for model in (
+        "z-ai/glm-5.3-flash",
+        "z-ai/glm-5.3",
+        "deepseek/deepseek-v4-1-flash",
+        "qwen/qwen3.8-flash",
+        "google/gemini-3.8-flash",
+        "meta-llama/muse-spark-1.3-contributor",
+    ):
+        base, key = llm.resolve_provider(model, s)
+        assert base == llm.STRAITLY_BASE_URL
+        assert key == "sk"
+        assert llm.strip_provider_prefix(model, base) == model
+
+    s_override = Settings(straitly_api_key="sk", brain_straitly_api_key="bsk")
+    base, key = llm.resolve_provider("z-ai/glm-5.3-flash", s_override)
+    assert base == llm.STRAITLY_BASE_URL
+    assert key == "bsk"
 
 
 def test_strip_provider_prefix() -> None:
@@ -322,7 +351,7 @@ def test_non_json_http_body_names_provider_and_status(
             raise ValueError("not json")
 
     monkeypatch.setattr(llm.httpx, "post", lambda url, **kw: _Text())
-    with pytest.raises(_Boom, match=r"provider openrouter returned HTTP 200"):
+    with pytest.raises(_Boom, match=r"provider straitly returned HTTP 200"):
         llm.post_chat_with_rescue(
             {"model": "m", "messages": [], "max_tokens": 10},
             settings=_settings(),
@@ -336,7 +365,7 @@ def test_no_content_error_names_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(llm.httpx, "post", lambda url, **kw: _Resp(_body(None)))
-    with pytest.raises(_Boom, match="provider openrouter"):
+    with pytest.raises(_Boom, match="provider straitly"):
         llm.post_chat_with_rescue(
             {"model": "m", "messages": [], "max_tokens": 10},
             settings=_settings(),
@@ -450,7 +479,7 @@ def test_stage_json_repair_persistent_failure_is_bounded_and_names_provider(
     monkeypatch.setattr(llm.httpx, "post", fake_post)
     with pytest.raises(
         _StageError,
-        match=r"response is not JSON after one repair retry \(provider openrouter, model 'm'\)",
+        match=r"response is not JSON after one repair retry \(provider straitly, model 'm'\)",
     ) as excinfo:
         llm.post_chat_json_body(
             {
@@ -553,3 +582,59 @@ def test_openai_slash_dual_routing_and_direct_fallback(
     assert seen[0]["json"]["model"] == "gpt-6-luna"
     assert "provider" not in seen[0]["json"]
     assert "reasoning" not in seen[0]["json"]
+
+
+def test_straitly_missing_key_fails_loud_and_posts_to_straitly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    s_no_straitly = Settings(openrouter_api_key="or-k")
+    with pytest.raises(_Boom, match=r"provider straitly model 'z-ai/glm-5\.3-flash'"):
+        llm.post_chat_with_rescue(
+            {"model": "z-ai/glm-5.3-flash", "messages": [], "max_tokens": 100},
+            settings=s_no_straitly,
+            timeout=5.0,
+            error_cls=_Boom,
+            label="unit",
+        )
+
+    seen: list[dict[str, Any]] = []
+
+    def fake_post(url: str, **kw: Any) -> _Resp:
+        seen.append({"url": url, "headers": kw["headers"], "json": kw["json"]})
+        return _Resp(_body("ok"))
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    llm.post_chat_with_rescue(
+        {
+            "model": "z-ai/glm-5.3-flash",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 256,
+            "reasoning": {"effort": "low", "exclude": True},
+        },
+        settings=_settings(),
+        timeout=5.0,
+        error_cls=_Boom,
+        label="unit",
+    )
+    assert seen[0]["url"] == f"{llm.STRAITLY_BASE_URL}/chat/completions"
+    assert seen[0]["headers"]["Authorization"] == "Bearer sk"
+    assert seen[0]["json"]["model"] == "z-ai/glm-5.3-flash"
+    assert seen[0]["json"]["reasoning"] == {"effort": "low", "exclude": True}
+
+
+def test_has_provider_key_checks_resolved_provider() -> None:
+    s = Settings(
+        openrouter_api_key="or-k",
+        straitly_api_key="sk",
+        openai_api_key="oa-k",
+        brain_meta_api_key="mk",
+    )
+    assert llm.has_provider_key("z-ai/glm-5.3-flash", s)
+    assert llm.has_provider_key("anthropic/claude-sonnet-5-5", s)
+    assert llm.has_provider_key("openai/gpt-6-luna", s)
+    assert llm.has_provider_key("openai-api/gpt-6-luna", s)
+    assert llm.has_provider_key("meta-model-api/muse-spark-1.3", s)
+    assert not llm.has_provider_key(None, s)
+    assert not llm.has_provider_key("", s)
+    assert not llm.has_provider_key("z-ai/glm-5.3-flash", Settings(openrouter_api_key="or-k"))
+    assert not llm.has_provider_key("anthropic/claude-sonnet-5-5", Settings(straitly_api_key="sk"))

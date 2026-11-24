@@ -19,7 +19,11 @@ class _Resp:
 
 
 def _settings(**kw: Any) -> Settings:
-    base = {"openrouter_api_key": "k", "brain_frontier_model": "heavy/model"}
+    base = {
+        "openrouter_api_key": "k",
+        "straitly_api_key": "sk",
+        "brain_frontier_model": "heavy/model",
+    }
     base.update(kw)
     return Settings(**base)
 
