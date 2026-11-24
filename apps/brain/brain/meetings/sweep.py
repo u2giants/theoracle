@@ -166,7 +166,7 @@ def run_sweep(settings: Settings | None = None) -> dict[str, int]:
         known = {
             r[0]
             for r in conn.execute(
-                "SELECT external_ref FROM cmap.transcript_candidate"
+                "SELECT external_ref FROM cmap.transcript_candidate WHERE state <> 'failed'"
             ).fetchall()
         }
     token = graph_token()
@@ -208,7 +208,10 @@ def run_sweep(settings: Settings | None = None) -> dict[str, int]:
                         "call_kind, title, meeting_at, ended_at, organizer_id, organizer_name, "
                         "participants, raw_text, state, error) VALUES "
                         "(%s,'graph',%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s) "
-                        "ON CONFLICT (external_ref) DO NOTHING",
+                        "ON CONFLICT (external_ref) DO UPDATE SET raw_text = EXCLUDED.raw_text, "
+                        "participants = EXCLUDED.participants, title = EXCLUDED.title, "
+                        "state = EXCLUDED.state, error = EXCLUDED.error, updated_at = now() "
+                        "WHERE cmap.transcript_candidate.state = 'failed'",
                         (
                             ext,
                             ref["_kind"],
