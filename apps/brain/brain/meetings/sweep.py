@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
 
@@ -86,9 +87,8 @@ def _parse_dt(value: Any) -> datetime | None:
         return None
 
 
-def transcript_refs(client: httpx.Client, user_id: str) -> list[dict[str, Any]]:
+def transcript_refs(client: httpx.Client, user_id: str) -> Iterator[dict[str, Any]]:
     """Every scheduled-meeting and ad-hoc-call transcript this user organized."""
-    refs: list[dict[str, Any]] = []
     for kind, url in (
         (
             "meeting",
@@ -103,13 +103,12 @@ def transcript_refs(client: httpx.Client, user_id: str) -> list[dict[str, Any]]:
         try:
             for item in graph_pages(client, url):
                 item["_kind"] = kind
-                refs.append(item)
+                yield item
         except httpx.HTTPStatusError as exc:
             # Unlicensed / mailbox-less accounts answer 403/404; skip that user.
             if exc.response.status_code in (400, 403, 404):
                 continue
             raise
-    return refs
 
 
 def summarize(text: str, settings: Settings) -> str:
@@ -163,13 +162,17 @@ def run_sweep(settings: Settings | None = None) -> dict[str, int]:
     }
     pool = get_pool(cfg)
     with pool.connection() as conn:
+        # Back off failed downloads so later transcripts can use the next sweep's budget.
         known = {
             r[0]
             for r in conn.execute(
-                "SELECT external_ref FROM cmap.transcript_candidate"
+                "SELECT external_ref FROM cmap.transcript_candidate "
+                "WHERE NOT (source_kind = 'graph' AND state = 'failed' AND raw_text = '' "
+                "AND updated_at < now() - interval '6 hours')"
             ).fetchall()
         }
     token = graph_token()
+    attempts = 0
     with httpx.Client(
         headers={"Authorization": f"Bearer {token}"}, timeout=60
     ) as client:
@@ -181,7 +184,7 @@ def run_sweep(settings: Settings | None = None) -> dict[str, int]:
             )
         )
         for user in users:
-            if counts["new"] >= MAX_NEW_PER_RUN:
+            if attempts >= MAX_NEW_PER_RUN:
                 break
             if user.get("accountEnabled") is False:
                 continue
@@ -193,6 +196,7 @@ def run_sweep(settings: Settings | None = None) -> dict[str, int]:
                 if not ext or ext in known or not url:
                     continue
                 known.add(ext)
+                attempts += 1
                 start = _parse_dt(ref.get("createdDateTime"))
                 end = _parse_dt(ref.get("endDateTime"))
                 try:
@@ -203,12 +207,18 @@ def run_sweep(settings: Settings | None = None) -> dict[str, int]:
                     text, speakers, state, error = "", [], "failed", str(exc)[:500]
                     counts["failed"] += 1
                 with pool.connection() as conn:
-                    conn.execute(
+                    saved = conn.execute(
                         "INSERT INTO cmap.transcript_candidate (external_ref, source_kind, "
                         "call_kind, title, meeting_at, ended_at, organizer_id, organizer_name, "
                         "participants, raw_text, state, error) VALUES "
                         "(%s,'graph',%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s) "
-                        "ON CONFLICT (external_ref) DO NOTHING",
+                        "ON CONFLICT (external_ref) DO UPDATE SET "
+                        "title = EXCLUDED.title, participants = EXCLUDED.participants, "
+                        "raw_text = EXCLUDED.raw_text, state = EXCLUDED.state, "
+                        "error = EXCLUDED.error, updated_at = now() "
+                        "WHERE transcript_candidate.source_kind = 'graph' "
+                        "AND transcript_candidate.state = 'failed' "
+                        "AND transcript_candidate.raw_text = ''",
                         (
                             ext,
                             ref["_kind"],
@@ -224,7 +234,10 @@ def run_sweep(settings: Settings | None = None) -> dict[str, int]:
                         ),
                     )
                     conn.commit()
-                counts["new"] += 1
+                if state == "new":
+                    counts["new"] += saved.rowcount
+                if attempts >= MAX_NEW_PER_RUN:
+                    break
     counts.update(summarize_pending(cfg))
     return counts
 

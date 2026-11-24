@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
+import httpx
+import psycopg
 import pytest
 
 from brain.meetings import sweep
@@ -99,6 +101,193 @@ def test_summarize_rejects_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     with pytest.raises(RuntimeError):
         sweep.summarize("text", _Cfg())  # type: ignore[arg-type]
+
+
+def _graph_error(status: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://graph.microsoft.com/test")
+    return httpx.HTTPStatusError(
+        f"Graph returned {status}", request=request, response=httpx.Response(status)
+    )
+
+
+@pytest.mark.parametrize("status", [400, 403, 404, 500])
+def test_transcript_refs_skips_only_expected_graph_errors(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    def pages(client, url):
+        if "/onlineMeetings/" in url:
+            raise _graph_error(status)
+        yield {"id": "call"}
+
+    monkeypatch.setattr(sweep, "graph_pages", pages)
+    with httpx.Client() as client:
+        if status == 500:
+            with pytest.raises(httpx.HTTPStatusError, match="500"):
+                list(sweep.transcript_refs(client, "organizer"))
+        else:
+            assert list(sweep.transcript_refs(client, "organizer")) == [
+                {"id": "call", "_kind": "call"}
+            ]
+
+
+@pytest.fixture
+def sweep_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sweep, "graph_token", lambda: "test-token")
+    monkeypatch.setattr(
+        sweep, "summarize_pending", lambda cfg: {"summarized": 0, "summary_failed": 0}
+    )
+
+
+@pytest.mark.parametrize("first_download_fails", [False, True])
+def test_sweep_deduplicates_and_stops_paging_at_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    db: psycopg.Connection,
+    sweep_graph: None,
+    first_download_fails: bool,
+) -> None:
+    db.execute(
+        "INSERT INTO cmap.transcript_candidate (external_ref, source_kind, raw_text) "
+        "VALUES ('known', 'graph', 'Existing text')"
+    )
+    db.commit()
+    monkeypatch.setattr(sweep, "MAX_NEW_PER_RUN", 2)
+    downloads = []
+
+    def pages(client, url, params=None):
+        if url.endswith("/users"):
+            yield {"id": "first"}
+            yield {"id": "second"}
+            return
+        assert "/users/first/onlineMeetings/" in url
+        for ref in ("known", "one", "one", "two"):
+            yield {"id": ref, "transcriptContentUrl": ref}
+        pytest.fail("The sweep kept enumerating transcripts after reaching the cap")
+
+    def download(client, url, **kwargs):
+        downloads.append(url)
+        if url == "one" and first_download_fails:
+            raise httpx.ReadTimeout("Graph timed out")
+        return httpx.Response(200, text=VTT)
+
+    monkeypatch.setattr(sweep, "graph_pages", pages)
+    monkeypatch.setattr(sweep, "get_retry", download)
+    counts = sweep.run_sweep()
+
+    assert downloads == ["one", "two"]
+    assert (counts["users"], counts["seen"]) == (1, 4)
+    assert counts["new"] == (1 if first_download_fails else 2)
+    assert counts["failed"] == int(first_download_fails)
+    assert db.execute(
+        "SELECT external_ref FROM cmap.transcript_candidate ORDER BY external_ref"
+    ).fetchall() == [("known",), ("one",), ("two",)]
+
+
+@pytest.mark.parametrize("error_status", [None, 401, 503])
+def test_sweep_retries_failed_download_after_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+    db: psycopg.Connection,
+    sweep_graph: None,
+    error_status: int | None,
+) -> None:
+    monkeypatch.setattr(sweep, "graph_pages", lambda *a, **kw: iter([{"id": "user"}]))
+    monkeypatch.setattr(
+        sweep,
+        "transcript_refs",
+        lambda *a: iter(
+            {"id": ref, "transcriptContentUrl": ref, "_kind": "meeting"}
+            for ref in ("retry", "retry", "next")
+        ),
+    )
+    downloads = []
+
+    def download(client, url, **kwargs):
+        downloads.append(url)
+        if downloads == ["retry"]:
+            if error_status is None:
+                raise httpx.ReadTimeout("Graph timed out")
+            raise _graph_error(error_status)
+        return httpx.Response(200, text=VTT)
+
+    monkeypatch.setattr(sweep, "get_retry", download)
+    assert sweep.run_sweep()["failed"] == 1
+    assert downloads == ["retry", "next"]
+    row_id, state, raw_text, error = db.execute(
+        "SELECT id, state, raw_text, error FROM cmap.transcript_candidate "
+        "WHERE external_ref = 'retry'"
+    ).fetchone()
+    assert (state, raw_text) == ("failed", "")
+    assert error
+    db.commit()
+
+    assert sweep.run_sweep()["new"] == 0
+    assert downloads == ["retry", "next"]
+    db.execute(
+        "UPDATE cmap.transcript_candidate SET updated_at = now() - interval '7 hours' "
+        "WHERE id = %s",
+        (row_id,),
+    )
+    db.commit()
+
+    assert sweep.run_sweep()["new"] == 1
+    assert downloads == ["retry", "next", "retry"]
+    assert db.execute(
+        "SELECT id, state, raw_text, error FROM cmap.transcript_candidate "
+        "WHERE external_ref = 'retry'"
+    ).fetchone() == (row_id, "new", sweep.vtt_to_lines(VTT)[0], None)
+
+
+def test_summarize_pending_filters_and_updates_rows(
+    monkeypatch: pytest.MonkeyPatch, db: psycopg.Connection
+) -> None:
+    db.execute(
+        "INSERT INTO cmap.transcript_candidate "
+        "(external_ref, source_kind, raw_text, state, summarized_at, summary_error) VALUES "
+        "('old', 'graph', 'old', 'new', now() - interval '7 hours', 'old error'), "
+        "('recent', 'graph', 'recent', 'new', now() - interval '5 hours', 'recent error'), "
+        "('failed', 'graph', 'failed', 'failed', NULL, NULL), "
+        "('empty', 'graph', '', 'new', NULL, NULL), "
+        "('new', 'graph', 'new', 'new', NULL, NULL)"
+    )
+    db.commit()
+    seen = set()
+
+    def summarize(text, cfg):
+        seen.add(text)
+        if text == "new":
+            raise RuntimeError("summarizer unavailable")
+        return "A successful meeting summary."
+
+    monkeypatch.setattr(sweep, "summarize", summarize)
+    assert sweep.summarize_pending(sweep.get_settings()) == {"summarized": 1, "summary_failed": 1}
+    assert seen == {"old", "new"}
+    assert db.execute(
+        "SELECT external_ref, summary, summary_error, summarized_at = updated_at "
+        "FROM cmap.transcript_candidate WHERE external_ref IN ('old', 'new') "
+        "ORDER BY external_ref"
+    ).fetchall() == [
+        ("new", None, "summarizer unavailable", True),
+        ("old", "A successful meeting summary.", None, True),
+    ]
+
+
+def test_queue_meeting_sweep_once_per_hour(
+    monkeypatch: pytest.MonkeyPatch, db: psycopg.Connection
+) -> None:
+    for key in ("AZURE_TENANT_ID", "AZURE_GRAPH_CLIENT_ID", "AZURE_GRAPH_CLIENT_SECRET"):
+        monkeypatch.setenv(key, "test")
+
+    assert sweep.maybe_queue_meeting_sweep() is True
+    assert sweep.maybe_queue_meeting_sweep() is False
+    db.execute("UPDATE cmap.job SET state = 'running' WHERE kind = 'meeting_sweep'")
+    db.commit()
+    assert sweep.maybe_queue_meeting_sweep() is False
+    db.execute("UPDATE cmap.job SET state = 'done', finished_at = now() WHERE kind = 'meeting_sweep'")
+    db.commit()
+    assert sweep.maybe_queue_meeting_sweep() is False
+    db.execute("UPDATE cmap.job SET finished_at = now() - interval '61 minutes' WHERE kind = 'meeting_sweep'")
+    db.commit()
+    assert sweep.maybe_queue_meeting_sweep() is True
+    assert db.execute("SELECT count(*) FROM cmap.job WHERE kind = 'meeting_sweep'").fetchone() == (2,)
 
 
 def test_meetings_api_admin_only_and_hides_text(client, db, admin_headers, user_headers) -> None:  # type: ignore[no-untyped-def]
