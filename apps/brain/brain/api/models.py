@@ -34,6 +34,7 @@ def get_models() -> dict[str, Any]:
             "flat_fallback": seats["flat"]["model"],
             "relations": seats["relations"]["model"],
             "relations_messages": seats["relations_messages"]["model"],
+            "intake_gate": seats["intake_gate"]["model"],
             "resolve": seats["resolve"]["model"],
             "reports": seats["reports"]["model"],
             "answer": seats["answer"]["model"],

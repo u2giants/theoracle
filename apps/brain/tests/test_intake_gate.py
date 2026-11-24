@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from brain.intake import gate
@@ -64,3 +66,142 @@ def test_sample_covers_each_origin() -> None:
     s = gate.sample(threads, 100)
     assert sum(1 for t in s if t["origin"] == "clickup") == 20
     assert len({t["thread_key"] for t in s}) == len(s)
+
+
+def test_metadata_header_and_prompt_contract() -> None:
+    items = [
+        {
+            "author_ref": "vendor@disney.com",
+            "body_text": "OPA submission approved.",
+            "raw": {
+                "from": {"emailAddress": {"address": "vendor@disney.com"}},
+                "internetMessageHeaders": [{"name": "Auto-Submitted", "value": "auto-generated"}],
+            },
+        },
+        {
+            "author_ref": "eparkin@popcre.com",
+            "body_text": "Thanks, proceeding with factory.",
+            "raw": {"from": {"emailAddress": {"address": "eparkin@popcre.com"}}},
+        },
+    ]
+    hdr = gate.thread_metadata_header("email", "RE: OPA Approval", items)
+    assert hdr["sender_mix"] == "mixed_internal_external"
+    assert hdr["employee_replied"] is True
+    assert hdr["external_domains"] == ["disney.com"]
+    assert hdr["portal_template_domain"] == "disney.com"
+    assert hdr["has_automated_headers"] is True
+
+    prompt = gate.build_gate_prompt(hdr, gate.gate_slices([i["body_text"] for i in items]))
+    assert "disney.com" in prompt
+    assert "OPA submission approved." in prompt
+
+
+def test_parse_and_decide_thread_verdict_guards() -> None:
+    parsed = gate.parse_gate_response(
+        '```json\n{"category":"drop_marketing_auto","has_process_rule_or_role":false,'
+        '"has_operational_problem_or_decision":false,"is_automated_or_bulk_template":true,'
+        '"employee_substantively_engaged":true,"confidence":0.82,"reason":"Promo"}\n```'
+    )
+    # Forwarded marketing with employee reply and confidence < 0.90 is protected as transactional_routine.
+    assert gate.decide_thread_verdict(parsed, {"employee_replied": True}) == (
+        "kept",
+        "transactional_routine",
+    )
+    assert gate.decide_thread_verdict(parsed, {"employee_replied": False}) == (
+        "dropped",
+        "drop_marketing_auto",
+    )
+
+    # drop_irrelevant_internal requires confidence >= 0.70 and no process/problem flags.
+    low_conf = dict(parsed, category="drop_irrelevant_internal", confidence=0.65)
+    assert gate.decide_thread_verdict(low_conf, {}) == ("kept", "transactional_routine")
+    has_rule = dict(
+        parsed,
+        category="drop_irrelevant_internal",
+        confidence=0.95,
+        has_process_rule_or_role=True,
+    )
+    assert gate.decide_thread_verdict(has_rule, {}) == ("kept", "transactional_routine")
+    clean_drop = dict(parsed, category="drop_irrelevant_internal", confidence=0.88)
+    assert gate.decide_thread_verdict(clean_drop, {}) == (
+        "dropped",
+        "drop_irrelevant_internal",
+    )
+
+
+def test_gate_pending_threads_batch_and_db_persistence(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from brain.config import get_settings
+    from brain.llm_batch import BatchResult
+    from brain.migrate import migrate
+
+    migrate()
+    db.execute("TRUNCATE cmap.intake_item, cmap.intake_thread")
+    for idx in range(20):
+        key = f"th-{idx:02d}"
+        db.execute(
+            "INSERT INTO cmap.intake_thread (origin, thread_key, title) "
+            "VALUES ('email', %s, %s)",
+            (key, f"Subject {idx}"),
+        )
+        db.execute(
+            "INSERT INTO cmap.intake_item (origin, external_id, thread_key, author_ref, "
+            "sent_at, body_text, raw, content_hash) "
+            "VALUES ('email', %s, %s, 'eparkin@popcre.com', now(), %s, "
+            '\'{"from": {"emailAddress": {"address": "eparkin@popcre.com"}}}\'::jsonb, \'h\')',
+            (f"m-{idx}", key, "Disney approved SKU 123 and CAD was received today."),
+        )
+    db.commit()
+
+    def _fake_batch(model: str, items: Any, **kwargs: Any) -> dict[str, BatchResult]:
+        assert model == "openai/gpt-6-luna"
+        out: dict[str, BatchResult] = {}
+        for pos, it in enumerate(items):
+            if pos == 0:
+                cat = "knowledge"
+            elif pos == 1:
+                cat = "transactional_routine"
+            elif pos == 2:
+                cat = "drop_marketing_auto"
+            else:
+                cat = "drop_irrelevant_internal"
+            out[it.custom_id] = BatchResult(
+                custom_id=it.custom_id,
+                status="ok",
+                payload={
+                    "category": cat,
+                    "has_process_rule_or_role": cat == "knowledge",
+                    "has_operational_problem_or_decision": cat == "knowledge",
+                    "is_automated_or_bulk_template": cat == "drop_marketing_auto",
+                    "employee_substantively_engaged": cat == "knowledge",
+                    "confidence": 0.95,
+                    "reason": f"classified as {cat}",
+                },
+            )
+        return out
+
+    monkeypatch.setattr(gate, "submit_and_wait_batch", _fake_batch)
+    monkeypatch.setenv("BRAIN_INTAKE_GATE_MODEL", "openai/gpt-6-luna")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    get_settings.cache_clear()
+    try:
+        stats = gate.gate_pending_threads(db, get_settings())
+    finally:
+        get_settings.cache_clear()
+
+    assert stats["judged"] == 20
+    assert stats["kept"] == 2
+    assert stats["dropped"] == 18
+    rows = dict(
+        db.execute(
+            "SELECT thread_key, verdict || ':' || COALESCE(tier, '') "
+            "FROM cmap.intake_thread WHERE thread_key IN ('th-00', 'th-01', 'th-02', 'th-03')"
+        ).fetchall()
+    )
+    assert rows == {
+        "th-00": "kept:knowledge",
+        "th-01": "kept:transactional_routine",
+        "th-02": "dropped:drop_marketing_auto",
+        "th-03": "dropped:drop_irrelevant_internal",
+    }

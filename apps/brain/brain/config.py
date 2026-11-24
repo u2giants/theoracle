@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Message-source relations model (plan_pm_message_intake.md step 2.3, #607).
     # Used for sources with origin IS NOT NULL when set or seated on relations_messages.
     brain_message_relations_model: str | None = None
+    # Pre-ingest thread business-relevance gate model (#607 phase 1).
+    brain_intake_gate_model: str | None = None
+    brain_intake_gate_batch_enabled: bool = True
     brain_vision_model: str | None = None
     brain_embed_model: str | None = None
     brain_embed_dims: int = 1024

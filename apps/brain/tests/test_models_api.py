@@ -17,6 +17,7 @@ SEAT_KEYS = (
     "flat_fallback",
     "relations",
     "relations_messages",
+    "intake_gate",
     "resolve",
     "reports",
     "answer",

@@ -146,11 +146,13 @@ def test_handle_intake_ingest_rejects_malformed_limit(
 # --- database ------------------------------------------------------------
 
 
-def _seed(db: Any, key: str, texts: list[str]) -> None:
+def _seed(
+    db: Any, key: str, texts: list[str], *, verdict: str = "kept", tier: str | None = "knowledge"
+) -> None:
     db.execute(
-        "INSERT INTO cmap.intake_thread (origin, thread_key, title, started_at) "
-        "VALUES ('teams_chat', %s, 'synthetic chat', now()) ON CONFLICT DO NOTHING",
-        (key,),
+        "INSERT INTO cmap.intake_thread (origin, thread_key, title, started_at, verdict, tier) "
+        "VALUES ('teams_chat', %s, 'synthetic chat', now(), %s, %s) ON CONFLICT DO NOTHING",
+        (key, verdict, tier),
     )
     for i, t in enumerate(texts):
         db.execute(
@@ -440,3 +442,86 @@ def test_handle_read_source_packs_message_threads_vs_speaker_run_transcripts(
         "Alice: Great, tell the factory next.",
         "Bob: Confirmed with factory QA.",
     ]
+
+
+def test_ingest_gates_pending_threads_and_routes_rag_only(
+    db: Any, storage: Any, capped: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_embeddings(monkeypatch)
+    _seed(
+        db,
+        "pending-know",
+        ["Production Director confirmed final licensor sign-off rule."],
+        verdict="pending",
+        tier=None,
+    )
+    _seed(
+        db,
+        "pending-rag",
+        ["Can you send the unsold leaner deck for ROSS?"],
+        verdict="pending",
+        tier=None,
+    )
+    _seed(
+        db,
+        "pending-drop",
+        ["Linesheet"],
+        verdict="pending",
+        tier=None,
+    )
+
+    def _fake_gate(conn: Any, settings: Any, **kwargs: Any) -> dict[str, int]:
+        conn.execute(
+            "UPDATE cmap.intake_thread SET verdict = 'kept', tier = 'knowledge' "
+            "WHERE thread_key = 'pending-know'"
+        )
+        conn.execute(
+            "UPDATE cmap.intake_thread SET verdict = 'kept', tier = 'transactional_routine' "
+            "WHERE thread_key = 'pending-rag'"
+        )
+        conn.execute(
+            "UPDATE cmap.intake_thread SET verdict = 'dropped', tier = 'drop_irrelevant_internal' "
+            "WHERE thread_key = 'pending-drop'"
+        )
+        conn.commit()
+        return {"judged": 3, "kept": 2, "dropped": 1, "errors": 0}
+
+    monkeypatch.setattr(ingest, "gate_pending_threads", _fake_gate)
+    out = ingest.run(capped)
+    assert out["created"] == 2
+    assert out["gate"]["judged"] == 3
+
+    sources = {
+        r[0]: r[1:]
+        for r in db.execute(
+            "SELECT external_ref, id::text, ingest_tier, map_eligible "
+            "FROM cmap.source WHERE origin = 'teams_chat'"
+        ).fetchall()
+    }
+    assert set(sources) == {"pending-know", "pending-rag"}
+    know_id, know_tier, know_map = sources["pending-know"]
+    rag_id, rag_tier, rag_map = sources["pending-rag"]
+    assert (know_tier, know_map) == ("full", True)
+    assert (rag_tier, rag_map) == ("rag_only", False)
+
+    # Clear queued jobs to test handle_read_source branching per tier.
+    db.execute("DELETE FROM cmap.job")
+    db.commit()
+    handle_read_source({"id": None, "payload": {"source_id": rag_id}})
+    handle_read_source({"id": None, "payload": {"source_id": know_id}})
+
+    rag_state = db.execute(
+        "SELECT read_state FROM cmap.source WHERE id = %s", (rag_id,)
+    ).fetchone()[0]
+    know_state = db.execute(
+        "SELECT read_state FROM cmap.source WHERE id = %s", (know_id,)
+    ).fetchone()[0]
+    assert rag_state == "read"
+    assert know_state == "extracting"
+
+    jobs = db.execute(
+        "SELECT kind, payload->>'source_id' FROM cmap.job WHERE state = 'queued' ORDER BY id"
+    ).fetchall()
+    assert ("function_assign", None) in [(k, s) for k, s in jobs]
+    assert ("classify_extract", know_id) in [(k, s) for k, s in jobs]
+    assert ("classify_extract", rag_id) not in [(k, s) for k, s in jobs]

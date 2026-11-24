@@ -107,7 +107,7 @@ _MARKETING_SENDER = re.compile(
     r"(newsletter|marketing|promo@|promotions@|offers@|digest@|clickupdates@"
     r"|team@mail\.clickup\.com|microsoftcopilotupdates@"
     r"|informa markets|license global|brand licensing (europe|expo)"
-    r"|furniture today|writeclick|rvcf\.com|boxstoragepro\.com"
+    r"|furniture today|writeclick|rvcf\.com"
     r"|email\.1\.asana\.com|mails\.teamviewer\.com)",
     re.I,
 )
@@ -124,11 +124,35 @@ _INTERNAL_DOMAINS = (
     "@spruceline.com",
     "@designflow.app",
 )
-_BULK_HEADER_NAMES = frozenset(
+_PROTECTED_PARTNER_DOMAINS = (
+    "disney.com",
+    "wbd.com",
+    "warnerbros.com",
+    "nbcuni.com",
+    "universalstudios.com",
+    "paramount.com",
+    "sega.com",
+    "segaamerica.com",
+    "mymediabox.com",
+    "brandcomply.com",
+    "designflow.app",
+    "lidl.us",
+    "walmart.com",
+    "target.com",
+    "rossstores.com",
+    "coldlion.com",
+    "boxstoragepro.com",
+)
+_PORTAL_TEMPLATE_DOMAINS = (
+    "designflow.app",
+    "disney.com",
+    "mymediabox.com",
+    "brandcomply.com",
+    "mail.gofreight.com",
+    "oocllogistics.com",
+)
+_CAMPAIGN_HEADER_NAMES = frozenset(
     {
-        "list-unsubscribe",
-        "list-unsubscribe-post",
-        "list-id",
         "x-campaign-id",
         "x-mc-user",
         "x-mailgun-variables",
@@ -138,8 +162,37 @@ _BULK_HEADER_NAMES = frozenset(
         "x-marketoid",
     }
 )
+_BULK_HEADER_NAMES = frozenset(
+    {
+        "list-unsubscribe",
+        "list-unsubscribe-post",
+        "list-id",
+        *_CAMPAIGN_HEADER_NAMES,
+    }
+)
 _CALENDAR_SUBJECT = re.compile(
     r"^(Accepted|Declined|Tentative|Canceled|Cancelled|Invitation|Updated invitation):",
+    re.I,
+)
+_OOO_SUBJECT = re.compile(
+    r"^(Automatic reply|Auto[- ]?Reply|Out of Office|Respuesta autom[aá]tica)\s*:",
+    re.I,
+)
+_TEAMS_ADD_SUBJECT = re.compile(
+    r"^(you (were|have been) added to (a team|the .+ team)|te agregaron a un equipo en microsoft teams)",
+    re.I,
+)
+_TEAMS_ADD_BODY = re.compile(
+    r"(added you to the team|te agreg[oó] al equipo|teams\.microsoft\.com/l/team/)",
+    re.I,
+)
+_LOOP_MENTION_SUBJECT = re.compile(r"^mentioned you in\b", re.I)
+_LOOP_MENTION_BODY = re.compile(
+    r"(mentioned you in a loop component|LoopAppData|\.sharepoint\.com/.+\.loop)",
+    re.I,
+)
+_M365_CONTROLLED_FOOTER = re.compile(
+    r"(generated through .+ use of microsoft 365|genera mediante el uso de .+ de microsoft 365)",
     re.I,
 )
 
@@ -238,8 +291,37 @@ def _is_internal_human(address: str) -> bool:
     return any(low.endswith(dom) for dom in _INTERNAL_DOMAINS)
 
 
+def sender_domain(address: str) -> str:
+    """Lowercase domain part of an email address, else empty string."""
+    addr = (address or "").strip().lower()
+    if "@" not in addr:
+        return ""
+    return addr.rsplit("@", 1)[1].strip("> ")
+
+
+def _domain_matches(domain: str, candidates: tuple[str, ...]) -> bool:
+    if not domain:
+        return False
+    return any(domain == cand or domain.endswith("." + cand) for cand in candidates)
+
+
+def is_protected_partner_domain(address: str) -> bool:
+    """True when sender belongs to a known licensor, portal, or key retailer domain."""
+    return _domain_matches(sender_domain(address), _PROTECTED_PARTNER_DOMAINS)
+
+
+def portal_template_domain(domains: Iterable[str]) -> str | None:
+    """Return the first matching high-volume portal/logistics template domain."""
+    for raw in domains:
+        dom = (raw or "").strip().lower()
+        for portal in _PORTAL_TEMPLATE_DOMAINS:
+            if dom == portal or dom.endswith("." + portal):
+                return portal
+    return None
+
+
 def is_notification(item: dict[str, Any]) -> bool:
-    """Automated notices: no-reply senders, calendar traffic, system notices."""
+    """Automated notices: no-reply senders, calendar/OOO traffic, M365 alerts."""
     raw = item.get("raw") or {}
     address, _name = _sender_fields(item)
     if address and _NOREPLY.search(address):
@@ -248,11 +330,23 @@ def is_notification(item: dict[str, Any]) -> bool:
         return True
     if str(raw.get("@odata.type", "")).endswith("eventMessage"):
         return True
-    if _CALENDAR_SUBJECT.match(raw.get("subject") or ""):
+    subject = str(raw.get("subject") or "").strip()
+    if _CALENDAR_SUBJECT.match(subject) or _OOO_SUBJECT.match(subject):
         return True
     if raw.get("messageType") not in (None, "message"):
         return True  # Teams system events
-    return bool((raw.get("from") or {}).get("application"))
+    if (raw.get("from") or {}).get("application"):
+        return True
+    text = item.get("body_text") or ""
+    # Ruling #3: automated Microsoft Teams team-add emails carry M365 boilerplate only.
+    if _TEAMS_ADD_SUBJECT.match(subject) and (
+        _TEAMS_ADD_BODY.search(text) or _M365_CONTROLLED_FOOTER.search(text)
+    ):
+        return True
+    # Ruling #13: automated Microsoft Loop / SharePoint @mention emails carry links only.
+    if _LOOP_MENTION_SUBJECT.match(subject) and _LOOP_MENTION_BODY.search(text):
+        return True
+    return False
 
 
 def is_bulk_marketing(item: dict[str, Any]) -> bool:
@@ -261,27 +355,37 @@ def is_bulk_marketing(item: dict[str, Any]) -> bool:
     Uses RFC headers when collected (``List-Unsubscribe``, ``List-Id``,
     ``Precedence: bulk|list|junk``, ``Auto-Submitted``), bulk sender patterns,
     and external unsubscribe/newsletter footers so marketing blasts are dropped
-    whole instead of having only their footer line stripped.
+    whole instead of having only their footer line stripped. Known licensor,
+    portal, and active retailer domains are protected from footer/unsubscribe
+    false positives.
     """
     raw = item.get("raw") or {}
     address, name = _sender_fields(item)
     if _is_internal_human(address):
         return False
-    for hdr in raw.get("internetMessageHeaders") or ():
-        if not isinstance(hdr, dict):
-            continue
-        hname = str(hdr.get("name") or "").strip().lower()
-        hval = str(hdr.get("value") or "").strip().lower()
+    headers = [
+        (
+            str(hdr.get("name") or "").strip().lower(),
+            str(hdr.get("value") or "").strip().lower(),
+        )
+        for hdr in (raw.get("internetMessageHeaders") or ())
+        if isinstance(hdr, dict)
+    ]
+    if any(hname in _CAMPAIGN_HEADER_NAMES for hname, _hval in headers):
+        return True
+    if (address and _MARKETING_SENDER.search(address)) or (
+        name and _MARKETING_SENDER.search(name)
+    ):
+        return True
+    if is_protected_partner_domain(address):
+        return False
+    for hname, hval in headers:
         if hname in _BULK_HEADER_NAMES:
             return True
         if hname == "precedence" and hval in {"bulk", "list", "junk"}:
             return True
         if hname == "auto-submitted" and hval.startswith(("auto-generated", "auto-replied")):
             return True
-    if (address and _MARKETING_SENDER.search(address)) or (
-        name and _MARKETING_SENDER.search(name)
-    ):
-        return True
     text = item.get("body_text") or ""
     is_email = (
         item.get("origin") == "email"

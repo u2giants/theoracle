@@ -170,9 +170,13 @@ def handle_read_source(job: dict[str, Any]) -> None:
         data = storage_mod.get_storage().download(storage_path)
         with pool.connection() as conn:
             origin_row = conn.execute(
-                "SELECT origin FROM cmap.source WHERE id = %s", (source_id,)
+                "SELECT origin, ingest_tier FROM cmap.source WHERE id = %s",
+                (source_id,),
             ).fetchone()
         is_message_source = bool(origin_row is not None and origin_row[0])
+        ingest_tier = (
+            str(origin_row[1] or "full") if origin_row is not None else "full"
+        )
         if is_message_source and kind == KIND_TRANSCRIPT:
             # Message threads are packed into full passages (intake plan 1.6).
             chunks = read_message_thread(_decode_text(data))
@@ -205,6 +209,19 @@ def handle_read_source(job: dict[str, Any]) -> None:
                 logger.warning(
                     "supersession similarity detection failed for %s: %s", source_id, exc
                 )
+        if ingest_tier == "rag_only":
+            # Routine searchable threads skip entity/relation extraction (#607 phase 1),
+            # staying embedded and function-tagged for /answer retrieval only.
+            set_read_state(source_id, "read", None)
+            with get_pool().connection() as conn:
+                has_active_fa = conn.execute(
+                    "SELECT 1 FROM cmap.job WHERE kind = 'function_assign' "
+                    "AND state IN ('queued', 'running') LIMIT 1"
+                ).fetchone()
+            if not has_active_fa:
+                enqueue_job("function_assign", {})
+            _record_usage(job.get("id"), usage)
+            return
         # "read" is set only when extraction has finished (relations job).
         set_read_state(source_id, "extracting", None)
     except Exception as exc:

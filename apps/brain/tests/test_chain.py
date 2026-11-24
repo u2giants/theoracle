@@ -155,3 +155,35 @@ def test_colab_offload_falls_back_to_cloud_after_30_minutes_idle(
         assert not any(run_ensure_chain().values())
     finally:
         get_settings.cache_clear()
+
+
+def test_rag_only_source_queues_function_assign_and_never_classify_extract(
+    db: Any,
+) -> None:
+    """#607 phase 1: embedded rag_only chunks missing chunk_function queue function_assign."""
+    source_id = _seed_text(db, "Routine status ping for ROSS SKU.", "rag-only-chain")
+    db.execute(
+        "UPDATE cmap.source SET read_state = 'read', ingest_tier = 'rag_only', "
+        "map_eligible = false WHERE id = %s",
+        (source_id,),
+    )
+    vec = "[" + ",".join(["0.0"] * 1024) + "]"
+    db.execute(
+        "UPDATE cmap.chunk SET embedding = %s::vector WHERE source_id = %s",
+        (vec, source_id),
+    )
+    db.commit()
+
+    stats = run_ensure_chain()
+    assert stats["function_assign"] == 1
+    assert stats["classify_extract"] == 0
+
+    kinds = [
+        r[0]
+        for r in db.execute(
+            "SELECT kind FROM cmap.job WHERE state = 'queued'"
+        ).fetchall()
+    ]
+    assert kinds == ["function_assign"]
+    # Second pass while function_assign is queued does not duplicate it.
+    assert run_ensure_chain()["function_assign"] == 0

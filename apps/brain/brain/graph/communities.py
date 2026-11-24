@@ -43,6 +43,7 @@ import logging
 import math
 import re
 import uuid
+from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,9 @@ MAX_CONTEXT_TOKENS = 12000
 MAX_SUMMARY_ROUNDS = 4
 MAX_EDGES_IN_CONTEXT = 40
 MAX_QUOTES_IN_CONTEXT = 25
+MAX_L1_CHILDREN = 40
+ROLLUP_GROUP_SIZE = 10
+MAX_L2_FINDINGS_PER_FUNCTION = 3
 REPORT_WORKERS = 6
 # Repair C3: a level-0 cluster continues the previous build's cluster with the
 # highest Jaccard overlap at or above this threshold (same function only).
@@ -856,11 +860,13 @@ def _fold_leftovers(
 
 
 def _entity_sources(conn: psycopg.Connection) -> dict[str, set[str]]:
-    """Entity id -> ids of the sources that mention it."""
+    """Entity id -> ids of map-eligible sources that mention it."""
     out: dict[str, set[str]] = {}
     for entity_id, source_id in conn.execute(
         "SELECT DISTINCT m.entity_id, ch.source_id FROM cmap.mention m "
-        "JOIN cmap.chunk ch ON ch.id = m.chunk_id WHERE m.entity_id IS NOT NULL"
+        "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
+        "JOIN cmap.source s ON s.id = ch.source_id "
+        "WHERE m.entity_id IS NOT NULL AND s.map_eligible = true"
     ).fetchall():
         out.setdefault(str(entity_id), set()).add(str(source_id))
     return out
@@ -885,7 +891,7 @@ def _quote_rows(
         "FROM cmap.mention m "
         "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
         "JOIN cmap.source s ON s.id = ch.source_id "
-        "WHERE m.entity_id = ANY(%s::uuid[]) "
+        "WHERE m.entity_id = ANY(%s::uuid[]) AND s.map_eligible = true "
         "ORDER BY m.quote, s.title",
         (entity_ids,),
     ).fetchall()
@@ -969,32 +975,193 @@ def _context_l0(
     return _fit(lines, frontier)
 
 
+def _build_source_aliases(
+    source_ids: Iterable[str],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Map full source UUIDs to deterministic collision-free short aliases ``s<hex8+>``."""
+    unique_ids = sorted({str(sid).strip() for sid in source_ids if str(sid).strip()})
+    if not unique_ids:
+        return {}, {}
+    length = 8
+    max_len = max(len(sid.replace("-", "")) for sid in unique_ids)
+    while length < max_len:
+        prefixes = ["s" + sid.replace("-", "")[:length] for sid in unique_ids]
+        if len(set(prefixes)) == len(unique_ids):
+            break
+        length += 1
+    uuid_to_alias: dict[str, str] = {}
+    alias_to_uuid: dict[str, str] = {}
+    for sid in unique_ids:
+        compact = sid.replace("-", "")
+        alias = "s" + compact[:length]
+        if alias in alias_to_uuid:
+            alias = "s" + compact
+        uuid_to_alias[sid] = alias
+        alias_to_uuid[alias] = sid
+    return uuid_to_alias, alias_to_uuid
+
+
+def _resolve_source_aliases(
+    report: dict[str, Any], alias_to_uuid: dict[str, str]
+) -> None:
+    """Translate compact source aliases in ``report['findings']`` back to full UUIDs."""
+    if not alias_to_uuid:
+        return
+    for finding in report.get("findings") or []:
+        if not isinstance(finding, dict):
+            continue
+        resolved: list[str] = []
+        seen: set[str] = set()
+        for raw_id in finding.get("source_ids") or []:
+            sid = str(raw_id).strip()
+            canonical = alias_to_uuid.get(sid, sid)
+            if canonical and canonical not in seen:
+                seen.add(canonical)
+                resolved.append(canonical)
+        finding["source_ids"] = resolved
+
+
+def _select_findings(
+    findings: Sequence[dict[str, Any]] | list[dict[str, Any]],
+    max_findings: int | None,
+) -> list[dict[str, Any]]:
+    items = [f for f in findings if isinstance(f, dict)]
+    if max_findings is None or len(items) <= max_findings:
+        return items
+    ranked = sorted(
+        enumerate(items),
+        key=lambda pair: (-(len(pair[1].get("source_ids") or [])), pair[0]),
+    )
+    return [item for _idx, item in ranked[:max_findings]]
+
+
+def _render_report_block(
+    rows: list[dict[str, Any]],
+    uuid_to_alias: dict[str, str],
+    *,
+    max_findings_per_row: int | None = None,
+) -> list[str]:
+    lines: list[str] = []
+    for row in rows:
+        lines.append(f"## {row['title']}")
+        lines.append(str(row.get("summary") or ""))
+        deduped: dict[tuple[str, str], list[str]] = {}
+        repeat_counts: dict[tuple[str, str], int] = {}
+        for finding in _select_findings(row.get("findings") or [], max_findings_per_row):
+            kind = str(finding.get("kind") or "")
+            text = " ".join(str(finding.get("text") or "").split())
+            key = (kind, text.lower())
+            repeat_counts[key] = repeat_counts.get(key, 0) + 1
+            aliases = deduped.setdefault(key, [])
+            for raw_id in finding.get("source_ids") or []:
+                alias = uuid_to_alias.get(str(raw_id), str(raw_id))
+                if alias and alias not in aliases:
+                    aliases.append(alias)
+        seen_display: set[tuple[str, str]] = set()
+        for finding in _select_findings(row.get("findings") or [], max_findings_per_row):
+            kind = str(finding.get("kind") or "")
+            raw_text = " ".join(str(finding.get("text") or "").split())
+            key = (kind, raw_text.lower())
+            if key in seen_display:
+                continue
+            seen_display.add(key)
+            extra = repeat_counts[key] - 1
+            suffix = f" (+{extra} similar)" if extra > 0 else ""
+            lines.append(f"- [{kind}] {raw_text}{suffix}")
+        aliases = sorted(
+            {
+                uuid_to_alias.get(str(sid), str(sid))
+                for sid in (row.get("source_ids") or [])
+                if str(sid).strip()
+            }
+        )
+        lines.append(f"sources: {', '.join(aliases)}")
+    return lines
+
+
 def _context_reports(
     rows: list[dict[str, Any]],
     frontier: _Frontier,
     header: str | None = None,
     handoffs: list[str] | None = None,
+    *,
+    max_findings_per_row: int | None = None,
+    alias_map: dict[str, str] | None = None,
 ) -> tuple[str, bool]:
-    """Level-1/2 context: the reports beneath, with findings and hand-offs.
+    """Level-1/2 context: child reports with compact aliases and K=40 tree rollup.
 
-    ``handoffs`` is the report's own boundary list (level 1) or the
-    function-to-function hand-off matrix (level 2, repair E4). Returns the
-    context and whether the token-budget hard fallback cut it (#586) — the
-    report is then stored ``incomplete``.
+    Uses collision-free ``s<uuid8>`` aliases so citation validation survives
+    without burning 36-char UUID tokens. When ``len(rows) > MAX_L1_CHILDREN``,
+    partitions deterministically into groups of ``ROLLUP_GROUP_SIZE`` and
+    summarizes each group once before ``_fit``, eliminating context overflow at
+    6x+ scale (#607 phase 1).
     """
-    lines = []
+    all_source_ids = [
+        str(sid)
+        for row in rows
+        for sid in (row.get("source_ids") or [])
+        if str(sid).strip()
+    ]
+    all_source_ids.extend(
+        str(sid)
+        for row in rows
+        for finding in (row.get("findings") or [])
+        if isinstance(finding, dict)
+        for sid in (finding.get("source_ids") or [])
+        if str(sid).strip()
+    )
+    unique_sources = sorted(set(all_source_ids))
+    compact_aliases = (
+        len(rows) > MAX_L1_CHILDREN or len(unique_sources) > MAX_L1_CHILDREN
+    )
+    if compact_aliases:
+        uuid_to_alias, alias_to_uuid = _build_source_aliases(unique_sources)
+        if alias_map is not None:
+            alias_map.update(alias_to_uuid)
+        reports_heading = "REPORTS (cite source aliases such as s1234abcd in source_ids):"
+    else:
+        uuid_to_alias = {sid: sid for sid in unique_sources}
+        reports_heading = "REPORTS:"
+
+    lines: list[str] = []
     if header:
         lines.append(header)
     if handoffs:
         lines.append("Hand-offs in / out:")
         lines.extend(handoffs)
-    lines.append("REPORTS:")
-    for row in rows:
-        lines.append(f"## {row['title']}")
-        lines.append(str(row["summary"]))
-        for finding in row["findings"]:
-            lines.append(f"- [{finding.get('kind')}] {finding.get('text')}")
-        lines.append(f"sources: {', '.join(row.get('source_ids') or [])}")
+    lines.append(reports_heading)
+
+    if len(rows) > MAX_L1_CHILDREN:
+        ordered = sorted(
+            rows,
+            key=lambda r: (str(r.get("title") or ""), str(r.get("summary") or "")[:80]),
+        )
+        for group_idx in range(0, len(ordered), ROLLUP_GROUP_SIZE):
+            group = ordered[group_idx : group_idx + ROLLUP_GROUP_SIZE]
+            group_lines = _render_report_block(
+                group, uuid_to_alias, max_findings_per_row=max_findings_per_row
+            )
+            group_aliases = sorted(
+                {
+                    uuid_to_alias.get(str(sid), str(sid))
+                    for r in group
+                    for sid in (r.get("source_ids") or [])
+                    if str(sid).strip()
+                }
+            )
+            summary = _ask_summary(frontier, "\n".join(group_lines))
+            titles = "; ".join(str(r.get("title") or "Area") for r in group[:4])
+            if len(group) > 4:
+                titles += f" (+{len(group) - 4} more)"
+            lines.append(f"## Group {group_idx // ROLLUP_GROUP_SIZE + 1}: {titles}")
+            lines.append(summary)
+            lines.append(f"sources: {', '.join(group_aliases)}")
+    else:
+        lines.extend(
+            _render_report_block(
+                rows, uuid_to_alias, max_findings_per_row=max_findings_per_row
+            )
+        )
     return _fit(lines, frontier)
 
 
@@ -1758,11 +1925,13 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                     )
                     conn.commit()
                 continue
+            l1_aliases: dict[str, str] = {}
             context, context_incomplete = _context_reports(
                 available,
                 frontier,
                 header=f"FUNCTION: {function_name}",
                 handoffs=function_handoffs,
+                alias_map=l1_aliases,
             )
             report = _ask_with_retry(frontier, SCOPE_L1, "", context)
             if report is None:
@@ -1774,6 +1943,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                     )
                     conn.commit()
                 continue
+            _resolve_source_aliases(report, l1_aliases)
             report["handoffs"] = function_handoffs
             row_id, dropped = _store(
                 conn,
@@ -1842,14 +2012,20 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             conn.commit()
             stats["reports_reused"] += 1
         else:
+            l2_aliases: dict[str, str] = {}
             company_context, context_incomplete = _context_reports(
-                company_inputs, frontier, handoffs=matrix_lines
+                company_inputs,
+                frontier,
+                handoffs=matrix_lines,
+                max_findings_per_row=MAX_L2_FINDINGS_PER_FUNCTION,
+                alias_map=l2_aliases,
             )
             company = _ask_with_retry(
                 frontier, SCOPE_L2, COMPANY_EXTRA, company_context
             )
             if company is None:
                 raise RuntimeError("company community report failed after retries")
+            _resolve_source_aliases(company, l2_aliases)
             company["handoffs"] = matrix_lines
             company_row, dropped = _store(
                 conn,
@@ -1913,6 +2089,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 conn, graph_version, selected
             )
             conn.commit()
+    single_source = sum(1 for n in nodes if int(n.get("source_count") or 0) <= 1)
+    stats["source_count_1_entities"] = single_source
+    stats["source_count_1_share"] = round(single_source / len(nodes), 4)
     stats.update(frontier.usage)
     return stats
 

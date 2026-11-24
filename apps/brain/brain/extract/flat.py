@@ -220,7 +220,7 @@ def frontier_prompt_hash() -> str:
 
 def classify_body(text: str) -> dict[str, Any]:
     """Return the ``/classify`` request body for one chunk."""
-    return {"text": text, "labels": CLASSIFY_LABELS}
+    return {"text": text, "labels": CLASSIFY_LABELS, "reasoning": False}
 
 
 def extract_body(text: str) -> dict[str, Any]:
