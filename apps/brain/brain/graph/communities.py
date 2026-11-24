@@ -1110,9 +1110,18 @@ def _context_reports(
         for sid in (finding.get("source_ids") or [])
         if str(sid).strip()
     )
-    uuid_to_alias, alias_to_uuid = _build_source_aliases(all_source_ids)
-    if alias_map is not None:
-        alias_map.update(alias_to_uuid)
+    unique_sources = sorted(set(all_source_ids))
+    compact_aliases = (
+        len(rows) > MAX_L1_CHILDREN or len(unique_sources) > MAX_L1_CHILDREN
+    )
+    if compact_aliases:
+        uuid_to_alias, alias_to_uuid = _build_source_aliases(unique_sources)
+        if alias_map is not None:
+            alias_map.update(alias_to_uuid)
+        reports_heading = "REPORTS (cite source aliases such as s1234abcd in source_ids):"
+    else:
+        uuid_to_alias = {sid: sid for sid in unique_sources}
+        reports_heading = "REPORTS:"
 
     lines: list[str] = []
     if header:
@@ -1120,7 +1129,7 @@ def _context_reports(
     if handoffs:
         lines.append("Hand-offs in / out:")
         lines.extend(handoffs)
-    lines.append("REPORTS (cite source aliases such as s1234abcd in source_ids):")
+    lines.append(reports_heading)
 
     if len(rows) > MAX_L1_CHILDREN:
         ordered = sorted(

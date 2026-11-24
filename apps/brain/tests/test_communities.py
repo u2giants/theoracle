@@ -1386,10 +1386,13 @@ def test_source_aliases_collision_free_and_6x_rollup_never_overflows() -> None:
     assert "Group 1" in ctx or "Rollup summary" in ctx
     assert len(aliases) == 1200
 
-    # Verify max_findings_per_row=3 caps findings per function when <= 40 rows.
+    # Verify max_findings_per_row=3 caps findings per function when <= 40 rows
+    # and retains canonical UUIDs directly for small scopes.
     small_aliases: dict[str, str] = {}
     small_ctx, small_inc = comm._context_reports(
         rows[:2], frontier, max_findings_per_row=3, alias_map=small_aliases
     )
     assert small_inc is False
     assert small_ctx.count("- [rule]") == 6  # 3 findings x 2 functions
+    assert small_aliases == {}
+    assert rows[0]["source_ids"][0] in small_ctx

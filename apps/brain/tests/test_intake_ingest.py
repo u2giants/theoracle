@@ -491,12 +491,13 @@ def test_ingest_gates_pending_threads_and_routes_rag_only(
     assert out["created"] == 2
     assert out["gate"]["judged"] == 3
 
-    sources = dict(
-        db.execute(
-            "SELECT external_ref, (id::text, ingest_tier, map_eligible) "
+    sources = {
+        r[0]: r[1:]
+        for r in db.execute(
+            "SELECT external_ref, id::text, ingest_tier, map_eligible "
             "FROM cmap.source WHERE origin = 'teams_chat'"
         ).fetchall()
-    )
+    }
     assert set(sources) == {"pending-know", "pending-rag"}
     know_id, know_tier, know_map = sources["pending-know"]
     rag_id, rag_tier, rag_map = sources["pending-rag"]
