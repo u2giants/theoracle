@@ -1453,7 +1453,7 @@ def test_store_open_questions_chunk_dedupes_and_inserts(
 
     fake_embeddings(monkeypatch)
     fake = _fake(monkeypatch)
-    fake.importance = {"low priority?": 2}
+    fake.importance = {"Low priority?": 2}
     seen: set[str] = set()
     entries = [
         (
