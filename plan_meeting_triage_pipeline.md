@@ -21,16 +21,16 @@ Fresh session starts at: **the first row marked ⬜ open, in order.** Re-read Pa
 
 | Step | Title | State | Evidence / blocker | Updated (EDT) |
 |---|---|---|---|---|
-| 0.1 | Prove Graph transcript access; wire `AZURE_*` into the brain env | 🟨 env wired; transcript read blocked on tenant consent | #593 (2026-11-16): token + directory read OK with the vault credential; every transcript variant (`getAllTranscripts(meetingOrganizerUserId=…)`, v1.0 and beta, bare and date-windowed) returns 403 — Entra app lacks the admin-consented `OnlineMeetingTranscript.Read.All` application permission (Graph: "Missing role permissions on the request. API requires one of 'OnlineMeetingTranscript.Read.All'."), plus a Teams application access policy; transcript shape/VTT probe therefore pending consent. `AZURE_TENANT_ID` / `AZURE_GRAPH_CLIENT_ID` / `AZURE_GRAPH_CLIENT_SECRET` added to the brain's Coolify env (201 each, key names verified, values match source); no deploy (env-only) | 2026-11-16 |
-| 0.2 | `cmap.transcript_candidate` staging table (migration) | ⬜ open | — | — |
-| 0.3 | Brain-side Microsoft Graph client (`brain/meetings/graph_ms.py`) | ⬜ open | Note (from #607 step 1.3): `apps/brain/brain/graph_ms.py` now exists (app-only token, retrying GET, paging with loop and duplicate checks); reuse it, and do not create `brain/meetings/graph_ms.py` as a second copy. | 2026-11-18 |
-| 1.1 | Hourly transcript sweep job (enumerate → stage candidates) | ⬜ open | — | — |
-| 1.2 | Triage + 2-sentence summary via ScaleDown | ⬜ open | — | — |
+| 0.1 | Prove Graph transcript access; wire `AZURE_*` into the brain env | ✅ done | 2026-11-24: `OnlineMeetingTranscript.Read.All` + `CallTranscripts.Read.All` admin-granted to app 8a8695bd; live fetch of the 12:53 PM EST ad-hoc group call VTT (257 cues, speaker-tagged) via `adhocCalls/getAllTranscripts(userId=…)` → `transcriptContentUrl?$format=text/vtt`. Ad-hoc calls are enumerable per organizer (the old 'not enumerable' note is wrong); `adhocCalls/{callId}` lookup is unsupported. #593 comments 7141222447, 7142995303 | 2026-11-24 |
+| 0.2 | `cmap.transcript_candidate` staging table (migration) | 🟨 code landed, awaiting live proof | `apps/brain/brain/sql/042_meeting_transcript.sql` (adds `call_kind`, organizer, `summary_error`, `summarized_at`) | 2026-11-24 |
+| 0.3 | Brain-side Microsoft Graph client | ✅ done (reused) | `brain/graph_ms.py` reused by `brain/meetings/sweep.py`; no second client | 2026-11-24 |
+| 1.1 | Hourly transcript sweep job (enumerate → stage candidates) | 🟨 code landed, awaiting live proof | `brain/meetings/sweep.py` (all enabled tenant users; scheduled meetings + ad-hoc calls; no lookback limit, dedup on Graph id); tests `tests/test_meeting_sweep.py` | 2026-11-24 |
+| 1.2 | Triage + summary via ScaleDown | 🟨 summary only, code landed | Albert 2026-11-24 narrowed scope: *"just have a page show a list of them with a 1 paragraph summary from scaledown.ai"* — no verdict, no ingest. Summary via ScaleDown `/v1/chat/completions` `model: summarize` (not `/compress/raw/`); live-tested on the 11-24 call | 2026-11-24 |
 | 1.3 | Route Recall.ai captures into staging (stop direct ingest) | ⬜ open | — | — |
 | 2.1 | Brain API: list / ingest / skip candidates | ⬜ open | — | — |
 | 2.2 | Fluff-cleaning pass (drop-only, never rewrite) | ⬜ open | — | — |
 | 2.3 | Ingest job: cleaned transcript becomes a `cmap.source` | ⬜ open | — | — |
-| 2.4 | `/map/meetings` review list page (admin) | ⬜ open | — | — |
+| 2.4 | `/map/meetings` review list page (admin) | 🟨 list-only page landed | `apps/web/app/map/meetings/` (admin-only list + summaries; no Ingest/Skip per 2026-11-24 scope) | 2026-11-24 |
 | 3.1 | Live proof on production | ⬜ open | — | — |
 | 3.2 | (Optional) Ad-hoc "Meet Now" completeness via Graph subscriptions | ⬜ open | runs only if O4 says yes | — |
 

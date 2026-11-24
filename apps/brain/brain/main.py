@@ -14,6 +14,7 @@ from brain.api.functions import router as functions_router
 from brain.api.intake import router as intake_router
 from brain.api.interview import router as interview_router
 from brain.api.map import router as map_router
+from brain.api.meetings import router as meetings_router
 from brain.api.models import router as models_router
 from brain.api.recommend import router as recommend_router
 from brain.api.sources import router as sources_router
@@ -26,6 +27,7 @@ app.include_router(colab_router)
 app.include_router(flags_router)
 app.include_router(answer_router)
 app.include_router(map_router)
+app.include_router(meetings_router)
 app.include_router(entities_router)
 app.include_router(eval_router)
 app.include_router(functions_router)
