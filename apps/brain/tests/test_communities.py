@@ -1396,3 +1396,118 @@ def test_source_aliases_collision_free_and_6x_rollup_never_overflows() -> None:
     assert small_ctx.count("- [rule]") == 6  # 3 findings x 2 functions
     assert small_aliases == {}
     assert rows[0]["source_ids"][0] in small_ctx
+
+
+def test_vet_question_groups_batches_identical_people_and_isolates_distinct(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Groups sharing a people list pack into one CHECK_BATCH prompt; distinct lists isolate."""
+    from brain.config import get_settings
+    from brain.graph import communities as comm
+
+    fake_embeddings(monkeypatch)
+    seen_prompts: list[str] = []
+
+    class _FakeFrontier:
+        def ask(self, prompt: str) -> dict[str, Any]:
+            seen_prompts.append(prompt)
+            results = []
+            for idx in range(1, comm.CHECK_BATCH + 1):
+                if f"\n{idx}. " in prompt:
+                    results.append(
+                        {
+                            "n": idx,
+                            "answered": False,
+                            "importance": 4,
+                            "person": "Alice" if "Alice" in prompt else "",
+                            "department": "",
+                        }
+                    )
+            return {"results": results}
+
+    verdicts = comm._vet_question_groups(
+        db,
+        [
+            (["Q1?", "Q2?"], []),
+            (["Q3?"], []),
+            (["Q4?"], ["Alice"]),
+        ],
+        _FakeFrontier(),
+        get_settings(),
+        departments=[],
+    )
+    # Two empty-people groups merge into 1 call; the Alice group gets its own call.
+    assert len(seen_prompts) == 2
+    assert set(verdicts[0]) == {"Q1?", "Q2?"}
+    assert set(verdicts[1]) == {"Q3?"}
+    assert verdicts[2]["Q4?"]["person"] == "Alice"
+
+
+def test_store_open_questions_chunk_dedupes_and_inserts(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """Chunk vetting dedupes repeated questions across clusters and stores kept ones."""
+    from brain.config import get_settings
+    from brain.graph import communities as comm
+    from brain.resolve.resolve import _Frontier
+
+    fake_embeddings(monkeypatch)
+    fake = _fake(monkeypatch)
+    fake.importance = {"low priority?": 2}
+    seen: set[str] = set()
+    entries = [
+        (
+            {
+                "title": "Area A",
+                "open_questions": ["Shared gap?", "Low priority?"],
+            },
+            [],
+        ),
+        (
+            {
+                "title": "Area B",
+                "open_questions": ["  shared gap? ", "Unique area B gap?"],
+            },
+            [],
+        ),
+    ]
+    written = comm._store_open_questions_chunk(
+        db,
+        entries,
+        _Frontier(get_settings(), "reports"),
+        get_settings(),
+        seen,
+        departments=[],
+    )
+    db.commit()
+    rows = db.execute(
+        "SELECT question, why FROM cmap.open_question ORDER BY why, question"
+    ).fetchall()
+    assert written == 2
+    assert rows == [
+        ("Shared gap?", "Area A"),
+        ("Unique area B gap?", "Area B"),
+    ]
+
+
+def test_fit_parallel_batches_preserve_order() -> None:
+    """Multi-batch map-reduce summarization preserves exact batch ordering."""
+    from brain.graph import communities as comm
+
+    class _OrderedFrontier:
+        def ask(self, prompt: str) -> dict[str, Any]:
+            markers = ",".join(
+                line.split(":", 1)[0]
+                for line in prompt.splitlines()
+                if line.startswith("ITEM-")
+            )
+            return {"summary": f"Summary({markers})"}
+
+    big_budget = comm.MAX_CONTEXT_TOKENS // 2
+    filler = "word " * (big_budget // 2)
+    lines = [f"ITEM-{i}: {filler}" for i in range(6)]
+    text, incomplete = comm._fit(lines, _OrderedFrontier())
+    assert incomplete is False
+    positions = [text.index(f"ITEM-{i}") for i in range(6)]
+    assert positions == sorted(positions)
+
