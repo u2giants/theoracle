@@ -195,3 +195,43 @@ def test_boundary_edges_indexed_matches_flat() -> None:
     idx_res = _boundary_edges(edges, members, edges_by_entity=by_ent)
     assert sorted(repr(x) for x in idx_res) == sorted(repr(x) for x in flat_res)
     assert len(idx_res) == 2
+
+
+def test_context_l0_uses_preloaded_disagreements_with_dedup_and_cap(
+    monkeypatch,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from brain.config import Settings
+    from brain.contradictions import MAX_DISAGREEMENTS
+    from brain.graph import communities as comm
+
+    monkeypatch.setattr(comm, "_quote_rows", lambda conn, entity_ids: [])
+    monkeypatch.setattr(
+        comm,
+        "disagreement_lines",
+        lambda conn, entity_ids: (_ for _ in ()).throw(
+            AssertionError("should not query disagreement_lines when preloaded")
+        ),
+    )
+
+    extra = [f"sources disagree: item {i} (A vs B)" for i in range(MAX_DISAGREEMENTS + 4)]
+    disagreements_by_entity = {
+        "m1": ["sources disagree: shared (A vs B)", extra[0], extra[1]],
+        "m2": ["sources disagree: shared (A vs B)", *extra],
+    }
+    members = [
+        {"id": "m1", "type": "Process", "name": "P1", "description": "d1"},
+        {"id": "m2", "type": "Process", "name": "P2", "description": "d2"},
+    ]
+    ctx, incomplete = comm._context_l0(
+        MagicMock(),
+        members,
+        [],
+        comm._Frontier(Settings(database_url="postgresql://u:p@localhost/db"), stage="reports"),
+        disagreements_by_entity=disagreements_by_entity,
+    )
+    assert incomplete is False
+    lines = [ln for ln in ctx.splitlines() if ln.startswith("- sources disagree:")]
+    assert len(lines) == MAX_DISAGREEMENTS
+    assert len(set(lines)) == MAX_DISAGREEMENTS
