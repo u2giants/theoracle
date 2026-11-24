@@ -336,3 +336,58 @@ def test_apply_revives_too_short_thread_when_new_messages_arrive(db: Any) -> Non
         "WHERE origin = 'email' AND thread_key = 'k_llm_drop'"
     ).fetchone()
     assert llm_row == ("dropped", {"chatter": 0.99})
+
+
+def test_bulk_marketing_and_newsletter_emails_dropped_whole() -> None:
+    seen: set[str] = set()
+    # RFC List-Unsubscribe / Precedence: bulk headers drop whole message
+    hdr_mail = item(
+        "Licensing Expo registration is open now.",
+        raw={
+            "from": {"emailAddress": {"address": "events@partner.test", "name": "Expo"}},
+            "internetMessageHeaders": [
+                {"name": "List-Unsubscribe", "value": "<mailto:unsub@partner.test>"}
+            ],
+        },
+    )
+    assert clean_item(hdr_mail, seen).drop_reason == "marketing"
+
+    # Display name newsletter/marketing sender without address (e.g. License Global)
+    lg_mail = item(
+        "Informa Markets weekly licensing trends and event promotions.",
+        raw={"from": {"emailAddress": {"name": "License Global"}}},
+    )
+    assert clean_item(lg_mail, seen).drop_reason == "marketing"
+
+    # External email with unsubscribe footer drops whole instead of stripping only 1 line
+    unsub_mail = item(
+        "Big industry roundup!\nManage your email preferences or unsubscribe anytime.",
+        raw={"from": {"emailAddress": {"address": "editor@digest.test"}}},
+    )
+    assert clean_item(unsub_mail, seen).drop_reason == "marketing"
+
+    # Underscore do_not_reply drops as notification, while licensor approval portals stay kept
+    dnr_mail = item(
+        "Automated shipment status update.",
+        raw={"from": {"emailAddress": {"address": "do_not_reply@carrier.test"}}},
+    )
+    assert clean_item(dnr_mail, seen).drop_reason == "notification"
+    disney_opa = item(
+        "Product submission 12345 has been Approved by Disney OPA.",
+        raw={
+            "from": {
+                "emailAddress": {
+                    "address": "cp.product.approval@disney.com",
+                    "name": "noreply-disney",
+                }
+            }
+        },
+    )
+    assert clean_item(disney_opa, seen).drop_reason is None
+
+    # Internal employee email is never dropped by marketing body patterns
+    internal_mail = item(
+        "Sample approval moved to Tuesday.\nPlease remove us from that vendor mailing list.",
+        raw={"from": {"emailAddress": {"address": "larevalo@popcre.com", "name": "Laura"}}},
+    )
+    assert clean_item(internal_mail, seen).drop_reason is None

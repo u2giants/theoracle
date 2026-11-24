@@ -98,7 +98,46 @@ _SECRET = re.compile(
     r"|\b(password|passwd|pwd|passcode|api[ _-]?key|secret|token)\b\s*[:=]\s*\S{4,})",
     re.IGNORECASE,
 )
-_NOREPLY = re.compile(r"(no-?reply|do-?not-?reply|notifications?@|mailer-daemon)", re.I)
+_NOREPLY = re.compile(
+    r"(no[_-]?reply|do[_-]?not[_-]?reply|notifications?@|mailer-daemon"
+    r"|postmaster@|bounces?@|microsoftexchange[0-9a-f]{16,})",
+    re.I,
+)
+_MARKETING_SENDER = re.compile(
+    r"(newsletter|marketing|promo@|promotions@|offers@|digest@|clickupdates@"
+    r"|team@mail\.clickup\.com|microsoftcopilotupdates@"
+    r"|informa markets|license global|brand licensing (europe|expo)"
+    r"|furniture today|writeclick|rvcf\.com|boxstoragepro\.com"
+    r"|email\.1\.asana\.com|mails\.teamviewer\.com)",
+    re.I,
+)
+_BULK_BODY = re.compile(
+    r"(unsubscribe|manage (your )?(email )?preferences|update your preferences"
+    r"|view (this|it) in (your )?browser|opt[ -]?out"
+    r"|you are receiving this (email|message)|why did i get this"
+    r"|add us to your address book|mailing list)",
+    re.I,
+)
+_INTERNAL_DOMAINS = (
+    "@popcre.com",
+    "@popcreations.com",
+    "@spruceline.com",
+    "@designflow.app",
+)
+_BULK_HEADER_NAMES = frozenset(
+    {
+        "list-unsubscribe",
+        "list-unsubscribe-post",
+        "list-id",
+        "x-campaign-id",
+        "x-mc-user",
+        "x-mailgun-variables",
+        "x-sg-eid",
+        "x-hubspot-email-id",
+        "x-sfmc-stack",
+        "x-marketoid",
+    }
+)
 _CALENDAR_SUBJECT = re.compile(
     r"^(Accepted|Declined|Tentative|Canceled|Cancelled|Invitation|Updated invitation):",
     re.I,
@@ -178,11 +217,32 @@ def is_secret(text: str) -> bool:
     return bool(_SECRET.search(text))
 
 
+def _sender_fields(item: dict[str, Any]) -> tuple[str, str]:
+    raw = item.get("raw") or {}
+    from_ea = (raw.get("from") or {}).get("emailAddress") or {}
+    sender_ea = (raw.get("sender") or {}).get("emailAddress") or {}
+    address = str(
+        from_ea.get("address")
+        or sender_ea.get("address")
+        or item.get("author_ref")
+        or ""
+    ).strip()
+    name = str(from_ea.get("name") or sender_ea.get("name") or "").strip()
+    return address, name
+
+
+def _is_internal_human(address: str) -> bool:
+    low = address.lower()
+    if not low or _NOREPLY.search(low):
+        return False
+    return any(low.endswith(dom) for dom in _INTERNAL_DOMAINS)
+
+
 def is_notification(item: dict[str, Any]) -> bool:
     """Automated notices: no-reply senders, calendar traffic, system notices."""
     raw = item.get("raw") or {}
-    sender = ((raw.get("from") or {}).get("emailAddress") or {}).get("address") or ""
-    if sender and _NOREPLY.search(sender):
+    address, _name = _sender_fields(item)
+    if address and _NOREPLY.search(address):
         return True
     if raw.get("meetingMessageType") not in (None, "none"):
         return True
@@ -193,6 +253,44 @@ def is_notification(item: dict[str, Any]) -> bool:
     if raw.get("messageType") not in (None, "message"):
         return True  # Teams system events
     return bool((raw.get("from") or {}).get("application"))
+
+
+def is_bulk_marketing(item: dict[str, Any]) -> bool:
+    """Mass-marketing emails, newsletters, and mailing-list blasts.
+
+    Uses RFC headers when collected (``List-Unsubscribe``, ``List-Id``,
+    ``Precedence: bulk|list|junk``, ``Auto-Submitted``), bulk sender patterns,
+    and external unsubscribe/newsletter footers so marketing blasts are dropped
+    whole instead of having only their footer line stripped.
+    """
+    raw = item.get("raw") or {}
+    address, name = _sender_fields(item)
+    if _is_internal_human(address):
+        return False
+    for hdr in raw.get("internetMessageHeaders") or ():
+        if not isinstance(hdr, dict):
+            continue
+        hname = str(hdr.get("name") or "").strip().lower()
+        hval = str(hdr.get("value") or "").strip().lower()
+        if hname in _BULK_HEADER_NAMES:
+            return True
+        if hname == "precedence" and hval in {"bulk", "list", "junk"}:
+            return True
+        if hname == "auto-submitted" and hval.startswith(("auto-generated", "auto-replied")):
+            return True
+    if (address and _MARKETING_SENDER.search(address)) or (
+        name and _MARKETING_SENDER.search(name)
+    ):
+        return True
+    text = item.get("body_text") or ""
+    is_email = (
+        item.get("origin") == "email"
+        or bool(address)
+        or bool(name)
+        or "subject" in raw
+        or "internetMessageId" in raw
+    )
+    return bool(is_email and text and _BULK_BODY.search(text))
 
 
 @dataclass
@@ -245,6 +343,8 @@ def clean_item(
         return Cleaned(item, None, "secret")
     if is_notification(item):
         return Cleaned(item, None, "notification")
+    if is_bulk_marketing(item):
+        return Cleaned(item, None, "marketing")
     kept, dropped = strip_lines(text, signatures)
     if seen_lines is not None:
         kept = _drop_repeated(kept, seen_lines, dropped)

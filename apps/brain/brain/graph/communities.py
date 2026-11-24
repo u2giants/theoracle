@@ -1707,6 +1707,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             if cluster["function_id"] is not None:
                 function_groups.setdefault(cluster["function_id"], []).append(cluster)
         level1_rows: dict[str, str] = {}
+        level1_summaries: list[tuple[int, dict[str, Any]]] = []
         for function_id in sorted(
             function_groups,
             key=lambda key: (function_groups[key][0]["function_name"], key),
@@ -1741,6 +1742,9 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 )
                 conn.commit()
                 level1_rows[function_id] = function_id
+                reused_summary = _summary_of(existing)
+                reused_summary["title"] = function_name
+                level1_summaries.append((len(member_ids), reused_summary))
                 stats["reports_reused"] += 1
                 stats["reports"] += 1
                 continue
@@ -1791,14 +1795,31 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             )
             conn.commit()
             level1_rows[function_id] = row_id
+            l1_summary = _summary_of(report)
+            l1_summary["title"] = function_name
+            level1_summaries.append((len(member_ids), l1_summary))
             stats["reports"] += 1
 
-        # Level 2: the company report over every level-0 summary. Any failed
-        # child marks it incomplete so the next run regenerates it.
+        # Level 2: the company report. When business functions exist, build from
+        # the Level-1 function reports (ordered largest-first) rather than
+        # thousands of raw Level-0 clusters so the company summary never
+        # truncates or lets an unassigned/fringe cluster dominate the company
+        # view. Fall back to Level-0 summaries only when no functions exist.
         any_failed = stats["reports_failed"] > 0
-        l0_summaries = [
-            cluster["summary"] for cluster in clusters if cluster["summary"] is not None
-        ]
+        if level1_summaries:
+            company_inputs = [
+                summary
+                for _count, summary in sorted(
+                    level1_summaries,
+                    key=lambda item: (-item[0], str(item[1].get("title") or "")),
+                )
+            ]
+        else:
+            company_inputs = [
+                cluster["summary"]
+                for cluster in clusters
+                if cluster["summary"] is not None
+            ]
         matrix_lines = _handoff_matrix_lines(
             edges, function_names, _flow_performer_pairs(conn)
         )
@@ -1822,7 +1843,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             stats["reports_reused"] += 1
         else:
             company_context, context_incomplete = _context_reports(
-                l0_summaries, frontier, handoffs=matrix_lines
+                company_inputs, frontier, handoffs=matrix_lines
             )
             company = _ask_with_retry(
                 frontier, SCOPE_L2, COMPANY_EXTRA, company_context

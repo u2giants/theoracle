@@ -1311,3 +1311,21 @@ def test_hard_fallback_fits_at_sentence_boundaries() -> None:
     assert cut_small is False
     assert "One small sentence." in fitted_small
     assert comm.CONTEXT_CUT_MARKER not in fitted_small
+
+
+def test_company_report_builds_from_level1_functions(
+    monkeypatch: pytest.MonkeyPatch, db: Any
+) -> None:
+    """When functions exist, Level 2 rolls up Level-1 function reports, not unassigned L0s."""
+    entities = _seed_approval_map(db)
+    _seed_second_cluster(db)  # unassigned cluster (no function assignment)
+    function_id = _seed_function(db, "licensing", "Licensing")
+    for entity_id in entities.values():
+        _assign_function(db, entity_id, function_id)
+    run_project()
+    fake = _fake(monkeypatch, numbered=True)
+    run_communities()
+    company_prompt = _report_prompt(fake, "the whole company")
+    assert "## Licensing" in company_prompt
+    # Unassigned L0 clusters do not hijack the company-wide rollup when L1 reports exist.
+    assert "Area 2" not in company_prompt
