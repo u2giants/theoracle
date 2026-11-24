@@ -37,7 +37,7 @@ from brain.extract.normalize import normalize_name
 from brain.interview import conversation as conv_mod
 from brain.interview.inbound import QUESTION_WINDOW_DAYS
 from brain.interview.strings import reply_language, strings
-from brain.llm import post_chat_with_rescue
+from brain.llm import has_provider_key, post_chat_with_rescue
 from brain.seats import stage_model
 from brain.translate import translations_for, upsert_translation
 
@@ -548,7 +548,7 @@ def _post_proactive(
 def _translate_question(question: str, settings: Settings) -> str:
     """One zh-CN translation of an interview question via the answer seat."""
     model = stage_model(settings, "answer")
-    if not model or not settings.openrouter_api_key:
+    if not has_provider_key(model, settings):
         return ""
     prompt = (
         "Translate the interview QUESTION below into Simplified Chinese, keeping "

@@ -16,6 +16,7 @@ WORKFLOW = REPO / ".github" / "workflows" / "brain-image.yml"
 SETTINGS_FIELDS = (
     "DATABASE_URL",
     "OPENROUTER_API_KEY",
+    "STRAITLY_API_KEY",
     "BRAIN_FRONTIER_MODEL",
     "BRAIN_CHAT_MODEL",
     "BRAIN_EVAL_MODEL",

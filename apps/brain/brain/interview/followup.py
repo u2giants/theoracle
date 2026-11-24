@@ -18,7 +18,7 @@ import re
 from typing import Any
 
 from brain.config import get_settings
-from brain.llm import message_content, post_chat_with_rescue
+from brain.llm import has_provider_key, message_content, post_chat_with_rescue
 from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ def map_context(conn: Any, employee_text: str) -> list[str]:
 def _call_model(messages: list[dict[str, str]]) -> str:
     settings = get_settings()
     model = stage_model(settings, "answer")
-    if not model or not settings.openrouter_api_key:
+    if not has_provider_key(model, settings):
         return ""
     body = post_chat_with_rescue(
         {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.2},

@@ -26,7 +26,7 @@ from brain.answer.answer import parse_model_json
 from brain.config import get_settings
 from brain.db import get_pool
 from brain.interview.strings import strings
-from brain.llm import message_content, post_chat_with_rescue
+from brain.llm import has_provider_key, message_content, post_chat_with_rescue
 from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ def is_profile_answer(text: str) -> bool:
     """
     settings = get_settings()
     model = stage_model(settings, "grade")
-    if not model or not settings.openrouter_api_key:
+    if not has_provider_key(model, settings):
         return False
     prompt = PROFILE_CHECK_PROMPT.read_text(encoding="utf-8").replace(
         "{{message}}", text
@@ -130,7 +130,7 @@ def is_profile_answer(text: str) -> bool:
 def _split(text: str) -> tuple[str | None, str | None]:
     settings = get_settings()
     model = stage_model(settings, "answer")
-    if not model or not settings.openrouter_api_key:
+    if not has_provider_key(model, settings):
         return None, None
     try:
         body = post_chat_with_rescue(

@@ -44,6 +44,8 @@ FORBIDDEN_COLAB_ENV_KEYS: frozenset[str] = frozenset(
         "DIRECT_URL",
         "SUPABASE_SERVICE_ROLE_KEY",
         "OPENROUTER_API_KEY",
+        "STRAITLY_API_KEY",
+        "BRAIN_STRAITLY_API_KEY",
         "BRAIN_SHARED_TOKEN",
         "PROD_DIRECT_URL",
     }

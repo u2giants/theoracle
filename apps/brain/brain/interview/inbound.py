@@ -26,7 +26,7 @@ from brain.db import get_pool
 from brain.interview import conversation as conv_mod
 from brain.interview import converse, followup, intake, profile
 from brain.interview.strings import reply_language, strings
-from brain.llm import message_content, post_chat_with_rescue
+from brain.llm import has_provider_key, message_content, post_chat_with_rescue
 from brain.read.dates import ORIGIN_INTERVIEW
 from brain.seats import stage_model
 from brain.text_util import fold_key
@@ -75,7 +75,7 @@ def classify_reply(question: str, reply: str) -> str:
     """
     settings = get_settings()
     model = stage_model(settings, "answer")
-    if not model or not settings.openrouter_api_key:
+    if not has_provider_key(model, settings):
         return "other"
     prompt = (
         REPLY_CHECK_PROMPT.read_text(encoding="utf-8")
@@ -126,7 +126,7 @@ def _judge_intent(text: str) -> str:
     """Meaning-based stop/resume; unjudged messages are never taken as a command."""
     settings = get_settings()
     model = stage_model(settings, "grade")
-    if not model or not settings.openrouter_api_key:
+    if not has_provider_key(model, settings):
         return "other"
     prompt = INTENT_CHECK_PROMPT.read_text(encoding="utf-8").replace(
         "{{message}}", text
@@ -176,7 +176,7 @@ def match_reply(questions: list[str], reply: str) -> int | None:
         return 0
     settings = get_settings()
     model = stage_model(settings, "grade")
-    if not model or not settings.openrouter_api_key:
+    if not has_provider_key(model, settings):
         return None
     listing = "\n".join(
         f"QUESTION {i}:\n<<<\n{question}\n>>>"
