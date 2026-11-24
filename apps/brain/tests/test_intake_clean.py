@@ -391,3 +391,48 @@ def test_bulk_marketing_and_newsletter_emails_dropped_whole() -> None:
         raw={"from": {"emailAddress": {"address": "larevalo@popcre.com", "name": "Laura"}}},
     )
     assert clean_item(internal_mail, seen).drop_reason is None
+
+
+def test_teams_team_add_loop_mention_ooo_and_partner_protection() -> None:
+    seen: set[str] = set()
+    teams_es = item(
+        "Jessica te agregó al equipo Licensed Techpacks.\nAbrir Microsoft Teams",
+        raw={
+            "subject": "Te agregaron a un equipo en Microsoft Teams",
+            "from": {"emailAddress": {"address": "jcortazar@popcre.com"}},
+        },
+    )
+    assert clean_item(teams_es, seen).drop_reason == "notification"
+
+    loop_msg = item(
+        "Hi Jessica, Ilona mentioned you in a Loop component.\n"
+        "https://popcre.sharepoint.com/LoopAppData/D3571.loop",
+        raw={
+            "subject": 'Mentioned you in "D3571 ROSS Coir Mat.loop"',
+            "from": {"emailAddress": {"address": "ikereki@popcre.com"}},
+        },
+    )
+    assert clean_item(loop_msg, seen).drop_reason == "notification"
+
+    ooo_msg = item(
+        "I am out of the office until Monday.",
+        raw={
+            "subject": "Automatic reply: Spring line proofs",
+            "from": {"emailAddress": {"address": "ikereki@popcre.com"}},
+        },
+    )
+    assert clean_item(ooo_msg, seen).drop_reason == "notification"
+
+    wbd_compliance = item(
+        "STAR LABS 2.0 compliance portal cutover takes effect Monday.\n"
+        "Manage your email preferences or unsubscribe from system alerts.",
+        raw={"from": {"emailAddress": {"address": "starlabs@wbd.com"}}},
+    )
+    assert clean_item(wbd_compliance, seen).drop_reason is None
+
+    factory_reply = item(
+        "URGENT D3652, D3653 BURLINGTON Storage Toy Chest production sample update.",
+        raw={"from": {"emailAddress": {"address": "factory@boxstoragepro.com"}}},
+    )
+    assert clean_item(factory_reply, seen).drop_reason is None
+    assert clean.portal_template_domain(["mail.popcre.com", "us.designflow.app"]) == "designflow.app"

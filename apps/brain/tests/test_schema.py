@@ -77,8 +77,8 @@ def test_migrate_replays_cleanly_with_widened_constraint_rows() -> None:
     with psycopg.connect(settings.database_url, connect_timeout=5) as conn:
         conn.execute(
             "INSERT INTO cmap.source "
-            "(id, kind, title, original_filename, storage_path, sha256, bytes, read_state, origin, date_origin) "
-            "VALUES (%s, 'transcript', 't', 't.json', 'cmap/t.json', 'sha', 10, 'read', 'email', 'message_record')",
+            "(id, kind, title, original_filename, storage_path, sha256, bytes, read_state, origin, date_origin, ingest_tier, map_eligible) "
+            "VALUES (%s, 'transcript', 't', 't.json', 'cmap/t.json', 'sha', 10, 'read', 'email', 'message_record', 'rag_only', false)",
             (src_id,),
         )
         conn.execute(
@@ -93,7 +93,7 @@ def test_migrate_replays_cleanly_with_widened_constraint_rows() -> None:
         )
         conn.execute(
             "INSERT INTO cmap.model_seat (stage, model) "
-            "VALUES ('relations_messages', 'openai/gpt-6-luna') "
+            "VALUES ('relations_messages', 'openai/gpt-6-luna'), ('intake_gate', 'openai/gpt-6-luna') "
             "ON CONFLICT (stage) DO UPDATE SET model = EXCLUDED.model"
         )
         conn.commit()

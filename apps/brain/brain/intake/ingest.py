@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 from brain import storage as storage_mod
 from brain.config import Settings, get_settings, intake_spend_cap, openai_api_key
 from brain.db import enqueue_job, get_pool
+from brain.intake.gate import gate_pending_threads
 from brain.read.chunk import WINDOW_TOKENS, count_tokens
 from brain.seats import message_relations_chosen
 
@@ -42,6 +43,7 @@ REMOVED_MARKER = "[message removed]"
 EST_USD_PER_PASSAGE = 0.001
 EST_USD_PER_PASSAGE_BATCH_3PASS = 0.0018
 EST_USD_PER_PASSAGE_SYNC_3PASS = 0.0032
+EST_USD_PER_PASSAGE_RAG_ONLY = 0.0002
 INTAKE_SWEEP_SECONDS = 3600
 
 
@@ -52,6 +54,13 @@ def estimated_usd_per_passage(settings: Settings) -> float:
     if settings.brain_relations_batch_enabled and openai_api_key(settings):
         return EST_USD_PER_PASSAGE_BATCH_3PASS
     return EST_USD_PER_PASSAGE_SYNC_3PASS
+
+
+def estimated_usd_per_thread_passage(settings: Settings, tier: str | None) -> float:
+    """Per-passage estimate accounting for RAG-only vs full extraction tiers."""
+    if tier == "transactional_routine":
+        return EST_USD_PER_PASSAGE_RAG_ONLY
+    return estimated_usd_per_passage(settings)
 
 
 def speaker_of(origin: str, author_ref: str | None, raw: dict[str, Any]) -> str:
@@ -107,8 +116,8 @@ def _threads(
     since: datetime | None = None,
 ) -> list[tuple]:
     sql = (
-        "SELECT origin, thread_key, title, source_id FROM cmap.intake_thread "
-        "WHERE verdict IN ('pending', 'kept') "
+        "SELECT origin, thread_key, title, source_id, tier FROM cmap.intake_thread "
+        "WHERE verdict = 'kept' "
         + ("AND origin = %(o)s " if origin else "")
         + ("AND starts_with(thread_key, %(prefix)s) " if prefix is not None else "")
         + (
@@ -136,6 +145,12 @@ def _items(conn: Any, origin: str, key: str) -> list[dict[str, Any]]:
     return [dict(zip(cols, r, strict=True)) for r in rows]
 
 
+def _source_routing_for_tier(tier: str | None) -> tuple[str, bool]:
+    if tier == "transactional_routine":
+        return "rag_only", False
+    return "full", True
+
+
 def ingest_thread(
     conn: Any,
     origin: str,
@@ -144,6 +159,7 @@ def ingest_thread(
     old_source: Any,
     now: datetime,
     *,
+    tier: str | None = None,
     can_afford: Callable[[int], bool] | None = None,
 ) -> tuple[str, int]:
     """Store one thread as a source. Returns (outcome, estimated passages).
@@ -156,10 +172,16 @@ def ingest_thread(
     rendered = render_thread(rows, origin, now)
     data = rendered.encode("utf-8")
     sha = hashlib.sha256(data).hexdigest()
+    ingest_tier, map_eligible = _source_routing_for_tier(tier)
     existing = conn.execute(
         "SELECT id::text FROM cmap.source WHERE sha256 = %s", (sha,)
     ).fetchone()
     if existing is not None:
+        conn.execute(
+            "UPDATE cmap.source SET ingest_tier = %s, map_eligible = %s "
+            "WHERE id = %s AND (ingest_tier IS DISTINCT FROM %s OR map_eligible IS DISTINCT FROM %s)",
+            (ingest_tier, map_eligible, existing[0], ingest_tier, map_eligible),
+        )
         conn.execute(
             "UPDATE cmap.intake_thread SET verdict = 'kept', source_id = %s, updated_at = now() "
             "WHERE origin = %s AND thread_key = %s",
@@ -176,9 +198,9 @@ def ingest_thread(
     started = safe_time(rows[0]["sent_at"], rows[0]["collected_at"], now)
     conn.execute(
         "INSERT INTO cmap.source (id, kind, title, original_filename, storage_path, sha256, "
-        "bytes, effective_date, date_origin, origin, external_ref, read_state) "
+        "bytes, effective_date, date_origin, origin, external_ref, read_state, ingest_tier, map_eligible) "
         "VALUES (%s, 'transcript', %s, 'thread.json', %s, %s, %s, %s, 'message_record', "
-        "%s, %s, 'queued')",
+        "%s, %s, 'queued', %s, %s)",
         (
             source_id,
             (title or f"{origin} thread")[:300],
@@ -188,6 +210,8 @@ def ingest_thread(
             started.astimezone(EASTERN).date(),
             origin,
             key,
+            ingest_tier,
+            map_eligible,
         ),
     )
     outcome = "created"
@@ -213,8 +237,9 @@ def run(
     *,
     thread_prefix: str | None = None,
     days: int | None = None,
+    run_gate: bool = True,
 ) -> dict[str, Any]:
-    """Ingest pending threads until done or the spend cap is reached."""
+    """Gate pending threads, then ingest kept threads until done or spend cap reached."""
     if thread_prefix is not None and not thread_prefix.strip():
         raise ValueError("the thread prefix must not be empty")
     if days is not None and days <= 0:
@@ -222,14 +247,25 @@ def run(
     cap = intake_spend_cap(settings)
     now = datetime.now(UTC)
     since = now - timedelta(days=days) if days is not None else None
-    per_passage = estimated_usd_per_passage(settings)
     counts: dict[str, Any] = {"estimated_usd": 0.0}
     queued: list[str] = []
     pool = get_pool(settings)
     with pool.connection() as conn:
-        for th_origin, key, title, old in _threads(
+        if run_gate:
+            gate_stats = gate_pending_threads(
+                conn,
+                settings,
+                origin=origin,
+                limit=limit,
+                thread_prefix=thread_prefix,
+                since=since,
+            )
+            if gate_stats["judged"] or gate_stats["errors"]:
+                counts["gate"] = gate_stats
+        for th_origin, key, title, old, tier in _threads(
             conn, origin, limit, thread_prefix, since=since
         ):
+            per_passage = estimated_usd_per_thread_passage(settings, tier)
             outcome, passages = ingest_thread(
                 conn,
                 th_origin,
@@ -237,7 +273,10 @@ def run(
                 title,
                 old,
                 now,
-                can_afford=lambda p: counts["estimated_usd"] + p * per_passage <= cap,
+                tier=tier,
+                can_afford=lambda p, rate=per_passage: (
+                    counts["estimated_usd"] + p * rate <= cap
+                ),
             )
             if outcome == "capped":
                 counts["stopped_at_cap"] = True

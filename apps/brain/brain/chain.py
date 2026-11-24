@@ -216,6 +216,22 @@ def _heal_graph(conn: Any, stats: dict[str, int]) -> None:
         stats[kind] += 1
         conn.commit()
         return
+    needs_rag_fa = conn.execute(
+        "SELECT 1 FROM cmap.chunk c "
+        "JOIN cmap.source s ON s.id = c.source_id "
+        "WHERE s.ingest_tier = 'rag_only' AND s.read_state = 'read' "
+        "AND c.embedding IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM cmap.chunk_function cf WHERE cf.chunk_id = c.id) "
+        "LIMIT 1"
+    ).fetchone()
+    if (
+        needs_rag_fa
+        and not _active(conn, "function_assign")
+        and not _recently_failed(conn, "function_assign")
+    ):
+        _queue(conn, "function_assign")
+        stats["function_assign"] += 1
+        conn.commit()
 
 
 def run_ensure_chain() -> dict[str, int]:

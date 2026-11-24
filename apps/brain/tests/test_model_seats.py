@@ -240,3 +240,33 @@ def test_seat_report_matches_stage_model_for_relations_messages(
     report = seat_report(settings)["relations_messages"]
     assert report["model"] == stage_model(settings, "relations_messages") == "test/msg-page"
     assert report["source"] == "page"
+
+
+def test_intake_gate_seat_precedence_and_report_alignment(
+    client: TestClient,
+    env_seats: None,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """intake_gate resolves page > BRAIN_INTAKE_GATE_MODEL > relations_messages > frontier."""
+    monkeypatch.delenv("BRAIN_INTAKE_GATE_MODEL", raising=False)
+    monkeypatch.delenv("BRAIN_MESSAGE_RELATIONS_MODEL", raising=False)
+    get_settings.cache_clear()
+    settings = get_settings()
+    assert stage_model(settings, "intake_gate") == "test/frontier"
+    assert seat_report(settings)["intake_gate"]["source"] == "env"
+
+    monkeypatch.setenv("BRAIN_INTAKE_GATE_MODEL", "test/gate-env")
+    get_settings.cache_clear()
+    settings = get_settings()
+    assert stage_model(settings, "intake_gate") == "test/gate-env"
+    assert seat_report(settings)["intake_gate"]["source"] == "env"
+
+    resp = client.put(
+        "/models/intake_gate", json={"model": "test/gate-page"}, headers=admin_headers
+    )
+    assert resp.status_code == 200
+    settings = get_settings()
+    report = seat_report(settings)["intake_gate"]
+    assert report["model"] == stage_model(settings, "intake_gate") == "test/gate-page"
+    assert report["source"] == "page"

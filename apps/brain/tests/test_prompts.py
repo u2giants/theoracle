@@ -96,3 +96,20 @@ def test_message_relations_prompt_contracts() -> None:
     assert "{{previous_context}}" in gate
     assert "{{chunk_text}}" in gate
     assert "{{audited_json}}" in gate
+
+
+def test_intake_gate_prompt_contract() -> None:
+    """The Tier 1 intake gate prompt names all 4 categories and both template slots."""
+    text = (PROMPTS_DIR / "intake_gate.md").read_text(encoding="utf-8")
+    for category in (
+        "knowledge",
+        "transactional_routine",
+        "drop_marketing_auto",
+        "drop_irrelevant_internal",
+    ):
+        assert category in text, category
+    assert "{{metadata_json}}" in text
+    assert "{{thread_text}}" in text
+    assert '"category"' in text
+    assert '"confidence"' in text
+    assert '"reason"' in text

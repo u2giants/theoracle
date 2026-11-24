@@ -1329,3 +1329,67 @@ def test_company_report_builds_from_level1_functions(
     assert "## Licensing" in company_prompt
     # Unassigned L0 clusters do not hijack the company-wide rollup when L1 reports exist.
     assert "Area 2" not in company_prompt
+
+
+def test_source_aliases_collision_free_and_6x_rollup_never_overflows() -> None:
+    """#607 phase 1: s<uuid8> aliasing survives prefix collisions and 240 clusters fit cleanly."""
+    from brain.graph import communities as comm
+
+    # Collision check: two distinct UUIDs sharing first 8 hex digits.
+    u1 = "12345678-0000-4000-8000-000000000001"
+    u2 = "12345678-1111-4000-8000-000000000002"
+    u_to_a, a_to_u = comm._build_source_aliases([u1, u2])
+    assert u_to_a[u1] != u_to_a[u2]
+    assert a_to_u[u_to_a[u1]] == u1
+    assert a_to_u[u_to_a[u2]] == u2
+    report = {"findings": [{"text": "rule", "source_ids": [u_to_a[u1]]}]}
+    comm._resolve_source_aliases(report, a_to_u)
+    assert report["findings"][0]["source_ids"] == [u1]
+
+    # 6x scale: 240 L0 child reports (> MAX_L1_CHILDREN=40) roll up in groups of 10 with incomplete=False.
+    class _FakeSummaryFrontier:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def ask(self, prompt: str) -> dict[str, Any]:
+            self.calls += 1
+            return {"summary": f"Rollup summary {self.calls} preserving key hand-offs."}
+
+    rows = [
+        {
+            "title": f"Cluster {i:03d}",
+            "summary": f"Area {i} handles licensing step {i} and factory handoff.",
+            "findings": [
+                {
+                    "text": f"Rule {i}-{j} controls artwork review.",
+                    "kind": "rule",
+                    "source_ids": [f"{i:08x}-0000-4000-8000-{j:012x}"],
+                }
+                for j in range(5)
+            ],
+            "source_ids": [f"{i:08x}-0000-4000-8000-{j:012x}" for j in range(5)],
+        }
+        for i in range(240)
+    ]
+    frontier = _FakeSummaryFrontier()
+    aliases: dict[str, str] = {}
+    ctx, incomplete = comm._context_reports(
+        rows,
+        frontier,
+        header="FUNCTION: Licensing",
+        max_findings_per_row=comm.MAX_L2_FINDINGS_PER_FUNCTION,
+        alias_map=aliases,
+    )
+    assert incomplete is False
+    assert frontier.calls >= 24  # 240 / 10 deterministic rollup groups (+ optional _fit pass)
+    assert comm._tokens(ctx) <= comm.MAX_CONTEXT_TOKENS
+    assert "Group 1" in ctx or "Rollup summary" in ctx
+    assert len(aliases) == 1200
+
+    # Verify max_findings_per_row=3 caps findings per function when <= 40 rows.
+    small_aliases: dict[str, str] = {}
+    small_ctx, small_inc = comm._context_reports(
+        rows[:2], frontier, max_findings_per_row=3, alias_map=small_aliases
+    )
+    assert small_inc is False
+    assert small_ctx.count("- [rule]") == 6  # 3 findings x 2 functions

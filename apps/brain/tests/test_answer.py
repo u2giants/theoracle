@@ -612,9 +612,20 @@ def test_passages_compressed_when_over_threshold(
     assert long == "COMPRESSED PASSAGES"
     assert len(fake.compress_calls) == 1
     assert fake.compress_calls[0]["path"] == "/compress/raw/"
-    assert fake.compress_calls[0]["body"]["rate"] == "auto"
+    assert fake.compress_calls[0]["body"]["scaledown"] == {"rate": "auto"}
     assert fake.compress_calls[0]["body"]["prompt"] == STALL_QUESTION
     assert usage["scaledown_compress_calls"] == 1
+
+    # results.success=False falls back cleanly to raw uncompressed passages.
+    def _post_failed(path: str, body: dict[str, Any], cfg: Any) -> dict[str, Any]:
+        del path, body, cfg
+        return {"results": {"success": False, "compressed_prompt": "BAD"}}
+
+    monkeypatch.setattr(answer_mod, "_post_scaledown", _post_failed)
+    fallback = answer_mod._compress_passages(
+        ["keep exact quote text " * 200] * 15, STALL_QUESTION, settings, usage
+    )
+    assert fallback.startswith("keep exact quote text")
 
 
 def test_history_appended_and_capped_to_six_turns() -> None:
@@ -1274,3 +1285,29 @@ def test_low_routing_confidence_uses_one_hybrid_prompt(
     assert "licensing approval log" in prompt
     assert "Company-wide view." in prompt
     assert [item["key"] for item in result["functions_consulted"]] == ["licensing"]
+
+
+def test_rag_only_chunk_remains_searchable_by_answer(
+    answer_env: None, db: Any
+) -> None:
+    """#607 phase 1: map_eligible=false (rag_only) embedded chunks stay searchable in /answer."""
+    ids = _seed_functions(db)
+    chunk_id = _seed_function_chunk(
+        db,
+        ids["licensing"],
+        "VDC83DYMM14 retail routine shipment confirmed for Ross.",
+        "rag-only-search",
+        theta=0.0,
+    )
+    db.execute(
+        "UPDATE cmap.source SET ingest_tier = 'rag_only', map_eligible = false "
+        "WHERE id = (SELECT source_id FROM cmap.chunk WHERE id = %s)",
+        (chunk_id,),
+    )
+    db.commit()
+
+    hits = answer_mod._select_chunks(
+        _direction(0.0), [], include_history=False, function_ids=[ids["licensing"]]
+    )
+    assert [h["id"] for h in hits] == [chunk_id]
+    assert "VDC83DYMM14 retail routine shipment confirmed for Ross." in hits[0]["text"]

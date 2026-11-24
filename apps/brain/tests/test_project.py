@@ -480,3 +480,28 @@ def test_run_project_creates_indexes_before_nodes_and_edges(monkeypatch: Any) ->
     stats = run_project()
     assert stats == {"nodes": 1, "edges": 1, "version": 52}
     assert calls == ["drop", "indexes", "nodes", "edges"]
+
+
+def test_map_eligible_false_excluded_from_projection(db: Any) -> None:
+    """#607 phase 1: rag_only sources (map_eligible=false) never project into the Company Map."""
+    eligible_src = _seed_text(db, "Licensing approves SKU A.", "elig")
+    rag_only_src = _seed_text(db, "Routine status ping SKU B.", "rag")
+    db.execute(
+        "UPDATE cmap.source SET ingest_tier = 'rag_only', map_eligible = false WHERE id = %s",
+        (rag_only_src,),
+    )
+    e_keep = _entity(db, "Process", "Licensing Approval")
+    e_rag = _entity(db, "Product", "SKU B Routine")
+    m_keep_a = _mention(db, eligible_src, "Process", "Licensing Approval", e_keep)
+    m_keep_b = _mention(db, eligible_src, "Role", "Buyer", e_keep)
+    _relation(db, eligible_src, m_keep_a, m_keep_b, "DEPENDS_ON", "kept edge")
+
+    m_rag_a = _mention(db, rag_only_src, "Product", "SKU B", e_rag)
+    m_rag_b = _mention(db, rag_only_src, "Product", "SKU B status", e_rag)
+    _relation(db, rag_only_src, m_rag_a, m_rag_b, "APPLIES_TO", "rag only edge")
+
+    nodes = {n["id"]: n for n in project_mod._load_entities(db)}
+    edges = project_mod._load_edges(db)
+    assert e_keep in nodes
+    assert e_rag not in nodes
+    assert [e["descriptions"] for e in edges] == [["kept edge"]]

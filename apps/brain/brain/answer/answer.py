@@ -1316,7 +1316,7 @@ def _compress_passages(
     try:
         payload = _post_scaledown(
             "/compress/raw/",
-            {"context": raw, "prompt": question, "rate": "auto"},
+            {"context": raw, "prompt": question, "scaledown": {"rate": "auto"}},
             settings,
         )
     except AnswerError as exc:
@@ -1325,6 +1325,8 @@ def _compress_passages(
     inner = payload.get("results")
     if not isinstance(inner, dict):
         inner = payload
+    if inner.get("success") is False:
+        return raw
     compressed = inner.get("compressed_prompt")
     if not isinstance(compressed, str) or not compressed.strip():
         return raw

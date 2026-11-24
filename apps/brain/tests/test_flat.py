@@ -482,3 +482,11 @@ def test_prompt_change_replaces_not_duplicates(
     _run()
     assert _counts() == first
     get_settings.cache_clear()
+
+
+def test_classify_body_disables_scaledown_reasoning() -> None:
+    """#607 phase 1: chunk /classify omits reasoning billing."""
+    from brain.extract.flat import classify_body
+
+    body = classify_body("Licensing approves final art before factory production.")
+    assert body["reasoning"] is False

@@ -33,6 +33,7 @@ STAGES = (
     "grade",
     "contradictions",
     "converse",
+    "intake_gate",
 )
 
 # Seats change rarely; a short cache keeps one lookup per call off the hot path
@@ -93,6 +94,12 @@ def env_model(settings: Settings, stage: str) -> str | None:
         return settings.brain_flat_model or settings.brain_frontier_model
     if stage == "relations_messages":
         return settings.brain_message_relations_model or settings.brain_frontier_model
+    if stage == "intake_gate":
+        return (
+            settings.brain_intake_gate_model
+            or settings.brain_message_relations_model
+            or settings.brain_frontier_model
+        )
     if stage == "contradictions":
         return settings.brain_contradictions_model or settings.brain_frontier_model
     return settings.brain_frontier_model
@@ -111,6 +118,16 @@ def _resolve_stage(
             return settings.brain_message_relations_model, "env"
         if seats.get("relations"):
             return seats["relations"], "page"
+        return settings.brain_frontier_model, "env"
+    if stage == "intake_gate":
+        if seats.get("intake_gate"):
+            return seats["intake_gate"], "page"
+        if settings.brain_intake_gate_model:
+            return settings.brain_intake_gate_model, "env"
+        if seats.get("relations_messages"):
+            return seats["relations_messages"], "page"
+        if settings.brain_message_relations_model:
+            return settings.brain_message_relations_model, "env"
         return settings.brain_frontier_model, "env"
     if seats.get(stage):
         return seats[stage], "page"

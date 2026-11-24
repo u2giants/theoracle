@@ -121,10 +121,13 @@ def _load_entities(conn: psycopg.Connection) -> list[dict[str, Any]]:
         "e.mention_count, e.source_count FROM cmap.entity e "
         # An entity nothing mentions any more is not part of the map (repair A7).
         "WHERE EXISTS (SELECT 1 FROM cmap.mention m WHERE m.entity_id = e.id)"
-        # D2: mentions whose only sources are superseded are history, not map.
+        # D2 & #607 phase 1: mentions whose only sources are superseded or
+        # marked map_eligible = false (rag_only) stay out of the Company Map.
         "AND EXISTS (SELECT 1 FROM cmap.mention m "
         "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
-        "WHERE m.entity_id = e.id AND ch.source_id NOT IN "
+        "JOIN cmap.source s ON s.id = ch.source_id "
+        "WHERE m.entity_id = e.id AND s.map_eligible = true "
+        "AND ch.source_id NOT IN "
         "(SELECT supersedes_source_id FROM cmap.source_version "
         "WHERE decided_at IS NOT NULL))"
     ).fetchall()
@@ -165,7 +168,9 @@ def _load_edges(
         "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
         "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
         "JOIN cmap.chunk ch ON ch.id = r.chunk_id "
-        "WHERE fm.entity_id IS NOT NULL AND tm.entity_id IS NOT NULL"
+        "JOIN cmap.source s ON s.id = ch.source_id "
+        "WHERE fm.entity_id IS NOT NULL AND tm.entity_id IS NOT NULL "
+        "AND s.map_eligible = true"
         # D2: superseded facts are excluded from projection weights (and so
         # from the map, reports and answers built on it). A fact that also
         # lives in a live source keeps status 'current' and stays.
