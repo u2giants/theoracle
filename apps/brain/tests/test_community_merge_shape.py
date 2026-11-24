@@ -142,3 +142,56 @@ def test_level0_membership_large_sparse_graph_is_fast() -> None:
     assert sum(sizes.values()) == n
     assert [size for size in sizes.values() if size < MIN_COMMUNITY] == []
     assert max(sizes.values()) <= MAX_COMMUNITY
+
+
+def test_content_hash_index_matches_sql_parts() -> None:
+    import hashlib
+
+    from brain.graph.communities import _content_hash, _ContentHashIndex
+
+    rel_internal = ("r1", "t1", "e1", "e2")
+    rel_boundary = ("r2", "t2", "e2", "e3")
+    index = _ContentHashIndex(
+        entity_stamp={"e1": "ts1", "e2": "ts2", "e3": "ts3"},
+        rels_by_entity={
+            "e1": [rel_internal],
+            "e2": [rel_internal, rel_boundary],
+            "e3": [rel_boundary],
+        },
+        ef_by_entity={
+            "e1": ["x:e1:f1:"],
+            "e3": ["x:e3:f2:"],
+        },
+    )
+    digest = _content_hash(None, ["e1", "e2", "e1"], index=index)  # type: ignore[arg-type]
+    expected_parts = sorted(
+        [
+            "e:e1:ts1",
+            "e:e2:ts2",
+            "r:r1:t1",
+            "r:r2:t2",
+            "x:e1:f1:",
+            "x:e3:f2:",
+        ]
+    )
+    assert digest == hashlib.sha256("\n".join(expected_parts).encode("utf-8")).hexdigest()
+
+
+def test_boundary_edges_indexed_matches_flat() -> None:
+    from brain.graph.communities import _boundary_edges
+
+    e1 = {"from": "a", "to": "b", "rel_type": "USES", "weight": 1}
+    e2 = {"from": "b", "to": "c", "rel_type": "OWNS", "weight": 2}
+    e3 = {"from": "d", "to": "a", "rel_type": "PRECEDES", "weight": 3}
+    e4 = {"from": "c", "to": "d", "rel_type": "USES", "weight": 4}
+    edges = [e1, e2, e3, e4]
+    by_ent: dict[str, list[dict]] = {}
+    for edge in edges:
+        by_ent.setdefault(edge["from"], []).append(edge)
+        if edge["to"] != edge["from"]:
+            by_ent.setdefault(edge["to"], []).append(edge)
+    members = {"a", "b"}
+    flat_res = _boundary_edges(edges, members)
+    idx_res = _boundary_edges(edges, members, edges_by_entity=by_ent)
+    assert sorted(repr(x) for x in idx_res) == sorted(repr(x) for x in flat_res)
+    assert len(idx_res) == 2

@@ -45,6 +45,7 @@ import re
 import uuid
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -316,8 +317,60 @@ def edge_rank(edge: dict[str, Any]) -> tuple[float, float]:
     return (kind_weight * float(edge.get("weight") or 0.0), kind_weight)
 
 
+@dataclass(slots=True)
+class _ContentHashIndex:
+    """Bulk-loaded map timestamps and relations to avoid per-cluster SQL queries."""
+
+    entity_stamp: dict[str, str]
+    rels_by_entity: dict[str, list[tuple[str, str, str | None, str | None]]]
+    ef_by_entity: dict[str, list[str]]
+
+
+def _load_content_hash_index(conn: psycopg.Connection) -> _ContentHashIndex:
+    """Load entity/relation timestamps and function links in three bulk queries."""
+    entity_stamp = {
+        str(eid): str(stamp)
+        for eid, stamp in conn.execute(
+            "SELECT e.id::text, e.updated_at::text FROM cmap.entity e"
+        ).fetchall()
+    }
+    rels_by_entity: dict[str, list[tuple[str, str, str | None, str | None]]] = {}
+    for rid, rstamp, feid, teid in conn.execute(
+        "SELECT r.id::text, r.updated_at::text, fm.entity_id::text, tm.entity_id::text "
+        "FROM cmap.relation r "
+        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+        "WHERE fm.entity_id IS NOT NULL OR tm.entity_id IS NOT NULL"
+    ).fetchall():
+        entry = (
+            str(rid),
+            str(rstamp),
+            str(feid) if feid is not None else None,
+            str(teid) if teid is not None else None,
+        )
+        if entry[2] is not None:
+            rels_by_entity.setdefault(entry[2], []).append(entry)
+        if entry[3] is not None and entry[3] != entry[2]:
+            rels_by_entity.setdefault(entry[3], []).append(entry)
+    ef_by_entity: dict[str, list[str]] = {}
+    for eid, fid in conn.execute(
+        "SELECT ef.entity_id::text, ef.function_id::text FROM cmap.entity_function ef"
+    ).fetchall():
+        key = str(eid)
+        ef_by_entity.setdefault(key, []).append(f"x:{key}:{fid}:")
+    return _ContentHashIndex(
+        entity_stamp=entity_stamp,
+        rels_by_entity=rels_by_entity,
+        ef_by_entity=ef_by_entity,
+    )
+
+
 def _content_hash(
-    conn: psycopg.Connection, entity_ids: list[str], *, flows: bool = False
+    conn: psycopg.Connection,
+    entity_ids: list[str],
+    *,
+    flows: bool = False,
+    index: _ContentHashIndex | None = None,
 ) -> str:
     """Hash of a report's inputs: sorted entity and relation ids, stamped.
 
@@ -333,36 +386,58 @@ def _content_hash(
     """
     if not entity_ids:
         return hashlib.sha256(b"").hexdigest()
-    rows = conn.execute(
-        "SELECT 'e', e.id::text, e.updated_at::text FROM cmap.entity e "
-        "WHERE e.id = ANY(%s::uuid[]) "
-        "UNION ALL "
-        # Repair E4: the OR includes boundary relations (exactly one end in the
-        # set) — their hand-off lines are part of the report's content.
-        "SELECT 'r', r.id::text, r.updated_at::text FROM cmap.relation r "
-        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
-        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
-        "WHERE fm.entity_id = ANY(%s::uuid[]) OR tm.entity_id = ANY(%s::uuid[]) "
-        "UNION ALL "
-        # Function labels of members and one-hop neighbours (the counterparty
-        # labels in the hand-off lines).
-        "SELECT 'x', ef.entity_id::text || ':' || ef.function_id::text, '' "
-        "FROM cmap.entity_function ef "
-        "WHERE ef.entity_id = ANY(%s::uuid[]) "
-        "OR ef.entity_id IN ("
-        "SELECT other_id FROM ("
-        "SELECT tm.entity_id AS other_id FROM cmap.relation r "
-        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
-        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
-        "WHERE fm.entity_id = ANY(%s::uuid[]) "
-        "UNION "
-        "SELECT fm.entity_id AS other_id FROM cmap.relation r "
-        "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
-        "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
-        "WHERE tm.entity_id = ANY(%s::uuid[])) neighbours)",
-        (entity_ids, entity_ids, entity_ids, entity_ids, entity_ids, entity_ids),
-    ).fetchall()
-    parts = sorted(f"{kind}:{row_id}:{stamp}" for kind, row_id, stamp in rows)
+    if index is not None:
+        member_set = set(entity_ids)
+        parts: list[str] = []
+        for eid in member_set:
+            stamp = index.entity_stamp.get(eid)
+            if stamp is not None:
+                parts.append(f"e:{eid}:{stamp}")
+        seen_rids: set[str] = set()
+        neighbour_eids: set[str] = set()
+        for eid in member_set:
+            for rid, rstamp, feid, teid in index.rels_by_entity.get(eid, ()):
+                if rid not in seen_rids:
+                    seen_rids.add(rid)
+                    parts.append(f"r:{rid}:{rstamp}")
+                if feid is not None:
+                    neighbour_eids.add(feid)
+                if teid is not None:
+                    neighbour_eids.add(teid)
+        for eid in member_set | neighbour_eids:
+            parts.extend(index.ef_by_entity.get(eid, ()))
+        parts.sort()
+    else:
+        rows = conn.execute(
+            "SELECT 'e', e.id::text, e.updated_at::text FROM cmap.entity e "
+            "WHERE e.id = ANY(%s::uuid[]) "
+            "UNION ALL "
+            # Repair E4: the OR includes boundary relations (exactly one end in the
+            # set) — their hand-off lines are part of the report's content.
+            "SELECT 'r', r.id::text, r.updated_at::text FROM cmap.relation r "
+            "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+            "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+            "WHERE fm.entity_id = ANY(%s::uuid[]) OR tm.entity_id = ANY(%s::uuid[]) "
+            "UNION ALL "
+            # Function labels of members and one-hop neighbours (the counterparty
+            # labels in the hand-off lines).
+            "SELECT 'x', ef.entity_id::text || ':' || ef.function_id::text, '' "
+            "FROM cmap.entity_function ef "
+            "WHERE ef.entity_id = ANY(%s::uuid[]) "
+            "OR ef.entity_id IN ("
+            "SELECT other_id FROM ("
+            "SELECT tm.entity_id AS other_id FROM cmap.relation r "
+            "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+            "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+            "WHERE fm.entity_id = ANY(%s::uuid[]) "
+            "UNION "
+            "SELECT fm.entity_id AS other_id FROM cmap.relation r "
+            "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
+            "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
+            "WHERE tm.entity_id = ANY(%s::uuid[])) neighbours)",
+            (entity_ids, entity_ids, entity_ids, entity_ids, entity_ids, entity_ids),
+        ).fetchall()
+        parts = sorted(f"{kind}:{row_id}:{stamp}" for kind, row_id, stamp in rows)
     if flows:
         for flow_id, ordinal, performer in conn.execute(
             "SELECT fs.flow_id::text, fs.ordinal, "
@@ -387,7 +462,9 @@ def _function_names(conn: psycopg.Connection) -> dict[str, list[str]]:
 
 
 def _boundary_edges(
-    edges: list[dict[str, Any]], member_ids: set[str]
+    edges: list[dict[str, Any]],
+    member_ids: set[str],
+    edges_by_entity: dict[str, list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     """Edges with exactly one endpoint in the set (repair E4).
 
@@ -395,6 +472,17 @@ def _boundary_edges(
     the cluster or function — and the raw material of "Hand-offs in / out".
     """
     out: list[dict[str, Any]] = []
+    if edges_by_entity is not None:
+        seen_ids: set[int] = set()
+        for member_id in member_ids:
+            for edge in edges_by_entity.get(member_id, ()):
+                eid_obj = id(edge)
+                if eid_obj in seen_ids:
+                    continue
+                seen_ids.add(eid_obj)
+                if (edge["from"] in member_ids) != (edge["to"] in member_ids):
+                    out.append(edge)
+        return out
     for edge in edges:
         from_in = edge["from"] in member_ids
         to_in = edge["to"] in member_ids
@@ -408,6 +496,7 @@ def _handoff_lines(
     member_ids: set[str],
     names: dict[str, str],
     function_names: dict[str, list[str]],
+    edges_by_entity: dict[str, list[dict[str, Any]]] | None = None,
 ) -> list[str]:
     """ "Hand-offs in / out" lines for one level-0/level-1 report (repair E4).
 
@@ -416,7 +505,7 @@ def _handoff_lines(
     entities, ``in`` when it arrives), the counterparty's function labels and
     the source count, capped and ranked by ``edge_rank``.
     """
-    boundary = _boundary_edges(edges, member_ids)
+    boundary = _boundary_edges(edges, member_ids, edges_by_entity=edges_by_entity)
     boundary.sort(key=edge_rank, reverse=True)
     lines: list[str] = []
     for edge in boundary[:MAX_EDGES_IN_CONTEXT]:
@@ -1026,6 +1115,7 @@ def _context_l0(
     frontier: _Frontier,
     function_name: str | None = None,
     handoffs: list[str] | None = None,
+    edges_by_entity: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[str, bool]:
     """Entity list, top edges, boundary hand-offs and quotes for one community.
 
@@ -1043,11 +1133,25 @@ def _context_l0(
             f"- [{member['type']}] {member['name']}: "
             f"{member['description'] or '(no description)'}"
         )
-    scoped = [
-        edge
-        for edge in edges
-        if edge["from"] in member_ids and edge["to"] in member_ids
-    ]
+    if edges_by_entity is not None:
+        seen_edge_ids: set[int] = set()
+        scoped = []
+        for member_id in member_ids:
+            for edge in edges_by_entity.get(member_id, ()):
+                eid_obj = id(edge)
+                if (
+                    eid_obj not in seen_edge_ids
+                    and edge["from"] in member_ids
+                    and edge["to"] in member_ids
+                ):
+                    seen_edge_ids.add(eid_obj)
+                    scoped.append(edge)
+    else:
+        scoped = [
+            edge
+            for edge in edges
+            if edge["from"] in member_ids and edge["to"] in member_ids
+        ]
     scoped.sort(key=edge_rank, reverse=True)
     lines.append("EDGES:")
     for edge in scoped[:MAX_EDGES_IN_CONTEXT]:
@@ -1825,6 +1929,12 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         entity_vectors = _entity_vectors(conn)
         names = {node["id"]: node["name"] for node in nodes}
         function_names = _function_names(conn)
+        hash_index = _load_content_hash_index(conn)
+        edges_by_entity: dict[str, list[dict[str, Any]]] = {}
+        for edge in edges:
+            edges_by_entity.setdefault(edge["from"], []).append(edge)
+            if edge["to"] != edge["from"]:
+                edges_by_entity.setdefault(edge["to"], []).append(edge)
 
         buckets = _function_buckets(conn, nodes)
         stats["unassigned_entities"] = sum(
@@ -1875,12 +1985,15 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             previous_by_function.setdefault(row["function_id"], []).append(row)
         by_function: dict[str | None, list[dict[str, Any]]] = {}
         for cluster in clusters:
-            cluster["content_hash"] = _content_hash(conn, cluster["member_ids"])
+            cluster["content_hash"] = _content_hash(
+                conn, cluster["member_ids"], index=hash_index
+            )
             cluster["handoffs"] = _handoff_lines(
                 edges,
                 set(cluster["member_ids"]),
                 names,
                 function_names,
+                edges_by_entity=edges_by_entity,
             )
             cluster["failed"] = False
             cluster["kept"] = False
@@ -1922,6 +2035,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 frontier,
                 function_name=cluster["function_name"],
                 handoffs=cluster["handoffs"],
+                edges_by_entity=edges_by_entity,
             )
             contexts.append(context)
             cluster["context_incomplete"] = incomplete
@@ -1992,9 +2106,13 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             member_ids = sorted(
                 {member for cluster in group for member in cluster["member_ids"]}
             )
-            content_hash = _content_hash(conn, member_ids)
+            content_hash = _content_hash(conn, member_ids, index=hash_index)
             function_handoffs = _handoff_lines(
-                edges, set(member_ids), names, function_names
+                edges,
+                set(member_ids),
+                names,
+                function_names,
+                edges_by_entity=edges_by_entity,
             )
             available = [
                 cluster["summary"]
@@ -2103,7 +2221,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         )
         # The matrix is computed from relations and flows (E4): the hash covers
         # the flow-step hand-offs too, so a flow change regenerates it.
-        company_hash = _content_hash(conn, entity_ids, flows=True)
+        company_hash = _content_hash(conn, entity_ids, flows=True, index=hash_index)
         existing_company = _company_row(conn)
         if (
             existing_company
