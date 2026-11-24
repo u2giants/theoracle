@@ -56,7 +56,7 @@ import psycopg
 import tiktoken
 
 from brain.config import Settings, get_settings
-from brain.contradictions import disagreement_lines
+from brain.contradictions import CONFLICT_KINDS, MAX_DISAGREEMENTS, disagreement_lines
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.graph.project import _load_edges, _load_entities
@@ -88,7 +88,8 @@ MAX_QUOTES_IN_CONTEXT = 25
 MAX_L1_CHILDREN = 40
 ROLLUP_GROUP_SIZE = 10
 MAX_L2_FINDINGS_PER_FUNCTION = 3
-REPORT_WORKERS = 6
+REPORT_WORKERS = 12
+L0_ASK_CHUNK = 24
 # Repair C3: a level-0 cluster continues the previous build's cluster with the
 # highest Jaccard overlap at or above this threshold (same function only).
 CLUSTER_MATCH_MIN_JACCARD = 0.5
@@ -1108,6 +1109,35 @@ def _quote_rows(
     return picked
 
 
+def _load_disagreements_by_entity(conn: psycopg.Connection) -> dict[str, list[str]]:
+    """Map entity id -> formatted open disagreement lines in canonical order."""
+    rows = conn.execute(
+        "SELECT DISTINCT ct.id::text, ct.kind, ct.summary, sa.title, sb.title, m.entity_id::text "
+        "FROM cmap.contradiction ct "
+        "JOIN cmap.relation ra ON ra.id = ct.relation_a "
+        "JOIN cmap.relation rb ON rb.id = ct.relation_b "
+        "JOIN cmap.chunk ca ON ca.id = ra.chunk_id "
+        "JOIN cmap.chunk cb ON cb.id = rb.chunk_id "
+        "JOIN cmap.source sa ON sa.id = ca.source_id "
+        "JOIN cmap.source sb ON sb.id = cb.source_id "
+        "JOIN cmap.relation r ON r.id IN (ct.relation_a, ct.relation_b) "
+        "JOIN cmap.mention m ON m.id IN (r.from_mention_id, r.to_mention_id) "
+        "WHERE ct.status = 'open' AND ct.kind = ANY(%s) AND m.entity_id IS NOT NULL "
+        "ORDER BY ct.kind, sa.title, ct.id::text",
+        (list(CONFLICT_KINDS),),
+    ).fetchall()
+    out: dict[str, list[str]] = {}
+    seen_per_entity: dict[str, set[str]] = {}
+    for _cid, _kind, summary, title_a, title_b, eid in rows:
+        key = str(eid)
+        line = f"sources disagree: {summary} ({title_a} vs {title_b})"
+        seen = seen_per_entity.setdefault(key, set())
+        if line not in seen:
+            seen.add(line)
+            out.setdefault(key, []).append(line)
+    return out
+
+
 def _context_l0(
     conn: psycopg.Connection,
     members: list[dict[str, Any]],
@@ -1116,6 +1146,7 @@ def _context_l0(
     function_name: str | None = None,
     handoffs: list[str] | None = None,
     edges_by_entity: dict[str, list[dict[str, Any]]] | None = None,
+    disagreements_by_entity: dict[str, list[str]] | None = None,
 ) -> tuple[str, bool]:
     """Entity list, top edges, boundary hand-offs and quotes for one community.
 
@@ -1177,7 +1208,20 @@ def _context_l0(
     lines.append("QUOTES:")
     for item in quotes:
         lines.append(f'- [{item["source_id"]}] "{item["quote"]}"')
-    disagreements = disagreement_lines(conn, [member["id"] for member in members])
+    if disagreements_by_entity is not None:
+        seen_disagreements: set[str] = set()
+        disagreements: list[str] = []
+        for member in members:
+            for line in disagreements_by_entity.get(member["id"], ()):
+                if line not in seen_disagreements:
+                    seen_disagreements.add(line)
+                    disagreements.append(line)
+                    if len(disagreements) >= MAX_DISAGREEMENTS:
+                        break
+            if len(disagreements) >= MAX_DISAGREEMENTS:
+                break
+    else:
+        disagreements = disagreement_lines(conn, [member["id"] for member in members])
     if disagreements:
         lines.append(
             "SOURCES DISAGREE (state these as contradictions or gaps in findings):"
@@ -1976,6 +2020,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             )
         )
         stats["communities_l0"] = len(clusters)
+        del entity_vectors, entity_sources, cluster_edges, buckets
 
         # Stable identities: each cluster continues the previous build's
         # cluster with the highest Jaccard overlap in the same function,
@@ -2018,76 +2063,83 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                 )
                 stats["cluster_ids_reused"] += 1
 
-        # Ask level 0 only where the content hash changed or the row is new.
-        # Contexts (and their map-reduce summaries) build serially first, so
-        # the written rows match a serial pass exactly. A context the bounded
-        # map-reduce could only hard-fit under the budget (#586) stores its
-        # report incomplete so the next run regenerates it.
-        ask_items = [cluster for cluster in clusters if not cluster["reuse"]]
-        for position, cluster in enumerate(ask_items):
-            cluster["ask_index"] = position
-        contexts: list[str] = []
-        for cluster in ask_items:
-            context, incomplete = _context_l0(
-                conn,
-                cluster["members"],
-                edges,
-                frontier,
-                function_name=cluster["function_name"],
-                handoffs=cluster["handoffs"],
-                edges_by_entity=edges_by_entity,
-            )
-            contexts.append(context)
-            cluster["context_incomplete"] = incomplete
-        asked = _ask_many(
-            frontier,
-            [(SCOPE_L0, "", context) for context in contexts],
-        )
+        # Ask level 0 only where the content hash changed or the row is new,
+        # committing chunk by chunk so progress survives restarts and memory
+        # stays bounded.
+        disagreements_by_entity = _load_disagreements_by_entity(conn)
         for cluster in clusters:
-            if cluster["reuse"]:
-                cluster["summary"] = _summary_of(cluster["previous"])
-                cluster["kept"] = True
-                conn.execute(
-                    "UPDATE cmap.community SET graph_version = %s, "
-                    "function_id = %s WHERE id = %s",
-                    (graph_version, cluster["function_id"], cluster["row_id"]),
-                )
-                conn.commit()
-                kept_sets.add(frozenset(cluster["member_ids"]))
-                stats["reports_reused"] += 1
-                stats["reports"] += 1
+            if not cluster["reuse"]:
                 continue
-            report = asked[cluster["ask_index"]]
-            if report is None:
-                # A failed child leaves no row; its parents are regenerated
-                # (never reused) and marked incomplete below.
-                stats["reports_failed"] += 1
-                cluster["failed"] = True
-                continue
-            report["handoffs"] = cluster["handoffs"]
-            row_id, dropped = _store(
-                conn,
-                0,
-                None,
-                report,
-                cluster["member_ids"],
-                graph_version,
-                valid_sources,
-                row_id=cluster["row_id"],
-                function_id=cluster["function_id"],
-                content_hash=cluster["content_hash"],
-                incomplete=cluster["context_incomplete"],
-                title_override=cluster["title_override"],
-            )
-            stats["findings_dropped"] += dropped
-            stats["open_questions"] += _store_open_questions(
-                conn, report, cluster["member_ids"], frontier, cfg, seen_questions
-            )
-            conn.commit()
-            cluster["row_id"] = row_id
-            cluster["summary"] = _summary_of(report)
+            cluster["summary"] = _summary_of(cluster["previous"])
             cluster["kept"] = True
+            conn.execute(
+                "UPDATE cmap.community SET graph_version = %s, "
+                "function_id = %s WHERE id = %s",
+                (graph_version, cluster["function_id"], cluster["row_id"]),
+            )
+            kept_sets.add(frozenset(cluster["member_ids"]))
+            stats["reports_reused"] += 1
             stats["reports"] += 1
+        conn.commit()
+
+        ask_items = [cluster for cluster in clusters if not cluster["reuse"]]
+        total_ask = len(ask_items)
+        for start in range(0, total_ask, L0_ASK_CHUNK):
+            chunk = ask_items[start : start + L0_ASK_CHUNK]
+            chunk_contexts: list[str] = []
+            for cluster in chunk:
+                context, incomplete = _context_l0(
+                    conn,
+                    cluster["members"],
+                    edges,
+                    frontier,
+                    function_name=cluster["function_name"],
+                    handoffs=cluster["handoffs"],
+                    edges_by_entity=edges_by_entity,
+                    disagreements_by_entity=disagreements_by_entity,
+                )
+                chunk_contexts.append(context)
+                cluster["context_incomplete"] = incomplete
+            asked = _ask_many(
+                frontier,
+                [(SCOPE_L0, "", context) for context in chunk_contexts],
+            )
+            for cluster, report in zip(chunk, asked, strict=True):
+                if report is None:
+                    # A failed child leaves no row; its parents are regenerated
+                    # (never reused) and marked incomplete below.
+                    stats["reports_failed"] += 1
+                    cluster["failed"] = True
+                    continue
+                report["handoffs"] = cluster["handoffs"]
+                row_id, dropped = _store(
+                    conn,
+                    0,
+                    None,
+                    report,
+                    cluster["member_ids"],
+                    graph_version,
+                    valid_sources,
+                    row_id=cluster["row_id"],
+                    function_id=cluster["function_id"],
+                    content_hash=cluster["content_hash"],
+                    incomplete=cluster["context_incomplete"],
+                    title_override=cluster["title_override"],
+                )
+                stats["findings_dropped"] += dropped
+                stats["open_questions"] += _store_open_questions(
+                    conn, report, cluster["member_ids"], frontier, cfg, seen_questions
+                )
+                cluster["row_id"] = row_id
+                cluster["summary"] = _summary_of(report)
+                cluster["kept"] = True
+                stats["reports"] += 1
+            conn.commit()
+            logger.info(
+                "communities l0 progress: %d/%d",
+                min(start + len(chunk), total_ask),
+                total_ask,
+            )
 
         # Level 1: one report per function; the row id IS the function's id,
         # so it is stable for ever and references survive regeneration.
