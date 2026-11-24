@@ -78,6 +78,9 @@ export function MapHome({ isAdmin }: { isAdmin: boolean }) {
           <Link className="underline" href="/map/sources">
             Sources
           </Link>
+          <Link className="underline" href="/map/meetings">
+            Meetings
+          </Link>
           <Link className="underline" href="/map/recommendations">
             Recommendations
           </Link>

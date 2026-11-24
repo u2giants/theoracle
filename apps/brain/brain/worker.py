@@ -23,6 +23,7 @@ from brain.interview import conversation as conversation_mod
 from brain.interview.converse import handle_interview_reply
 from brain.interview.intake import close_stale_threads
 from brain.interview.tick import handle_interview_tick, maybe_queue_interview_tick
+from brain.meetings.sweep import handle_meeting_sweep, maybe_queue_meeting_sweep
 from brain.process_pass import handle_process_pass
 from brain.read.dates import handle_backfill_dates
 from brain.read.pipeline import handle_read_source
@@ -56,6 +57,7 @@ HANDLERS: dict[str, Handler] = {
     "ensure_chain": handle_ensure_chain,
     "interview_reply": handle_interview_reply,
     "intake_ingest": handle_intake_ingest,
+    "meeting_sweep": handle_meeting_sweep,
 }
 
 # Kinds whose permanent failure must still get the employee a reply (#604).
@@ -251,6 +253,10 @@ def run_worker(stop: threading.Event, lane: str = MAIN_LANE) -> None:
                 maybe_queue_intake()
             except Exception as exc:
                 logger.warning("message intake scheduling failed: %s", exc)
+            try:
+                maybe_queue_meeting_sweep()
+            except Exception as exc:
+                logger.warning("meeting sweep scheduling failed: %s", exc)
             try:
                 maybe_queue_ensure_chain()
             except Exception as exc:
