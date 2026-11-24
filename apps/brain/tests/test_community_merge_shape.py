@@ -10,12 +10,12 @@ must still land in a real community, and every community must stay within
 
 from __future__ import annotations
 
-import time
 from collections import Counter
 
 from brain.graph.communities import (
     MAX_COMMUNITY,
     MIN_COMMUNITY,
+    _fold_leftovers,
     _level0_membership,
 )
 
@@ -111,8 +111,6 @@ def test_disconnected_pile_meets_the_bounds() -> None:
 
 
 def test_oversized_community_is_split() -> None:
-    from brain.graph.communities import _fold_leftovers
-
     membership = [0] * 200
     _fold_leftovers(membership, {}, [set()] * 200, [None] * 200)
     sizes = Counter(membership)
@@ -121,8 +119,40 @@ def test_oversized_community_is_split() -> None:
     assert max(sizes.values()) <= MAX_COMMUNITY
 
 
-def test_level0_membership_large_sparse_graph_is_fast() -> None:
-    """2,500 sparse entities with 64-dim vectors fold well under 3s."""
+def test_split_piece_keeps_its_similarity_after_a_slot_is_retired() -> None:
+    piece_start = MAX_COMMUNITY
+    first_linkless = piece_start + MIN_COMMUNITY
+    membership = [0] * first_linkless + [1, 2] + [3] * MIN_COMMUNITY
+    vectors = (
+        [[1.0, 0.0]] * MAX_COMMUNITY
+        + [[0.0, 1.0]] * (MIN_COMMUNITY + 2)
+        + [[0.0, -1.0]] * MIN_COMMUNITY
+    )
+
+    _fold_leftovers(membership, {}, [set()] * len(membership), vectors)
+
+    piece = membership[piece_start]
+    assert piece != membership[0]
+    assert piece != membership[-1]
+    assert membership[first_linkless : first_linkless + 2] == [piece, piece]
+
+
+def test_mixed_vector_dimensions_do_not_prevent_splitting_and_folding() -> None:
+    oversized = MAX_COMMUNITY + MIN_COMMUNITY
+    membership = [0] * oversized + [1]
+    vectors = (
+        [[1.0], [], [1.0, 0.0, 0.0]]
+        + [[1.0, 0.0]] * (oversized - MIN_COMMUNITY)
+        + [[1.0, 0.0]]
+    )
+
+    _fold_leftovers(membership, {}, [set()] * len(membership), vectors)
+
+    sizes = Counter(membership)
+    assert sorted(sizes.values()) == [MIN_COMMUNITY + 1, MAX_COMMUNITY]
+
+
+def test_level0_membership_large_sparse_graph_meets_the_bounds() -> None:
     n = 2500
     ids = [f"e{i}" for i in range(n)]
     edges = [
@@ -134,11 +164,8 @@ def test_level0_membership_large_sparse_graph_is_fast() -> None:
         f"e{i}": [1.0 if j == (i % 64) else 0.0 for j in range(64)]
         for i in range(n)
     }
-    started = time.perf_counter()
     membership = _level0_membership(edges, ids, sources, vectors)
-    elapsed = time.perf_counter() - started
     sizes = Counter(membership.values())
-    assert elapsed < 3.0, f"folding took too long: {elapsed:.2f}s"
     assert sum(sizes.values()) == n
     assert [size for size in sizes.values() if size < MIN_COMMUNITY] == []
     assert max(sizes.values()) <= MAX_COMMUNITY

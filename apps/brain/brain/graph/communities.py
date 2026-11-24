@@ -43,6 +43,7 @@ import logging
 import math
 import re
 import uuid
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -740,11 +741,14 @@ def _fold_leftovers(
         for source_id in srcs:
             src_vertices.setdefault(source_id, []).append(vertex)
     has_sources = bool(src_vertices)
-    vec_dim = next((len(v) for v in entity_vectors if v is not None), 0)
+    # Cosine comparisons require a common embedding dimension. A malformed
+    # vector should leave its entity eligible for folding by other signals.
+    dimensions = Counter(len(vector) for vector in entity_vectors if vector)
+    vec_dim = dimensions.most_common(1)[0][0] if dimensions else 0
     has_vectors = vec_dim > 0
     vec_arrays = (
         [
-            np.asarray(v, dtype=np.float64) if v is not None else None
+            np.asarray(v, dtype=np.float64) if v and len(v) == vec_dim else None
             for v in entity_vectors
         ]
         if has_vectors
@@ -865,9 +869,10 @@ def _fold_leftovers(
         centre = _centroid(community) if has_vectors else None
 
         def _central(vertex: int) -> float:
-            if centre is None or entity_vectors[vertex] is None:
+            vector = entity_vectors[vertex]
+            if centre is None or vector is None or len(vector) != vec_dim:
                 return 0.0
-            return _cosine(entity_vectors[vertex], centre)
+            return _cosine(vector, centre)
 
         ordered = sorted(members, key=lambda vertex: (-_central(vertex), vertex))
         size = len(ordered)
