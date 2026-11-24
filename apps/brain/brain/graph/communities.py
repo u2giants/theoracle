@@ -37,6 +37,7 @@ report that lists it.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
@@ -60,7 +61,7 @@ from brain.contradictions import CONFLICT_KINDS, MAX_DISAGREEMENTS, disagreement
 from brain.db import enqueue_job, get_pool
 from brain.embed import embed_texts, vector_literal
 from brain.graph.project import _load_edges, _load_entities
-from brain.lang import detect_language
+from brain.lang import detect_language, looks_english
 from brain.resolve.resolve import FrontierCapReached, _Frontier
 from brain.translate import ensure_english_question, upsert_translation
 
@@ -88,8 +89,8 @@ MAX_QUOTES_IN_CONTEXT = 25
 MAX_L1_CHILDREN = 40
 ROLLUP_GROUP_SIZE = 10
 MAX_L2_FINDINGS_PER_FUNCTION = 3
-REPORT_WORKERS = 12
-L0_ASK_CHUNK = 24
+REPORT_WORKERS = 32
+L0_ASK_CHUNK = 64
 # Repair C3: a level-0 cluster continues the previous build's cluster with the
 # highest Jaccard overlap at or above this threshold (same function only).
 CLUSTER_MATCH_MIN_JACCARD = 0.5
@@ -120,10 +121,15 @@ def _cosine(first: list[float], second: list[float]) -> float:
     return dot / (norm_first * norm_second)
 
 
+@functools.lru_cache(maxsize=1)
+def _encoder() -> tiktoken.Encoding:
+    """Cached cl100k_base tokenizer (get_encoding takes a lock/filesystem check otherwise)."""
+    return tiktoken.get_encoding("cl100k_base")
+
+
 def _tokens(text: str) -> int:
     """Approximate token count with the cl100k tokenizer."""
-    encoder = tiktoken.get_encoding("cl100k_base")
-    return len(encoder.encode(text, disallowed_special=()))
+    return len(_encoder().encode(text, disallowed_special=()))
 
 
 def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> tuple[str, bool]:
@@ -156,10 +162,18 @@ def _fit(lines: list[str], frontier: _Frontier, _round: int = 0) -> tuple[str, b
             cut,
         )
         return fitted, cut
-    summaries = [
-        _ask_summary(frontier, "\n".join(batch))
-        for batch in _batch_lines(lines, max(64, MAX_CONTEXT_TOKENS // 2))
-    ]
+    batches = _batch_lines(lines, max(64, MAX_CONTEXT_TOKENS // 2))
+    if len(batches) <= 1:
+        summaries = [_ask_summary(frontier, "\n".join(batch)) for batch in batches]
+    else:
+        summaries = [""] * len(batches)
+        with ThreadPoolExecutor(max_workers=min(REPORT_WORKERS, len(batches))) as pool:
+            futures = {
+                pool.submit(_ask_summary, frontier, "\n".join(batch)): index
+                for index, batch in enumerate(batches)
+            }
+            for future in as_completed(futures):
+                summaries[futures[future]] = future.result()
     combined = [
         "COMBINED SUMMARIES (the full DATA below was summarised in batches; "
         "nothing was dropped):"
@@ -1080,6 +1094,56 @@ def _entity_vectors(conn: psycopg.Connection) -> dict[str, list[float]]:
     return out
 
 
+def _pick_quotes_from_rows(
+    rows: Sequence[tuple[str, str, str]],
+) -> list[dict[str, Any]]:
+    """Up to MAX_QUOTES_IN_CONTEXT quotes, preferring different sources."""
+    deduped: dict[str, tuple[str, str, str]] = {}
+    for quote, title, source_id in rows:
+        q_str = str(quote)
+        t_str = str(title)
+        s_str = str(source_id)
+        existing = deduped.get(q_str)
+        if existing is None or t_str < existing[1]:
+            deduped[q_str] = (q_str, t_str, s_str)
+    ordered = sorted(deduped.values(), key=lambda item: (item[0], item[1]))
+    picked: list[dict[str, Any]] = []
+    seen_sources: set[str] = set()
+    for quote, title, source_id in ordered:
+        if source_id not in seen_sources and len(picked) < MAX_QUOTES_IN_CONTEXT:
+            seen_sources.add(source_id)
+            picked.append({"quote": quote, "title": title, "source_id": source_id})
+    for quote, title, source_id in ordered:
+        if len(picked) >= MAX_QUOTES_IN_CONTEXT:
+            break
+        item = {"quote": quote, "title": title, "source_id": source_id}
+        if item not in picked:
+            picked.append(item)
+    return picked
+
+
+def _quote_rows_bulk(
+    conn: psycopg.Connection, entity_ids: list[str]
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Load quote rows for a batch of entity ids in one SQL query."""
+    out: dict[str, list[tuple[str, str, str]]] = {}
+    if not entity_ids:
+        return out
+    rows = conn.execute(
+        "SELECT DISTINCT ON (m.entity_id, m.quote) "
+        "m.entity_id::text, m.quote, s.title, ch.source_id::text "
+        "FROM cmap.mention m "
+        "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
+        "JOIN cmap.source s ON s.id = ch.source_id "
+        "WHERE m.entity_id = ANY(%s::uuid[]) AND s.map_eligible = true "
+        "ORDER BY m.entity_id, m.quote, s.title",
+        (entity_ids,),
+    ).fetchall()
+    for eid, quote, title, source_id in rows:
+        out.setdefault(str(eid), []).append((str(quote), str(title), str(source_id)))
+    return out
+
+
 def _quote_rows(
     conn: psycopg.Connection, entity_ids: list[str]
 ) -> list[dict[str, Any]]:
@@ -1093,20 +1157,9 @@ def _quote_rows(
         "ORDER BY m.quote, s.title",
         (entity_ids,),
     ).fetchall()
-    picked: list[dict[str, Any]] = []
-    seen_sources: set[str] = set()
-    for quote, title, source_id in rows:
-        key = str(source_id)
-        if key not in seen_sources and len(picked) < MAX_QUOTES_IN_CONTEXT:
-            seen_sources.add(key)
-            picked.append({"quote": str(quote), "title": str(title), "source_id": key})
-    for quote, title, source_id in rows:
-        if len(picked) >= MAX_QUOTES_IN_CONTEXT:
-            break
-        item = {"quote": str(quote), "title": str(title), "source_id": str(source_id)}
-        if item not in picked:
-            picked.append(item)
-    return picked
+    return _pick_quotes_from_rows(
+        [(str(quote), str(title), str(source_id)) for quote, title, source_id in rows]
+    )
 
 
 def _load_disagreements_by_entity(conn: psycopg.Connection) -> dict[str, list[str]]:
@@ -1138,21 +1191,17 @@ def _load_disagreements_by_entity(conn: psycopg.Connection) -> dict[str, list[st
     return out
 
 
-def _context_l0(
+def _context_l0_lines(
     conn: psycopg.Connection,
     members: list[dict[str, Any]],
     edges: list[dict[str, Any]],
-    frontier: _Frontier,
     function_name: str | None = None,
     handoffs: list[str] | None = None,
     edges_by_entity: dict[str, list[dict[str, Any]]] | None = None,
     disagreements_by_entity: dict[str, list[str]] | None = None,
-) -> tuple[str, bool]:
-    """Entity list, top edges, boundary hand-offs and quotes for one community.
-
-    Returns the context and whether the token-budget hard fallback cut it
-    (#586) — the report is then stored ``incomplete``.
-    """
+    quotes_by_entity: dict[str, list[tuple[str, str, str]]] | None = None,
+) -> list[str]:
+    """Build raw L0 context lines before token fitting."""
     member_ids = {member["id"] for member in members}
     names = {member["id"]: member["name"] for member in members}
     lines = []
@@ -1198,7 +1247,13 @@ def _context_l0(
             "out leaves the area, in arrives):"
         )
         lines.extend(handoffs)
-    quotes = _quote_rows(conn, [member["id"] for member in members])
+    if quotes_by_entity is not None:
+        raw_quotes: list[tuple[str, str, str]] = []
+        for member in members:
+            raw_quotes.extend(quotes_by_entity.get(member["id"], ()))
+        quotes = _pick_quotes_from_rows(raw_quotes)
+    else:
+        quotes = _quote_rows(conn, [member["id"] for member in members])
     lines.append("SOURCES (findings must cite these ids):")
     seen: dict[str, str] = {}
     for item in quotes:
@@ -1228,6 +1283,33 @@ def _context_l0(
         )
         for line in disagreements:
             lines.append(f"- {line}")
+    return lines
+
+
+def _context_l0(
+    conn: psycopg.Connection,
+    members: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    frontier: _Frontier,
+    function_name: str | None = None,
+    handoffs: list[str] | None = None,
+    edges_by_entity: dict[str, list[dict[str, Any]]] | None = None,
+    disagreements_by_entity: dict[str, list[str]] | None = None,
+) -> tuple[str, bool]:
+    """Entity list, top edges, boundary hand-offs and quotes for one community.
+
+    Returns the context and whether the token-budget hard fallback cut it
+    (#586) — the report is then stored ``incomplete``.
+    """
+    lines = _context_l0_lines(
+        conn,
+        members,
+        edges,
+        function_name=function_name,
+        handoffs=handoffs,
+        edges_by_entity=edges_by_entity,
+        disagreements_by_entity=disagreements_by_entity,
+    )
     return _fit(lines, frontier)
 
 
@@ -1392,11 +1474,27 @@ def _context_reports(
             rows,
             key=lambda r: (str(r.get("title") or ""), str(r.get("summary") or "")[:80]),
         )
-        for group_idx in range(0, len(ordered), ROLLUP_GROUP_SIZE):
-            group = ordered[group_idx : group_idx + ROLLUP_GROUP_SIZE]
-            group_lines = _render_report_block(
-                group, uuid_to_alias, max_findings_per_row=max_findings_per_row
+        groups = [
+            ordered[group_idx : group_idx + ROLLUP_GROUP_SIZE]
+            for group_idx in range(0, len(ordered), ROLLUP_GROUP_SIZE)
+        ]
+        group_texts = [
+            "\n".join(
+                _render_report_block(
+                    group, uuid_to_alias, max_findings_per_row=max_findings_per_row
+                )
             )
+            for group in groups
+        ]
+        summaries = [""] * len(groups)
+        with ThreadPoolExecutor(max_workers=min(REPORT_WORKERS, len(groups))) as pool:
+            futures = {
+                pool.submit(_ask_summary, frontier, text): idx
+                for idx, text in enumerate(group_texts)
+            }
+            for future in as_completed(futures):
+                summaries[futures[future]] = future.result()
+        for idx, (group, summary) in enumerate(zip(groups, summaries, strict=True)):
             group_aliases = sorted(
                 {
                     uuid_to_alias.get(str(sid), str(sid))
@@ -1405,11 +1503,10 @@ def _context_reports(
                     if str(sid).strip()
                 }
             )
-            summary = _ask_summary(frontier, "\n".join(group_lines))
             titles = "; ".join(str(r.get("title") or "Area") for r in group[:4])
             if len(group) > 4:
                 titles += f" (+{len(group) - 4} more)"
-            lines.append(f"## Group {group_idx // ROLLUP_GROUP_SIZE + 1}: {titles}")
+            lines.append(f"## Group {idx + 1}: {titles}")
             lines.append(summary)
             lines.append(f"sources: {', '.join(group_aliases)}")
     else:
@@ -1600,55 +1697,124 @@ def _area_people(conn: psycopg.Connection, entity_ids: list[str]) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-def vet_questions(
+def _area_people_bulk(conn: psycopg.Connection, entity_ids: list[str]) -> dict[str, str]:
+    """Map Person entity id -> canonical_name for a batch of entity ids."""
+    if not entity_ids:
+        return {}
+    rows = conn.execute(
+        "SELECT id::text, canonical_name FROM cmap.entity WHERE entity_type = 'Person' "
+        "AND id = ANY(%s::uuid[])",
+        (entity_ids,),
+    ).fetchall()
+    return {str(eid): str(name) for eid, name in rows}
+
+
+def _vet_question_groups(
     conn: psycopg.Connection,
-    questions: list[str],
-    people: list[str],
+    groups: list[tuple[list[str], list[str]]],
     frontier: _Frontier,
     settings: Settings,
-) -> dict[str, dict[str, Any]]:
-    """Vet candidate questions against everything the brain knows.
-
-    Returns ``{question: {answered, importance, person, department}}`` for the
-    questions the check actually judged. A question missing from the result
-    was not checked (model or embedding failure) and must not be stored.
-    """
-    if not questions:
-        return {}
+    *,
+    departments: list[str] | None = None,
+) -> list[dict[str, dict[str, Any]]]:
+    """Vet candidate questions across multiple areas with bulk embeddings and parallel batches."""
+    out: list[dict[str, dict[str, Any]]] = [{} for _ in groups]
+    unique_questions: list[str] = []
+    seen_q: set[str] = set()
+    for questions, _people in groups:
+        for question in questions:
+            if question not in seen_q:
+                seen_q.add(question)
+                unique_questions.append(question)
+    if not unique_questions:
+        return out
     try:
-        vectors = embed_texts(questions, settings)
+        vectors = embed_texts(unique_questions, settings)
     except Exception:  # noqa: BLE001 - never fail the run
-        logger.warning("question vetting could not embed %d questions", len(questions))
-        return {}
-    departments = _departments(conn)
-    template = (
-        KNOWLEDGE_PROMPT_PATH.read_text(encoding="utf-8")
-        .replace("{{people}}", "\n".join(people) or "(none)")
-        .replace("{{departments}}", "\n".join(departments) or "(none)")
+        logger.warning(
+            "question vetting could not embed %d questions", len(unique_questions)
+        )
+        return out
+
+    passages_by_q: dict[str, str] = {}
+    for question, vector in zip(unique_questions, vectors, strict=True):
+        passages = "\n".join(
+            f"  - {text}" for text in _closest_passages(conn, vector)
+        )
+        passages_by_q[question] = passages or "  (no passages)"
+
+    dept_list = _departments(conn) if departments is None else departments
+    by_lower = {dep.lower(): dep for dep in dept_list}
+    raw_template = KNOWLEDGE_PROMPT_PATH.read_text(encoding="utf-8").replace(
+        "{{departments}}", "\n".join(dept_list) or "(none)"
     )
-    by_lower = {dep.lower(): dep for dep in departments}
-    people_lower = {name.lower(): name for name in people}
-    out: dict[str, dict[str, Any]] = {}
-    for start in range(0, len(questions), CHECK_BATCH):
-        batch = questions[start : start + CHECK_BATCH]
-        blocks = []
-        for number, (question, vector) in enumerate(
-            zip(batch, vectors[start : start + CHECK_BATCH], strict=True), start=1
-        ):
-            passages = "\n".join(
-                f"  - {text}" for text in _closest_passages(conn, vector)
+
+    by_people: dict[tuple[str, ...], list[tuple[int, str]]] = {}
+    for group_idx, (questions, people) in enumerate(groups):
+        if not questions:
+            continue
+        people_key = tuple(people)
+        bucket = by_people.setdefault(people_key, [])
+        for question in questions:
+            bucket.append((group_idx, question))
+
+    tasks: list[tuple[tuple[str, ...], list[tuple[int, str]], str]] = []
+    for people_key, items in by_people.items():
+        template = raw_template.replace(
+            "{{people}}", "\n".join(people_key) or "(none)"
+        )
+        for start in range(0, len(items), CHECK_BATCH):
+            batch_items = items[start : start + CHECK_BATCH]
+            blocks = [
+                f"{number}. {question}\n{passages_by_q[question]}"
+                for number, (_gidx, question) in enumerate(batch_items, start=1)
+            ]
+            tasks.append(
+                (
+                    people_key,
+                    batch_items,
+                    template.replace("{{candidates}}", "\n\n".join(blocks)),
+                )
             )
-            blocks.append(f"{number}. {question}\n{passages or '  (no passages)'}")
+
+    if not tasks:
+        return out
+
+    responses: list[dict[str, Any] | None] = [None] * len(tasks)
+    if len(tasks) == 1:
         try:
-            result = frontier.ask(
-                template.replace("{{candidates}}", "\n\n".join(blocks))
-            )
+            responses[0] = frontier.ask(tasks[0][2])
+        except FrontierCapReached:
+            raise
         except Exception:  # noqa: BLE001 - never fail the run
-            logger.warning("question vetting failed for %d questions", len(batch))
+            logger.warning("question vetting failed for %d questions", len(tasks[0][1]))
+    else:
+        with ThreadPoolExecutor(max_workers=min(REPORT_WORKERS, len(tasks))) as pool:
+            futures = {
+                pool.submit(frontier.ask, prompt): idx
+                for idx, (_pk, _items, prompt) in enumerate(tasks)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                try:
+                    responses[idx] = future.result()
+                except FrontierCapReached:
+                    raise
+                except Exception:  # noqa: BLE001 - never fail the run
+                    logger.warning(
+                        "question vetting failed for %d questions",
+                        len(tasks[idx][1]),
+                    )
+
+    for (people_key, batch_items, _prompt), result in zip(
+        tasks, responses, strict=True
+    ):
+        if not isinstance(result, dict):
             continue
         results = result.get("results")
         if not isinstance(results, list):
             continue
+        people_lower = {name.lower(): name for name in people_key}
         for item in results:
             if not isinstance(item, dict):
                 continue
@@ -1657,9 +1823,10 @@ def vet_questions(
                 importance = int(item.get("importance"))
             except (TypeError, ValueError):
                 continue
-            if not 1 <= number <= len(batch):
+            if not 1 <= number <= len(batch_items):
                 continue
-            out[batch[number - 1]] = {
+            group_idx, question = batch_items[number - 1]
+            out[group_idx][question] = {
                 "answered": bool(item.get("answered")),
                 "importance": max(1, min(5, importance)),
                 "person": people_lower.get(
@@ -1670,6 +1837,32 @@ def vet_questions(
                 ),
             }
     return out
+
+
+def vet_questions(
+    conn: psycopg.Connection,
+    questions: list[str],
+    people: list[str],
+    frontier: _Frontier,
+    settings: Settings,
+    *,
+    departments: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Vet candidate questions against everything the brain knows.
+
+    Returns ``{question: {answered, importance, person, department}}`` for the
+    questions the check actually judged. A question missing from the result
+    was not checked (model or embedding failure) and must not be stored.
+    """
+    if not questions:
+        return {}
+    return _vet_question_groups(
+        conn,
+        [(questions, people)],
+        frontier,
+        settings,
+        departments=departments,
+    )[0]
 
 
 def _worth_asking(verdicts: dict[str, dict[str, Any]], limit: int) -> list[str]:
@@ -1690,45 +1883,115 @@ def _store_open_questions(
     frontier: _Frontier,
     settings: Settings,
     seen: set[str],
+    *,
+    departments: list[str] | None = None,
 ) -> int:
     """Store the report's few questions that matter and the brain cannot answer.
 
     ``seen`` holds this run's questions only, so one gap raised by several
     reports in the same run is stored once.
     """
-    fresh = []
-    for question in report["open_questions"]:
-        key = " ".join(question.lower().split())
-        if key and key not in seen:
-            seen.add(key)
-            fresh.append(question)
-    # Stored questions are English-only canon (owner 2026-11-13); anything the
-    # model wrote in another language is rewritten here, zh-CN happens at send.
-    english = []
-    for question in fresh:
-        rewritten = ensure_english_question(question, frontier.ask)
-        if rewritten:
-            english.append(rewritten)
-    verdicts = vet_questions(
-        conn, english, _area_people(conn, entity_ids), frontier, settings
+    return _store_open_questions_chunk(
+        conn,
+        [(report, entity_ids)],
+        frontier,
+        settings,
+        seen,
+        departments=departments,
+    )
+
+
+def _store_open_questions_chunk(
+    conn: psycopg.Connection,
+    entries: list[tuple[dict[str, Any], list[str]]],
+    frontier: _Frontier,
+    settings: Settings,
+    seen: set[str],
+    *,
+    departments: list[str] | None = None,
+) -> int:
+    """Store vetted open questions for a chunk of reports in batched bulk calls."""
+    if not entries:
+        return 0
+    fresh_per_entry: list[list[str]] = []
+    to_translate: list[tuple[int, int, str]] = []
+    for entry_idx, (report, _entity_ids) in enumerate(entries):
+        fresh: list[str] = []
+        for question in report["open_questions"]:
+            key = " ".join(question.lower().split())
+            if key and key not in seen:
+                seen.add(key)
+                q_text = str(question or "").strip()
+                if q_text:
+                    fresh.append(q_text)
+                    if looks_english(q_text) is not True:
+                        to_translate.append((entry_idx, len(fresh) - 1, q_text))
+        fresh_per_entry.append(fresh)
+
+    if to_translate:
+        if len(to_translate) == 1:
+            e_idx, q_idx, q_text = to_translate[0]
+            fresh_per_entry[e_idx][q_idx] = (
+                ensure_english_question(q_text, frontier.ask) or ""
+            )
+        else:
+            with ThreadPoolExecutor(
+                max_workers=min(REPORT_WORKERS, len(to_translate))
+            ) as pool:
+                futures = {
+                    pool.submit(ensure_english_question, q_text, frontier.ask): (
+                        e_idx,
+                        q_idx,
+                    )
+                    for e_idx, q_idx, q_text in to_translate
+                }
+                for future in as_completed(futures):
+                    e_idx, q_idx = futures[future]
+                    try:
+                        fresh_per_entry[e_idx][q_idx] = future.result() or ""
+                    except FrontierCapReached:
+                        raise
+
+    english_per_entry: list[list[str]] = [
+        [q for q in qs if q] for qs in fresh_per_entry
+    ]
+    all_eids = sorted(
+        {
+            str(eid)
+            for idx, (_rep, eids) in enumerate(entries)
+            if english_per_entry[idx]
+            for eid in eids
+        }
+    )
+    people_by_id = _area_people_bulk(conn, all_eids)
+    groups: list[tuple[list[str], list[str]]] = []
+    for idx, (_report, entity_ids) in enumerate(entries):
+        people = sorted(
+            {people_by_id[str(eid)] for eid in entity_ids if str(eid) in people_by_id}
+        )[:MAX_PEOPLE_IN_CHECK]
+        groups.append((english_per_entry[idx], people))
+
+    verdicts_per_entry = _vet_question_groups(
+        conn, groups, frontier, settings, departments=departments
     )
     written = 0
-    for question in _worth_asking(verdicts, MAX_QUESTIONS_PER_AREA):
-        verdict = verdicts[question]
-        conn.execute(
-            "INSERT INTO cmap.open_question "
-            "(question, why, entity_ids, state, priority, suggested_person, department) "
-            "VALUES (%s, %s, %s, 'open', %s, %s, %s)",
-            (
-                question,
-                report["title"],
-                entity_ids,
-                verdict["importance"],
-                verdict["person"] or None,
-                verdict["department"],
-            ),
-        )
-        written += 1
+    for (report, entity_ids), verdicts in zip(entries, verdicts_per_entry, strict=True):
+        for question in _worth_asking(verdicts, MAX_QUESTIONS_PER_AREA):
+            verdict = verdicts[question]
+            conn.execute(
+                "INSERT INTO cmap.open_question "
+                "(question, why, entity_ids, state, priority, suggested_person, department) "
+                "VALUES (%s, %s, %s, 'open', %s, %s, %s)",
+                (
+                    question,
+                    report["title"],
+                    entity_ids,
+                    verdict["importance"],
+                    verdict["person"] or None,
+                    verdict["department"],
+                ),
+            )
+            written += 1
     return written
 
 
@@ -1738,6 +2001,8 @@ def _refresh_open_questions(
     kept_sets: set[frozenset[str]],
     frontier: _Frontier,
     settings: Settings,
+    *,
+    departments: list[str] | None = None,
 ) -> int:
     """Retire waiting questions that no longer deserve to be asked.
 
@@ -1761,36 +2026,52 @@ def _refresh_open_questions(
             retire.append(str(qid))
         else:
             areas.setdefault(key, []).append((str(qid), str(question), list(ids or [])))
-    for members in areas.values():
-        ids_by_question: dict[str, str] = {}
-        for qid, question, _ids in members:
-            if question in ids_by_question:
-                retire.append(qid)
-            else:
-                ids_by_question[question] = qid
-        verdicts = vet_questions(
-            conn,
-            list(ids_by_question),
-            _area_people(conn, [str(item) for item in members[0][2]]),
-            frontier,
-            settings,
+    dept_list = _departments(conn) if departments is None else departments
+    area_values = list(areas.values())
+    for start in range(0, len(area_values), 64):
+        area_chunk = area_values[start : start + 64]
+        chunk_eids = sorted(
+            {str(eid) for members in area_chunk for eid in members[0][2]}
         )
-        keep = set(_worth_asking(verdicts, MAX_QUESTIONS_PER_AREA))
-        for question, verdict in verdicts.items():
-            qid = ids_by_question[question]
-            if question not in keep:
-                retire.append(qid)
-                continue
-            conn.execute(
-                "UPDATE cmap.open_question SET priority = %s, suggested_person = %s, "
-                "department = %s WHERE id = %s",
-                (
-                    verdict["importance"],
-                    verdict["person"] or None,
-                    verdict["department"],
-                    qid,
-                ),
-            )
+        people_by_id = _area_people_bulk(conn, chunk_eids)
+        groups: list[tuple[list[str], list[str]]] = []
+        chunk_maps: list[dict[str, str]] = []
+        for members in area_chunk:
+            ids_by_question: dict[str, str] = {}
+            for qid, question, _ids in members:
+                if question in ids_by_question:
+                    retire.append(qid)
+                else:
+                    ids_by_question[question] = qid
+            people = sorted(
+                {
+                    people_by_id[str(eid)]
+                    for eid in members[0][2]
+                    if str(eid) in people_by_id
+                }
+            )[:MAX_PEOPLE_IN_CHECK]
+            groups.append((list(ids_by_question), people))
+            chunk_maps.append(ids_by_question)
+        verdicts_chunk = _vet_question_groups(
+            conn, groups, frontier, settings, departments=dept_list
+        )
+        for ids_by_question, verdicts in zip(chunk_maps, verdicts_chunk, strict=True):
+            keep = set(_worth_asking(verdicts, MAX_QUESTIONS_PER_AREA))
+            for question, verdict in verdicts.items():
+                qid = ids_by_question[question]
+                if question not in keep:
+                    retire.append(qid)
+                    continue
+                conn.execute(
+                    "UPDATE cmap.open_question SET priority = %s, suggested_person = %s, "
+                    "department = %s WHERE id = %s",
+                    (
+                        verdict["importance"],
+                        verdict["person"] or None,
+                        verdict["department"],
+                        qid,
+                    ),
+                )
         conn.commit()
     if retire:
         conn.execute(
@@ -2067,6 +2348,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         # committing chunk by chunk so progress survives restarts and memory
         # stays bounded.
         disagreements_by_entity = _load_disagreements_by_entity(conn)
+        departments = _departments(conn)
         for cluster in clusters:
             if not cluster["reuse"]:
                 continue
@@ -2086,24 +2368,45 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
         total_ask = len(ask_items)
         for start in range(0, total_ask, L0_ASK_CHUNK):
             chunk = ask_items[start : start + L0_ASK_CHUNK]
-            chunk_contexts: list[str] = []
-            for cluster in chunk:
-                context, incomplete = _context_l0(
+            chunk_eids = sorted(
+                {eid for cluster in chunk for eid in cluster["member_ids"]}
+            )
+            quotes_by_entity = _quote_rows_bulk(conn, chunk_eids)
+            raw_lines_list = [
+                _context_l0_lines(
                     conn,
                     cluster["members"],
                     edges,
-                    frontier,
                     function_name=cluster["function_name"],
                     handoffs=cluster["handoffs"],
                     edges_by_entity=edges_by_entity,
                     disagreements_by_entity=disagreements_by_entity,
+                    quotes_by_entity=quotes_by_entity,
                 )
+                for cluster in chunk
+            ]
+            fit_results: list[tuple[str, bool]] = [("", False)] * len(chunk)
+            if len(chunk) == 1:
+                fit_results[0] = _fit(raw_lines_list[0], frontier)
+            else:
+                with ThreadPoolExecutor(
+                    max_workers=min(REPORT_WORKERS, len(chunk))
+                ) as pool:
+                    futures = {
+                        pool.submit(_fit, lines, frontier): idx
+                        for idx, lines in enumerate(raw_lines_list)
+                    }
+                    for future in as_completed(futures):
+                        fit_results[futures[future]] = future.result()
+            chunk_contexts: list[str] = []
+            for cluster, (context, incomplete) in zip(chunk, fit_results, strict=True):
                 chunk_contexts.append(context)
                 cluster["context_incomplete"] = incomplete
             asked = _ask_many(
                 frontier,
                 [(SCOPE_L0, "", context) for context in chunk_contexts],
             )
+            question_entries: list[tuple[dict[str, Any], list[str]]] = []
             for cluster, report in zip(chunk, asked, strict=True):
                 if report is None:
                     # A failed child leaves no row; its parents are regenerated
@@ -2127,13 +2430,19 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
                     title_override=cluster["title_override"],
                 )
                 stats["findings_dropped"] += dropped
-                stats["open_questions"] += _store_open_questions(
-                    conn, report, cluster["member_ids"], frontier, cfg, seen_questions
-                )
+                question_entries.append((report, cluster["member_ids"]))
                 cluster["row_id"] = row_id
                 cluster["summary"] = _summary_of(report)
                 cluster["kept"] = True
                 stats["reports"] += 1
+            stats["open_questions"] += _store_open_questions_chunk(
+                conn,
+                question_entries,
+                frontier,
+                cfg,
+                seen_questions,
+                departments=departments,
+            )
             conn.commit()
             logger.info(
                 "communities l0 progress: %d/%d",
@@ -2239,7 +2548,13 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             )
             stats["findings_dropped"] += dropped
             stats["open_questions"] += _store_open_questions(
-                conn, report, member_ids, frontier, cfg, seen_questions
+                conn,
+                report,
+                member_ids,
+                frontier,
+                cfg,
+                seen_questions,
+                departments=departments,
             )
             conn.commit()
             level1_rows[function_id] = row_id
@@ -2319,7 +2634,13 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             )
             stats["findings_dropped"] += dropped
             stats["open_questions"] += _store_open_questions(
-                conn, company, entity_ids, frontier, cfg, seen_questions
+                conn,
+                company,
+                entity_ids,
+                frontier,
+                cfg,
+                seen_questions,
+                departments=departments,
             )
             conn.commit()
         stats["reports"] += 1
@@ -2354,7 +2675,7 @@ def run_communities(settings: Settings | None = None) -> dict[str, Any]:
             )
         conn.commit()
         stats["open_questions_retired"] = _refresh_open_questions(
-            conn, run_started, kept_sets, frontier, cfg
+            conn, run_started, kept_sets, frontier, cfg, departments=departments
         )
         if cfg.brain_community_prune_enabled:
             selected = [
