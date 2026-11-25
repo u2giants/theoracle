@@ -9,23 +9,24 @@ from fastapi.testclient import TestClient
 
 ADMIN_ID = "00000000-0000-4000-8000-0000000000a1"
 EMPLOYEE_ID = "00000000-0000-4000-8000-0000000000b1"
-SECOND_EMPLOYEE_ID = "00000000-0000-4000-8000-0000000000c1"
-SECOND_AUTH_ID = "00000000-0000-4000-8000-0000000000c2"
+SECOND_EMPLOYEE_ID = "00000000-0000-4000-8000-000000000e01"
+SECOND_AUTH_ID = "00000000-0000-4000-8000-000000000e02"
+SECOND_IDENTITY_ID = "00000000-0000-4000-8000-000000000e03"
 SECOND_HEADERS = {"x-brain-token": "brain-test-token", "x-user-id": SECOND_AUTH_ID}
 
 
 def _seed_second_employee(db: Any) -> None:
     db.execute(
         "INSERT INTO public.employees (id, email, name, role, is_admin) "
-        "VALUES (%s, 'second@test.invalid', 'Second Employee', 'Licensing', false) "
+        "VALUES (%s, 'second-corr@test.invalid', 'Second Employee', 'Licensing', false) "
         "ON CONFLICT (id) DO NOTHING",
         (SECOND_EMPLOYEE_ID,),
     )
     db.execute(
         "INSERT INTO public.employee_identities (id, employee_id, auth_user_id) "
-        "VALUES ('00000000-0000-4000-8000-0000000000c3', %s, %s) "
+        "VALUES (%s, %s, %s) "
         "ON CONFLICT (id) DO NOTHING",
-        (SECOND_EMPLOYEE_ID, SECOND_AUTH_ID),
+        (SECOND_IDENTITY_ID, SECOND_EMPLOYEE_ID, SECOND_AUTH_ID),
     )
     db.commit()
 
