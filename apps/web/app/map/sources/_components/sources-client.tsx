@@ -14,6 +14,9 @@ type VersionLink = {
   decided: boolean;
 };
 
+type SourceRole = 'ideal_policy' | 'observed_practice' | 'reference';
+type AuthorityTier = 'authoritative' | 'standard';
+
 type SourceRow = {
   id: string;
   kind: string;
@@ -22,11 +25,19 @@ type SourceRow = {
   bytes: number;
   department_hint: string | null;
   effective_date: string | null;
+  source_role?: SourceRole;
+  authority_tier?: AuthorityTier;
   read_state: 'queued' | 'reading' | 'extracting' | 'read' | 'partial' | 'failed';
   read_error: string | null;
   created_at: string | null;
   superseded_by: VersionLink[];
   supersedes: VersionLink[];
+};
+
+const SOURCE_ROLE_LABELS: Record<SourceRole, string> = {
+  ideal_policy: 'Ideal policy',
+  observed_practice: 'Observed practice',
+  reference: 'Reference',
 };
 
 type LogLine = { text: string; ok: boolean };
@@ -52,12 +63,16 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [busy, setBusy] = useState<'idle' | 'upload' | 'transcript' | 'delete' | 'version'>(
-    'idle',
-  );
+  const [busy, setBusy] = useState<
+    'idle' | 'upload' | 'transcript' | 'delete' | 'version' | 'authority'
+  >('idle');
   const [log, setLog] = useState<LogLine[]>([]);
+  const [uploadRole, setUploadRole] = useState<SourceRole>('observed_practice');
+  const [uploadTier, setUploadTier] = useState<AuthorityTier>('standard');
   const [transcriptTitle, setTranscriptTitle] = useState('');
   const [transcriptText, setTranscriptText] = useState('');
+  const [transcriptRole, setTranscriptRole] = useState<SourceRole>('observed_practice');
+  const [transcriptTier, setTranscriptTier] = useState<AuthorityTier>('standard');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fetchSources = useCallback(async (): Promise<{
@@ -119,6 +134,8 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
     for (const file of files) {
       const form = new FormData();
       form.append('file', file, file.name);
+      form.append('source_role', uploadRole);
+      form.append('authority_tier', uploadTier);
       try {
         const response = await fetch('/api/brain/sources', {
           method: 'POST',
@@ -158,6 +175,8 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
         body: JSON.stringify({
           text: transcriptText,
           title: transcriptTitle.trim() || undefined,
+          source_role: transcriptRole,
+          authority_tier: transcriptTier,
         }),
       });
       const body = await response.json().catch(() => ({}));
@@ -241,6 +260,31 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
     await refresh();
   }
 
+  async function updateAuthority(
+    id: string,
+    title: string,
+    patch: { source_role?: SourceRole; authority_tier?: AuthorityTier },
+  ) {
+    setBusy('authority');
+    try {
+      const response = await fetch(`/api/brain/sources/${id}/authority`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        appendLog(body.detail ?? body.error ?? `${title}: authority update failed`, false);
+      } else {
+        appendLog(`${title}: source scoring updated`, true);
+      }
+    } catch {
+      appendLog(`${title}: authority update failed`, false);
+    }
+    setBusy('idle');
+    await refresh();
+  }
+
   return (
     <div className="space-y-6">
       <Card>
@@ -290,6 +334,31 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
               ))}
             </ul>
           )}
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              <span className="text-muted-foreground">Role</span>
+              <select
+                className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                value={uploadRole}
+                onChange={(event) => setUploadRole(event.target.value as SourceRole)}
+              >
+                <option value="observed_practice">Observed practice</option>
+                <option value="ideal_policy">Ideal policy</option>
+                <option value="reference">Reference</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-muted-foreground">Authority</span>
+              <select
+                className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                value={uploadTier}
+                onChange={(event) => setUploadTier(event.target.value as AuthorityTier)}
+              >
+                <option value="standard">Standard</option>
+                <option value="authoritative">Authoritative</option>
+              </select>
+            </label>
+          </div>
           <Button onClick={uploadFiles} disabled={files.length === 0 || busy !== 'idle'}>
             {busy === 'upload' ? 'Uploading…' : `Upload ${files.length || ''} file(s)`}
           </Button>
@@ -316,6 +385,31 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
             value={transcriptText}
             onChange={(event) => setTranscriptText(event.target.value)}
           />
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              <span className="text-muted-foreground">Role</span>
+              <select
+                className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                value={transcriptRole}
+                onChange={(event) => setTranscriptRole(event.target.value as SourceRole)}
+              >
+                <option value="observed_practice">Observed practice</option>
+                <option value="ideal_policy">Ideal policy</option>
+                <option value="reference">Reference</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-muted-foreground">Authority</span>
+              <select
+                className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                value={transcriptTier}
+                onChange={(event) => setTranscriptTier(event.target.value as AuthorityTier)}
+              >
+                <option value="standard">Standard</option>
+                <option value="authoritative">Authoritative</option>
+              </select>
+            </label>
+          </div>
           <Button
             onClick={submitTranscript}
             disabled={transcriptText.trim().length === 0 || busy !== 'idle'}
@@ -388,6 +482,7 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="py-2 pr-3 font-medium">Title</th>
                     <th className="py-2 pr-3 font-medium">Kind</th>
+                    <th className="py-2 pr-3 font-medium">Authority</th>
                     <th className="py-2 pr-3 font-medium">Read state</th>
                     <th className="py-2 pr-3 font-medium">Department</th>
                     <th className="py-2 pr-3 font-medium">Size</th>
@@ -452,6 +547,56 @@ export function SourcesClient({ isAdmin }: { isAdmin: boolean }) {
                         ))}
                       </td>
                       <td className="py-2 pr-3 capitalize">{source.kind}</td>
+                      <td className="py-2 pr-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={cn(
+                              'rounded-full px-2 py-0.5 text-xs font-medium',
+                              source.authority_tier === 'authoritative'
+                                ? 'bg-indigo-100 text-indigo-900'
+                                : 'bg-muted text-muted-foreground',
+                            )}
+                          >
+                            {source.authority_tier === 'authoritative' ? 'Authoritative' : 'Standard'}
+                          </span>
+                          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+                            {SOURCE_ROLE_LABELS[source.source_role ?? 'observed_practice']}
+                          </span>
+                        </div>
+                        {isAdmin && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
+                            <select
+                              aria-label={`Role for ${source.title}`}
+                              className="rounded border border-input bg-background px-1.5 py-0.5 text-xs"
+                              disabled={busy !== 'idle'}
+                              value={source.source_role ?? 'observed_practice'}
+                              onChange={(event) =>
+                                updateAuthority(source.id, source.title, {
+                                  source_role: event.target.value as SourceRole,
+                                })
+                              }
+                            >
+                              <option value="observed_practice">Observed practice</option>
+                              <option value="ideal_policy">Ideal policy</option>
+                              <option value="reference">Reference</option>
+                            </select>
+                            <select
+                              aria-label={`Authority for ${source.title}`}
+                              className="rounded border border-input bg-background px-1.5 py-0.5 text-xs"
+                              disabled={busy !== 'idle'}
+                              value={source.authority_tier ?? 'standard'}
+                              onChange={(event) =>
+                                updateAuthority(source.id, source.title, {
+                                  authority_tier: event.target.value as AuthorityTier,
+                                })
+                              }
+                            >
+                              <option value="standard">Standard</option>
+                              <option value="authoritative">Authoritative</option>
+                            </select>
+                          </div>
+                        )}
+                      </td>
                       <td className="py-2 pr-3">
                         <span
                           className={cn(

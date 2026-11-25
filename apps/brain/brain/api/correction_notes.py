@@ -275,6 +275,8 @@ def apply_correction_note(
         effective_date=datetime.now(EASTERN).date(),
         date_origin=ORIGIN_ADMIN,
         uploaded_by=user.auth_user_id,
+        source_role="ideal_policy",
+        authority_tier="authoritative",
     )
     source_id = str(ingested["id"])
 

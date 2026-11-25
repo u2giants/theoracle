@@ -87,6 +87,7 @@ from brain.graph.communities import EDGE_KIND_WEIGHTS, _tokens, edge_rank
 from brain.graph.project import connect as connect_graph
 from brain.graph.version import current_graph_version
 from brain.llm import post_chat_with_rescue
+from brain.scoring import format_source_tag
 from brain.seats import stage_model
 from brain.text_util import fold_key, sentence_slices
 from brain.versions import superseded_source_ids
@@ -1124,7 +1125,8 @@ def _graph_context(
     edge_rows = graph.query(
         "MATCH (a:Entity)-[r]->(b:Entity) "
         "WHERE a.id IN $ids AND b.id IN $ids "
-        "RETURN a.id, b.id, type(r), r.weight, r.descriptions, r.stances, r.source_refs",
+        "RETURN a.id, b.id, type(r), r.weight, r.score, "
+        "r.authority_sources, r.source_roles, r.descriptions, r.stances, r.source_refs",
         {"ids": node_ids},
     ).result_set
     edges: list[dict[str, Any]] = []
@@ -1133,6 +1135,9 @@ def _graph_context(
         to_id,
         rel_type,
         weight,
+        score,
+        authority_sources,
+        source_roles,
         descriptions,
         stances,
         source_refs,
@@ -1151,6 +1156,9 @@ def _graph_context(
                 "to": str(to_id),
                 "rel_type": str(rel_type),
                 "weight": int(weight or 0),
+                "score": float(score) if score is not None else float(weight or 0),
+                "authority_sources": int(authority_sources or 0),
+                "source_roles": [str(item) for item in (source_roles or [])],
                 "descriptions": [str(item) for item in (descriptions or [])],
                 "stances": str(stances or "{}"),
                 "source_refs": [
@@ -1202,12 +1210,33 @@ def _select_chunks(
         function_params = [function_ids, FUNCTION_WEIGHT_FLOOR]
     floor_sql = " AND 1 - (c.embedding <=> %s::vector) >= %s"
     with get_pool().connection() as conn:
-        queries: list[tuple[str, list[Any]]] = []
+        queries: list[tuple[str, list[Any]]] = [
+            (
+                "SELECT c.id::text, c.source_id::text, s.title, c.locator, c.text, "
+                f"{superseded_sql} AS is_superseded, "
+                "s.source_role, s.authority_tier, s.effective_date "
+                "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
+                "WHERE c.embedding IS NOT NULL "
+                "AND s.authority_tier = 'authoritative'"
+                + history_filter
+                + function_filter
+                + floor_sql
+                + " ORDER BY c.embedding <=> %s::vector LIMIT %s",
+                function_params
+                + [
+                    vector_literal(vector),
+                    SIMILARITY_FLOOR,
+                    vector_literal(vector),
+                    10,
+                ],
+            )
+        ]
         if source_ids:
             queries.append(
                 (
                     "SELECT c.id::text, c.source_id::text, s.title, c.locator, c.text, "
-                    f"{superseded_sql} AS is_superseded "
+                    f"{superseded_sql} AS is_superseded, "
+                    "s.source_role, s.authority_tier, s.effective_date "
                     "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
                     "WHERE c.embedding IS NOT NULL AND c.source_id = ANY(%s::uuid[])"
                     + history_filter
@@ -1227,7 +1256,8 @@ def _select_chunks(
         queries.append(
             (
                 "SELECT c.id::text, c.source_id::text, s.title, c.locator, c.text, "
-                f"{superseded_sql} AS is_superseded "
+                f"{superseded_sql} AS is_superseded, "
+                "s.source_role, s.authority_tier, s.effective_date "
                 "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
                 "WHERE c.embedding IS NOT NULL"
                 + history_filter
@@ -1257,6 +1287,9 @@ def _select_chunks(
                         "locator": row[3],
                         "text": str(row[4]),
                         "superseded": bool(row[5]),
+                        "source_role": str(row[6]) if row[6] else "observed_practice",
+                        "authority_tier": str(row[7]) if row[7] else "standard",
+                        "effective_date": row[8],
                     }
                 )
     return selected
@@ -1406,26 +1439,38 @@ def _function_report_items(
 
 
 def _assemble_context(
-    tiers: list[tuple[str, list[str], Any]], ceiling: int
+    tiers: list[tuple[str, list[str], Any]],
+    ceiling: int,
+    *,
+    group_cap: tuple[set[str], int] | None = None,
 ) -> tuple[dict[str, str], int, list[list[int]]]:
     """Fill each tier's items in priority order under a hard token ceiling.
 
     Each tier carries its own renderer (the quotes tier becomes a JSON
     array); items that do not fit are skipped (a later, smaller item still
-    can). The rendered total is re-measured exactly and, on the worst case,
+    can). Optional ``group_cap`` limits a set of tiers (e.g. summaries + graph)
+    to a share of ``ceiling`` so verbatim quotes and passages are never starved.
+    The rendered total is re-measured exactly and, on the worst case,
     the lowest-priority items are dropped until the ceiling holds. Never
     exceeds. Returns the rendered text per tier, its exact token count and
     the kept item indices per tier.
     """
     kept: list[list[int]] = [[] for _ in tiers]
     used = 0
-    for (_name, items, _render), bucket in zip(tiers, kept, strict=True):
+    group_used = 0
+    cap_names, cap_limit = group_cap if group_cap is not None else (set(), 0)
+    for (name, items, _render), bucket in zip(tiers, kept, strict=True):
+        is_capped = group_cap is not None and name in cap_names
         for index, item in enumerate(items):
             cost = _tokens(item) + 3
             if used + cost > ceiling:
                 continue
+            if is_capped and group_used + cost > cap_limit:
+                continue
             bucket.append(index)
             used += cost
+            if is_capped:
+                group_used += cost
 
     def _render_all() -> tuple[dict[str, str], int]:
         rendered = {
@@ -1474,10 +1519,13 @@ def _render_graph(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> s
     lines.append("EDGES:")
     for edge in edges:
         descriptions = "; ".join(edge["descriptions"])
+        auth_tag = " [AUTHORITATIVE]" if edge.get("authority_sources") else ""
+        score_val = edge.get("score")
+        score_part = f" score={score_val:.2f}" if isinstance(score_val, (int, float)) else ""
         lines.append(
             f"- {names.get(edge['from'], edge['from'])} -[{edge['rel_type']}]-> "
-            f"{names.get(edge['to'], edge['to'])} weight={edge['weight']} "
-            f"stances={edge['stances']} {descriptions}"
+            f"{names.get(edge['to'], edge['to'])} weight={edge['weight']}{score_part} "
+            f"stances={edge['stances']}{auth_tag} {descriptions}"
         )
     return "\n".join(lines)
 
@@ -1545,7 +1593,11 @@ def _local_answer(
     chunks = _select_chunks(vector, edge_sources, include_history, function_ids)
     quotes = _quotes_for(chunks)
     texts = [
-        _HISTORY_PREFIX + chunk["text"] if chunk.get("superseded") else chunk["text"]
+        (
+            f"{format_source_tag(chunk.get('source_role'), chunk.get('authority_tier'), chunk.get('effective_date'))} "
+            f"{_HISTORY_PREFIX if chunk.get('superseded') else ''}"
+            f"{chunk['text']}"
+        )
         for chunk in chunks
     ]
     graph_block = _render_graph(nodes, edges)
@@ -1568,8 +1620,14 @@ def _local_answer(
     flow_lines = _flow_items(function_ids)
     ceiling = settings.brain_answer_context_tokens
     # Priority (plan C4 step 4): function report → company report (hybrid
-    # only) → ordered flow → relations → quotes → passages.
+    # only) → ordered flow → relations → quotes → passages. Reserve 35% of the
+    # context budget for direct quotes and passages when evidence exists.
     quote_items = [json.dumps(quote, ensure_ascii=False) for quote in quotes]
+    evidence_reserve_cap = (
+        ({"function_reports", "company", "flow", "graph"}, int(ceiling * 0.65))
+        if (quote_items or texts)
+        else None
+    )
     rendered, context_tokens, kept = _assemble_context(
         [
             ("function_reports", report_lines, "\n".join),
@@ -1580,6 +1638,7 @@ def _local_answer(
             ("passages", texts, "\n\n".join),
         ],
         ceiling,
+        group_cap=evidence_reserve_cap,
     )
     passages_text = rendered["passages"]
     if passages_text and _tokens(passages_text) > COMPRESS_MIN_TOKENS:

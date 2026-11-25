@@ -49,6 +49,12 @@ from brain.read.detect import (
     detect_kind,
     verify_office_zip,
 )
+from brain.scoring import (
+    DEFAULT_AUTHORITY_TIER,
+    DEFAULT_SOURCE_ROLE,
+    validate_authority_tier,
+    validate_source_role,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +70,7 @@ _ZIP_KINDS = frozenset({KIND_DOCX, KIND_XLSX, KIND_PPTX})
 _SOURCE_COLUMNS = (
     "id, kind, title, original_filename, storage_path, sha256, bytes, "
     "department_hint, effective_date, date_origin, uploaded_by, created_at, "
-    "read_state, read_error"
+    "read_state, read_error, source_role, authority_tier"
 )
 
 
@@ -75,6 +81,15 @@ class TranscriptBody(BaseModel):
     title: str | None = None
     department_hint: str | None = None
     effective_date: str | None = None
+    source_role: str | None = None
+    authority_tier: str | None = None
+
+
+class SourceAuthorityBody(BaseModel):
+    """Update a source's ideal-vs-practice role and/or authority tier."""
+
+    source_role: str | None = None
+    authority_tier: str | None = None
 
 
 class ImportFolderBody(BaseModel):
@@ -177,13 +192,15 @@ def _insert_source(
     effective_date: date | None,
     date_origin: str,
     uploaded_by: str | None,
+    source_role: str = DEFAULT_SOURCE_ROLE,
+    authority_tier: str = DEFAULT_AUTHORITY_TIER,
 ) -> dict[str, Any]:
     """Insert one ``cmap.source`` row and queue its ``read_source`` job."""
     pool = get_pool()
     with pool.connection() as conn:
         row = conn.execute(
             f"INSERT INTO cmap.source ({_SOURCE_COLUMNS}) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), 'queued', NULL) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), 'queued', NULL, %s, %s) "
             "RETURNING " + _SOURCE_COLUMNS,
             (
                 source_id,
@@ -197,6 +214,8 @@ def _insert_source(
                 effective_date,
                 date_origin,
                 uploaded_by,
+                source_role,
+                authority_tier,
             ),
         ).fetchone()
         conn.commit()
@@ -221,6 +240,8 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         created_at,
         read_state,
         read_error,
+        source_role,
+        authority_tier,
     ) = row
     return {
         "id": str(source_id),
@@ -237,6 +258,8 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         "created_at": created_at.isoformat() if created_at else None,
         "read_state": read_state,
         "read_error": read_error,
+        "source_role": source_role,
+        "authority_tier": authority_tier,
     }
 
 
@@ -250,6 +273,8 @@ def ingest_bytes(
     effective_date: date | None,
     date_origin: str,
     uploaded_by: str | None,
+    source_role: str = DEFAULT_SOURCE_ROLE,
+    authority_tier: str = DEFAULT_AUTHORITY_TIER,
 ) -> dict[str, Any]:
     """Store ``data`` as a new source, or report the duplicate sha.
 
@@ -257,6 +282,8 @@ def ingest_bytes(
     date is only legal with the ``upload_time`` floor, which is stamped here
     so no source is ever created undated.
     """
+    validated_role = validate_source_role(source_role)
+    validated_tier = validate_authority_tier(authority_tier)
     if date_origin not in DATE_ORIGINS:
         raise ValueError(f"unknown date_origin {date_origin!r}")
     if effective_date is None:
@@ -287,6 +314,8 @@ def ingest_bytes(
             effective_date=effective_date,
             date_origin=date_origin,
             uploaded_by=uploaded_by,
+            source_role=validated_role,
+            authority_tier=validated_tier,
         )
     except Exception:
         store.delete(key)
@@ -412,6 +441,11 @@ async def create_source(
         return None
 
     effective = _parse_effective_date(_field("effective_date"))
+    try:
+        source_role = validate_source_role(_field("source_role"))
+        authority_tier = validate_authority_tier(_field("authority_tier"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ingest_bytes(
         kind=kind,
         title=(_field("title") or "").strip() or _safe_name(raw_name),
@@ -421,6 +455,8 @@ async def create_source(
         effective_date=effective,
         date_origin=ORIGIN_ADMIN if effective is not None else ORIGIN_UPLOAD,
         uploaded_by=user.auth_user_id,
+        source_role=source_role,
+        authority_tier=authority_tier,
     )
 
 
@@ -446,6 +482,11 @@ def create_transcript_source(
         )
     title = (body.title or "").strip() or "Transcript"
     effective = _parse_effective_date(body.effective_date)
+    try:
+        source_role = validate_source_role(body.source_role)
+        authority_tier = validate_authority_tier(body.authority_tier)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ingest_bytes(
         kind="transcript",
         title=title,
@@ -455,6 +496,8 @@ def create_transcript_source(
         effective_date=effective,
         date_origin=ORIGIN_ADMIN if effective is not None else ORIGIN_UPLOAD,
         uploaded_by=user.auth_user_id if user is not None else None,
+        source_role=source_role,
+        authority_tier=authority_tier,
     )
 
 
@@ -591,6 +634,74 @@ def delete_source(
         pass
     enqueue_job("project", {"removed_source_id": str(source_id)})
     return {"id": str(source_id), "deleted": True}
+
+
+@router.patch("/sources/{source_id}/authority")
+def update_source_authority(
+    source_id: UUID,
+    body: SourceAuthorityBody,
+    user: Annotated[User | None, Depends(admin_or_service)],
+) -> dict[str, Any]:
+    """Update one source's ideal-vs-practice role and/or authority tier."""
+    del user
+    if body.source_role is None and body.authority_tier is None:
+        raise HTTPException(
+            status_code=400,
+            detail="provide source_role or authority_tier",
+        )
+    try:
+        next_role = (
+            validate_source_role(body.source_role)
+            if body.source_role is not None
+            else None
+        )
+        next_tier = (
+            validate_authority_tier(body.authority_tier)
+            if body.authority_tier is not None
+            else None
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    sid = str(source_id)
+    promoted = 0
+    project_queued = False
+    with get_pool().connection() as conn:
+        existing = conn.execute(
+            "SELECT source_role, authority_tier FROM cmap.source WHERE id = %s",
+            (sid,),
+        ).fetchone()
+        if existing is None:
+            raise HTTPException(status_code=404, detail="source not found")
+        final_role = next_role if next_role is not None else str(existing[0])
+        final_tier = next_tier if next_tier is not None else str(existing[1])
+        updated_row = conn.execute(
+            "UPDATE cmap.source SET source_role = %s, authority_tier = %s "
+            f"WHERE id = %s RETURNING {_SOURCE_COLUMNS}",
+            (final_role, final_tier, sid),
+        ).fetchone()
+        if final_role == "ideal_policy":
+            promoted_rows = conn.execute(
+                "UPDATE cmap.relation r SET stance = 'policy' "
+                "FROM cmap.chunk ch "
+                "WHERE r.chunk_id = ch.id AND ch.source_id = %s "
+                "AND r.stance IN ('report', 'practice') "
+                "RETURNING r.id",
+                (sid,),
+            ).fetchall()
+            promoted = len(promoted_rows)
+        pending_project = conn.execute(
+            "SELECT 1 FROM cmap.job "
+            "WHERE kind = 'project' AND state IN ('queued', 'running') LIMIT 1"
+        ).fetchone()
+        conn.commit()
+    if pending_project is None:
+        enqueue_job("project", {"source_authority_updated": sid})
+        project_queued = True
+    return {
+        "source": _row_to_dict(updated_row),
+        "relations_promoted": promoted,
+        "project_queued": project_queued,
+    }
 
 
 def _queue_reread(conn: Any, source_ids: list[str]) -> int:
