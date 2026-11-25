@@ -24,6 +24,7 @@ export function FunctionView({
 }) {
   const [detail, setDetail] = useState<FunctionDetail | null>(null);
   const [community, setCommunity] = useState<CommunityDetail | null>(null);
+  const [canCorrect, setCanCorrect] = useState(isAdmin);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [relation, setRelation] = useState<GraphRelation | null>(null);
@@ -32,10 +33,16 @@ export function FunctionView({
 
   useEffect(() => {
     let cancelled = false;
-    brainGet<FunctionDetail>(`map/functions/${encodeURIComponent(functionRef)}`)
-      .then(async (body) => {
+    Promise.all([
+      brainGet<FunctionDetail>(`map/functions/${encodeURIComponent(functionRef)}`),
+      brainGet<{ can_correct: boolean }>('corrections/access').catch(() => ({
+        can_correct: isAdmin,
+      })),
+    ])
+      .then(async ([body, accessBody]) => {
         if (cancelled) return;
         setDetail(body);
+        setCanCorrect(Boolean(accessBody.can_correct || isAdmin));
         setError(null);
         // The report row id is the function id (C3); the existing community
         // endpoint serves the graph canvas and translations for it. The graph
@@ -59,7 +66,7 @@ export function FunctionView({
     return () => {
       cancelled = true;
     };
-  }, [functionRef]);
+  }, [functionRef, isAdmin]);
 
   const report = detail?.report ?? null;
 
@@ -72,9 +79,20 @@ export function FunctionView({
       {detail && (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <section className="space-y-5">
-            <h1 className="text-2xl font-semibold" data-testid="function-name">
-              {detail.function.name}
-            </h1>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h1 className="text-2xl font-semibold" data-testid="function-name">
+                {detail.function.name}
+              </h1>
+              {canCorrect && (
+                <Link
+                  href={`/map/corrections?function=${encodeURIComponent(detail.function.key)}&from=${encodeURIComponent(`/map/function/${detail.function.key}`)}`}
+                  data-testid="function-corrections-link"
+                  className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                >
+                  Submit a correction
+                </Link>
+              )}
+            </div>
             {detail.function.description && (
               <p className="text-sm text-muted-foreground">{detail.function.description}</p>
             )}
