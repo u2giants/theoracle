@@ -17,9 +17,11 @@ from pydantic import BaseModel
 
 from brain.api.deps import User, current_user, require_admin
 from brain.api.sources import EASTERN, ingest_bytes
-from brain.db import get_pool
+from brain.correction_triage import CorrectionTriageError, triage_correction_note
+from brain.db import enqueue_job, get_pool
 from brain.read.dates import ORIGIN_ADMIN
 from brain.read.detect import KIND_TEXT
+from brain.scoring import validate_source_role
 
 router = APIRouter()
 
@@ -33,7 +35,9 @@ _NOTE_SELECT = (
     "SELECT cn.id, cn.employee_id, cn.employee_name, cn.function_id, "
     "f.name AS function_name, cn.page_ref, cn.what_is_wrong, "
     "cn.correction_text, cn.status, cn.source_id, cn.reviewed_by, "
-    "cn.reviewed_at, cn.review_note, cn.created_at "
+    "cn.reviewed_at, cn.review_note, cn.created_at, "
+    "cn.ai_summary, cn.ai_suggested_action, cn.ai_reason, "
+    "cn.ai_triaged_at, cn.ai_triage_error "
     "FROM cmap.correction_note cn "
     "LEFT JOIN cmap.function f ON f.id = cn.function_id"
 )
@@ -49,9 +53,10 @@ class CreateCorrectionNoteBody(BaseModel):
 
 
 class ReviewCorrectionNoteBody(BaseModel):
-    """Optional admin note when applying or dismissing a correction."""
+    """Optional admin note and role override when applying or dismissing a correction."""
 
     review_note: str | None = None
+    source_role: str | None = None
 
 
 class PermissionBody(BaseModel):
@@ -95,6 +100,11 @@ def _serialize_note(row: tuple) -> dict[str, Any]:
         reviewed_at,
         review_note,
         created_at,
+        ai_summary,
+        ai_suggested_action,
+        ai_reason,
+        ai_triaged_at,
+        ai_triage_error,
     ) = row
     return {
         "id": str(note_id),
@@ -111,6 +121,13 @@ def _serialize_note(row: tuple) -> dict[str, Any]:
         "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
         "review_note": str(review_note) if review_note is not None else None,
         "created_at": created_at.isoformat() if created_at else None,
+        "ai_summary": str(ai_summary) if ai_summary is not None else None,
+        "ai_suggested_action": (
+            str(ai_suggested_action) if ai_suggested_action is not None else None
+        ),
+        "ai_reason": str(ai_reason) if ai_reason is not None else None,
+        "ai_triaged_at": ai_triaged_at.isoformat() if ai_triaged_at else None,
+        "ai_triage_error": str(ai_triage_error) if ai_triage_error is not None else None,
     }
 
 
@@ -223,7 +240,26 @@ def create_correction_note(
         note_id = UUID(str(inserted[0]))
         conn.commit()
         note = _fetch_note(conn, note_id)
+    enqueue_job("triage_correction_note", {"note_id": str(note_id)})
     return {"note": note}
+
+
+@router.post("/corrections/notes/{note_id}/triage")
+def retriage_correction_note(
+    note_id: UUID,
+    user: Annotated[User, Depends(require_admin)],
+) -> dict[str, Any]:
+    """Run or re-run AI triage summary and suggested action for one correction note."""
+    del user
+    with get_pool().connection() as conn:
+        _fetch_note(conn, note_id)
+    try:
+        triage_correction_note(str(note_id))
+    except CorrectionTriageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    with get_pool().connection() as conn:
+        updated = _fetch_note(conn, note_id)
+    return {"note": updated}
 
 
 @router.post("/corrections/notes/{note_id}/apply")
@@ -238,6 +274,14 @@ def apply_correction_note(
         if body is not None
         else None
     )
+    try:
+        chosen_role = (
+            validate_source_role(body.source_role)
+            if body is not None and body.source_role is not None
+            else "ideal_policy"
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     with get_pool().connection() as conn:
         note = _fetch_note(conn, note_id)
     if note["status"] == "applied":
@@ -275,7 +319,7 @@ def apply_correction_note(
         effective_date=datetime.now(EASTERN).date(),
         date_origin=ORIGIN_ADMIN,
         uploaded_by=user.auth_user_id,
-        source_role="ideal_policy",
+        source_role=chosen_role,
         authority_tier="authoritative",
     )
     source_id = str(ingested["id"])

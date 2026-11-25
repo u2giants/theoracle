@@ -10,6 +10,7 @@ from typing import Any
 
 from brain.chain import handle_ensure_chain, maybe_queue_ensure_chain
 from brain.contradictions import handle_contradictions
+from brain.correction_triage import handle_triage_correction_note
 from brain.db import MAIN_LANE, current_lane, get_pool
 from brain.directory_sync import handle_directory_sync, maybe_queue_directory_sync
 from brain.eval.run import handle_evaluate
@@ -58,6 +59,7 @@ HANDLERS: dict[str, Handler] = {
     "interview_reply": handle_interview_reply,
     "intake_ingest": handle_intake_ingest,
     "meeting_sweep": handle_meeting_sweep,
+    "triage_correction_note": handle_triage_correction_note,
 }
 
 # Kinds whose permanent failure must still get the employee a reply (#604).
