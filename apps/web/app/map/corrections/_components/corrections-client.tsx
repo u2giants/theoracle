@@ -447,10 +447,10 @@ export function CorrectionsClient({
 
   useEffect(() => {
     if (!hasPendingTriage) return;
-    const timer = window.setTimeout(() => {
+    const timer = window.setInterval(() => {
       void loadAll();
     }, 5000);
-    return () => window.clearTimeout(timer);
+    return () => window.clearInterval(timer);
   }, [hasPendingTriage, loadAll]);
 
   if (loading || error) {

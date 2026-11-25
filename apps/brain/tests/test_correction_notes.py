@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 ADMIN_ID = "00000000-0000-4000-8000-0000000000a1"
@@ -187,10 +188,18 @@ def test_admin_apply_creates_full_text_source_and_dismiss_marks_dismissed(
         },
     ).json()["note"]
 
+    invalid = client.post(
+        f"/corrections/notes/{n_apply['id']}/apply",
+        headers=admin_headers,
+        json={"source_role": "unknown"},
+    )
+    assert invalid.status_code == 400
+    assert "source_role" in invalid.json()["detail"]
+
     applied = client.post(
         f"/corrections/notes/{n_apply['id']}/apply",
         headers=admin_headers,
-        json={"review_note": "Verified with Licensing"},
+        json={"review_note": "Verified with Licensing", "source_role": "   "},
     )
     assert applied.status_code == 200
     body = applied.json()
@@ -200,13 +209,15 @@ def test_admin_apply_creates_full_text_source_and_dismiss_marks_dismissed(
     assert body["note"]["review_note"] == "Verified with Licensing"
 
     src_row = db.execute(
-        "SELECT kind, ingest_tier, map_eligible, title FROM cmap.source WHERE id = %s::uuid",
+        "SELECT kind, ingest_tier, map_eligible, title, source_role FROM cmap.source WHERE id = %s::uuid",
         (source_id,),
     ).fetchone()
     assert src_row[0] == "text"
     assert src_row[1] == "full"
     assert src_row[2] is True
     assert "Sample cutoff wrong" in src_row[3]
+
+    assert src_row[4] == "ideal_policy"
 
     job_row = db.execute(
         "SELECT kind, state FROM cmap.job WHERE payload->>'source_id' = %s",
@@ -291,6 +302,10 @@ def test_correction_note_queues_ai_triage_and_supports_practice_apply(
     assert "day-to-day" in matched["ai_reason"]
     assert matched["ai_triaged_at"] is not None
 
+    own_note = client.get("/corrections/notes", headers=user_headers).json()["notes"][0]
+    for field in ("ai_summary", "ai_suggested_action", "ai_reason", "ai_triaged_at"):
+        assert own_note[field] is None
+
     # Non-admin cannot manually trigger triage; admin can.
     assert (
         client.post(f"/corrections/notes/{note['id']}/triage", headers=user_headers).status_code
@@ -312,3 +327,43 @@ def test_correction_note_queues_ai_triage_and_supports_practice_apply(
         (applied.json()["source_id"],),
     ).fetchone()
     assert src_row == ("observed_practice", "authoritative")
+
+
+@pytest.mark.parametrize(("reply", "expected"), [
+    ("unparseable", "not JSON"),
+    ('{"summary":"Review","suggested_action":"unknown","reason":"Check"}', "invalid suggested_action"),
+    (None, "provider unavailable"),
+])
+def test_triage_failure_is_saved_for_admin_only(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    user_headers: dict[str, str],
+    monkeypatch: Any,
+    reply: str | None,
+    expected: str,
+) -> None:
+    from brain import correction_triage
+
+    client.put(
+        f"/corrections/permissions/{EMPLOYEE_ID}",
+        headers=admin_headers,
+        json={"can_correct": True},
+    )
+    note = client.post(
+        "/corrections/notes", headers=user_headers,
+        json={"what_is_wrong": "Wrong owner", "correction_text": "Compliance owns it."},
+    ).json()["note"]
+
+    def fake_chat(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if reply is None:
+            raise RuntimeError("provider unavailable")
+        return {"choices": [{"message": {"content": reply}}]}
+
+    monkeypatch.setattr(correction_triage, "post_chat_json_body", fake_chat)
+    response = client.post(f"/corrections/notes/{note['id']}/triage", headers=admin_headers)
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert expected in detail
+    for headers, error in ((admin_headers, detail), (user_headers, None)):
+        notes = client.get("/corrections/notes", headers=headers).json()["notes"]
+        assert next(n for n in notes if n["id"] == note["id"])["ai_triage_error"] == error

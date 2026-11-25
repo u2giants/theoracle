@@ -84,7 +84,7 @@ def _employee_display_name(conn: Any, employee_id: str) -> str:
     return str(row[0]) if row and row[0] else ""
 
 
-def _serialize_note(row: tuple) -> dict[str, Any]:
+def _serialize_note(row: tuple, *, is_admin: bool) -> dict[str, Any]:
     (
         note_id,
         employee_id,
@@ -121,24 +121,24 @@ def _serialize_note(row: tuple) -> dict[str, Any]:
         "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
         "review_note": str(review_note) if review_note is not None else None,
         "created_at": created_at.isoformat() if created_at else None,
-        "ai_summary": str(ai_summary) if ai_summary is not None else None,
+        "ai_summary": str(ai_summary) if is_admin and ai_summary is not None else None,
         "ai_suggested_action": (
-            str(ai_suggested_action) if ai_suggested_action is not None else None
+            str(ai_suggested_action) if is_admin and ai_suggested_action is not None else None
         ),
-        "ai_reason": str(ai_reason) if ai_reason is not None else None,
-        "ai_triaged_at": ai_triaged_at.isoformat() if ai_triaged_at else None,
-        "ai_triage_error": str(ai_triage_error) if ai_triage_error is not None else None,
+        "ai_reason": str(ai_reason) if is_admin and ai_reason is not None else None,
+        "ai_triaged_at": ai_triaged_at.isoformat() if is_admin and ai_triaged_at else None,
+        "ai_triage_error": str(ai_triage_error) if is_admin and ai_triage_error is not None else None,
     }
 
 
-def _fetch_note(conn: Any, note_id: UUID) -> dict[str, Any]:
+def _fetch_note(conn: Any, note_id: UUID, *, is_admin: bool) -> dict[str, Any]:
     row = conn.execute(
         f"{_NOTE_SELECT} WHERE cn.id = %s::uuid",
         (str(note_id),),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="correction note not found")
-    return _serialize_note(row)
+    return _serialize_note(row, is_admin=is_admin)
 
 
 @router.get("/corrections/access")
@@ -181,7 +181,7 @@ def list_correction_notes(
             (*params, limit),
         ).fetchall()
     return {
-        "notes": [_serialize_note(row) for row in rows],
+        "notes": [_serialize_note(row, is_admin=user.is_admin) for row in rows],
         "can_correct": True,
         "is_admin": user.is_admin,
     }
@@ -239,7 +239,7 @@ def create_correction_note(
         ).fetchone()
         note_id = UUID(str(inserted[0]))
         conn.commit()
-        note = _fetch_note(conn, note_id)
+        note = _fetch_note(conn, note_id, is_admin=user.is_admin)
     enqueue_job("triage_correction_note", {"note_id": str(note_id)})
     return {"note": note}
 
@@ -250,15 +250,14 @@ def retriage_correction_note(
     user: Annotated[User, Depends(require_admin)],
 ) -> dict[str, Any]:
     """Run or re-run AI triage summary and suggested action for one correction note."""
-    del user
     with get_pool().connection() as conn:
-        _fetch_note(conn, note_id)
+        _fetch_note(conn, note_id, is_admin=user.is_admin)
     try:
         triage_correction_note(str(note_id))
     except CorrectionTriageError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     with get_pool().connection() as conn:
-        updated = _fetch_note(conn, note_id)
+        updated = _fetch_note(conn, note_id, is_admin=user.is_admin)
     return {"note": updated}
 
 
@@ -277,13 +276,13 @@ def apply_correction_note(
     try:
         chosen_role = (
             validate_source_role(body.source_role)
-            if body is not None and body.source_role is not None
+            if body and body.source_role and body.source_role.strip()
             else "ideal_policy"
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     with get_pool().connection() as conn:
-        note = _fetch_note(conn, note_id)
+        note = _fetch_note(conn, note_id, is_admin=user.is_admin)
     if note["status"] == "applied":
         return {"note": note, "source_id": note["source_id"]}
 
@@ -333,7 +332,7 @@ def apply_correction_note(
             (source_id, user.auth_user_id, review_note, str(note_id)),
         )
         conn.commit()
-        updated = _fetch_note(conn, note_id)
+        updated = _fetch_note(conn, note_id, is_admin=user.is_admin)
     return {"note": updated, "source_id": source_id}
 
 
@@ -350,7 +349,7 @@ def dismiss_correction_note(
         else None
     )
     with get_pool().connection() as conn:
-        _fetch_note(conn, note_id)
+        _fetch_note(conn, note_id, is_admin=user.is_admin)
         conn.execute(
             "UPDATE cmap.correction_note "
             "SET status = 'dismissed', reviewed_by = %s::uuid, "
@@ -359,7 +358,7 @@ def dismiss_correction_note(
             (user.auth_user_id, review_note, str(note_id)),
         )
         conn.commit()
-        updated = _fetch_note(conn, note_id)
+        updated = _fetch_note(conn, note_id, is_admin=user.is_admin)
     return {"note": updated}
 
 
