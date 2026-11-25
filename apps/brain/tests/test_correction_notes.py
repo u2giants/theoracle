@@ -222,3 +222,93 @@ def test_admin_apply_creates_full_text_source_and_dismiss_marks_dismissed(
     assert dismissed.status_code == 200
     assert dismissed.json()["note"]["status"] == "dismissed"
     assert dismissed.json()["note"]["source_id"] is None
+
+
+def test_correction_note_queues_ai_triage_and_supports_practice_apply(
+    client: TestClient,
+    db: Any,
+    admin_headers: dict[str, str],
+    user_headers: dict[str, str],
+    monkeypatch: Any,
+) -> None:
+    from brain import correction_triage
+
+    client.put(
+        f"/corrections/permissions/{EMPLOYEE_ID}",
+        headers=admin_headers,
+        json={"can_correct": True},
+    )
+    fn_id = str(uuid4())
+    db.execute(
+        "INSERT INTO cmap.function (id, key, name, description, sort, active) "
+        "VALUES (%s, 'licensing', 'Licensing', 'Licensing area', 1, true)",
+        (fn_id,),
+    )
+    db.commit()
+
+    created = client.post(
+        "/corrections/notes",
+        headers=user_headers,
+        json={
+            "function_id": fn_id,
+            "what_is_wrong": "Factory audits are assigned to Licensing",
+            "correction_text": "Day-to-day teams sometimes email Licensing, but Compliance handles FAMA.",
+        },
+    )
+    assert created.status_code == 200
+    note = created.json()["note"]
+    assert note["ai_triaged_at"] is None
+
+    triage_job = db.execute(
+        "SELECT kind, state FROM cmap.job WHERE payload->>'note_id' = %s",
+        (note["id"],),
+    ).fetchone()
+    assert triage_job == ("triage_correction_note", "queued")
+
+    def fake_chat_json(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        assert payload["messages"]
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"summary": "Licensing is mistakenly listed for factory audits; Compliance owns FAMA.", '
+                            '"suggested_action": "apply_observed_practice", '
+                            '"reason": "Describes what teams do day-to-day versus Compliance ownership."}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(correction_triage, "post_chat_json_body", fake_chat_json)
+    correction_triage.handle_triage_correction_note({"payload": {"note_id": note["id"]}})
+
+    notes_after = client.get("/corrections/notes", headers=admin_headers).json()["notes"]
+    matched = next(n for n in notes_after if n["id"] == note["id"])
+    assert matched["ai_summary"].startswith("Licensing is mistakenly listed")
+    assert matched["ai_suggested_action"] == "apply_observed_practice"
+    assert "day-to-day" in matched["ai_reason"]
+    assert matched["ai_triaged_at"] is not None
+
+    # Non-admin cannot manually trigger triage; admin can.
+    assert (
+        client.post(f"/corrections/notes/{note['id']}/triage", headers=user_headers).status_code
+        == 403
+    )
+    retriaged = client.post(f"/corrections/notes/{note['id']}/triage", headers=admin_headers)
+    assert retriaged.status_code == 200
+    assert retriaged.json()["note"]["ai_suggested_action"] == "apply_observed_practice"
+
+    # Applying as observed_practice saves source_role='observed_practice', authority_tier='authoritative'.
+    applied = client.post(
+        f"/corrections/notes/{note['id']}/apply",
+        headers=admin_headers,
+        json={"source_role": "observed_practice"},
+    )
+    assert applied.status_code == 200
+    src_row = db.execute(
+        "SELECT source_role, authority_tier FROM cmap.source WHERE id = %s::uuid",
+        (applied.json()["source_id"],),
+    ).fetchone()
+    assert src_row == ("observed_practice", "authoritative")

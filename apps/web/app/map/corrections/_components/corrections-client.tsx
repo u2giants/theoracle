@@ -13,6 +13,12 @@ type AccessResponse = {
   is_admin: boolean;
 };
 
+type SuggestedAction =
+  | 'apply_ideal_policy'
+  | 'apply_observed_practice'
+  | 'needs_clarification'
+  | 'dismiss';
+
 type CorrectionNote = {
   id: string;
   employee_id: string;
@@ -28,6 +34,11 @@ type CorrectionNote = {
   reviewed_at: string | null;
   review_note: string | null;
   created_at: string | null;
+  ai_summary: string | null;
+  ai_suggested_action: SuggestedAction | null;
+  ai_reason: string | null;
+  ai_triaged_at: string | null;
+  ai_triage_error: string | null;
 };
 
 type PermissionEmployee = {
@@ -40,6 +51,20 @@ type PermissionEmployee = {
 };
 
 type StatusFilter = 'all' | 'open' | 'applied' | 'dismissed';
+
+function suggestedActionLabel(action: SuggestedAction): string {
+  if (action === 'apply_ideal_policy') return 'Suggested: Apply as ideal policy';
+  if (action === 'apply_observed_practice') return 'Suggested: Apply as observed practice';
+  if (action === 'needs_clarification') return 'Suggested: Ask for clarification';
+  return 'Suggested: Dismiss';
+}
+
+function suggestedActionBadgeClass(action: SuggestedAction): string {
+  if (action === 'apply_ideal_policy') return 'bg-indigo-50 text-indigo-800 border-indigo-200';
+  if (action === 'apply_observed_practice') return 'bg-sky-50 text-sky-800 border-sky-200';
+  if (action === 'needs_clarification') return 'bg-amber-50 text-amber-800 border-amber-200';
+  return 'bg-muted text-muted-foreground border-border';
+}
 
 function statusBadgeClass(status: CorrectionNote['status']): string {
   if (status === 'applied') return 'bg-green-50 text-green-700 border-green-200';
@@ -59,12 +84,18 @@ function NoteRow({
   busyId,
   onApply,
   onDismiss,
+  onRetriage,
 }: {
   note: CorrectionNote;
   isAdmin: boolean;
   busyId: string | null;
-  onApply: (noteId: string, reviewNote: string) => void;
+  onApply: (
+    noteId: string,
+    reviewNote: string,
+    sourceRole?: 'ideal_policy' | 'observed_practice',
+  ) => void;
   onDismiss: (noteId: string, reviewNote: string) => void;
+  onRetriage: (noteId: string) => void;
 }) {
   const [reviewNote, setReviewNote] = useState(note.review_note ?? '');
   const busy = busyId === note.id;
@@ -106,6 +137,57 @@ function NoteRow({
         <p className="text-xs text-muted-foreground">Review note: {note.review_note}</p>
       )}
 
+      {isAdmin && (note.ai_triaged_at || note.status === 'open') && (
+        <div
+          data-testid={`note-ai-triage-${note.id}`}
+          className="space-y-1.5 rounded border bg-muted/30 p-2.5 text-xs"
+        >
+          {note.ai_triaged_at && note.ai_suggested_action ? (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span
+                  className={`rounded border px-1.5 py-0.5 font-medium ${suggestedActionBadgeClass(note.ai_suggested_action)}`}
+                >
+                  {suggestedActionLabel(note.ai_suggested_action)}
+                </span>
+                {note.status === 'open' && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs"
+                    disabled={busy}
+                    onClick={() => onRetriage(note.id)}
+                  >
+                    Refresh summary
+                  </Button>
+                )}
+              </div>
+              {note.ai_summary && <p className="text-sm text-foreground">{note.ai_summary}</p>}
+              {note.ai_reason && <p className="text-muted-foreground">Why: {note.ai_reason}</p>}
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-muted-foreground">
+                {note.ai_triage_error
+                  ? 'AI summary could not be generated automatically.'
+                  : 'AI summary pending…'}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={busy}
+                onClick={() => onRetriage(note.id)}
+              >
+                {busy ? 'Analyzing…' : note.ai_triage_error ? 'Retry analysis' : 'Analyze now'}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {isAdmin && note.status === 'open' && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <Input
@@ -120,10 +202,21 @@ function NoteRow({
             data-testid={`apply-note-${note.id}`}
             size="sm"
             disabled={busy}
-            onClick={() => onApply(note.id, reviewNote)}
+            onClick={() => onApply(note.id, reviewNote, 'ideal_policy')}
           >
             {busy ? 'Working…' : 'Apply to map'}
           </Button>
+          {note.ai_suggested_action === 'apply_observed_practice' && (
+            <Button
+              data-testid={`apply-practice-note-${note.id}`}
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => onApply(note.id, reviewNote, 'observed_practice')}
+            >
+              Apply as practice
+            </Button>
+          )}
           <Button
             data-testid={`dismiss-note-${note.id}`}
             size="sm"
@@ -253,16 +346,35 @@ export function CorrectionsClient({
     }
   }
 
-  async function handleApply(noteId: string, reviewNote: string) {
+  async function handleApply(
+    noteId: string,
+    reviewNote: string,
+    sourceRole: 'ideal_policy' | 'observed_practice' = 'ideal_policy',
+  ) {
     setBusyNoteId(noteId);
     setActionError(null);
     try {
       await brainPost(`corrections/notes/${encodeURIComponent(noteId)}/apply`, {
         review_note: reviewNote.trim() || null,
+        source_role: sourceRole,
       });
       await loadAll();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'apply failed');
+    } finally {
+      setBusyNoteId(null);
+    }
+  }
+
+  async function handleRetriage(noteId: string) {
+    setBusyNoteId(noteId);
+    setActionError(null);
+    try {
+      await brainPost(`corrections/notes/${encodeURIComponent(noteId)}/triage`, {});
+      await loadAll();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'AI summary failed');
+      await loadAll();
     } finally {
       setBusyNoteId(null);
     }
@@ -324,12 +436,26 @@ export function CorrectionsClient({
     [employees],
   );
 
+  const canCorrect = Boolean(access?.can_correct || access?.is_admin || isAdmin);
+  const viewerIsAdmin = Boolean(access?.is_admin || isAdmin);
+  const hasPendingTriage = useMemo(
+    () =>
+      viewerIsAdmin &&
+      notes.some((n) => n.status === 'open' && !n.ai_triaged_at && !n.ai_triage_error),
+    [viewerIsAdmin, notes],
+  );
+
+  useEffect(() => {
+    if (!hasPendingTriage) return;
+    const timer = window.setTimeout(() => {
+      void loadAll();
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [hasPendingTriage, loadAll]);
+
   if (loading || error) {
     return <LoadState error={error} loading={loading} />;
   }
-
-  const canCorrect = Boolean(access?.can_correct || access?.is_admin || isAdmin);
-  const viewerIsAdmin = Boolean(access?.is_admin || isAdmin);
 
   if (!canCorrect) {
     return (
@@ -475,8 +601,9 @@ export function CorrectionsClient({
                 note={note}
                 isAdmin={viewerIsAdmin}
                 busyId={busyNoteId}
-                onApply={(id, rn) => void handleApply(id, rn)}
+                onApply={(id, rn, role) => void handleApply(id, rn, role)}
                 onDismiss={(id, rn) => void handleDismiss(id, rn)}
+                onRetriage={(id) => void handleRetriage(id)}
               />
             ))
           )}
