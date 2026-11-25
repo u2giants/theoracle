@@ -312,3 +312,78 @@ def test_correction_note_queues_ai_triage_and_supports_practice_apply(
         (applied.json()["source_id"],),
     ).fetchone()
     assert src_row == ("observed_practice", "authoritative")
+
+
+def test_correction_triage_falls_back_when_primary_provider_fails(
+    client: TestClient,
+    db: Any,
+    admin_headers: dict[str, str],
+    user_headers: dict[str, str],
+    monkeypatch: Any,
+) -> None:
+    from brain import correction_triage
+    from brain.seats import clear_cache as clear_seat_cache
+
+    for stage, model in (
+        ("intake_gate", "openai/gpt-6-luna"),
+        ("flat", "z-ai/glm-5.3-flash"),
+        ("relations", "meta-model-api/muse-spark-1.3-contributor"),
+    ):
+        db.execute(
+            "INSERT INTO cmap.model_seat (stage, model) VALUES (%s, %s) "
+            "ON CONFLICT (stage) DO UPDATE SET model = EXCLUDED.model",
+            (stage, model),
+        )
+    db.commit()
+    clear_seat_cache()
+
+    client.put(
+        f"/corrections/permissions/{EMPLOYEE_ID}",
+        headers=admin_headers,
+        json={"can_correct": True},
+    )
+    note_id = client.post(
+        "/corrections/notes",
+        headers=user_headers,
+        json={
+            "what_is_wrong": "Wrong factory sign-off team",
+            "correction_text": "Compliance signs off on factory audits before production starts.",
+        },
+    ).json()["note"]["id"]
+
+    tried: list[str] = []
+
+    def flaky_chat_json(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        model = str(payload["model"])
+        tried.append(model)
+        if model == "openai/gpt-6-luna":
+            raise correction_triage.CorrectionTriageError("HTTP 403 daily limit exceeded")
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"summary": "Compliance signs off on factory audits before production.", '
+                            '"suggested_action": "apply_ideal_policy", '
+                            '"reason": "Names the intended approval gate and team."}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(correction_triage, "post_chat_json_body", flaky_chat_json)
+    result = correction_triage.triage_correction_note(note_id)
+    assert tried == ["openai/gpt-6-luna", "z-ai/glm-5.3-flash"]
+    assert result["suggested_action"] == "apply_ideal_policy"
+
+    row = db.execute(
+        "SELECT ai_summary, ai_suggested_action, ai_triage_error "
+        "FROM cmap.correction_note WHERE id = %s::uuid",
+        (note_id,),
+    ).fetchone()
+    assert row == (
+        "Compliance signs off on factory audits before production.",
+        "apply_ideal_policy",
+        None,
+    )

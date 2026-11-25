@@ -27,10 +27,22 @@ VALID_SUGGESTED_ACTIONS = frozenset(
 MAX_SUMMARY_CHARS = 500
 MAX_REASON_CHARS = 500
 MAX_CONTEXT_CHARS = 1500
+TRIAGE_FALLBACK_STAGES = ("intake_gate", "flat", "relations")
 
 
 class CorrectionTriageError(RuntimeError):
     """Raised when AI triage cannot produce a valid summary and action."""
+
+
+def _candidate_models(cfg: Settings) -> list[str]:
+    models: list[str] = []
+    for stage in TRIAGE_FALLBACK_STAGES:
+        model = stage_model(cfg, stage)
+        if model and model not in models:
+            models.append(model)
+    if not models:
+        raise CorrectionTriageError("no model configured for correction triage")
+    return models
 
 
 def _parse_triage(raw: str) -> dict[str, str]:
@@ -112,25 +124,37 @@ def triage_correction_note(
         .replace("{{correction_text}}", str(correction_text or ""))
         .replace("{{existing_context}}", existing_context)
     )
-    model = stage_model(cfg, "intake_gate")
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "max_tokens": 800,
-    }
-    try:
-        body = post_chat_json_body(
-            payload,
-            settings=cfg,
-            timeout=45.0,
-            error_cls=CorrectionTriageError,
-            label="correction_triage",
-            parse=_parse_triage,
-        )
-        triage = _parse_triage(message_content(body))
-    except Exception as exc:
-        err_msg = str(exc)[:500]
+    models = _candidate_models(cfg)
+    triage: dict[str, str] | None = None
+    last_exc: Exception | None = None
+    for model in models:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 800,
+        }
+        try:
+            body = post_chat_json_body(
+                payload,
+                settings=cfg,
+                timeout=45.0,
+                error_cls=CorrectionTriageError,
+                label="correction_triage",
+                parse=_parse_triage,
+            )
+            triage = _parse_triage(message_content(body))
+            break
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "correction triage candidate model %r failed for %s: %s",
+                model,
+                note_id,
+                str(exc)[:300],
+            )
+    if triage is None:
+        err_msg = str(last_exc)[:500] if last_exc is not None else "triage failed"
         logger.warning("correction triage failed for %s: %s", note_id, err_msg)
         with get_pool().connection() as conn:
             conn.execute(
@@ -140,9 +164,9 @@ def triage_correction_note(
                 (err_msg, note_id),
             )
             conn.commit()
-        if isinstance(exc, CorrectionTriageError):
-            raise
-        raise CorrectionTriageError(err_msg) from exc
+        if isinstance(last_exc, CorrectionTriageError):
+            raise last_exc
+        raise CorrectionTriageError(err_msg) from last_exc
 
     with get_pool().connection() as conn:
         conn.execute(
