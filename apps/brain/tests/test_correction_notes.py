@@ -232,6 +232,14 @@ def test_correction_note_queues_ai_triage_and_supports_practice_apply(
     monkeypatch: Any,
 ) -> None:
     from brain import correction_triage
+    from brain.seats import clear_cache as clear_seat_cache
+
+    db.execute(
+        "INSERT INTO cmap.model_seat (stage, model) VALUES ('intake_gate', 'openai/gpt-6-luna') "
+        "ON CONFLICT (stage) DO UPDATE SET model = EXCLUDED.model"
+    )
+    db.commit()
+    clear_seat_cache()
 
     client.put(
         f"/corrections/permissions/{EMPLOYEE_ID}",
