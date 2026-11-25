@@ -663,11 +663,10 @@ def update_source_authority(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     sid = str(source_id)
-    promoted = 0
     project_queued = False
     with get_pool().connection() as conn:
         existing = conn.execute(
-            "SELECT source_role, authority_tier FROM cmap.source WHERE id = %s",
+            "SELECT source_role, authority_tier FROM cmap.source WHERE id = %s FOR UPDATE",
             (sid,),
         ).fetchone()
         if existing is None:
@@ -679,27 +678,19 @@ def update_source_authority(
             f"WHERE id = %s RETURNING {_SOURCE_COLUMNS}",
             (final_role, final_tier, sid),
         ).fetchone()
-        if final_role == "ideal_policy":
-            promoted_rows = conn.execute(
-                "UPDATE cmap.relation r SET stance = 'policy' "
-                "FROM cmap.chunk ch "
-                "WHERE r.chunk_id = ch.id AND ch.source_id = %s "
-                "AND r.stance IN ('report', 'practice') "
-                "RETURNING r.id",
+        if (final_role, final_tier) != tuple(existing):
+            # Member timestamps feed the report hash at every community level.
+            conn.execute(
+                "UPDATE cmap.entity SET updated_at = clock_timestamp() WHERE id IN ("
+                "SELECT m.entity_id FROM cmap.mention m "
+                "JOIN cmap.chunk c ON c.id = m.chunk_id WHERE c.source_id = %s)",
                 (sid,),
-            ).fetchall()
-            promoted = len(promoted_rows)
-        pending_project = conn.execute(
-            "SELECT 1 FROM cmap.job "
-            "WHERE kind = 'project' AND state IN ('queued', 'running') LIMIT 1"
-        ).fetchone()
+            )
+            project_queued = versions_mod._queue_project(conn)
         conn.commit()
-    if pending_project is None:
-        enqueue_job("project", {"source_authority_updated": sid})
-        project_queued = True
     return {
         "source": _row_to_dict(updated_row),
-        "relations_promoted": promoted,
+        "relations_promoted": 0,
         "project_queued": project_queued,
     }
 

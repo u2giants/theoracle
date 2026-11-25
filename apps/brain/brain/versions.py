@@ -138,13 +138,14 @@ def _first_chunk_means(conn: Any) -> dict[str, list[float]]:
     return {source_id: _mean(vectors) for source_id, vectors in by_source.items()}
 
 
-def _queue_project(conn: Any) -> None:
+def _queue_project(conn: Any) -> bool:
     """Queue one whole-corpus ``project`` job unless one is waiting."""
-    conn.execute(
+    result = conn.execute(
         "INSERT INTO cmap.job (kind, payload) SELECT 'project', '{}'::jsonb "
         "WHERE NOT EXISTS (SELECT 1 FROM cmap.job "
         "WHERE kind = 'project' AND state = 'queued')"
     )
+    return result.rowcount > 0
 
 
 def recompute_relation_status(conn: Any) -> dict[str, int]:

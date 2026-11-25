@@ -41,6 +41,7 @@ from brain.config import Settings, get_settings
 from brain.db import get_pool
 from brain.function_assign import function_for_label
 from brain.llm import message_content, parse_json_reply, post_chat_json_body
+from brain.scoring import effective_stance
 from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
@@ -219,7 +220,7 @@ def _load_relations(conn: Any) -> list[dict[str, Any]]:
         "SELECT r.id::text, r.rel_type, r.stance, r.description, r.quote, "
         "r.chunk_id::text, fm.entity_id::text, tm.entity_id::text, "
         "fm.entity_type, tm.entity_type, "
-        "c.source_id::text, s.title, s.effective_date "
+        "c.source_id::text, s.title, s.effective_date, s.source_role "
         "FROM cmap.relation r "
         "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
         "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
@@ -233,7 +234,7 @@ def _load_relations(conn: Any) -> list[dict[str, Any]]:
         {
             "id": row[0],
             "rel_type": str(row[1]),
-            "stance": str(row[2]),
+            "stance": effective_stance(row[2], row[13]),
             "description": str(row[3]),
             "quote": str(row[4]),
             "chunk_id": row[5],
@@ -741,7 +742,7 @@ def _disagreement_rows(
     rows = conn.execute(
         "SELECT ct.id::text, ct.kind, ct.summary, "
         "ra.quote, ra.description, ra.rel_type, ra.stance, sa.title, sa.effective_date, "
-        "rb.quote, rb.description, rb.rel_type, rb.stance, sb.title, sb.effective_date "
+        "rb.quote, rb.description, rb.rel_type, rb.stance, sb.title, sb.effective_date, sa.source_role, sb.source_role "
         "FROM cmap.contradiction ct "
         "JOIN cmap.relation ra ON ra.id = ct.relation_a "
         "JOIN cmap.relation rb ON rb.id = ct.relation_b "
@@ -767,7 +768,7 @@ def _disagreement_rows(
                 "quote": str(row[3]),
                 "description": str(row[4]),
                 "rel_type": str(row[5]),
-                "stance": str(row[6]),
+                "stance": effective_stance(row[6], row[15]),
                 "source_title": str(row[7]),
                 "effective_date": row[8].isoformat() if row[8] is not None else None,
             },
@@ -775,7 +776,7 @@ def _disagreement_rows(
                 "quote": str(row[9]),
                 "description": str(row[10]),
                 "rel_type": str(row[11]),
-                "stance": str(row[12]),
+                "stance": effective_stance(row[12], row[16]),
                 "source_title": str(row[13]),
                 "effective_date": row[14].isoformat() if row[14] is not None else None,
             },
@@ -801,7 +802,7 @@ def list_rows(conn: Any) -> list[dict[str, Any]]:
         "ra.id::text, ra.quote, ra.description, ra.rel_type, ra.stance, "
         "sa.id::text, sa.title, sa.effective_date, "
         "rb.id::text, rb.quote, rb.description, rb.rel_type, rb.stance, "
-        "sb.id::text, sb.title, sb.effective_date "
+        "sb.id::text, sb.title, sb.effective_date, sa.source_role, sb.source_role "
         "FROM cmap.contradiction ct "
         "JOIN cmap.relation ra ON ra.id = ct.relation_a "
         "JOIN cmap.relation rb ON rb.id = ct.relation_b "
@@ -849,7 +850,7 @@ def list_rows(conn: Any) -> list[dict[str, Any]]:
                     "quote": str(row[7]),
                     "description": str(row[8]),
                     "rel_type": str(row[9]),
-                    "stance": str(row[10]),
+                    "stance": effective_stance(row[10], row[22]),
                     "source_id": row[11],
                     "source_title": str(row[12]),
                     "effective_date": row[13].isoformat()
@@ -861,7 +862,7 @@ def list_rows(conn: Any) -> list[dict[str, Any]]:
                     "quote": str(row[15]),
                     "description": str(row[16]),
                     "rel_type": str(row[17]),
-                    "stance": str(row[18]),
+                    "stance": effective_stance(row[18], row[23]),
                     "source_id": row[19],
                     "source_title": str(row[20]),
                     "effective_date": row[21].isoformat()

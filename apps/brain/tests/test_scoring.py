@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from brain.answer.answer import _assemble_context, _select_chunks
 from brain.config import get_settings
 from brain.embed import vector_literal
-from brain.graph.communities import edge_rank
+from brain.graph.communities import _content_hash, edge_rank
 from brain.graph.project import _load_edges
 from brain.scoring import (
     AUTHORITATIVE_MULTIPLIER,
@@ -62,7 +62,7 @@ def test_edge_rank_prefers_score_over_raw_count() -> None:
 
 
 def test_assemble_context_reserves_budget_for_evidence() -> None:
-    heavy = ["word " * 120 for _ in range(12)]
+    heavy = ["word " * 55 for _ in range(12)]
     quotes = ['{"chunk_id":"c1","quote":"Exact ideal quote"}']
     passages = ["[IDEAL POLICY — AUTHORITATIVE] Jessica explained PPS happens before bulk."]
     rendered, _total, _kept = _assemble_context(
@@ -77,6 +77,7 @@ def test_assemble_context_reserves_budget_for_evidence() -> None:
         ceiling=400,
         group_cap=({"function_reports", "company", "flow", "graph"}, int(400 * 0.65)),
     )
+    assert len(_kept[0]) >= 5  # Small evidence leaves more than 65% for reports.
     assert "Exact ideal quote" in rendered["quotes"]
     assert "Jessica explained PPS happens before bulk." in rendered["passages"]
 
@@ -148,6 +149,8 @@ def test_transcript_authority_patch_and_correction_defaults(
     )
     db.commit()
 
+    original_hash = _content_hash(db, [e1, e2])
+
     # Non-admin blocked
     assert (
         client.patch(
@@ -166,11 +169,23 @@ def test_transcript_authority_patch_and_correction_defaults(
     body = patch.json()
     assert body["source"]["source_role"] == "ideal_policy"
     assert body["source"]["authority_tier"] == "authoritative"
-    assert body["relations_promoted"] == 1
+    assert body["relations_promoted"] == 0
     assert body["project_queued"] is True
 
     stance = db.execute("SELECT stance FROM cmap.relation WHERE id = %s", (rel_id,)).fetchone()[0]
-    assert stance == "policy"
+    assert stance == "report"
+    assert _content_hash(db, [e1, e2]) != original_hash
+
+    from brain.contradictions import _load_relations
+
+    assert _load_relations(db)[0]["stance"] == "policy"
+    demoted = client.patch(
+        f"/sources/{plain_id}/authority",
+        headers=admin_headers,
+        json={"source_role": "observed_practice"},
+    )
+    assert demoted.status_code == 200
+    assert _load_relations(db)[0]["stance"] == "report"
 
     # Admin-applied corrections automatically land as authoritative ideal_policy
     client.put(

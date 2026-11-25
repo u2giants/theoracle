@@ -1210,27 +1210,7 @@ def _select_chunks(
         function_params = [function_ids, FUNCTION_WEIGHT_FLOOR]
     floor_sql = " AND 1 - (c.embedding <=> %s::vector) >= %s"
     with get_pool().connection() as conn:
-        queries: list[tuple[str, list[Any]]] = [
-            (
-                "SELECT c.id::text, c.source_id::text, s.title, c.locator, c.text, "
-                f"{superseded_sql} AS is_superseded, "
-                "s.source_role, s.authority_tier, s.effective_date "
-                "FROM cmap.chunk c JOIN cmap.source s ON s.id = c.source_id "
-                "WHERE c.embedding IS NOT NULL "
-                "AND s.authority_tier = 'authoritative'"
-                + history_filter
-                + function_filter
-                + floor_sql
-                + " ORDER BY c.embedding <=> %s::vector LIMIT %s",
-                function_params
-                + [
-                    vector_literal(vector),
-                    SIMILARITY_FLOOR,
-                    vector_literal(vector),
-                    10,
-                ],
-            )
-        ]
+        queries: list[tuple[str, list[Any]]] = []
         if source_ids:
             queries.append(
                 (
@@ -1292,6 +1272,7 @@ def _select_chunks(
                         "effective_date": row[8],
                     }
                 )
+    selected.sort(key=lambda chunk: chunk["authority_tier"] != "authoritative")
     return selected
 
 
@@ -1459,6 +1440,13 @@ def _assemble_context(
     used = 0
     group_used = 0
     cap_names, cap_limit = group_cap if group_cap is not None else (set(), 0)
+    if group_cap is not None:
+        evidence_cost = sum(
+            _tokens(item) + 3
+            for name, items, _render in tiers if name not in cap_names
+            for item in items
+        )
+        cap_limit = max(cap_limit, ceiling - evidence_cost)
     for (name, items, _render), bucket in zip(tiers, kept, strict=True):
         is_capped = group_cap is not None and name in cap_names
         for index, item in enumerate(items):
@@ -1623,11 +1611,6 @@ def _local_answer(
     # only) → ordered flow → relations → quotes → passages. Reserve 35% of the
     # context budget for direct quotes and passages when evidence exists.
     quote_items = [json.dumps(quote, ensure_ascii=False) for quote in quotes]
-    evidence_reserve_cap = (
-        ({"function_reports", "company", "flow", "graph"}, int(ceiling * 0.65))
-        if (quote_items or texts)
-        else None
-    )
     rendered, context_tokens, kept = _assemble_context(
         [
             ("function_reports", report_lines, "\n".join),
@@ -1638,7 +1621,7 @@ def _local_answer(
             ("passages", texts, "\n\n".join),
         ],
         ceiling,
-        group_cap=evidence_reserve_cap,
+        group_cap=({"function_reports", "company", "flow", "graph"}, int(ceiling * 0.65)),
     )
     passages_text = rendered["passages"]
     if passages_text and _tokens(passages_text) > COMPRESS_MIN_TOKENS:

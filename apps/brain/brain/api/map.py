@@ -15,6 +15,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from brain.scoring import effective_stance
 from brain.api.deps import User, current_user, require_admin
 from brain.api.functions import _resolve as _function_by_ref
 from brain.api.functions import item_assignments
@@ -593,7 +594,7 @@ def get_entity(
         ).fetchall()
         relations = conn.execute(
             "SELECT r.rel_type, fm.entity_id, tm.entity_id, r.quote, r.chunk_id, "
-            "ch.source_id, s.title, r.stance, r.description "
+            "ch.source_id, s.title, r.stance, r.description, s.source_role "
             "FROM cmap.relation r "
             "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
             "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
@@ -628,6 +629,7 @@ def get_entity(
         title,
         stance,
         desc,
+        source_role,
     ) in relations:
         outgoing = str(from_id) == key
         other = str(to_id) if outgoing else str(from_id)
@@ -651,7 +653,7 @@ def get_entity(
                     "chunk_id": str(chunk_id),
                     "source_id": str(source_id),
                     "source_title": str(title),
-                    "stance": str(stance),
+                    "stance": effective_stance(stance, source_role),
                     "description": str(desc),
                 }
             )
