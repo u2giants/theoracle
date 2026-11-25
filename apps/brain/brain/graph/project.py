@@ -27,6 +27,7 @@ from brain.corrections import (
     load_corrections,
 )
 from brain.db import get_pool
+from brain.scoring import effective_stance, source_weight
 from brain.versions import recompute_relation_status
 
 logger = logging.getLogger(__name__)
@@ -163,7 +164,8 @@ def _load_edges(
         params = (entity_ids, entity_ids)
     rows = conn.execute(
         "SELECT fm.entity_id AS from_id, tm.entity_id AS to_id, r.rel_type, "
-        "ch.source_id, r.description, r.stance, r.confidence, r.quote, r.chunk_id "
+        "ch.source_id, r.description, r.stance, r.confidence, r.quote, r.chunk_id, "
+        "s.source_role, s.authority_tier, s.effective_date "
         "FROM cmap.relation r "
         "JOIN cmap.mention fm ON fm.id = r.from_mention_id "
         "JOIN cmap.mention tm ON tm.id = r.to_mention_id "
@@ -188,39 +190,57 @@ def _load_edges(
         confidence,
         quote,
         chunk_id,
+        source_role,
+        authority_tier,
+        effective_date,
     ) in rows:
         if rel_type not in EDGE_TYPES:
             raise ProjectionError(f"unknown relation type {rel_type!r}")
+        sid = str(source_id)
+        is_auth = 1 if authority_tier == "authoritative" else 0
+        date_key = effective_date.isoformat() if effective_date is not None else ""
+        item_weight = source_weight(
+            authority_tier, effective_date, confidence=confidence
+        )
         key = (str(from_id), str(to_id), str(rel_type))
         group = groups.setdefault(
             key,
             {
                 "sources": set(),
-                "descriptions": [],
-                "seen_descriptions": set(),
+                "authority_sources": set(),
+                "source_weights": {},
+                "source_roles": set(),
+                "desc_ranks": {},
                 "stances": {},
                 "confidence_max": 0.0,
-                "source_refs": [],
-                "seen_refs": set(),
+                "ref_ranks": {},
             },
         )
-        group["sources"].add(str(source_id))
+        group["sources"].add(sid)
+        if is_auth:
+            group["authority_sources"].add(sid)
+        group["source_weights"][sid] = max(
+            group["source_weights"].get(sid, 0.0), item_weight
+        )
+        if source_role:
+            group["source_roles"].add(str(source_role))
         text = str(description) if description is not None else ""
-        if text and text not in group["seen_descriptions"]:
-            group["seen_descriptions"].add(text)
-            if len(group["descriptions"]) < MAX_DESCRIPTIONS:
-                group["descriptions"].append(text)
-        group["stances"][str(stance)] = group["stances"].get(str(stance), 0) + 1
+        if text:
+            rank = (is_auth, date_key, text)
+            prev = group["desc_ranks"].get(text)
+            if prev is None or rank[:2] > prev[:2]:
+                group["desc_ranks"][text] = rank
+        norm_stance = effective_stance(
+            str(stance) if stance is not None else None,
+            str(source_role) if source_role is not None else None,
+        )
+        group["stances"][norm_stance] = group["stances"].get(norm_stance, 0) + 1
         group["confidence_max"] = max(group["confidence_max"], float(confidence))
-        ref = (str(source_id), str(chunk_id), str(quote))
-        if (
-            ref not in group["seen_refs"]
-            and len(group["source_refs"]) < MAX_SOURCE_REFS
-        ):
-            group["seen_refs"].add(ref)
-            group["source_refs"].append(
-                {"source_id": ref[0], "chunk_id": ref[1], "quote": ref[2]}
-            )
+        ref_key = (sid, str(chunk_id), str(quote))
+        ref_rank = (is_auth, date_key, ref_key)
+        prev_ref = group["ref_ranks"].get(ref_key)
+        if prev_ref is None or ref_rank[:2] > prev_ref[:2]:
+            group["ref_ranks"][ref_key] = ref_rank
     edges: list[dict[str, Any]] = []
     corrections = load_corrections(conn)
     edge_entity_ids = {item for key in groups for item in key[:2]}
@@ -233,15 +253,35 @@ def _load_edges(
         verdict = corrections.relation_verdict_for(from_keys, to_keys, rel_type)
         if verdict is not None and verdict.action == "reject":
             continue
+        # Sort highest authority + newest date first cleanly.
+        sorted_descs = [
+            item[2]
+            for item in sorted(
+                group["desc_ranks"].values(),
+                key=lambda item: (item[0], item[1]),
+                reverse=True,
+            )[:MAX_DESCRIPTIONS]
+        ]
+        sorted_refs = [
+            {"source_id": item[2][0], "chunk_id": item[2][1], "quote": item[2][2]}
+            for item in sorted(
+                group["ref_ranks"].values(),
+                key=lambda item: (item[0], item[1]),
+                reverse=True,
+            )[:MAX_SOURCE_REFS]
+        ]
         edge = {
             "from": from_id,
             "to": to_id,
             "rel_type": rel_type,
             "weight": len(group["sources"]),
-            "descriptions": group["descriptions"],
+            "score": round(sum(group["source_weights"].values()), 4),
+            "authority_sources": len(group["authority_sources"]),
+            "source_roles": sorted(group["source_roles"]),
+            "descriptions": sorted_descs,
             "stances": json.dumps(group["stances"], sort_keys=True),
             "confidence_max": group["confidence_max"],
-            "source_refs": json.dumps(group["source_refs"], ensure_ascii=False),
+            "source_refs": json.dumps(sorted_refs, ensure_ascii=False),
         }
         edit = corrections.relation_edit_for(from_keys, to_keys, rel_type)
         if edit is not None:
@@ -288,7 +328,9 @@ def _create_edges(graph: Graph, edges: list[dict[str, Any]]) -> None:
             "UNWIND $rows AS row "
             "MATCH (a:Entity {id: row.from}), (b:Entity {id: row.to}) "
             f"CREATE (a)-[r:{rel_type}]->(b) "
-            "SET r.weight = row.weight, r.descriptions = row.descriptions, "
+            "SET r.weight = row.weight, r.score = row.score, "
+            "r.authority_sources = row.authority_sources, "
+            "r.source_roles = row.source_roles, r.descriptions = row.descriptions, "
             "r.stances = row.stances, r.confidence_max = row.confidence_max, "
             "r.source_refs = row.source_refs"
         )

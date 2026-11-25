@@ -319,17 +319,18 @@ def _clustering_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def edge_rank(edge: dict[str, Any]) -> tuple[float, float]:
-    """Edge-cap ranking key (repair E4): kind weight x source count.
+    """Edge-cap ranking key (repair E4): kind weight x authority-weighted score.
 
-    Sequence and hand-off kinds carry the flow of work; ranking by the source
-    count alone let frequently-repeated generic MENTIONS links crowd a
-    once-stated sequence out of every capped list. Ties go to the higher kind
-    weight, so the sequence is never cut before a generic link of equal score.
+    Sequence and hand-off kinds carry the flow of work; ``score`` blends
+    source authority, recency and confidence while falling back to integer
+    ``weight`` when absent. Ties go to the higher kind weight.
     Used by this module's edge caps and by ``answer/answer.py``'s
     graph-neighbourhood cap.
     """
     kind_weight = EDGE_KIND_WEIGHTS.get(str(edge.get("rel_type") or ""), 1.0)
-    return (kind_weight * float(edge.get("weight") or 0.0), kind_weight)
+    raw = edge.get("score")
+    base = float(raw) if raw is not None else float(edge.get("weight") or 0.0)
+    return (kind_weight * base, kind_weight)
 
 
 @dataclass(slots=True)
@@ -1095,28 +1096,74 @@ def _entity_vectors(conn: psycopg.Connection) -> dict[str, list[float]]:
 
 
 def _pick_quotes_from_rows(
-    rows: Sequence[tuple[str, str, str]],
+    rows: Sequence[tuple[Any, ...]],
 ) -> list[dict[str, Any]]:
-    """Up to MAX_QUOTES_IN_CONTEXT quotes, preferring different sources."""
-    deduped: dict[str, tuple[str, str, str]] = {}
-    for quote, title, source_id in rows:
-        q_str = str(quote)
-        t_str = str(title)
-        s_str = str(source_id)
-        existing = deduped.get(q_str)
-        if existing is None or t_str < existing[1]:
-            deduped[q_str] = (q_str, t_str, s_str)
-    ordered = sorted(deduped.values(), key=lambda item: (item[0], item[1]))
+    """Up to MAX_QUOTES_IN_CONTEXT quotes, prioritizing authoritative + recent sources."""
+    deduped: dict[str, tuple[str, str, str, str, str, Any]] = {}
+    for row in rows:
+        quote = str(row[0])
+        title = str(row[1])
+        source_id = str(row[2])
+        source_role = str(row[3]) if len(row) > 3 and row[3] else "observed_practice"
+        authority_tier = str(row[4]) if len(row) > 4 and row[4] else "standard"
+        eff_date = row[5] if len(row) > 5 else None
+        is_auth = 1 if authority_tier == "authoritative" else 0
+        date_str = eff_date.isoformat() if hasattr(eff_date, "isoformat") else str(eff_date or "")
+        existing = deduped.get(quote)
+        if existing is None:
+            deduped[quote] = (quote, title, source_id, source_role, authority_tier, eff_date)
+        else:
+            prev_auth = 1 if existing[4] == "authoritative" else 0
+            prev_date = (
+                existing[5].isoformat()
+                if hasattr(existing[5], "isoformat")
+                else str(existing[5] or "")
+            )
+            if (is_auth, date_str) > (prev_auth, prev_date) or (
+                (is_auth, date_str) == (prev_auth, prev_date) and title < existing[1]
+            ):
+                deduped[quote] = (quote, title, source_id, source_role, authority_tier, eff_date)
+
+    def _sort_key(item: tuple[str, str, str, str, str, Any]) -> tuple[int, str, str, str]:
+        _q, t, _s, _role, tier, eff = item
+        is_auth = 1 if tier == "authoritative" else 0
+        date_str = eff.isoformat() if hasattr(eff, "isoformat") else str(eff or "")
+        return (
+            -is_auth,
+            "\xff" * 16
+            if not date_str
+            else "".join(chr(255 - ord(c)) for c in date_str),
+            _q,
+            t,
+        )
+
+    ordered = sorted(deduped.values(), key=_sort_key)
     picked: list[dict[str, Any]] = []
     seen_sources: set[str] = set()
-    for quote, title, source_id in ordered:
+    for quote, title, source_id, source_role, authority_tier, eff_date in ordered:
         if source_id not in seen_sources and len(picked) < MAX_QUOTES_IN_CONTEXT:
             seen_sources.add(source_id)
-            picked.append({"quote": quote, "title": title, "source_id": source_id})
-    for quote, title, source_id in ordered:
+            picked.append(
+                {
+                    "quote": quote,
+                    "title": title,
+                    "source_id": source_id,
+                    "source_role": source_role,
+                    "authority_tier": authority_tier,
+                    "effective_date": eff_date,
+                }
+            )
+    for quote, title, source_id, source_role, authority_tier, eff_date in ordered:
         if len(picked) >= MAX_QUOTES_IN_CONTEXT:
             break
-        item = {"quote": quote, "title": title, "source_id": source_id}
+        item = {
+            "quote": quote,
+            "title": title,
+            "source_id": source_id,
+            "source_role": source_role,
+            "authority_tier": authority_tier,
+            "effective_date": eff_date,
+        }
         if item not in picked:
             picked.append(item)
     return picked
@@ -1124,41 +1171,50 @@ def _pick_quotes_from_rows(
 
 def _quote_rows_bulk(
     conn: psycopg.Connection, entity_ids: list[str]
-) -> dict[str, list[tuple[str, str, str]]]:
+) -> dict[str, list[tuple[str, str, str, str, str, Any]]]:
     """Load quote rows for a batch of entity ids in one SQL query."""
-    out: dict[str, list[tuple[str, str, str]]] = {}
+    out: dict[str, list[tuple[str, str, str, str, str, Any]]] = {}
     if not entity_ids:
         return out
     rows = conn.execute(
         "SELECT DISTINCT ON (m.entity_id, m.quote) "
-        "m.entity_id::text, m.quote, s.title, ch.source_id::text "
+        "m.entity_id::text, m.quote, s.title, ch.source_id::text, "
+        "s.source_role, s.authority_tier, s.effective_date "
         "FROM cmap.mention m "
         "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
         "JOIN cmap.source s ON s.id = ch.source_id "
         "WHERE m.entity_id = ANY(%s::uuid[]) AND s.map_eligible = true "
-        "ORDER BY m.entity_id, m.quote, s.title",
+        "ORDER BY m.entity_id, m.quote, "
+        "(s.authority_tier = 'authoritative') DESC, s.effective_date DESC NULLS LAST, s.title",
         (entity_ids,),
     ).fetchall()
-    for eid, quote, title, source_id in rows:
-        out.setdefault(str(eid), []).append((str(quote), str(title), str(source_id)))
+    for eid, quote, title, source_id, source_role, authority_tier, eff_date in rows:
+        out.setdefault(str(eid), []).append(
+            (str(quote), str(title), str(source_id), str(source_role), str(authority_tier), eff_date)
+        )
     return out
 
 
 def _quote_rows(
     conn: psycopg.Connection, entity_ids: list[str]
 ) -> list[dict[str, Any]]:
-    """Up to MAX_QUOTES_IN_CONTEXT quotes, preferring different sources."""
+    """Up to MAX_QUOTES_IN_CONTEXT quotes, preferring authoritative and distinct sources."""
     rows = conn.execute(
-        "SELECT DISTINCT ON (m.quote) m.quote, s.title, ch.source_id "
+        "SELECT DISTINCT ON (m.quote) m.quote, s.title, ch.source_id, "
+        "s.source_role, s.authority_tier, s.effective_date "
         "FROM cmap.mention m "
         "JOIN cmap.chunk ch ON ch.id = m.chunk_id "
         "JOIN cmap.source s ON s.id = ch.source_id "
         "WHERE m.entity_id = ANY(%s::uuid[]) AND s.map_eligible = true "
-        "ORDER BY m.quote, s.title",
+        "ORDER BY m.quote, "
+        "(s.authority_tier = 'authoritative') DESC, s.effective_date DESC NULLS LAST, s.title",
         (entity_ids,),
     ).fetchall()
     return _pick_quotes_from_rows(
-        [(str(quote), str(title), str(source_id)) for quote, title, source_id in rows]
+        [
+            (str(quote), str(title), str(source_id), str(role), str(tier), eff_date)
+            for quote, title, source_id, role, tier, eff_date in rows
+        ]
     )
 
 
@@ -1199,7 +1255,7 @@ def _context_l0_lines(
     handoffs: list[str] | None = None,
     edges_by_entity: dict[str, list[dict[str, Any]]] | None = None,
     disagreements_by_entity: dict[str, list[str]] | None = None,
-    quotes_by_entity: dict[str, list[tuple[str, str, str]]] | None = None,
+    quotes_by_entity: dict[str, list[tuple[Any, ...]]] | None = None,
 ) -> list[str]:
     """Build raw L0 context lines before token fitting."""
     member_ids = {member["id"] for member in members}
@@ -1236,10 +1292,13 @@ def _context_l0_lines(
     lines.append("EDGES:")
     for edge in scoped[:MAX_EDGES_IN_CONTEXT]:
         descriptions = "; ".join(edge.get("descriptions") or [])
+        auth_tag = " [AUTHORITATIVE]" if edge.get("authority_sources") else ""
+        score_val = edge.get("score")
+        score_part = f" score={score_val}" if score_val is not None else ""
         lines.append(
             f"- {names.get(edge['from'], edge['from'])} -[{edge['rel_type']}]-> "
-            f"{names.get(edge['to'], edge['to'])} weight={edge['weight']} "
-            f"stances={edge.get('stances') or '{}'} {descriptions}"
+            f"{names.get(edge['to'], edge['to'])} weight={edge['weight']}{score_part} "
+            f"stances={edge.get('stances') or '{}'}{auth_tag} {descriptions}"
         )
     if handoffs:
         lines.append(
@@ -1248,16 +1307,23 @@ def _context_l0_lines(
         )
         lines.extend(handoffs)
     if quotes_by_entity is not None:
-        raw_quotes: list[tuple[str, str, str]] = []
+        raw_quotes: list[tuple[Any, ...]] = []
         for member in members:
             raw_quotes.extend(quotes_by_entity.get(member["id"], ()))
         quotes = _pick_quotes_from_rows(raw_quotes)
     else:
         quotes = _quote_rows(conn, [member["id"] for member in members])
+    from brain.scoring import format_source_tag
+
     lines.append("SOURCES (findings must cite these ids):")
     seen: dict[str, str] = {}
     for item in quotes:
-        seen[item["source_id"]] = item["title"]
+        tag = format_source_tag(
+            item.get("source_role"),
+            item.get("authority_tier"),
+            item.get("effective_date"),
+        )
+        seen[item["source_id"]] = f"{tag} {item['title']}"
     for source_id, title in seen.items():
         lines.append(f"- {source_id}: {title}")
     lines.append("QUOTES:")

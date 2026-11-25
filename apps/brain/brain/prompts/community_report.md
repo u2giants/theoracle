@@ -12,7 +12,7 @@ Return JSON only:
   ],
   "open_questions": ["<at most 3, and none when nothing important is unclear: only a gap that stops us explaining how this area's work flows, who decides, or why it stalls — written in English as a question one employee could answer in one sentence; open questions are stored and asked in English and translated for zh-CN recipients at send time, so NEVER write them in another language, whatever language the quotes are in>"]
 }
-Rules: 5-12 findings. Prefer findings supported by two or more different sources; say so in the text ("Both the procedure and the 14 March conversation..."). Where policy and practice differ, state both. Do not invent numbers. Every finding must list at least one source_id from DATA. When the DATA lists "Hand-offs in / out", weave the most important hand-offs into the summary so how work crosses this area's boundary is visible.
+Rules: 5-12 findings. Sources tagged [IDEAL POLICY — AUTHORITATIVE] or [AUTHORITATIVE] state the intended company process — treat them as policy even when many routine emails reflect exceptions or workarounds, and NEVER let routine volume hide an authoritative process rule. Prefer findings supported by multiple sources or by an authoritative source; say so in the text ("Both the authoritative process walkthrough and..."). Where ideal policy and observed practice differ, state BOTH explicitly (what should happen vs. what happens in practice). Do not invent numbers. Every finding must list at least one source_id from DATA. When the DATA lists "Hand-offs in / out", weave the most important hand-offs into the summary so how work crosses this area's boundary is visible.
 {{extra_instructions}}
 DATA:
 <<<
