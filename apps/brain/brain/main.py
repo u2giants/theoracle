@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from brain.api.answer import router as answer_router
 from brain.api.colab import router as colab_router
+from brain.api.correction_notes import router as correction_notes_router
 from brain.api.entities import router as entities_router
 from brain.api.eval import router as eval_router
 from brain.api.flags import router as flags_router
@@ -25,6 +26,7 @@ app = FastAPI(title="brain")
 app.include_router(sources_router)
 app.include_router(colab_router)
 app.include_router(flags_router)
+app.include_router(correction_notes_router)
 app.include_router(answer_router)
 app.include_router(map_router)
 app.include_router(meetings_router)

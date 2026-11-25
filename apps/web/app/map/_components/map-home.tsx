@@ -42,6 +42,7 @@ function issueLabel(kind: string): string {
 export function MapHome({ isAdmin }: { isAdmin: boolean }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [cards, setCards] = useState<FunctionCardData[]>([]);
+  const [canCorrect, setCanCorrect] = useState(isAdmin);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,11 +51,15 @@ export function MapHome({ isAdmin }: { isAdmin: boolean }) {
     Promise.all([
       brainGet<{ company: Company | null }>('map/company'),
       brainGet<{ functions: FunctionCardData[] }>('map/functions'),
+      brainGet<{ can_correct: boolean }>('corrections/access').catch(() => ({
+        can_correct: isAdmin,
+      })),
     ])
-      .then(([companyBody, cardBody]) => {
+      .then(([companyBody, cardBody, accessBody]) => {
         if (cancelled) return;
         setCompany(companyBody.company);
         setCards(cardBody.functions);
+        setCanCorrect(Boolean(accessBody.can_correct || isAdmin));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'load failed');
@@ -65,7 +70,7 @@ export function MapHome({ isAdmin }: { isAdmin: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isAdmin]);
 
   return (
     <main className="mx-auto max-w-7xl space-y-4 p-6">
@@ -100,6 +105,11 @@ export function MapHome({ isAdmin }: { isAdmin: boolean }) {
           >
             Contradictions
           </Link>
+          {canCorrect && (
+            <Link className="underline" href="/map/corrections" data-testid="corrections-link">
+              Submit a correction
+            </Link>
+          )}
           {isAdmin && (
             <Link className="underline" href="/map/review" data-testid="review-link">
               Review flags
