@@ -35,11 +35,22 @@ from brain.db import get_pool
 logger = logging.getLogger(__name__)
 
 DIRECTORY_SYNC_INTERVAL_SECONDS = 900
+PRIMARY_EMAIL_DOMAIN = "popcre.com"
+LEGACY_ALIAS_DOMAINS = frozenset({"edgeho.me"})
 
 # The shared-db side exposes this as a set-returning function (columns: user_id
 # integer, email text, name text, lastname text, status text, level text,
 # office_location text, roles text[]).
 DIRECTORY_QUERY = "SELECT * FROM api.oracle_user_directory()"
+
+
+def _email_parts(email: str) -> tuple[str, str]:
+    """Return lowercased ``(local_part, domain)`` or ``('', '')``."""
+    cleaned = email.strip().casefold()
+    if "@" not in cleaned:
+        return "", ""
+    local, domain = cleaned.rsplit("@", 1)
+    return local, domain
 
 
 def fetch_directory_rows(conn: psycopg.Connection) -> list[dict[str, Any]]:
@@ -56,15 +67,44 @@ def apply_directory(
     """Upsert Oracle employees and their DesignFlow roles from directory rows.
 
     Match key is ``lower(btrim(email))``; rows with an empty email are skipped.
+    Legacy alias domain rows (such as ``@edgeho.me``) are skipped and disabled
+    when an active ``@popcre.com`` row exists for the same local-part (#588).
     Never deletes employees and never writes Oracle-only fields (see module
     docstring). Does not commit — the caller owns the transaction.
     """
+    batch_primary_locals = {
+        local
+        for r in rows
+        for local, dom in [_email_parts(str(r.get("email") or ""))]
+        if dom == PRIMARY_EMAIL_DOMAIN
+        and str(r.get("status") or "").strip().lower() in ("", "active")
+    }
+    db_primary_locals = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT lower(split_part(btrim(email), '@', 1)) "
+            "FROM public.employees "
+            "WHERE disabled_at IS NULL AND lower(btrim(email)) LIKE %s",
+            (f"%@{PRIMARY_EMAIL_DOMAIN}",),
+        ).fetchall()
+        if row[0]
+    }
+    active_primary_locals = batch_primary_locals | db_primary_locals
     created = 0
     updated = 0
     skipped = 0
     for row in rows:
         email = str(row.get("email") or "").strip()
         if not email:
+            skipped += 1
+            continue
+        local, domain = _email_parts(email)
+        if domain in LEGACY_ALIAS_DOMAINS and local in active_primary_locals:
+            conn.execute(
+                "UPDATE public.employees SET disabled_at = COALESCE(disabled_at, now()) "
+                "WHERE lower(btrim(email)) = %s AND disabled_at IS NULL",
+                (email.lower(),),
+            )
             skipped += 1
             continue
         display = f"{row.get('name') or ''} {row.get('lastname') or ''}".strip()

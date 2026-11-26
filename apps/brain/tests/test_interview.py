@@ -1796,3 +1796,30 @@ def test_thanks_is_not_a_profile(db: Any, monkeypatch: pytest.MonkeyPatch) -> No
         "SELECT department, job_title FROM cmap.employee_flags WHERE employee_id = %s",
         (EMPLOYEE_ID,),
     ).fetchone() == ("Licensing", "Licensing Coordinator")
+
+
+def test_suggested_person_accent_insensitive_match(
+    db: Any, enabled: None, sent: list[tuple[str, str]]
+) -> None:
+    """#589: accented suggested_person ('Laura Arévalo') matches 'Laura Arevalo'."""
+    laura_id = str(uuid4())
+    try:
+        db.execute(
+            "INSERT INTO public.employees (id, email, name, department) "
+            "VALUES (%s, %s, 'Laura Arevalo', 'Licensing')",
+            (laura_id, f"{uuid4().hex[:12]}@test.invalid"),
+        )
+        db.commit()
+        _question(
+            db,
+            "Who signs off on licensor artwork?",
+            [],
+            person="Laura Arévalo",
+            department="Licensing",
+        )
+        result = run_interview_tick()
+        assert [employee for employee, _ in sent] == [laura_id]
+        assert result["asked"] == 1
+    finally:
+        db.execute("DELETE FROM public.employees WHERE id = %s", (laura_id,))
+        db.commit()

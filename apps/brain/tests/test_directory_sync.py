@@ -351,3 +351,71 @@ def test_maybe_queue_stays_quiet_when_unconfigured(db: Any) -> None:
     assert maybe_queue_directory_sync(cfg) is False
     assert db.execute("SELECT count(*) FROM cmap.job").fetchone()[0] == 0
     assert get_settings().dflow_directory_database_url is None
+
+
+def test_legacy_edgehome_duplicate_is_disabled_when_popcre_active(db: Any) -> None:
+    """#588: active @edgeho.me shadow rows are disabled and skipped when @popcre.com is active."""
+    try:
+        pop_id = _employee(db, "emma.dup@popcre.com", name="Emma Li")
+        edge_id = _employee(db, "emma.dup@edgeho.me", name="Emma Li")
+        counts = apply_directory(
+            db,
+            [
+                _row("emma.dup@edgeho.me", name="Emma", lastname="Li", status="active"),
+                _row("emma.dup@popcre.com", name="Emma", lastname="Li", status="active"),
+            ],
+        )
+        db.commit()
+        assert counts == {"created": 0, "updated": 1, "skipped": 1}
+        pop_disabled = db.execute(
+            "SELECT disabled_at FROM public.employees WHERE id = %s", (pop_id,)
+        ).fetchone()[0]
+        edge_disabled = db.execute(
+            "SELECT disabled_at FROM public.employees WHERE id = %s", (edge_id,)
+        ).fetchone()[0]
+        assert pop_disabled is None
+        assert edge_disabled is not None
+
+        # A brand-new @edgeho.me duplicate in a later sync is skipped without inserting.
+        counts2 = apply_directory(
+            db,
+            [_row("new.edge@edgeho.me"), _row("new.edge@popcre.com")],
+        )
+        db.commit()
+        assert counts2 == {"created": 1, "updated": 0, "skipped": 1}
+        assert (
+            db.execute(
+                "SELECT count(*) FROM public.employees WHERE email = 'new.edge@edgeho.me'"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        db.execute(
+            "DELETE FROM public.employee_directory_roles WHERE employee_id IN "
+            "(SELECT id FROM public.employees WHERE email IN "
+            "('emma.dup@popcre.com', 'emma.dup@edgeho.me', 'new.edge@popcre.com', 'new.edge@edgeho.me'))"
+        )
+        db.execute(
+            "DELETE FROM public.employees WHERE email IN "
+            "('emma.dup@popcre.com', 'emma.dup@edgeho.me', 'new.edge@popcre.com', 'new.edge@edgeho.me')"
+        )
+        db.commit()
+
+
+def test_non_duplicate_edgehome_still_syncs(db: Any) -> None:
+    """#588: an @edgeho.me row with no active @popcre.com match still syncs normally."""
+    try:
+        counts = apply_directory(db, [_row("solo.person@edgeho.me", name="Solo", lastname="Person")])
+        db.commit()
+        assert counts == {"created": 1, "updated": 0, "skipped": 0}
+        row = db.execute(
+            "SELECT name, disabled_at FROM public.employees WHERE email = 'solo.person@edgeho.me'"
+        ).fetchone()
+        assert row == ("Solo Person", None)
+    finally:
+        db.execute(
+            "DELETE FROM public.employee_directory_roles WHERE employee_id IN "
+            "(SELECT id FROM public.employees WHERE email = 'solo.person@edgeho.me')"
+        )
+        db.execute("DELETE FROM public.employees WHERE email = 'solo.person@edgeho.me'")
+        db.commit()

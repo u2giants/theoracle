@@ -1511,3 +1511,55 @@ def test_fit_parallel_batches_preserve_order() -> None:
     positions = [text.index(f"ITEM-{i}") for i in range(6)]
     assert positions == sorted(positions)
 
+
+def test_area_people_filters_lane_headers_and_resolves_employees(db: Any) -> None:
+    """#589: lane headers, roles, emails, and non-employees never reach PEOPLE."""
+    from uuid import uuid4
+
+    from brain.graph import communities as comm
+
+    emp_ids = [str(uuid4()), str(uuid4()), str(uuid4())]
+    try:
+        db.execute(
+            "INSERT INTO public.employees (id, email, name) VALUES "
+            "(%s::uuid, 'laura.area@test.invalid', 'Laura Arevalo'), "
+            "(%s::uuid, 'adweck@popcre.com', 'Adam Dweck'), "
+            "(%s::uuid, 'ilona.area@test.invalid', 'Ilona Kereki')",
+            tuple(emp_ids),
+        )
+        entity_ids = [
+            _entity(db, "Person", "Ilona Kereki (Licensing Manager)"),
+            _entity(db, "Person", "Laura Arévalo"),
+            _entity(db, "Person", "adweck@popcre.com"),
+            _entity(db, "Person", "Erica Martina Deborah Elizabeth Derrick"),
+            _entity(db, "Person", "Liz/Maria"),
+            _entity(db, "Person", "Adam Dweck and Albert"),
+            _entity(db, "Person", "Albert :)"),
+            _entity(db, "Person", "designer"),
+            _entity(db, "Person", "Design Team"),
+            _entity(db, "Person", "The Oracle"),
+            _entity(db, "Person", "Selina Liang (Buyer)"),
+        ]
+        db.commit()
+        assert comm._area_people(db, entity_ids) == [
+            "Adam Dweck",
+            "Ilona Kereki",
+            "Laura Arevalo",
+        ]
+        for polluted in (
+            "Erica Martina Deborah Elizabeth Derrick",
+            "Liz/Maria",
+            "Adam Dweck and Albert",
+            "Albert :)",
+            "designer",
+            "Design Team",
+            "The Oracle",
+        ):
+            assert comm._clean_area_person(polluted) is None
+    finally:
+        db.execute(
+            "DELETE FROM public.employees WHERE id = ANY(%s::uuid[])",
+            (emp_ids,),
+        )
+        db.commit()
+
