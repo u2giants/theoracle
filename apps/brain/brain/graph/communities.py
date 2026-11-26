@@ -43,6 +43,7 @@ import json
 import logging
 import math
 import re
+import unicodedata
 import uuid
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1751,20 +1752,162 @@ def _departments(conn: psycopg.Connection) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
+_TRAILING_PARENS = re.compile(r"\s*[（(][^()（）]*[)）]\s*$")
+_POLLUTED_SEPARATORS = re.compile(r"[/|\\;:→=•·&+,@0-9]|->")
+_CONJUNCTION_RE = re.compile(
+    r"\b(?:and|or|for|with|from|to|via|by|as)\b", re.IGNORECASE
+)
+_NON_PERSON_WORDS = frozenset(
+    {
+        "designer",
+        "designers",
+        "manager",
+        "director",
+        "coordinator",
+        "lead",
+        "assistant",
+        "buyer",
+        "buyers",
+        "team",
+        "dept",
+        "department",
+        "division",
+        "licensor",
+        "vendor",
+        "factory",
+        "supplier",
+        "client",
+        "customer",
+        "staff",
+        "intern",
+        "analyst",
+        "specialist",
+        "engineer",
+        "representative",
+        "contact",
+        "owner",
+        "proxy",
+        "shared",
+        "recipient",
+        "person",
+        "employee",
+        "unknown",
+        "tbd",
+        "sales",
+        "salesman",
+        "salesperson",
+        "licensing",
+        "production",
+        "operations",
+        "admin",
+        "shipping",
+        "logistics",
+        "warehouse",
+        "accounting",
+        "finance",
+        "legal",
+        "tech",
+        "technical",
+        "creative",
+        "senior",
+        "junior",
+        "head",
+        "vp",
+        "ceo",
+        "coo",
+        "cfo",
+        "pm",
+        "qc",
+        "qa",
+        "pd",
+        "new",
+        "other",
+        "all",
+        "everyone",
+        "anybody",
+        "someone",
+        "nobody",
+        "him",
+        "her",
+        "them",
+        "oracle",
+    }
+)
+
+
+def _fold_person_key(name: str) -> str:
+    """Normalised accent-free key with trailing parentheticals stripped."""
+    text = " ".join(str(name or "").split())
+    while True:
+        stripped = _TRAILING_PARENS.sub("", text).strip()
+        if stripped == text:
+            break
+        text = stripped
+    folded = "".join(
+        ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch)
+    )
+    return " ".join(folded.split()).casefold()
+
+
+def _clean_area_person(raw: str) -> str | None:
+    """Return a clean person name or None for lane headers, roles, and junk."""
+    text = " ".join(str(raw or "").split())
+    while True:
+        stripped = _TRAILING_PARENS.sub("", text).strip()
+        if stripped == text:
+            break
+        text = stripped
+    if not text or text.casefold() == "the oracle":
+        return None
+    if _POLLUTED_SEPARATORS.search(text) or _CONJUNCTION_RE.search(text):
+        return None
+    tokens = text.split()
+    if len(tokens) == 1 and text.isascii() and text.islower():
+        return None
+    lower_tokens = [tok.strip(".,!?'\"()[]{}").casefold() for tok in tokens]
+    if any(tok in _NON_PERSON_WORDS for tok in lower_tokens if tok):
+        return None
+    if len(lower_tokens) != len(set(lower_tokens)):
+        return None
+    if text.isascii() and len(tokens) > 3:
+        return None
+    return text
+
+
+def _active_employee_maps(
+    conn: psycopg.Connection,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return ``(by_email, by_folded_name)`` for active company employees."""
+    rows = conn.execute(
+        "SELECT name, email FROM public.employees "
+        "WHERE disabled_at IS NULL AND name IS NOT NULL ORDER BY name, id"
+    ).fetchall()
+    by_email: dict[str, str] = {}
+    by_folded_name: dict[str, str] = {}
+    for name_val, email_val in rows:
+        name = " ".join(str(name_val).split())
+        if not name or name.casefold() == "the oracle":
+            continue
+        if _POLLUTED_SEPARATORS.search(name) or "ai test" in name.casefold():
+            continue
+        if email_val:
+            by_email.setdefault(str(email_val).strip().casefold(), name)
+        key = _fold_person_key(name)
+        if key:
+            by_folded_name.setdefault(key, name)
+    return by_email, by_folded_name
+
+
 def _area_people(conn: psycopg.Connection, entity_ids: list[str]) -> list[str]:
-    """Names of the people who belong to one area."""
+    """Canonical employee names who belong to one area (filtered, #589)."""
     if not entity_ids:
         return []
-    rows = conn.execute(
-        "SELECT canonical_name FROM cmap.entity WHERE entity_type = 'Person' "
-        "AND id = ANY(%s::uuid[]) ORDER BY canonical_name LIMIT %s",
-        (entity_ids, MAX_PEOPLE_IN_CHECK),
-    ).fetchall()
-    return [str(row[0]) for row in rows]
+    mapping = _area_people_bulk(conn, entity_ids)
+    return sorted(set(mapping.values()))[:MAX_PEOPLE_IN_CHECK]
 
 
 def _area_people_bulk(conn: psycopg.Connection, entity_ids: list[str]) -> dict[str, str]:
-    """Map Person entity id -> canonical_name for a batch of entity ids."""
+    """Map Person entity id -> canonical employee name for a batch (#589)."""
     if not entity_ids:
         return {}
     rows = conn.execute(
@@ -1772,7 +1915,22 @@ def _area_people_bulk(conn: psycopg.Connection, entity_ids: list[str]) -> dict[s
         "AND id = ANY(%s::uuid[])",
         (entity_ids,),
     ).fetchall()
-    return {str(eid): str(name) for eid, name in rows}
+    by_email, by_folded_name = _active_employee_maps(conn)
+    out: dict[str, str] = {}
+    for eid, raw in rows:
+        raw_str = str(raw or "").strip()
+        if not raw_str:
+            continue
+        email_hit = by_email.get(raw_str.casefold())
+        if email_hit:
+            out[str(eid)] = email_hit
+            continue
+        if _clean_area_person(raw_str) is None:
+            continue
+        emp_hit = by_folded_name.get(_fold_person_key(raw_str))
+        if emp_hit:
+            out[str(eid)] = emp_hit
+    return out
 
 
 def _vet_question_groups(

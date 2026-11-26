@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -216,12 +217,20 @@ def reachable_employees(conn: psycopg.Connection, cap: int) -> dict[str, Target]
     return out
 
 
+def _fold_accents(text: str) -> str:
+    """Strip combining accent marks so 'Arévalo' matches 'Arevalo'."""
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch)
+    )
+
+
 def _by_name(reachable: dict[str, Target], name: str) -> list[Target]:
     """Every reachable employee matching this normalised name (names repeat)."""
+    folded = _fold_accents(name)
     return [
         target
         for target in reachable.values()
-        if normalize_name(target.name, "Person") == name
+        if _fold_accents(normalize_name(target.name, "Person")) == folded
     ]
 
 

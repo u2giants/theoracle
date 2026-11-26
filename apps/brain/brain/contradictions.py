@@ -416,14 +416,17 @@ def gap_target(
         return None, None, None
     function_key, function_name = str(row[0]), str(row[1])
     employees = conn.execute(
-        "SELECT e.id::text, e.name, f.department, f.job_title "
+        "SELECT e.id::text, e.name, f.department, f.job_title, "
+        "EXISTS (SELECT 1 FROM cmap.teams_conversation tc WHERE tc.employee_id = e.id) AS in_teams "
         "FROM public.employees e "
         "JOIN cmap.employee_flags f ON f.employee_id = e.id "
-        "WHERE e.disabled_at IS NULL"
+        "WHERE e.disabled_at IS NULL "
+        "AND NOT COALESCE(f.interviews_paused, false) "
+        "ORDER BY in_teams DESC, e.name, e.id"
     ).fetchall()
     best: tuple[str | None, str | None] | None = None
     best_hits = -1
-    for emp_id, name, department, job_title in employees:
+    for emp_id, name, department, job_title, _in_teams in employees:
         function = function_for_label(conn, str(department or ""))
         if function is None or function["key"] != function_key:
             continue
@@ -450,15 +453,23 @@ def _write_gap(
     summary: str,
     entity_ids: list[str],
     source_ids: list[str],
-) -> None:
+) -> bool:
     """One gap-shaped ``cmap.open_question`` row for F1 (the gap finder).
 
     Shape written (F1 owns the full gap machinery later): question, why
     ("Sources disagree: ..."), entity_ids, state='open', priority NULL (not
     vetted — F1 vets), department = the function name, suggested_person =
     the function's most relevant role (job_title), target_employee_id = that
-    role's employee when one is known.
+    role's employee when one is known. Returns True if a new row was inserted.
     """
+    existing = conn.execute(
+        "SELECT 1 FROM cmap.open_question "
+        "WHERE state IN ('open', 'asked') "
+        "AND lower(btrim(question)) = lower(btrim(%s)) LIMIT 1",
+        (question,),
+    ).fetchone()
+    if existing is not None:
+        return False
     department, suggested_person, target_employee_id = gap_target(
         conn, entity_ids, source_ids
     )
@@ -475,6 +486,7 @@ def _write_gap(
             target_employee_id,
         ),
     )
+    return True
 
 
 def _gap_question(kind: str, rel_a: dict[str, Any], rel_b: dict[str, Any]) -> str:
@@ -495,14 +507,14 @@ def _store_conflict(
     rel_b: dict[str, Any],
     kind: str,
     summary: str,
-) -> None:
+) -> bool:
     conn.execute(
         "INSERT INTO cmap.contradiction "
         "(relation_a, relation_b, kind, summary, status) "
         "VALUES (%s::uuid, %s::uuid, %s, %s, 'open')",
         (rel_a["id"], rel_b["id"], kind, summary),
     )
-    _write_gap(
+    return _write_gap(
         conn,
         _gap_question(kind, rel_a, rel_b),
         summary,
@@ -597,9 +609,9 @@ def run_contradictions(
         kind = _CLASS_TO_KIND[classification]
         with get_pool().connection() as conn:
             if kind in (KIND_TRUE, KIND_POLICY_PRACTICE):
-                _store_conflict(conn, rel_a, rel_b, kind, summary)
+                if _store_conflict(conn, rel_a, rel_b, kind, summary):
+                    stats["gaps"] += 1
                 stats["conflicts"] += 1
-                stats["gaps"] += 1
             elif kind == KIND_CHANGED:
                 _store_changed(conn, rel_a, rel_b, summary)
                 stats["changed_over_time"] += 1
@@ -661,16 +673,16 @@ def run_contradictions(
                     if edge in rel_by_id
                 }
             )
-            _write_gap(
+            if len(entity_ids) >= 2 and _write_gap(
                 conn,
                 f"In what order do these steps actually happen: {names_label}?",
                 summary,
                 entity_ids,
                 source_ids,
-            )
+            ):
+                stats["gaps"] += 1
             conn.commit()
             stats["cycles"] += 1
-            stats["gaps"] += 1
     logger.info("contradictions %s", stats)
     return stats
 

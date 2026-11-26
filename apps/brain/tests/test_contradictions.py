@@ -614,3 +614,108 @@ def test_contradictions_persistent_non_json_fails_naming_provider(
     ):
         cx._post_chat([{"role": "user", "content": "classify the pair"}], settings)
     assert len(calls) == 2, "bounded: first call plus one repair re-ask"
+
+
+def test_gap_target_skips_paused_employees(db: Any) -> None:
+    """#587: paused employees are never selected by gap_target."""
+    from uuid import uuid4
+
+    project = _seed_entity(db, "Licensing package")
+    source = _seed_source(db, "Licensing notes", "2026-03-01")
+    paused_id = str(uuid4())
+    active_id = str(uuid4())
+    function_id = str(
+        db.execute(
+            "INSERT INTO cmap.function (key, name, description, aliases, sort) "
+            "VALUES ('licensing', 'Licensing', 'Approvals', "
+            "ARRAY['Licensing']::text[], 10) RETURNING id::text"
+        ).fetchone()[0]
+    )
+    db.execute(
+        "INSERT INTO cmap.entity_function (entity_id, function_id, weight, origin) "
+        "VALUES (%s::uuid, %s::uuid, 1.0, 'auto')",
+        (project, function_id),
+    )
+    try:
+        db.execute(
+            "INSERT INTO public.employees (id, email, name) VALUES "
+            "(%s::uuid, %s, 'Paused Person'), (%s::uuid, %s, 'Active Person')",
+            (paused_id, f"{uuid4().hex[:8]}@test.invalid", active_id, f"{uuid4().hex[:8]}@test.invalid"),
+        )
+        db.execute(
+            "INSERT INTO cmap.employee_flags (employee_id, department, job_title, interviews_paused) VALUES "
+            "(%s::uuid, 'Licensing', 'Paused Role', true), "
+            "(%s::uuid, 'Licensing', 'Active Role', false)",
+            (paused_id, active_id),
+        )
+        chunk_id = str(
+            db.execute(
+                "INSERT INTO cmap.chunk (source_id, ordinal, locator, text, token_count) "
+                "VALUES (%s::uuid, 0, '{}'::jsonb, 'Paused Person and Active Person', 10) RETURNING id::text",
+                (source,),
+            ).fetchone()[0]
+        )
+        for _ in range(3):
+            db.execute(
+                "INSERT INTO cmap.mention (chunk_id, entity_type, surface_name, normalized_name, quote) "
+                "VALUES (%s::uuid, 'Person', 'Paused Person', 'paused person', 'Paused Person')",
+                (chunk_id,),
+            )
+        db.commit()
+
+        dept, role, target = cx.gap_target(db, [project], [source])
+        assert dept == "Licensing"
+        assert role == "Active Role"
+        assert target == active_id
+
+        db.execute(
+            "UPDATE cmap.employee_flags SET interviews_paused = true WHERE employee_id = %s::uuid",
+            (active_id,),
+        )
+        db.commit()
+        dept2, role2, target2 = cx.gap_target(db, [project], [source])
+        assert dept2 == "Licensing"
+        assert role2 == "Licensing"
+        assert target2 is None
+    finally:
+        db.execute(
+            "DELETE FROM public.employees WHERE id = ANY(%s::uuid[])",
+            ([paused_id, active_id],),
+        )
+        db.commit()
+
+
+def test_write_gap_deduplicates_identical_open_question(
+    db: Any, frontier_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#587: multiple PRECEDES edge-tuples over the same steps write one open_question."""
+    step_a = _seed_entity(db, "Step A", "Step")
+    step_b = _seed_entity(db, "Step B", "Step")
+    step_c = _seed_entity(db, "Step C", "Step")
+    first = _seed_source(db, "Flow A", "2026-03-01")
+    second = _seed_source(db, "Flow B", "2026-03-01")
+    for src in (first, second):
+        _seed_relation(db, src, step_a, step_b, "A -> B", "A -> B", rel_type="PRECEDES")
+        _seed_relation(db, src, step_b, step_c, "B -> C", "B -> C", rel_type="PRECEDES")
+        _seed_relation(db, src, step_c, step_a, "C -> A", "C -> A", rel_type="PRECEDES")
+    fake = FakeClassifier("same")
+    monkeypatch.setattr(cx, "_post_chat", fake)
+    stats = cx.run_contradictions()
+    assert stats["cycles"] > 1
+    assert stats["gaps"] == 1
+    assert len(_gap_rows(db)) == 1
+
+
+def test_self_loop_cycle_does_not_create_gap(
+    db: Any, frontier_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#587: a 1-step self-loop PRECEDES cycle does not write an open question."""
+    step_a = _seed_entity(db, "Concept", "Step")
+    source = _seed_source(db, "Self loop notes", "2026-03-01")
+    _seed_relation(db, source, step_a, step_a, "Concept -> Concept", "Concept -> Concept", rel_type="PRECEDES")
+    fake = FakeClassifier("same")
+    monkeypatch.setattr(cx, "_post_chat", fake)
+    stats = cx.run_contradictions()
+    assert stats["cycles"] == 1
+    assert stats["gaps"] == 0
+    assert _gap_rows(db) == []
