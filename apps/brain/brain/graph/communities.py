@@ -1925,8 +1925,6 @@ def _area_people_bulk(conn: psycopg.Connection, entity_ids: list[str]) -> dict[s
         if email_hit:
             out[str(eid)] = email_hit
             continue
-        if _clean_area_person(raw_str) is None:
-            continue
         emp_hit = by_folded_name.get(_fold_person_key(raw_str))
         if emp_hit:
             out[str(eid)] = emp_hit

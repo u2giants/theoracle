@@ -72,24 +72,19 @@ def apply_directory(
     Never deletes employees and never writes Oracle-only fields (see module
     docstring). Does not commit — the caller owns the transaction.
     """
-    batch_primary_locals = {
-        local
-        for r in rows
-        for local, dom in [_email_parts(str(r.get("email") or ""))]
-        if dom == PRIMARY_EMAIL_DOMAIN
-        and str(r.get("status") or "").strip().lower() in ("", "active")
-    }
-    db_primary_locals = {
-        str(row[0])
-        for row in conn.execute(
-            "SELECT lower(split_part(btrim(email), '@', 1)) "
-            "FROM public.employees "
-            "WHERE disabled_at IS NULL AND lower(btrim(email)) LIKE %s",
-            (f"%@{PRIMARY_EMAIL_DOMAIN}",),
-        ).fetchall()
-        if row[0]
-    }
-    active_primary_locals = batch_primary_locals | db_primary_locals
+    primary_states = dict(conn.execute(
+        "SELECT lower(split_part(btrim(email), '@', 1)), disabled_at IS NULL "
+        "FROM public.employees WHERE lower(btrim(email)) LIKE %s",
+        (f"%@{PRIMARY_EMAIL_DOMAIN}",),
+    ).fetchall())
+    for row in rows:
+        local, domain = _email_parts(str(row.get("email") or ""))
+        if domain == PRIMARY_EMAIL_DOMAIN:
+            status = str(row.get("status") or "").strip().lower()
+            if status:
+                primary_states[local] = status == "active"
+            else:
+                primary_states.setdefault(local, True)
     created = 0
     updated = 0
     skipped = 0
@@ -99,7 +94,7 @@ def apply_directory(
             skipped += 1
             continue
         local, domain = _email_parts(email)
-        if domain in LEGACY_ALIAS_DOMAINS and local in active_primary_locals:
+        if domain in LEGACY_ALIAS_DOMAINS and primary_states.get(local):
             conn.execute(
                 "UPDATE public.employees SET disabled_at = COALESCE(disabled_at, now()) "
                 "WHERE lower(btrim(email)) = %s AND disabled_at IS NULL",
