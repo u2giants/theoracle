@@ -10,12 +10,14 @@ dedupe re-embeds the queue per question) and one 502 used to kill the run.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Sequence
 
 import httpx
 
 from brain.config import Settings, get_settings
 from brain.db import get_pool
+from brain.llm import classify_call_error, log_openrouter_call
 from brain.seats import stage_model
 
 logger = logging.getLogger(__name__)
@@ -59,7 +61,56 @@ def _post_embeddings_once(
     model = stage_model(settings, "embed")
     if model is None:
         raise EmbedError("BRAIN_EMBED_MODEL is not set")
-    response = httpx.post(
+    started = time.monotonic()
+    try:
+        response = _embeddings_request(texts, settings, model)
+    except httpx.HTTPError as exc:
+        log_openrouter_call(
+            model=model,
+            caller="embed",
+            started=started,
+            error_class=classify_call_error(exc, None),
+        )
+        raise
+    if response.status_code != 200:
+        log_openrouter_call(
+            model=model,
+            caller="embed",
+            started=started,
+            response=response,
+            error_class=classify_call_error(None, response.status_code),
+        )
+        raise EmbedError(
+            f"embeddings call failed: {response.status_code} {response.text[:200]}"
+        )
+    try:
+        body = response.json()
+    except ValueError:
+        log_openrouter_call(
+            model=model,
+            caller="embed",
+            started=started,
+            response=response,
+            error_class="invalid_json",
+        )
+        raise
+    data = body.get("data") if isinstance(body, dict) else None
+    log_openrouter_call(
+        model=model,
+        caller="embed",
+        started=started,
+        response=response,
+        data=body,
+        error_class=None if isinstance(data, list) and data else "empty",
+    )
+    return _parse_embeddings(body, texts)
+
+
+def _embeddings_request(
+    texts: list[str], settings: Settings, model: str
+) -> httpx.Response:
+    """POST one embeddings request to OpenRouter."""
+    return httpx.post(
         f"{OPENROUTER_BASE_URL}/embeddings",
         headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
         json={
@@ -71,11 +122,12 @@ def _post_embeddings_once(
         },
         timeout=120.0,
     )
-    if response.status_code != 200:
-        raise EmbedError(
-            f"embeddings call failed: {response.status_code} {response.text[:200]}"
-        )
-    body = response.json()
+
+
+def _parse_embeddings(
+    body: dict, texts: list[str]
+) -> tuple[list[list[float]], dict[str, int]]:
+    """Vectors and token usage from an embeddings response body."""
     data = body.get("data")
     if not isinstance(data, list) or len(data) != len(texts):
         raise EmbedError("embeddings response does not cover every input")

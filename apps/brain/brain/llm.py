@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -220,6 +221,50 @@ def parse_json_reply(content: str) -> Any:
     raise ValueError("reply is not JSON")
 
 
+def classify_call_error(exc: BaseException | None, status: int | None) -> str | None:
+    """Bucket a failed provider call for the ``openrouter-call`` log line."""
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if exc is not None:
+        return "invalid_json" if isinstance(exc, ValueError) else "other"
+    if status == 429:
+        return "http_429"
+    if status is not None and 500 <= status < 600:
+        return "http_5xx"
+    if status is not None and status != 200:
+        return "other"
+    return None
+
+
+def log_openrouter_call(
+    *,
+    model: str,
+    caller: str,
+    started: float,
+    response: httpx.Response | None = None,
+    data: Any = None,
+    error_class: str | None = None,
+) -> None:
+    """Emit one structured ``openrouter-call`` JSON log line (#1493)."""
+    host = "unknown"
+    if isinstance(data, dict) and isinstance(data.get("provider"), str):
+        host = data["provider"] or "unknown"
+    record = {
+        "event": "openrouter-call",
+        "model": model,
+        "host": host,
+        "ok": error_class is None,
+        "latency_ms": int((time.monotonic() - started) * 1000),
+        "http_status": response.status_code if response is not None else None,
+        "error_class": error_class,
+        "caller": caller,
+    }
+    try:
+        logger.info("openrouter-call %s", json.dumps(record, sort_keys=True))
+    except Exception:  # noqa: BLE001 - logging must never break a call
+        pass
+
+
 def post_chat_with_rescue(
     payload: dict[str, Any],
     *,
@@ -238,13 +283,30 @@ def post_chat_with_rescue(
     body["model"] = strip_provider_prefix(model, base_url)
     body = gate_payload_for_provider(body, base_url)
     for attempt in range(2):
-        response = httpx.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=body,
-            timeout=timeout,
-        )
+        started = time.monotonic()
+        try:
+            response = httpx.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=body,
+                timeout=timeout,
+            )
+        except httpx.HTTPError as exc:
+            log_openrouter_call(
+                model=model,
+                caller=label,
+                started=started,
+                error_class=classify_call_error(exc, None),
+            )
+            raise
         if response.status_code != 200:
+            log_openrouter_call(
+                model=model,
+                caller=label,
+                started=started,
+                response=response,
+                error_class=classify_call_error(None, response.status_code),
+            )
             raise error_cls(
                 f"{label} call failed: provider {provider} returned "
                 f"HTTP {response.status_code}: {response.text[:200]}"
@@ -252,12 +314,28 @@ def post_chat_with_rescue(
         try:
             data = response.json()
         except ValueError as exc:
+            log_openrouter_call(
+                model=model,
+                caller=label,
+                started=started,
+                response=response,
+                error_class="invalid_json",
+            )
             raise error_cls(
                 f"{label} response is not JSON: provider {provider} returned "
                 f"HTTP {response.status_code} with a non-JSON body: "
                 f"{response.text[:200]}"
             ) from exc
-        if message_content(data):
+        has_content = bool(message_content(data))
+        log_openrouter_call(
+            model=model,
+            caller=label,
+            started=started,
+            response=response,
+            data=data,
+            error_class=None if has_content else "empty",
+        )
+        if has_content:
             return data
         if attempt == 0:
             rescue = dict(body)
